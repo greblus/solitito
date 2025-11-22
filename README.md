@@ -1,7 +1,8 @@
 # 🎸 Solitito – Real-Time Polyphonic Guitar Trainer
 
-**Solitito** is an experimental, real-time, polyphonic guitar trainer built in **Rust** during a 5-hour vibe-coding session with *Gemini 3 Pro Preview*.  
-It detects **chords** and **scales** using FFT-based audio analysis and helps you practice **intervals** and fretboard knowledge.
+**Solitito** (no pun intended) is an experimental, real-time, polyphonic guitar trainer built in **Rust** during a 5-hour vibe-coding session with *Gemini 3 Pro Preview*. It detects **chords** and **scales** using FFT-based audio analysis and helps you practice **intervals** and fretboard knowledge.
+
+It's a proof-of-concept **experiment** - heavily inspired by another, amazing Android/iOS app - Solo. I just want to experiment a little bit with FFT and probably soon also some pre-trained neural networks for chords detection, so as many of my experiments, this little project might just be left as is at some point. I don't intent to create alternative to Solo ;) which I use daily.  
 
 ---
 
@@ -31,18 +32,18 @@ It detects **chords** and **scales** using FFT-based audio analysis and helps yo
 | **Tail Release**   | How much a string must decay before it can be triggered again |
 | **Input Delay**    | Grace period after a chord change (prevents noise while moving fingers) |
 | **Bass Boost**     | Digital amplification for low strings (useful for laptop mics) |
-| **Intervals**      | What intervals to practice (e.g. `1 3 5` for triads, `1 3 5 7` for sevenths) |
+| **Intervals**      | What intervals to practice (e.g. `1 3 5` for triads, `1 3 5 7` for sevenths, 3 or 5 shows both 3 and b3, or 5 and b5 according to the chord quality) |
 
 ---
 
 ## 📄 Custom Files Format
 
-### `user_songs.txt`
-My Song Title
+`user_songs.txt`  
+My Song Title  
 Cm7 F7 BbMaj7
 
-### `user_scales_def.txt`
-My Scale Name
+`user_scales_def.txt`  
+My Scale Name  
 1 b2 3 4 5 b6 7
 
 ---
@@ -50,6 +51,8 @@ My Scale Name
 # 🇵🇱 Solitito – Trener gitarowy w czasie rzeczywistym
 
 **Solitito** to eksperymentalny polifoniczny program do ćwiczeń gitarowych, stworzony w **Rust** podczas 5-godzinnej sesji vibe-coding z *Gemini 3 Pro Preview*. Rozpoznaje **akordy** i **skale** wykorzystując analizę FFT, pomagając w ćwiczeniu **interwałów** i **znajomości gryfu**.
+
+Jest to projekt **eksperymentalny**, mający na celu sprawdzenie moich szalonych pomysłów – w dużej mierze zainspirowany inną, niesamowitą aplikacją na Androida/iOS – Solo. Chcę po prostu trochę poeksperymentować z FFT i prawdopodobnie wkrótce również z wstępnie wytrenowanymi sieciami neuronowymi do wykrywania akordów, więc podobnie jak wiele moich eksperymentów, ten mały projekt może po prostu pozostać w obecnej formie. Nie zamierzam tworzyć alternatywy dla Solo ;), którego używam na codzień.    
 
 ---
 
@@ -79,17 +82,17 @@ My Scale Name
 | **Tail Release**     | Jak mocno musi wybrzmieć struna, aby system uznał ją za „nową” |
 | **Input Delay**      | Czas niewykrywania po zmianie akordu (na ustawienie palców) |
 | **Bass Boost**       | Cyfrowe wzmocnienie niskich częstotliwości |
-| **Intervals**        | Jakie interwały ćwiczymy (np. `1 3 5` lub `1 3 5 7`) |
+| **Intervals**        | Jakie interwały ćwiczymy (np. `1 3 5` lub `1 3 5 7`), 3 lub 5 pokaże zarówno 3, 5 jak i b3 lub b5, etc, zależnie od typu akordu |
 
 ---
 
 ## 📄 Format własnych plików
 
-### `user_songs.txt`
-My Song Title
+`user_songs.txt:`  
+My Song Title  
 Cm7 F7 BbMaj7
 
-### `user_scales_def.txt`
-My Scale Name
+`user_scales_def.txt:`  
+My Scale Name  
 1 b2 3 4 5 b6 7
 
