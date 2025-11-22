@@ -23,7 +23,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Jazz Assistant",
+        "Solitito",
         options,
         Box::new(|_cc| Ok(Box::new(MyApp::new(analysis_state)))),
     )
