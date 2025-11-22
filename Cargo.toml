@@ -1,0 +1,19 @@
+[package]
+name = "solitito"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Audio Input
+cpal = "0.15"
+
+# DSP / Math (Fast Fourier Transform)
+rustfft = "6.2"
+
+# GUI
+eframe = "0.29" # This includes egui
+egui = "0.29"
+
+# Utilities
+anyhow = "1.0" # Easy error handling
+log = "0.4"
