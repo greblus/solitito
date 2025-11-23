@@ -6,11 +6,12 @@ edition = "2021"
 [dependencies]
 cpal = "0.15"
 rustfft = "6.2"
-eframe = "0.29"
-egui = "0.29"
 anyhow = "1.0"
 log = "0.4"
-
-# ZMIANA: Wersja 2.0 z dynamicznym ładowaniem!
 ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"] }
 ndarray = "0.15"
+slint = "1.8" 
+
+[build-dependencies]
+slint-build = "1.8"
+
