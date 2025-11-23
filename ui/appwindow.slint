@@ -36,10 +36,10 @@ component DebugBar inherits Rectangle {
 export component AppWindow inherits Window {
     title: "Solitito 2.0";
     width: 400px;
-    height: 700px;
+    height: 650px; // Trochę więcej miejsca na settings
     background: #000000;
 
-    // --- DANE WEJŚCIOWE Z RUSTA ---
+    // --- DANE ---
     in property <string> song_title: "Giant Steps";
     in property <string> chord_name: "B Maj7";
     in property <string> ai_text: "AI: ...";
@@ -48,30 +48,33 @@ export component AppWindow inherits Window {
     in property <[string]> interval_names;
     in property <[color]> interval_colors;
     in property <[float]> spectrum_data;
+    
+    // Lista utworów/skal do ComboBoxa
+    in property <[string]> library_items;
+    in-out property <int> current_item_index: 0;
 
-    // --- USTAWIENIA (STAN) ---
+    // --- USTAWIENIA ---
     in-out property <bool> show_settings: false;
     
     in-out property <float> threshold: 0.15;
     in-out property <float> tail: 0.3;
     in-out property <float> delay: 0.6;
-    
     in-out property <bool> boost_enabled: true;
     in-out property <float> boost_gain: 5.0;
-    
     in-out property <bool> random_enabled: false;
     in-out property <string> interval_input_text: "1 3 5";
     
-    callback toggle_mode(int); 
+    // Callbacks
+    callback toggle_mode(int); // 0=Songs, 1=Scales
+    callback item_selected(int); // Wybrano z listy
 
     VerticalLayout {
         padding: 10px;
         spacing: 10px;
 
-        // --- GÓRA: PRZYCISK SETTINGS ---
+        // GÓRA
         HorizontalLayout {
             alignment: end;
-            // ZMIANA: Dodano height: 32px, żeby przycisk był zgrabny
             Button {
                 text: root.show_settings ? "Close" : "⚙ Settings";
                 height: 32px; 
@@ -79,7 +82,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        // --- PANEL USTAWIEŃ (Wysuwany) ---
+        // PANEL USTAWIEŃ
         if root.show_settings : Rectangle {
             background: #222;
             border-radius: 10px;
@@ -101,56 +104,48 @@ export component AppWindow inherits Window {
                     Button { text: "Scales"; clicked => { root.toggle_mode(1); } }
                 }
 
-                // THRESHOLD
+                // NOWOŚĆ: Lista wyboru
                 HorizontalLayout {
-                    Text { text: "Threshold: "; color: white; vertical-alignment: center; }
-                    Slider { 
-                        minimum: 0.0; maximum: 2.0; 
-                        value <=> root.threshold; 
+                    Text { text: "Select: "; color: white; vertical-alignment: center; width: 60px; }
+                    ComboBox {
+                        model: root.library_items;
+                        current-index <=> root.current_item_index;
+                        selected => { root.item_selected(self.current-index); }
                     }
-                    Text { text: round(root.threshold * 100) / 100; color: white; vertical-alignment: center; }
+                }
+
+                HorizontalLayout {
+                    Text { text: "Thresh: "; color: white; vertical-alignment: center; width: 60px; }
+                    Slider { minimum: 0.0; maximum: 2.0; value <=> root.threshold; }
                 }
                 
-                // TAIL RELEASE
                 HorizontalLayout {
-                    Text { text: "Tail Rel.: "; color: white; vertical-alignment: center; }
-                    Slider { 
-                        minimum: 0.1; maximum: 0.9; 
-                        value <=> root.tail; 
-                    }
-                    Text { text: round(root.tail * 100) / 100; color: white; vertical-alignment: center; }
+                    Text { text: "Tail: "; color: white; vertical-alignment: center; width: 60px; }
+                    Slider { minimum: 0.1; maximum: 0.9; value <=> root.tail; }
                 }
 
-                // INPUT DELAY
                 HorizontalLayout {
-                    Text { text: "Delay (s): "; color: white; vertical-alignment: center; }
-                    Slider { 
-                        minimum: 0.0; maximum: 2.0; 
-                        value <=> root.delay; 
-                    }
-                    Text { text: round(root.delay * 10) / 10; color: white; vertical-alignment: center; }
+                    Text { text: "Delay: "; color: white; vertical-alignment: center; width: 60px; }
+                    Slider { minimum: 0.0; maximum: 2.0; value <=> root.delay; }
                 }
 
-                // BASS BOOST
+                // FIX KOLORÓW CHECKBOXÓW (Ręczny tekst)
                 HorizontalLayout {
                     spacing: 10px;
-                    CheckBox { 
-                        text: "Bass Boost"; 
-                        checked <=> root.boost_enabled; 
+                    HorizontalLayout {
+                        CheckBox { checked <=> root.boost_enabled; }
+                        Text { text: "Bass Boost"; color: white; vertical-alignment: center; }
                     }
                     if root.boost_enabled : Slider { 
-                        minimum: 1.0; maximum: 20.0; 
-                        value <=> root.boost_gain;
+                        minimum: 1.0; maximum: 20.0; value <=> root.boost_gain; 
                     }
                 }
                 
-                // RANDOM
-                CheckBox { 
-                    text: "Random Trainer"; 
-                    checked <=> root.random_enabled;
+                HorizontalLayout {
+                    CheckBox { checked <=> root.random_enabled; }
+                    Text { text: "Random Trainer"; color: white; vertical-alignment: center; }
                 }
 
-                // INTERVALS INPUT
                 HorizontalLayout {
                     Text { text: "Intervals: "; color: white; vertical-alignment: center; }
                     LineEdit {
@@ -159,9 +154,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Text { text: "AI Input Spectrum (E2 - E6)"; color: #aaa; font-size: 10px; }
-                
-                // SPECTRUM DEBUGGER
+                // Debugger
                 Rectangle {
                     height: 60px;
                     background: black;
@@ -176,7 +169,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        // --- GŁÓWNY WIDOK ---
+        // GŁÓWNY WIDOK
         VerticalLayout {
             alignment: center;
             spacing: 30px;
@@ -214,7 +207,7 @@ export component AppWindow inherits Window {
             }
         }
         
-        // --- STOPKA ---
+        // STOPKA
         Rectangle {
             height: 60px;
             VerticalLayout {

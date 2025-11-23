@@ -62,45 +62,77 @@ fn process_audio_chunk(
     fft.process(&mut buffer);
 
     let bin_width = sample_rate as f32 / data.len() as f32;
-    let mut local_chroma = [0.0; 12];
     let mut local_spec48 = [0.0; 48];
 
     let useful_limit = (1600.0 / bin_width) as usize; 
 
+    // 1. Budowanie surowego spektrum 48 binów
     for (i, bin) in buffer.iter().enumerate().take(useful_limit) {
         let mut magnitude = bin.norm();
         let frequency = i as f32 * bin_width;
 
         if frequency > 50.0 {
             if boost_enabled {
-                if frequency < 90.0 { magnitude *= 1.0; } // Sub-bas bez zmian
+                if frequency < 90.0 { magnitude *= 1.0; } 
                 else if frequency < 150.0 { magnitude *= boost_gain; } 
                 else if frequency < 250.0 { magnitude *= boost_gain * 0.6; }
             }
 
-            // UPROSZCZONA MATEMATYKA:
-            // Używamy logarytmu naturalnego, żeby spłaszczyć piki, ale wyciągnąć ciche dźwięki.
-            // Dodajemy 1.0, żeby log(0) nie wybuchł.
-            // Mnożnik 0.1 dopasowuje skalę do typowych wartości FFT.
+            // Logarytmiczna kompresja dynamiki
             let scaled_val = (1.0 + magnitude * 0.1).ln();
 
             let midi_float = 12.0 * (frequency / 440.0).log2() + 69.0;
             let midi_note = midi_float.round() as i32;
             
-            if midi_note > 0 {
-                let chroma_idx = (midi_note as usize) % 12;
-                local_chroma[chroma_idx] += scaled_val;
-
-                if midi_note >= 40 && midi_note < (40 + 48) {
-                    let spec_idx = (midi_note - 40) as usize;
-                    local_spec48[spec_idx] += scaled_val;
-                }
+            if midi_note >= 40 && midi_note < (40 + 48) {
+                let spec_idx = (midi_note - 40) as usize;
+                local_spec48[spec_idx] += scaled_val;
             }
         }
     }
 
+    // --- HARMONIC CLEANUP (WYCINANIE DUCHÓW) ---
+    // To jest kluczowe dla gitary. Iterujemy od dołu (basu).
+    // Jeśli znajdziemy silny ton podstawowy, osłabiamy jego harmoniczne wyżej.
+    
+    // Kopia robocza do czytania (żeby nie modyfikować tego, co czytamy w pętli)
+    let read_spec = local_spec48; 
+
+    for i in 0..36 { // Nie sprawdzamy samej góry
+        let root_energy = read_spec[i];
+        
+        // Jeśli w tym kubełku jest znacząca energia...
+        if root_energy > 0.5 {
+            // 1. Tłumimy II harmoniczną (Oktawa: +12 półtonów)
+            // Gitara często ma głośniejszą oktawę niż bas, więc tłumimy ostrożnie.
+            if i + 12 < 48 {
+                local_spec48[i + 12] *= 0.6; 
+            }
+
+            // 2. Tłumimy III harmoniczną (Kwinta + Oktawa: ~+19 półtonów)
+            // To jest główny winowajca mylenia nuty z Power Chordem. Tłumimy mocno.
+            if i + 19 < 48 {
+                local_spec48[i + 19] *= 0.4; 
+            }
+
+            // 3. Tłumimy V harmoniczną (Tercja + 2 Oktawy: ~+28 półtonów)
+            // To sprawia, że pojedyncza nuta brzmi jak Dur. Tłumimy bardzo mocno.
+            if i + 28 < 48 {
+                local_spec48[i + 28] *= 0.3;
+            }
+        }
+    }
+
+    // 2. Budowanie Chromy (zwijanie 48 -> 12) PO wyczyszczeniu
+    let mut local_chroma = [0.0; 12];
+    for i in 0..48 {
+        let chroma_idx = (i + 40) % 12; // +40 bo zaczynamy od MIDI 40 (E)
+        // E (40) % 12 = 4. E=4 w naszej mapie (C=0). Zgadza się.
+        local_chroma[chroma_idx] += local_spec48[i];
+    }
+
     if let Ok(mut s) = state.lock() {
-        // Decay ustawiony na 0.85 - dobry kompromis między stabilnością a szybkością
+        // Update Chroma (Decay 0.85)
         for i in 0..12 {
             let current = s.chroma_sum[i];
             let target = local_chroma[i];
@@ -108,6 +140,7 @@ fn process_audio_chunk(
             else { s.chroma_sum[i] = current * 0.85; }
         }
         
+        // Update Spectrum (Decay 0.85) - też dodajemy mały decay dla stabilności AI
         for i in 0..48 {
             let current = s.spectrum_48[i];
             let target = local_spec48[i];

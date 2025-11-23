@@ -1,5 +1,6 @@
 // src/state.rs
 use std::sync::{Arc, Mutex};
+use std::collections::VecDeque; // Do bufora AI
 use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
@@ -31,6 +32,7 @@ pub struct MyApp {
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
     pub intervals_input: String,
+    
     pub random_mode: bool,
     pub current_random_target: Option<usize>,
     pub current_sequence_index: usize,
@@ -39,9 +41,10 @@ pub struct MyApp {
     pub collected_notes: [bool; 12],
     pub stale_notes: [f32; 12],
     pub time_since_change: f32,
+    pub total_time: f64,
     
-    // Licznik czasu całkowitego dla generatora losowego
-    pub total_time: f64, 
+    // To jest to pole, którego wcześniej brakowało
+    pub prediction_buffer: VecDeque<(String, f32)>, 
     pub ai_prediction: String,
 }
 
@@ -79,6 +82,7 @@ impl MyApp {
             time_since_change: 0.0,
             total_time: 0.0,
             ai_prediction: String::from("AI: ..."),
+            prediction_buffer: VecDeque::with_capacity(20),
         }
     }
 
@@ -110,6 +114,7 @@ impl MyApp {
         self.current_sequence_index = 0;
         self.current_random_target = None;
         self.random_sequence.clear();
+        self.prediction_buffer.clear();
     }
 
     pub fn get_target_config_indices(&self) -> Vec<usize> {
@@ -178,7 +183,6 @@ impl MyApp {
         seq
     }
 
-    // ZMIANA: check_progress przyjmuje tylko dt i chroma. Total_time jest wewnątrz struktury.
     pub fn check_progress(&mut self, dt: f32, chroma: &[f32; 12]) {
         self.total_time += dt as f64;
         self.time_since_change += dt;
