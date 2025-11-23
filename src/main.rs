@@ -1,5 +1,5 @@
 // src/main.rs
-//#![cfg_attr(windows, windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod model;
 mod audio;
@@ -12,8 +12,7 @@ use model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, Scale
 use brain::ChordBrain;
 
 fn main() -> eframe::Result<()> {
-    // --- 1. INICJALIZACJA ONNX (Dla load-dynamic) ---
-    // To musi być wywołane przed jakimkolwiek użyciem ort.
+    // 1. Init ONNX
     if let Err(e) = ort::init()
         .with_name("Solitito")
         .commit() 
@@ -21,29 +20,31 @@ fn main() -> eframe::Result<()> {
         eprintln!("Błąd inicjalizacji ORT: {}", e);
     }
 
+    // 2. Stan Audio (z nowym polem spectrum_48)
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
-        chroma_energy: [0.0; 12],
+        chroma_sum: [0.0; 12],
+        spectrum_48: [0.0; 48],
         bass_boost_enabled: true,
         bass_boost_gain: 10.0,
     }));
 
     let _stream = start_audio_stream(analysis_state.clone()).ok();
 
-    // Próba załadowania AI
+    // 3. Ładowanie AI
     let brain = match ChordBrain::new() {
         Ok(b) => {
             println!("AI Brain loaded successfully.");
             Some(Arc::new(b))
         },
         Err(e) => {
-            eprintln!("AI not loaded (chord_model.onnx not found or incompatible): {}", e);
+            eprintln!("AI not loaded: {}", e);
             None
         }
     };
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 533.0]),
+            .with_inner_size([400.0, 533.0]), // ZMIANA WYSOKOŚCI OKNA
         ..Default::default()
     };
 
@@ -54,7 +55,6 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-// Helper do jasnych tekstów w Settings
 fn lbl(text: &str) -> egui::RichText {
     egui::RichText::new(text).color(egui::Color32::WHITE).strong()
 }
@@ -67,37 +67,27 @@ enum AppMode {
 
 struct MyApp {
     analysis_state: Arc<Mutex<AudioAnalysis>>,
-    brain: Option<Arc<ChordBrain>>, // Opcjonalny moduł AI
+    brain: Option<Arc<ChordBrain>>,
     
-    // DANE
     song_library: Vec<Song>,
     scale_definitions: Vec<ScaleDefinition>,
-    
-    // STAN APLIKACJI
     app_mode: AppMode,
     selected_song_idx: usize,
-    
-    // SCALE BUILDER
     scale_root: NoteName,
     selected_scale_def_idx: usize,
     
-    // BIEŻĄCY ELEMENT
     song_title: String,
     chords: Vec<Chord>,
     current_chord_index: usize,
     
-    // LOGIKA AUDIO / GRY
     success_timer: f32,
     sensitivity: f32,
     tail_threshold: f32,
     transition_delay: f32, 
-    
     show_settings: bool,
     bass_boost_enabled: bool,
     bass_boost_gain: f32,
     intervals_input: String,
-    
-    // LOGIKA TRENINGU
     random_mode: bool,
     current_random_target: Option<usize>,
     current_sequence_index: usize,
@@ -106,8 +96,6 @@ struct MyApp {
     collected_notes: [bool; 12],
     stale_notes: [f32; 12],
     time_since_change: f32,
-    
-    // WYNIK AI
     ai_prediction: String,
 }
 
@@ -125,19 +113,15 @@ impl MyApp {
         Self {
             analysis_state: state,
             brain,
-            
             song_library,
             scale_definitions,
             app_mode: AppMode::Songs,
             selected_song_idx: 0,
-            
             scale_root: NoteName::C,
             selected_scale_def_idx: 0,
-            
             song_title: start_song.title,
             chords: start_song.chords,
             current_chord_index: 0,
-            
             success_timer: 0.0,
             sensitivity: 0.15, 
             tail_threshold: 0.3,
@@ -146,16 +130,13 @@ impl MyApp {
             bass_boost_enabled: true,
             bass_boost_gain: 10.0,
             intervals_input: "1 3 5".to_string(),
-            
             random_mode: false,
             current_random_target: None,
             current_sequence_index: 0,
             random_sequence: Vec::new(),
-            
             collected_notes: [false; 12],
             stale_notes: [0.0; 12],
             time_since_change: 0.0,
-            
             ai_prediction: String::from("AI: ..."),
         }
     }
@@ -196,7 +177,6 @@ impl MyApp {
     fn get_target_config_indices(&self) -> Vec<usize> {
         let parts: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
-        
         for p in parts {
             if self.app_mode == AppMode::Scales {
                 match p {
@@ -214,6 +194,7 @@ impl MyApp {
         indices
     }
 
+    // Ta funkcja używa CHROMA (12), bo służy do logiki gry
     fn is_note_active(&self, note_idx: usize, chroma: &[f32; 12]) -> bool {
         if self.stale_notes[note_idx] > 0.0 { return false; }
         let energy = chroma[note_idx];
@@ -236,7 +217,6 @@ impl MyApp {
         if options.is_empty() { return; }
         let seed = (time_seed * 1000.0) as usize;
         let idx = seed % options.len();
-        
         if options.len() > 1 {
             if let Some(current) = self.current_random_target {
                 if options[idx] == options[current] {
@@ -269,19 +249,16 @@ impl MyApp {
         let current_chord = &self.chords[self.current_chord_index];
         let all_targets = current_chord.get_target_indices();
         let config_indices = self.get_target_config_indices();
-
         let valid_indices: Vec<usize> = config_indices.into_iter()
             .filter(|&idx| idx < all_targets.len())
             .collect();
             
         if valid_indices.is_empty() { return; }
 
-        // --- RANDOM MODE ---
         if self.random_mode {
             if self.current_random_target.is_none() {
                 self.pick_random_target(&valid_indices, ctx.input(|i| i.time));
             }
-            
             if let Some(target_logic_idx) = self.current_random_target {
                 if target_logic_idx < valid_indices.len() {
                     let internal_idx = valid_indices[target_logic_idx];
@@ -293,26 +270,21 @@ impl MyApp {
                     }
                 }
             }
-            
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.stale_notes = *chroma; 
                 self.pick_random_target(&valid_indices, ctx.input(|i| i.time));
             }
-        } 
-        // --- SCALES MODE ---
-        else if self.app_mode == AppMode::Scales {
+        } else if self.app_mode == AppMode::Scales {
             if self.current_sequence_index < valid_indices.len() {
                 let internal_idx = valid_indices[self.current_sequence_index];
                 let note_idx = all_targets[internal_idx];
-
                 if self.is_note_active(note_idx, chroma) {
                     self.current_sequence_index += 1;
                 }
             } else {
                 self.success_timer += ctx.input(|i| i.stable_dt);
             }
-            
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.collected_notes = [false; 12];
@@ -320,9 +292,7 @@ impl MyApp {
                 self.current_sequence_index = 0;
                 if self.random_mode { self.random_sequence = self.generate_shuffled_sequence(valid_indices.len(), ctx.input(|i| i.time)); }
             }
-        } 
-        // --- SONGS MODE ---
-        else {
+        } else {
             let mut collected_count = 0;
             let mut required_hits = 0;
             for &internal_idx in &valid_indices {
@@ -341,7 +311,6 @@ impl MyApp {
             } else {
                 self.success_timer = 0.0;
             }
-            
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.collected_notes = [false; 12];
@@ -362,26 +331,24 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let chroma = {
+        // POBIERAMY OBA ZESTAWY DANYCH
+        let (chroma, spectrum_48) = {
             let state = self.analysis_state.lock().unwrap();
-            state.chroma_energy
+            (state.chroma_sum, state.spectrum_48)
         };
 
+        // Logika gry działa na CHROMA (12 nut)
         self.update_stale_notes(&chroma);
         self.check_progress(ctx, &chroma);
         self.sync_audio_settings();
 
-        // --- AI INFERENCE ---
+        // AI działa na SPECTRUM (48 nut)
         if let Some(brain) = &self.brain {
-            if let Ok((chord, score)) = brain.predict(&chroma) {
-                // ZMIANA: Obniżamy próg z 2.0 na 0.0, żeby zobaczyć COKOLWIEK.
-                // Wypisujemy też wynik na konsolę (jeśli uruchamiasz z konsolą), żebyś widział wartości.
-                if score > 0.0 {
-                   self.ai_prediction = format!("AI: {} ({:.2})", chord, score);
-                   // println!("AI widzi: {} z mocą {}", chord, score); // Odkomentuj do debugowania
+            if let Ok((chord, score)) = brain.predict(&spectrum_48) {
+                if score > 1.5 {
+                   self.ai_prediction = format!("AI: {} ({:.1})", chord, score);
                 } else {
-                   // Jeśli wynik jest ujemny lub bliski zera, pokazujemy co 'podejrzewa' ale ze znakiem zapytania
-                   self.ai_prediction = format!("AI: {}? ({:.2})", chord, score);
+                   self.ai_prediction = "AI: ?".to_string();
                 }
             }
         }
@@ -395,23 +362,19 @@ impl eframe::App for MyApp {
         let next_chord = self.chords[next_idx].clone(); 
         let current_chord = self.chords[self.current_chord_index].clone();
 
-        // --- STOPKA (Tylko w Songs) ---
         if self.app_mode == AppMode::Songs {
             egui::TopBottomPanel::bottom("footer_panel")
                 .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(255)).inner_margin(20.0))
                 .show_separator_line(false)
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
-                         // Wyświetlamy wynik AI w stopce
                          ui.label(egui::RichText::new(&self.ai_prediction).size(10.0).color(egui::Color32::YELLOW));
-                         
                          let next_name = format!("{} {}", next_chord.root.to_string(), next_chord.quality.to_string());
                          ui.label(egui::RichText::new("Next Chord").size(14.0).color(egui::Color32::GRAY));
                          ui.label(egui::RichText::new(next_name).size(32.0).color(egui::Color32::LIGHT_GRAY));
                     });
                 });
         } else {
-            // W trybie Scales pokazujemy samo AI na dole (opcjonalnie)
              egui::TopBottomPanel::bottom("footer_panel_scales")
                 .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(0)).inner_margin(5.0))
                 .show_separator_line(false)
@@ -508,7 +471,7 @@ impl eframe::App for MyApp {
 
                                 ui.label(lbl("Random Trainer:"));
                                 if ui.checkbox(&mut self.random_mode, lbl("Enable")).changed() {
-                                    self.reset_logic_state(); // Ważny reset przy zmianie trybu
+                                    self.reset_logic_state();
                                 }
                                 ui.end_row();
 
@@ -545,36 +508,42 @@ impl eframe::App for MyApp {
                             ui.separator();
                             ui.add_space(10.0);
 
-                            // Debugger
-                            let count = 12;
-                            let slot_width = 22.0;
-                            let total_width = count as f32 * slot_width;
-                            ui.allocate_ui_with_layout(egui::vec2(total_width, 60.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                                ui.columns(count, |cols| {
-                                    for i in 0..12 {
-                                        let val = chroma[i];
-                                        let active = self.is_note_active(i, &chroma); 
-                                        let note = NoteName::from_index(i);
-                                        cols[i].vertical_centered(|ui| {
-                                            let height = (val * 20.0).clamp(0.0, 40.0);
-                                            let color = if active { egui::Color32::GREEN } else { egui::Color32::from_gray(60) };
-                                            let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 40.0), egui::Sense::hover());
-                                            ui.painter().rect_filled(rect, 1.0, egui::Color32::BLACK);
-                                            ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - height), rect.max), 1.0, color);
-                                            
-                                            if self.stale_notes[i] > 0.0 {
-                                                let lock_h = (self.stale_notes[i] * 20.0).clamp(0.0, 40.0);
-                                                let ly = rect.max.y - lock_h;
-                                                ui.painter().line_segment([egui::pos2(rect.min.x, ly), egui::pos2(rect.max.x, ly)], egui::Stroke::new(2.0, egui::Color32::BLUE));
-                                            }
-                                            let th_h = (self.sensitivity * 20.0).clamp(0.0, 40.0);
-                                            let ty = rect.max.y - th_h;
-                                            ui.painter().line_segment([egui::pos2(rect.min.x, ty), egui::pos2(rect.max.x, ty)], egui::Stroke::new(1.0, egui::Color32::RED));
-                                            ui.label(egui::RichText::new(note.to_string()).size(9.0));
-                                        });
+                            // --- DEBUGGER: 48 SŁUPKÓW DLA AI ---
+                            ui.label(lbl("AI Input View (E2 ... D#6):"));
+                            ui.add_space(5.0);
+                            
+                            let count = 48;
+                            let available_w = ui.available_width();
+                            let slot_width = available_w / count as f32;
+                            
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(available_w, 60.0),
+                                egui::Layout::left_to_right(egui::Align::Min),
+                                |ui| {
+                                    for i in 0..48 {
+                                        let val = spectrum_48[i]; // Używamy spectrum_48
+                                        let vis_val = (val * 5.0).clamp(0.0, 1.0);
+                                        
+                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(slot_width, 60.0), egui::Sense::hover());
+                                        ui.painter().rect_filled(rect, 0.0, egui::Color32::BLACK);
+                                        
+                                        let bar_height = vis_val * 60.0;
+                                        let fill_rect = egui::Rect::from_min_max(
+                                            egui::pos2(rect.min.x, rect.max.y - bar_height),
+                                            rect.max
+                                        );
+                                        
+                                        // Kolorujemy C (E2=40, C3=48)
+                                        // Index 0 = MIDI 40 (E)
+                                        // Index 8 = MIDI 48 (C)
+                                        // (i + 40) % 12 == 0  (bo C=0 w MIDI)
+                                        let is_c = (i + 40) % 12 == 0; 
+                                        let color = if is_c { egui::Color32::YELLOW } else { egui::Color32::from_rgb(0, 100, 255) };
+                                        
+                                        ui.painter().rect_filled(fill_rect, 0.0, color);
                                     }
-                                });
-                            });
+                                }
+                            );
                         });
                 });
             }
@@ -599,7 +568,6 @@ impl eframe::App for MyApp {
             ui.vertical_centered(|ui| {
                 let all_interval_names = current_chord.quality.interval_names();
                 let all_target_indices = current_chord.get_target_indices();
-                
                 let config_indices = self.get_target_config_indices();
                 let valid_indices: Vec<(usize, usize)> = config_indices.into_iter()
                     .enumerate()
@@ -615,7 +583,7 @@ impl eframe::App for MyApp {
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         ui.columns(count, |cols| {
-                            for (col_idx, &(_random_logic_idx, internal_idx)) in valid_indices.iter().enumerate() {
+                            for (col_idx, &(random_logic_idx, internal_idx)) in valid_indices.iter().enumerate() {
                                 
                                 let name = all_interval_names[internal_idx].clone();
                                 let note_idx = all_target_indices[internal_idx];
