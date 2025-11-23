@@ -2,8 +2,10 @@
 
 **Solitito** (no pun intended) is an experimental, real-time, polyphonic guitar trainer built in **Rust** during a 5-hour vibe-coding session with *Gemini 3 Pro Preview*. It detects **chords** and **scales** using FFT-based audio analysis and helps you practice **intervals** and fretboard knowledge.
 
-It's a proof-of-concept **experiment** - heavily inspired by another, amazing Android/iOS app - Solo. I just want to experiment a little bit with FFT and probably soon also some pre-trained neural networks for chords detection, so as many of my experiments, this little project might just be left as is at some point. I don't intent to create alternative to Solo ;) which I use daily.  
-
+It's a proof-of-concept **experiment** - heavily inspired by another, amazing Android/iOS app - Solo. I just want to experiment a little bit with FFT and soon also some pre-trained neural networks for chords detection, so as many of my experiments, this little project might just be left as is at some point. I don't intent to create alternative to Solo ;) which I use daily.  
+<div align="center">
+<img width="284" height="450" alt="solitito0" src="https://github.com/user-attachments/assets/5cb1a334-95d1-4586-95e9-b91671d51b1e" />
+</div>
 ---
 
 ## ⭐ Key Features
@@ -25,6 +27,10 @@ It's a proof-of-concept **experiment** - heavily inspired by another, amazing An
 ---
 
 ## ⚙️ Settings (Gear Icon)
+<div align="center">
+<img width="284" height="450" alt="solitito1" src="https://github.com/user-attachments/assets/8115351b-b5be-41f4-a77d-796b1e8fa383" />
+</div>
+<br> 
 
 | Setting        | Description |
 |----------------|-------------|
@@ -52,8 +58,10 @@ My Scale Name
 
 **Solitito** to eksperymentalny polifoniczny program do ćwiczeń gitarowych, stworzony w **Rust** podczas 5-godzinnej sesji vibe-coding z *Gemini 3 Pro Preview*. Rozpoznaje **akordy** i **skale** wykorzystując analizę FFT, pomagając w ćwiczeniu **interwałów** i **znajomości gryfu**.
 
-Jest to projekt **eksperymentalny**, mający na celu sprawdzenie moich szalonych pomysłów – w dużej mierze zainspirowany inną, niesamowitą aplikacją na Androida/iOS – Solo. Chcę po prostu trochę poeksperymentować z FFT i prawdopodobnie wkrótce również z wstępnie wytrenowanymi sieciami neuronowymi do wykrywania akordów, więc podobnie jak wiele moich eksperymentów, ten mały projekt może po prostu pozostać w obecnej formie. Nie zamierzam tworzyć alternatywy dla Solo ;), którego używam na codzień.    
-
+Jest to projekt **eksperymentalny**, mający na celu sprawdzenie moich szalonych pomysłów – w dużej mierze zainspirowany inną, niesamowitą aplikacją na Androida/iOS – Solo. Chcę po prostu trochę poeksperymentować z FFT i wkrótce również z wstępnie wytrenowanymi sieciami neuronowymi do wykrywania akordów, więc podobnie jak wiele moich eksperymentów, ten mały projekt może po prostu pozostać w obecnej formie. Nie zamierzam tworzyć alternatywy dla Solo ;), którego używam na codzień.    
+<div align="center">
+<img width="284" height="450" alt="solitito0" src="https://github.com/user-attachments/assets/5cb1a334-95d1-4586-95e9-b91671d51b1e" />
+</div>
 ---
 
 ## ⭐ Kluczowe funkcje
@@ -75,6 +83,10 @@ Jest to projekt **eksperymentalny**, mający na celu sprawdzenie moich szalonych
 ---
 
 ## ⚙️ Ustawienia (ikonka zębatki)
+<div align="center">
+<img width="284" height="450" alt="solitito1" src="https://github.com/user-attachments/assets/8115351b-b5be-41f4-a77d-796b1e8fa383" />
+</div>
+<br> 
 
 | Ustawienie      | Opis |
 |------------------|------|
