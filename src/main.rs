@@ -1,7 +1,7 @@
 // src/main.rs
+#![cfg_attr(windows, windows_subsystem = "windows")]
 mod model;
 mod audio; 
-
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use audio::{AudioAnalysis, start_audio_stream};
