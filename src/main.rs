@@ -1,13 +1,26 @@
 // src/main.rs
-#![cfg_attr(windows, windows_subsystem = "windows")]
+//#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod model;
-mod audio; 
+mod audio;
+mod brain;
+
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use audio::{AudioAnalysis, start_audio_stream};
-use model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality}; 
+use model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
+use brain::ChordBrain;
 
 fn main() -> eframe::Result<()> {
+    // --- 1. INICJALIZACJA ONNX (Dla load-dynamic) ---
+    // To musi być wywołane przed jakimkolwiek użyciem ort.
+    if let Err(e) = ort::init()
+        .with_name("Solitito")
+        .commit() 
+    {
+        eprintln!("Błąd inicjalizacji ORT: {}", e);
+    }
+
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
         chroma_energy: [0.0; 12],
         bass_boost_enabled: true,
@@ -16,20 +29,32 @@ fn main() -> eframe::Result<()> {
 
     let _stream = start_audio_stream(analysis_state.clone()).ok();
 
+    // Próba załadowania AI
+    let brain = match ChordBrain::new() {
+        Ok(b) => {
+            println!("AI Brain loaded successfully.");
+            Some(Arc::new(b))
+        },
+        Err(e) => {
+            eprintln!("AI not loaded (chord_model.onnx not found or incompatible): {}", e);
+            None
+        }
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 580.0]),
+            .with_inner_size([400.0, 533.0]),
         ..Default::default()
     };
 
     eframe::run_native(
         "Solitito",
         options,
-        Box::new(|_cc| Ok(Box::new(MyApp::new(analysis_state)))),
+        Box::new(|_cc| Ok(Box::new(MyApp::new(analysis_state, brain)))),
     )
 }
 
-// Helper do jasnych tekstów
+// Helper do jasnych tekstów w Settings
 fn lbl(text: &str) -> egui::RichText {
     egui::RichText::new(text).color(egui::Color32::WHITE).strong()
 }
@@ -42,6 +67,7 @@ enum AppMode {
 
 struct MyApp {
     analysis_state: Arc<Mutex<AudioAnalysis>>,
+    brain: Option<Arc<ChordBrain>>, // Opcjonalny moduł AI
     
     // DANE
     song_library: Vec<Song>,
@@ -71,7 +97,7 @@ struct MyApp {
     bass_boost_gain: f32,
     intervals_input: String,
     
-    // LOGIKA TRENINGU (To są pola, których brakowało!)
+    // LOGIKA TRENINGU
     random_mode: bool,
     current_random_target: Option<usize>,
     current_sequence_index: usize,
@@ -80,10 +106,13 @@ struct MyApp {
     collected_notes: [bool; 12],
     stale_notes: [f32; 12],
     time_since_change: f32,
+    
+    // WYNIK AI
+    ai_prediction: String,
 }
 
 impl MyApp {
-    fn new(state: Arc<Mutex<AudioAnalysis>>) -> Self {
+    fn new(state: Arc<Mutex<AudioAnalysis>>, brain: Option<Arc<ChordBrain>>) -> Self {
         let song_library = load_songs();
         let scale_definitions = load_all_scale_definitions();
         
@@ -95,6 +124,8 @@ impl MyApp {
 
         Self {
             analysis_state: state,
+            brain,
+            
             song_library,
             scale_definitions,
             app_mode: AppMode::Songs,
@@ -116,7 +147,6 @@ impl MyApp {
             bass_boost_gain: 10.0,
             intervals_input: "1 3 5".to_string(),
             
-            // Inicjalizacja brakujących pól
             random_mode: false,
             current_random_target: None,
             current_sequence_index: 0,
@@ -125,6 +155,8 @@ impl MyApp {
             collected_notes: [false; 12],
             stale_notes: [0.0; 12],
             time_since_change: 0.0,
+            
+            ai_prediction: String::from("AI: ..."),
         }
     }
 
@@ -161,37 +193,25 @@ impl MyApp {
         self.random_sequence.clear();
     }
 
-    fn get_visible_indices(&self) -> Vec<usize> {
+    fn get_target_config_indices(&self) -> Vec<usize> {
         let parts: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
         
         for p in parts {
             if self.app_mode == AppMode::Scales {
                 match p {
-                    "1" => indices.push(0),
-                    "2" | "b2" | "9" => indices.push(1),
-                    "3" | "b3" => indices.push(2),
-                    "4" | "#4" | "11" => indices.push(3),
-                    "5" | "b5" => indices.push(4),
-                    "6" | "b6" | "13" => indices.push(5),
-                    "7" | "b7" | "maj7" => indices.push(6),
-                    _ => {}
+                    "1" => indices.push(0), "2" | "b2" | "9" | "b9" => indices.push(1), "3" | "b3" => indices.push(2),
+                    "4" | "#4" | "11" | "#11" => indices.push(3), "5" | "b5" => indices.push(4), "6" | "b6" | "13" | "b13" => indices.push(5),
+                    "7" | "b7" | "maj7" => indices.push(6), _ => {}
                 }
             } else {
                 match p {
-                    "1" => indices.push(0),
-                    "3" | "b3" | "sus4" => indices.push(1),
-                    "5" | "b5" => indices.push(2),
-                    "7" | "b7" | "6" => indices.push(3),
-                    _ => {}
+                    "1" => indices.push(0), "3" | "b3" | "sus4" => indices.push(1), "5" | "b5" => indices.push(2),
+                    "7" | "b7" | "6" => indices.push(3), _ => {}
                 }
             }
         }
         indices
-    }
-    
-    fn get_target_config_indices(&self) -> Vec<usize> {
-        self.get_visible_indices()
     }
 
     fn is_note_active(&self, note_idx: usize, chroma: &[f32; 12]) -> bool {
@@ -229,7 +249,6 @@ impl MyApp {
         self.current_random_target = Some(idx);
     }
     
-    // Generator permutacji (np. [0,1,2] -> [2,0,1])
     fn generate_shuffled_sequence(&self, len: usize, seed: f64) -> Vec<usize> {
         let mut seq: Vec<usize> = (0..len).collect();
         if len < 2 { return seq; }
@@ -275,14 +294,13 @@ impl MyApp {
                 }
             }
             
-            // SUKCES RANDOM
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.stale_notes = *chroma; 
                 self.pick_random_target(&valid_indices, ctx.input(|i| i.time));
             }
         } 
-        // --- SCALES MODE (SEQUENTIAL) ---
+        // --- SCALES MODE ---
         else if self.app_mode == AppMode::Scales {
             if self.current_sequence_index < valid_indices.len() {
                 let internal_idx = valid_indices[self.current_sequence_index];
@@ -292,19 +310,18 @@ impl MyApp {
                     self.current_sequence_index += 1;
                 }
             } else {
-                // Koniec sekwencji
                 self.success_timer += ctx.input(|i| i.stable_dt);
             }
             
-            // SUKCES SEKOWENCJI
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.collected_notes = [false; 12];
                 self.stale_notes = *chroma; 
-                self.current_sequence_index = 0; // Reset pętli
+                self.current_sequence_index = 0;
+                if self.random_mode { self.random_sequence = self.generate_shuffled_sequence(valid_indices.len(), ctx.input(|i| i.time)); }
             }
-        }
-        // --- SONGS MODE (COLLECT) ---
+        } 
+        // --- SONGS MODE ---
         else {
             let mut collected_count = 0;
             let mut required_hits = 0;
@@ -325,7 +342,6 @@ impl MyApp {
                 self.success_timer = 0.0;
             }
             
-            // SUKCES SONGS
             if self.success_timer > 0.4 {
                 self.success_timer = 0.0;
                 self.collected_notes = [false; 12];
@@ -355,6 +371,21 @@ impl eframe::App for MyApp {
         self.check_progress(ctx, &chroma);
         self.sync_audio_settings();
 
+        // --- AI INFERENCE ---
+        if let Some(brain) = &self.brain {
+            if let Ok((chord, score)) = brain.predict(&chroma) {
+                // ZMIANA: Obniżamy próg z 2.0 na 0.0, żeby zobaczyć COKOLWIEK.
+                // Wypisujemy też wynik na konsolę (jeśli uruchamiasz z konsolą), żebyś widział wartości.
+                if score > 0.0 {
+                   self.ai_prediction = format!("AI: {} ({:.2})", chord, score);
+                   // println!("AI widzi: {} z mocą {}", chord, score); // Odkomentuj do debugowania
+                } else {
+                   // Jeśli wynik jest ujemny lub bliski zera, pokazujemy co 'podejrzewa' ale ze znakiem zapytania
+                   self.ai_prediction = format!("AI: {}? ({:.2})", chord, score);
+                }
+            }
+        }
+
         if self.chords.is_empty() {
             egui::CentralPanel::default().show(ctx, |ui| { ui.label("No data loaded"); });
             return;
@@ -364,16 +395,30 @@ impl eframe::App for MyApp {
         let next_chord = self.chords[next_idx].clone(); 
         let current_chord = self.chords[self.current_chord_index].clone();
 
+        // --- STOPKA (Tylko w Songs) ---
         if self.app_mode == AppMode::Songs {
             egui::TopBottomPanel::bottom("footer_panel")
                 .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(255)).inner_margin(20.0))
                 .show_separator_line(false)
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
+                         // Wyświetlamy wynik AI w stopce
+                         ui.label(egui::RichText::new(&self.ai_prediction).size(10.0).color(egui::Color32::YELLOW));
+                         
                          let next_name = format!("{} {}", next_chord.root.to_string(), next_chord.quality.to_string());
                          ui.label(egui::RichText::new("Next Chord").size(14.0).color(egui::Color32::GRAY));
                          ui.label(egui::RichText::new(next_name).size(32.0).color(egui::Color32::LIGHT_GRAY));
                     });
+                });
+        } else {
+            // W trybie Scales pokazujemy samo AI na dole (opcjonalnie)
+             egui::TopBottomPanel::bottom("footer_panel_scales")
+                .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(0)).inner_margin(5.0))
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                     ui.vertical_centered(|ui| {
+                         ui.label(egui::RichText::new(&self.ai_prediction).size(10.0).color(egui::Color32::YELLOW));
+                     });
                 });
         }
 
@@ -463,7 +508,7 @@ impl eframe::App for MyApp {
 
                                 ui.label(lbl("Random Trainer:"));
                                 if ui.checkbox(&mut self.random_mode, lbl("Enable")).changed() {
-                                    self.reset_logic_state();
+                                    self.reset_logic_state(); // Ważny reset przy zmianie trybu
                                 }
                                 ui.end_row();
 
@@ -570,7 +615,7 @@ impl eframe::App for MyApp {
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         ui.columns(count, |cols| {
-                            for (col_idx, &(random_logic_idx, internal_idx)) in valid_indices.iter().enumerate() {
+                            for (col_idx, &(_random_logic_idx, internal_idx)) in valid_indices.iter().enumerate() {
                                 
                                 let name = all_interval_names[internal_idx].clone();
                                 let note_idx = all_target_indices[internal_idx];
@@ -583,21 +628,18 @@ impl eframe::App for MyApp {
                                 let mut is_target = false;
 
                                 if self.app_mode == AppMode::Songs {
-                                    // Songs
                                     is_active = was_collected || active_now;
                                 } else {
-                                    // Scales
                                     if self.random_mode {
                                         if let Some(target) = self.current_random_target {
                                             if col_idx == target { is_target = true; }
                                             if is_target && active_now { is_active = true; }
                                         }
                                     } else {
-                                        // Sequential
                                         if col_idx < self.current_sequence_index {
-                                            is_active = true;
+                                            is_active = true; 
                                         } else if col_idx == self.current_sequence_index {
-                                            is_target = true;
+                                            is_target = true; 
                                             if active_now { is_active = true; }
                                         }
                                     }
