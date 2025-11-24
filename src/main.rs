@@ -9,7 +9,7 @@ mod state;
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
 use std::collections::HashMap;
-use audio::{AudioAnalysis, start_audio_stream};
+use audio::{AudioAnalysis, start_audio_stream, LOG_BINS}; // Import LOG_BINS (128)
 use brain::ChordBrain;
 use state::{MyApp, AppMode};
 use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString};
@@ -17,14 +17,18 @@ use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString};
 slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
+    // Inicjalizacja ONNX
     if let Err(e) = ort::init().with_name("Solitito").commit() { eprintln!("ORT Error: {}", e); }
     
+    // Inicjalizacja Audio State z poprawnymi rozmiarami buforów
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
         chroma_sum: [0.0; 12],
-        spectrum_48: [0.0; 48],
+        spectrum_visual: [0.0; 48], // Do UI (4 oktawy po 12 półtonów)
+        raw_input_for_ai: [0.0; LOG_BINS], // Do AI (128 log binów)
         bass_boost_enabled: true,
         bass_boost_gain: 5.0,
     }));
+    
     let _stream = start_audio_stream(analysis_state.clone()).unwrap();
     let brain = ChordBrain::new().ok().map(Arc::new);
 
@@ -33,7 +37,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    // --- INICJALIZACJA LISTY W SLINT (NA START) ---
+    // Inicjalizacja Listy Piosenek w UI
     {
         let app = my_app.lock().unwrap();
         let titles: Vec<SharedString> = app.song_library.iter()
@@ -49,10 +53,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
 
-        // A. Audio
-        let (chroma, spectrum) = {
+        // A. Pobranie danych Audio
+        // raw_ai ma 128 elementów, spectrum_vis ma 48 elementów
+        let (chroma, spectrum_vis, raw_ai) = {
             let s = app.analysis_state.lock().unwrap();
-            (s.chroma_sum, s.spectrum_48)
+            (s.chroma_sum, s.spectrum_visual, s.raw_input_for_ai)
         };
 
         // B. Sync Settings
@@ -74,11 +79,24 @@ fn main() -> Result<(), slint::PlatformError> {
         app.check_progress(dt, &chroma); 
         app.sync_audio_settings();
 
-        // D. AI
+        // D. AI Prediction (Używamy raw_ai [128])
         if let Some(brain) = &app.brain {
-            if let Ok((chord, score)) = brain.predict(&spectrum) {
+            let expected_chord_name = if !app.chords.is_empty() {
+                 let c = &app.chords[app.current_chord_index];
+                 let qual_str = c.quality.to_string();
+                 if qual_str.is_empty() {
+                     Some(c.root.to_string().to_string())
+                 } else {
+                     Some(format!("{} {}", c.root.to_string(), qual_str))
+                 }
+            } else {
+                None
+            };
+
+            // Mózg dostaje teraz logarytmiczne spektrum 128 binów
+            if let Ok((chord, score)) = brain.predict(&raw_ai, expected_chord_name.as_deref()) {
                 if score > -10.0 { app.prediction_buffer.push_back((chord, score)); }
-                while app.prediction_buffer.len() > 20 { app.prediction_buffer.pop_front(); }
+                while app.prediction_buffer.len() > 15 { app.prediction_buffer.pop_front(); }
                 
                 let mut votes: HashMap<String, f32> = HashMap::new();
                 for (c, s) in &app.prediction_buffer { *votes.entry(c.clone()).or_insert(0.0) += *s; }
@@ -90,7 +108,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 let avg_score = best_total_score / app.prediction_buffer.len() as f32;
 
-                if avg_score > 1.5 {
+                if avg_score > 0.5 { 
                      ui.set_ai_text(format!("AI: {} ({:.1})", best_chord, avg_score).into());
                 } else {
                      ui.set_ai_text("AI: ...".into());
@@ -115,10 +133,7 @@ fn main() -> Result<(), slint::PlatformError> {
                  ui.set_next_chord(format!("{} {}", next.root.to_string(), next.quality.to_string()).into());
             }
 
-            // --- FILTROWANIE INTERWAŁÓW DLA UI ---
-            // To odpowiada na Twoje pytanie o "3 5 7".
-            // Generujemy UI TYLKO dla tych interwałów, które są w configu.
-            
+            // Interwały
             let all_interval_names = curr_chord.quality.interval_names();
             let all_target_indices = curr_chord.get_target_indices();
             let config_indices = app.get_target_config_indices();
@@ -126,7 +141,6 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut ui_names = Vec::new();
             let mut ui_colors = Vec::new();
 
-            // Iterujemy tylko po valid_indices (czyli przecięciu akordu i konfiguracji)
             let valid_indices: Vec<(usize, usize)> = config_indices.into_iter()
                 .enumerate()
                 .filter(|(_, internal_idx)| *internal_idx < all_interval_names.len())
@@ -168,16 +182,36 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
             ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             
-            let spec_vec: Vec<f32> = spectrum.to_vec();
+            // Rysowanie Spektrum w UI (używamy wersji 48 binów)
+            let spec_vec: Vec<f32> = spectrum_vis.to_vec();
+            let mut spec_colors = Vec::new();
+            let targets = curr_chord.get_target_indices();
+
+            for i in 0..48 {
+                let note_idx = (i + 40) % 12; // Zaczynamy od E, E=40 MIDI
+                let val = spectrum_vis[i];
+                
+                let color = if val > 0.3 { // Próg widoczności na wykresie
+                    if targets.contains(&note_idx) {
+                        Color::from_rgb_u8(50, 255, 100)
+                    } else {
+                        Color::from_rgb_u8(255, 50, 50)
+                    }
+                } else {
+                    if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } else { Color::from_rgb_u8(30, 30, 30) }
+                };
+                spec_colors.push(color);
+            }
+            
             ui.set_spectrum_data(ModelRc::from(Rc::new(VecModel::from(spec_vec))));
+            ui.set_spectrum_colors(ModelRc::from(Rc::new(VecModel::from(spec_colors))));
         }
     });
 
-    // --- OBSŁUGA ZDARZEŃ (CALLBACKI) ---
+    // Callbacki UI
     let app_weak = my_app.clone();
     let ui_weak_cb = ui.as_weak();
     
-    // 1. Zmiana Trybu
     ui.on_toggle_mode(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
         let ui = ui_weak_cb.unwrap();
@@ -186,41 +220,27 @@ fn main() -> Result<(), slint::PlatformError> {
             app.app_mode = AppMode::Songs; 
             app.selected_song_idx = 0;
             app.intervals_input = "1 3 5".to_string(); 
-            
-            // Ładujemy listę Piosenek do UI
             let titles: Vec<SharedString> = app.song_library.iter().map(|s| SharedString::from(&s.title)).collect();
             ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-            
             app.load_selected_song();
         } else { 
             app.app_mode = AppMode::Scales; 
             app.selected_scale_def_idx = 0;
             app.intervals_input = "1 2 3 4 5 6 7".to_string(); 
-            
-            // Ładujemy listę Skal do UI (Zamiast piosenek)
             let titles: Vec<SharedString> = app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect();
             ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-            
             app.build_scale_chord();
         }
         app.reset_logic_state();
     });
     
-    // 2. Wybór z listy (Piosenka lub Skala)
     let app_weak_2 = my_app.clone();
     ui.on_item_selected(move |index| {
         let mut app = app_weak_2.lock().unwrap();
-        
         if app.app_mode == AppMode::Songs {
             app.selected_song_idx = index as usize;
             app.load_selected_song();
         } else {
-            // W trybie Skal lista zawiera TYPY skal.
-            // Root (C, D..) nadal wybieramy w logice (tutaj uprościliśmy: lista = typy).
-            // Ale zaraz... w Slint mamy tylko jeden ComboBox. 
-            // Umówmy się, że ComboBox wybiera TYP SKALI (Dorian, Major), a Root jest stały (np. C) 
-            // lub dodamy drugi ComboBox w przyszłości.
-            // Na razie: wybierasz typ skali z listy.
             app.selected_scale_def_idx = index as usize;
             app.build_scale_chord();
         }

@@ -4,24 +4,31 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{FftPlanner, num_complex::Complex};
 use anyhow::Result;
 
+// Stałe zgodne z Pythonem V4
+pub const LOG_BINS: usize = 128;
+const F_MIN: f32 = 32.7; // C1
+const BINS_PER_OCTAVE: f32 = 12.0;
+
 pub struct AudioAnalysis {
-    pub chroma_sum: [f32; 12],   
-    pub spectrum_48: [f32; 48],  
+    pub chroma_sum: [f32; 12],
+    pub spectrum_visual: [f32; 48],
+    pub raw_input_for_ai: [f32; LOG_BINS], // 128 Log Bins
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
 }
 
 pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpal::Stream> {
     let host = cpal::default_host();
-    let device = host.default_input_device()
-        .ok_or_else(|| anyhow::anyhow!("No input device found"))?;
-        
+    let device = host.default_input_device().ok_or_else(|| anyhow::anyhow!("No input device found"))?;
     let config: cpal::StreamConfig = device.default_input_config()?.into();
 
     let mut planner = FftPlanner::new();
-    let fft_len = 16384; 
+    let fft_len = 4096; // Duże FFT
     let fft = planner.plan_fft_forward(fft_len);
     let mut input_buffer: Vec<f32> = Vec::with_capacity(fft_len);
+
+    // Pobieramy sample rate urządzenia (np. 44100 lub 48000)
+    let sample_rate = config.sample_rate.0;
 
     let stream = device.build_input_stream(
         &config,
@@ -29,7 +36,7 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
             input_buffer.extend_from_slice(data);
             while input_buffer.len() >= fft_len {
                 let chunk: Vec<f32> = input_buffer.drain(0..fft_len).collect();
-                process_audio_chunk(&chunk, &fft, &shared_state, config.sample_rate.0);
+                process_audio_chunk(&chunk, &fft, &shared_state, sample_rate);
             }
         },
         |err| eprintln!("Stream error: {}", err),
@@ -46,106 +53,74 @@ fn process_audio_chunk(
     state: &Arc<Mutex<AudioAnalysis>>,
     sample_rate: u32
 ) {
-    let (boost_enabled, boost_gain) = {
-        let s = state.lock().unwrap();
-        (s.bass_boost_enabled, s.bass_boost_gain)
-    };
-
-    let windowed_data: Vec<Complex<f32>> = data.iter().enumerate()
+    let mut buffer: Vec<Complex<f32>> = data.iter().enumerate()
         .map(|(i, &sample)| {
-            let multiplier = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (data.len() - 1) as f32).cos());
-            Complex { re: sample * multiplier, im: 0.0 }
+            let win = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (data.len() - 1) as f32).cos());
+            Complex { re: sample * win, im: 0.0 }
         })
         .collect();
 
-    let mut buffer = windowed_data;
     fft.process(&mut buffer);
 
-    let bin_width = sample_rate as f32 / data.len() as f32;
-    let mut local_spec48 = [0.0; 48];
+    // Obliczamy Magnitudę FFT (tylko pierwsza połowa)
+    let fft_size = buffer.len();
+    let fft_mags: Vec<f32> = buffer.iter().take(fft_size/2).map(|c| c.norm()).collect();
 
-    let useful_limit = (1600.0 / bin_width) as usize; 
+    let mut ai_features = [0.0; LOG_BINS];
+    let mut ui_features = [0.0; 48];
 
-    // 1. Budowanie surowego spektrum 48 binów
-    for (i, bin) in buffer.iter().enumerate().take(useful_limit) {
-        let mut magnitude = bin.norm();
-        let frequency = i as f32 * bin_width;
+    // --- LOG MAPPING (Klucz do sukcesu) ---
+    // Mapujemy 128 binów logarytmicznych na liniowe biny FFT
+    let hz_per_bin = sample_rate as f32 / fft_size as f32;
 
-        if frequency > 50.0 {
-            if boost_enabled {
-                if frequency < 90.0 { magnitude *= 1.0; } 
-                else if frequency < 150.0 { magnitude *= boost_gain; } 
-                else if frequency < 250.0 { magnitude *= boost_gain * 0.6; }
-            }
-
-            // Logarytmiczna kompresja dynamiki
-            let scaled_val = (1.0 + magnitude * 0.1).ln();
-
-            let midi_float = 12.0 * (frequency / 440.0).log2() + 69.0;
-            let midi_note = midi_float.round() as i32;
+    for i in 0..LOG_BINS {
+        // Wzór: freq = f_min * 2^(i / 12)
+        let center_freq = F_MIN * (2.0f32).powf(i as f32 / BINS_PER_OCTAVE);
+        
+        // Który to bin w FFT?
+        let fft_idx = (center_freq / hz_per_bin).round() as usize;
+        
+        if fft_idx < fft_mags.len() {
+            // Pobieramy energię (z lekkim rozmyciem jak w Pythonie)
+            let mut val = fft_mags[fft_idx];
+            if fft_idx > 0 { val += fft_mags[fft_idx-1] * 0.5; }
+            if fft_idx < fft_mags.len() - 1 { val += fft_mags[fft_idx+1] * 0.5; }
             
-            if midi_note >= 40 && midi_note < (40 + 48) {
-                let spec_idx = (midi_note - 40) as usize;
-                local_spec48[spec_idx] += scaled_val;
-            }
+            ai_features[i] = val;
         }
     }
 
-    // --- HARMONIC CLEANUP (WYCINANIE DUCHÓW) ---
-    // To jest kluczowe dla gitary. Iterujemy od dołu (basu).
-    // Jeśli znajdziemy silny ton podstawowy, osłabiamy jego harmoniczne wyżej.
+    // Logarytm amplitudy (Log1p)
+    for i in 0..LOG_BINS {
+        ai_features[i] = (1.0 + ai_features[i]).ln();
+    }
     
-    // Kopia robocza do czytania (żeby nie modyfikować tego, co czytamy w pętli)
-    let read_spec = local_spec48; 
-
-    for i in 0..36 { // Nie sprawdzamy samej góry
-        let root_energy = read_spec[i];
-        
-        // Jeśli w tym kubełku jest znacząca energia...
-        if root_energy > 0.5 {
-            // 1. Tłumimy II harmoniczną (Oktawa: +12 półtonów)
-            // Gitara często ma głośniejszą oktawę niż bas, więc tłumimy ostrożnie.
-            if i + 12 < 48 {
-                local_spec48[i + 12] *= 0.6; 
-            }
-
-            // 2. Tłumimy III harmoniczną (Kwinta + Oktawa: ~+19 półtonów)
-            // To jest główny winowajca mylenia nuty z Power Chordem. Tłumimy mocno.
-            if i + 19 < 48 {
-                local_spec48[i + 19] *= 0.4; 
-            }
-
-            // 3. Tłumimy V harmoniczną (Tercja + 2 Oktawy: ~+28 półtonów)
-            // To sprawia, że pojedyncza nuta brzmi jak Dur. Tłumimy bardzo mocno.
-            if i + 28 < 48 {
-                local_spec48[i + 28] *= 0.3;
-            }
-        }
+    // Normalizacja AI
+    let max_val = ai_features.iter().fold(0.0f32, |a, &b| a.max(b));
+    if max_val > 0.00001 {
+        for x in &mut ai_features { *x /= max_val; }
     }
 
-    // 2. Budowanie Chromy (zwijanie 48 -> 12) PO wyczyszczeniu
-    let mut local_chroma = [0.0; 12];
+    // UI Features (proste mapowanie)
+    // ... (można użyć ai_features, bo to też 12 binów na oktawę!)
+    // Od binu 0 (C1) do binu 48+ (C5)
     for i in 0..48 {
-        let chroma_idx = (i + 40) % 12; // +40 bo zaczynamy od MIDI 40 (E)
-        // E (40) % 12 = 4. E=4 w naszej mapie (C=0). Zgadza się.
-        local_chroma[chroma_idx] += local_spec48[i];
+        // Mapujemy ai_features na ui (startujemy od np. binu 12 czyli C2)
+        let source_idx = i + 12; 
+        if source_idx < LOG_BINS {
+            ui_features[i] = ai_features[source_idx];
+        }
     }
 
+    // Zapis
     if let Ok(mut s) = state.lock() {
-        // Update Chroma (Decay 0.85)
-        for i in 0..12 {
-            let current = s.chroma_sum[i];
-            let target = local_chroma[i];
-            if target > current { s.chroma_sum[i] = current * 0.3 + target * 0.7; }
-            else { s.chroma_sum[i] = current * 0.85; }
-        }
-        
-        // Update Spectrum (Decay 0.85) - też dodajemy mały decay dla stabilności AI
+        s.raw_input_for_ai = ai_features;
         for i in 0..48 {
-            let current = s.spectrum_48[i];
-            let target = local_spec48[i];
-            if target > current { s.spectrum_48[i] = current * 0.3 + target * 0.7; }
-            else { s.spectrum_48[i] = current * 0.85; }
+            s.spectrum_visual[i] = s.spectrum_visual[i] * 0.5 + ui_features[i] * 0.5;
+            let c_idx = (i + 40) % 12; // 40 to E, ale tutaj mamy C jako 0. Uprośćmy: C=0
+            // ui_features[0] to C2. 
+            let chroma_idx = i % 12;
+            s.chroma_sum[chroma_idx] = s.chroma_sum[chroma_idx] * 0.8 + ui_features[i] * 0.2;
         }
     }
 }

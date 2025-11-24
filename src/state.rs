@@ -1,7 +1,7 @@
 // src/state.rs
 use std::sync::{Arc, Mutex};
-use std::collections::VecDeque; // Do bufora AI
-use crate::audio::AudioAnalysis;
+use std::collections::VecDeque; 
+use crate::audio::{AudioAnalysis, LOG_BINS}; // Import stałej rozmiaru (128)
 use crate::brain::ChordBrain;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
 
@@ -43,7 +43,9 @@ pub struct MyApp {
     pub time_since_change: f32,
     pub total_time: f64,
     
-    // To jest to pole, którego wcześniej brakowało
+    // Bufor dla AI (Log Bins)
+    pub raw_input_for_ai: [f32; LOG_BINS], 
+    
     pub prediction_buffer: VecDeque<(String, f32)>, 
     pub ai_prediction: String,
 }
@@ -81,6 +83,7 @@ impl MyApp {
             stale_notes: [0.0; 12],
             time_since_change: 0.0,
             total_time: 0.0,
+            raw_input_for_ai: [0.0; LOG_BINS], // Inicjalizacja zerami
             ai_prediction: String::from("AI: ..."),
             prediction_buffer: VecDeque::with_capacity(20),
         }

@@ -20,15 +20,15 @@ component NoteBar inherits Rectangle {
 
 component DebugBar inherits Rectangle {
     in property <float> level;
-    in property <bool> is_octave;
+    in property <color> active_color; // ZMIANA: Kolor przychodzi z Rusta
     width: 6px;
     height: 60px;
     background: #111;
     
     Rectangle {
         y: parent.height - self.height;
-        height: parent.height * level;
-        background: is_octave ? #ffee00 : #0077ff;
+        height: parent.height * level; // Skalowanie wysokości
+        background: active_color;      // Użycie koloru (Czerwony/Zielony/Szary)
         width: 100%;
     }
 }
@@ -36,18 +36,19 @@ component DebugBar inherits Rectangle {
 export component AppWindow inherits Window {
     title: "Solitito 2.0";
     width: 400px;
-    height: 650px; // Trochę więcej miejsca na settings
+    height: 650px;
     background: #000000;
 
     // --- DANE ---
-    in property <string> song_title: "Giant Steps";
-    in property <string> chord_name: "B Maj7";
+    in property <string> song_title: "No Data";
+    in property <string> chord_name: "...";
     in property <string> ai_text: "AI: ...";
-    in property <string> next_chord: "D7";
+    in property <string> next_chord: "";
     
     in property <[string]> interval_names;
     in property <[color]> interval_colors;
     in property <[float]> spectrum_data;
+    in property <[color]> spectrum_colors; // NOWOŚĆ: Tablica kolorów dla wykresu
     
     // Lista utworów/skal do ComboBoxa
     in property <[string]> library_items;
@@ -104,7 +105,6 @@ export component AppWindow inherits Window {
                     Button { text: "Scales"; clicked => { root.toggle_mode(1); } }
                 }
 
-                // NOWOŚĆ: Lista wyboru
                 HorizontalLayout {
                     Text { text: "Select: "; color: white; vertical-alignment: center; width: 60px; }
                     ComboBox {
@@ -129,7 +129,6 @@ export component AppWindow inherits Window {
                     Slider { minimum: 0.0; maximum: 2.0; value <=> root.delay; }
                 }
 
-                // FIX KOLORÓW CHECKBOXÓW (Ręczny tekst)
                 HorizontalLayout {
                     spacing: 10px;
                     HorizontalLayout {
@@ -154,15 +153,16 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Debugger
+                // Debugger - ZMODYFIKOWANY
                 Rectangle {
                     height: 60px;
                     background: black;
                     HorizontalLayout {
                         spacing: 1px;
+                        // Iterujemy i pobieramy kolor z tablicy spectrum_colors
                         for val[i] in root.spectrum_data : DebugBar {
                             level: val;
-                            is_octave: mod(i + 4, 12) == 0; 
+                            active_color: root.spectrum_colors[i]; 
                         }
                     }
                 }
