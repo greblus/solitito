@@ -1,5 +1,0 @@
-Hungarian Minor
-1 2 b3 #4 5 b6 7
-
-Japanese Scale
-1 b2 4 5 b6

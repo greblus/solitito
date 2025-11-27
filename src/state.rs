@@ -1,7 +1,7 @@
 // src/state.rs
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
-use crate::audio::{AudioAnalysis, LOG_BINS}; // Import stałej rozmiaru (128)
+use crate::audio::{AudioAnalysis, LOG_BINS, CTX_FRAMES}; 
 use crate::brain::ChordBrain;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
 
@@ -31,6 +31,9 @@ pub struct MyApp {
     
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
+    pub input_gain: f32,
+    pub noise_gate: f32,
+    
     pub intervals_input: String,
     
     pub random_mode: bool,
@@ -43,10 +46,11 @@ pub struct MyApp {
     pub time_since_change: f32,
     pub total_time: f64,
     
-    // Bufor dla AI (Log Bins)
-    pub raw_input_for_ai: [f32; LOG_BINS], 
+    // CRNN Input (Vector)
+    pub raw_input_for_ai: Vec<f32>, 
     
-    pub prediction_buffer: VecDeque<(String, f32)>, 
+    // Historia AI
+    pub chord_history: VecDeque<(String, f32)>, 
     pub ai_prediction: String,
 }
 
@@ -74,6 +78,10 @@ impl MyApp {
             transition_delay: 0.6, 
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
+            
+            input_gain: 3.0,
+            noise_gate: 0.0002,
+            
             intervals_input: "1 3 5".to_string(),
             random_mode: false,
             current_random_target: None,
@@ -83,11 +91,16 @@ impl MyApp {
             stale_notes: [0.0; 12],
             time_since_change: 0.0,
             total_time: 0.0,
-            raw_input_for_ai: [0.0; LOG_BINS], // Inicjalizacja zerami
+            
+            // Inicjalizacja wektora dla CRNN
+            raw_input_for_ai: vec![0.0; LOG_BINS * CTX_FRAMES],
+            
             ai_prediction: String::from("AI: ..."),
-            prediction_buffer: VecDeque::with_capacity(20),
+            chord_history: VecDeque::with_capacity(20),
         }
     }
+
+    // --- LOGIKA GRY ---
 
     pub fn load_selected_song(&mut self) {
         if self.selected_song_idx < self.song_library.len() {
@@ -117,7 +130,8 @@ impl MyApp {
         self.current_sequence_index = 0;
         self.current_random_target = None;
         self.random_sequence.clear();
-        self.prediction_buffer.clear();
+        // Czyścimy historię AI przy zmianie akordu/piosenki
+        self.chord_history.clear();
     }
 
     pub fn get_target_config_indices(&self) -> Vec<usize> {
@@ -160,10 +174,13 @@ impl MyApp {
     
     fn pick_random_target(&mut self, options: &[usize]) {
         if options.is_empty() { return; }
+        // Prosty generator pseudolosowy na bazie czasu
         let seed = (self.total_time * 1000.0) as usize;
         let idx = seed % options.len();
+        
         if options.len() > 1 {
             if let Some(current) = self.current_random_target {
+                // Unikamy powtórzenia tego samego celu pod rząd
                 if options[idx] == options[current] {
                     let new_idx = (idx + 1) % options.len();
                     self.current_random_target = Some(new_idx);
@@ -177,6 +194,7 @@ impl MyApp {
     fn generate_shuffled_sequence(&self, len: usize) -> Vec<usize> {
         let mut seq: Vec<usize> = (0..len).collect();
         if len < 2 { return seq; }
+        // Prosty shuffle na bazie czasu
         let mut pseudo_seed = (self.total_time * 12345.0) as u64;
         for i in (1..len).rev() {
             pseudo_seed = pseudo_seed.wrapping_mul(1103515245).wrapping_add(12345);
@@ -255,6 +273,10 @@ impl MyApp {
         if let Ok(mut state) = self.analysis_state.lock() {
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;
+            
+            // Przekazujemy nowe suwaki do wątku audio
+            state.input_gain = self.input_gain;
+            state.noise_gate = self.noise_gate;
         }
     }
 }

@@ -11,6 +11,7 @@ log = "0.4"
 ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"] }
 ndarray = "0.15"
 slint = "1.8" 
+hound = "3.5"
 
 [build-dependencies]
 slint-build = "1.8"
