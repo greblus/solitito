@@ -1,7 +1,7 @@
 // src/model.rs
 use std::fs;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoteName {
     C, Df, D, Ef, E, F, Fsh, G, Af, A, Bf, B
 }
@@ -13,14 +13,13 @@ pub const ALL_NOTES: [NoteName; 12] = [
 
 impl NoteName {
     pub fn from_index(i: usize) -> Self {
-        match i % 12 {
-            0 => NoteName::C, 1 => NoteName::Df, 2 => NoteName::D,
-            3 => NoteName::Ef, 4 => NoteName::E, 5 => NoteName::F,
-            6 => NoteName::Fsh, 7 => NoteName::G, 8 => NoteName::Af,
-            9 => NoteName::A, 10 => NoteName::Bf, _ => NoteName::B,
-        }
+        ALL_NOTES[i % 12]
     }
     
+    pub fn to_index(&self) -> usize {
+        *self as usize
+    }
+
     pub fn to_string(&self) -> &str {
         match self {
             NoteName::C => "C",  NoteName::Df => "Db", NoteName::D => "D",
@@ -89,6 +88,11 @@ impl Chord {
             .map(|interval| (root_idx + *interval as usize) % 12)
             .collect()
     }
+    
+    // TA METODA JEST WYMAGANA PRZEZ STATE.RS
+    pub fn get_components(&self) -> Vec<usize> {
+        self.get_target_indices()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -149,13 +153,9 @@ pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
     scales
 }
 
-// ZMIANA: Najpierw wbudowane, potem użytkownika
 pub fn load_songs() -> Vec<Song> {
     let mut all = Vec::new();
-    // 1. Wbudowane (Góra listy)
     all.extend(parse_songs(SONGS_DB));
-    
-    // 2. Plik użytkownika (Dół listy)
     if let Ok(c) = fs::read_to_string("user_songs.txt") { 
         all.extend(parse_songs(&c)); 
     }

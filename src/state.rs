@@ -1,7 +1,6 @@
-// src/state.rs
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
-use crate::audio::{AudioAnalysis, LOG_BINS, CTX_FRAMES}; 
+use crate::audio::AudioAnalysis; 
 use crate::brain::ChordBrain;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
 
@@ -10,7 +9,9 @@ pub enum AppMode { Songs, Scales }
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
-    pub brain: Option<Arc<ChordBrain>>,
+    
+    // Brain w Mutex, bo posiada stan wewnętrzny (bufor klatek)
+    pub brain: Option<Arc<Mutex<ChordBrain>>>,
     
     pub song_library: Vec<Song>,
     pub scale_definitions: Vec<ScaleDefinition>,
@@ -46,19 +47,19 @@ pub struct MyApp {
     pub time_since_change: f32,
     pub total_time: f64,
     
-    // CRNN Input (Vector)
-    pub raw_input_for_ai: Vec<f32>, 
-    
-    // Historia AI
     pub chord_history: VecDeque<(String, f32)>, 
-    pub ai_prediction: String,
 }
 
 impl MyApp {
-    pub fn new(state: Arc<Mutex<AudioAnalysis>>, brain: Option<Arc<ChordBrain>>) -> Self {
+    pub fn new(state: Arc<Mutex<AudioAnalysis>>, brain: Option<Arc<Mutex<ChordBrain>>>) -> Self {
         let song_library = load_songs();
         let scale_definitions = load_all_scale_definitions();
-        let start_song = if !song_library.is_empty() { song_library[0].clone() } else { Song { title: "No Songs".into(), chords: vec![] } };
+        
+        let start_song = if !song_library.is_empty() { 
+            song_library[0].clone() 
+        } else { 
+            Song { title: "No Songs".into(), chords: vec![] } 
+        };
 
         Self {
             analysis_state: state,
@@ -78,10 +79,8 @@ impl MyApp {
             transition_delay: 0.6, 
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
-            
             input_gain: 3.0,
             noise_gate: 0.0002,
-            
             intervals_input: "1 3 5".to_string(),
             random_mode: false,
             current_random_target: None,
@@ -91,17 +90,10 @@ impl MyApp {
             stale_notes: [0.0; 12],
             time_since_change: 0.0,
             total_time: 0.0,
-            
-            // Inicjalizacja wektora dla CRNN
-            raw_input_for_ai: vec![0.0; LOG_BINS * CTX_FRAMES],
-            
-            ai_prediction: String::from("AI: ..."),
             chord_history: VecDeque::with_capacity(20),
         }
     }
-
-    // --- LOGIKA GRY ---
-
+    
     pub fn load_selected_song(&mut self) {
         if self.selected_song_idx < self.song_library.len() {
             let song = &self.song_library[self.selected_song_idx];
@@ -111,17 +103,20 @@ impl MyApp {
             self.reset_logic_state();
         }
     }
-    
+
     pub fn build_scale_chord(&mut self) {
         if self.selected_scale_def_idx < self.scale_definitions.len() {
             let def = self.scale_definitions[self.selected_scale_def_idx].clone();
             self.song_title = def.name.clone();
-            self.chords = vec![Chord { root: self.scale_root, quality: ChordQuality::CustomScale(def) }];
+            self.chords = vec![Chord { 
+                root: self.scale_root, 
+                quality: ChordQuality::CustomScale(def) 
+            }];
             self.current_chord_index = 0;
             self.reset_logic_state();
         }
     }
-    
+
     pub fn reset_logic_state(&mut self) {
         self.success_timer = 0.0;
         self.collected_notes = [false; 12];
@@ -130,28 +125,39 @@ impl MyApp {
         self.current_sequence_index = 0;
         self.current_random_target = None;
         self.random_sequence.clear();
-        // Czyścimy historię AI przy zmianie akordu/piosenki
         self.chord_history.clear();
     }
 
     pub fn get_target_config_indices(&self) -> Vec<usize> {
         let parts: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
-        for p in parts {
-            if self.app_mode == AppMode::Scales {
-                match p {
-                    "1" => indices.push(0), "2" | "b2" | "9" | "b9" => indices.push(1), "3" | "b3" => indices.push(2),
-                    "4" | "#4" | "11" | "#11" => indices.push(3), "5" | "b5" => indices.push(4), "6" | "b6" | "13" | "b13" => indices.push(5),
-                    "7" | "b7" | "maj7" => indices.push(6), _ => {}
-                }
-            } else {
-                match p {
-                    "1" => indices.push(0), "3" | "b3" | "sus4" => indices.push(1), "5" | "b5" => indices.push(2),
-                    "7" | "b7" | "6" => indices.push(3), _ => {}
-                }
+        
+        // POPRAWKA: Iteracja przez referencję &parts
+        for p in &parts {
+            match *p { 
+                "1" => indices.push(0), 
+                "2" | "b2" => indices.push(1),
+                "3" | "b3" => indices.push(1),
+                "4" => indices.push(3),
+                "5" | "b5" => indices.push(2), 
+                "6" => indices.push(3),
+                "7" | "b7" => indices.push(3), 
+                _ => {} 
             }
         }
-        indices
+        
+        let mut simple_indices = Vec::new();
+        // POPRAWKA: Iteracja przez referencję &parts
+        for p in &parts {
+            match *p {
+                "1" => simple_indices.push(0),
+                "3" => simple_indices.push(1),
+                "5" => simple_indices.push(2),
+                "7" => simple_indices.push(3),
+                _ => {}
+            }
+        }
+        simple_indices
     }
 
     pub fn is_note_active(&self, note_idx: usize, chroma: &[f32; 12]) -> bool {
@@ -166,106 +172,52 @@ impl MyApp {
     pub fn update_stale_notes(&mut self, chroma: &[f32; 12]) {
         for i in 0..12 {
             let lock = self.stale_notes[i];
-            if lock > 0.0 && chroma[i] < lock * self.tail_threshold {
-                self.stale_notes[i] = 0.0;
+            if lock > 0.0 && chroma[i] < lock * self.tail_threshold { 
+                self.stale_notes[i] = 0.0; 
             }
         }
-    }
-    
-    fn pick_random_target(&mut self, options: &[usize]) {
-        if options.is_empty() { return; }
-        // Prosty generator pseudolosowy na bazie czasu
-        let seed = (self.total_time * 1000.0) as usize;
-        let idx = seed % options.len();
-        
-        if options.len() > 1 {
-            if let Some(current) = self.current_random_target {
-                // Unikamy powtórzenia tego samego celu pod rząd
-                if options[idx] == options[current] {
-                    let new_idx = (idx + 1) % options.len();
-                    self.current_random_target = Some(new_idx);
-                    return;
-                }
-            }
-        }
-        self.current_random_target = Some(idx);
-    }
-    
-    fn generate_shuffled_sequence(&self, len: usize) -> Vec<usize> {
-        let mut seq: Vec<usize> = (0..len).collect();
-        if len < 2 { return seq; }
-        // Prosty shuffle na bazie czasu
-        let mut pseudo_seed = (self.total_time * 12345.0) as u64;
-        for i in (1..len).rev() {
-            pseudo_seed = pseudo_seed.wrapping_mul(1103515245).wrapping_add(12345);
-            let j = (pseudo_seed as usize) % (i + 1);
-            seq.swap(i, j);
-        }
-        seq
     }
 
     pub fn check_progress(&mut self, dt: f32, chroma: &[f32; 12]) {
         self.total_time += dt as f64;
         self.time_since_change += dt;
-        
         if self.time_since_change < self.transition_delay { return; }
         if self.chords.is_empty() { return; }
-
+        
         let current_chord = &self.chords[self.current_chord_index];
         let all_targets = current_chord.get_target_indices();
         let config_indices = self.get_target_config_indices();
-
+        
         let valid_indices: Vec<usize> = config_indices.into_iter()
             .filter(|&idx| idx < all_targets.len())
             .collect();
-            
+
         if valid_indices.is_empty() { return; }
 
-        if self.random_mode {
-            if self.current_random_target.is_none() { self.pick_random_target(&valid_indices); }
-            if let Some(target_logic_idx) = self.current_random_target {
-                if target_logic_idx < valid_indices.len() {
-                    let internal_idx = valid_indices[target_logic_idx];
-                    let note_idx = all_targets[internal_idx];
-                    if self.is_note_active(note_idx, chroma) { self.success_timer += dt; } else { self.success_timer = 0.0; }
-                }
+        let mut collected_count = 0;
+        let mut required_hits = 0;
+
+        for &internal_idx in &valid_indices {
+            required_hits += 1;
+            let note_idx = all_targets[internal_idx];
+            if self.is_note_active(note_idx, chroma) { 
+                self.collected_notes[note_idx] = true; 
             }
-            if self.success_timer > 0.4 {
-                self.success_timer = 0.0;
-                self.stale_notes = *chroma; 
-                self.pick_random_target(&valid_indices);
-            }
-        } else if self.app_mode == AppMode::Scales {
-            if self.current_sequence_index < valid_indices.len() {
-                let internal_idx = valid_indices[self.current_sequence_index];
-                let note_idx = all_targets[internal_idx];
-                if self.is_note_active(note_idx, chroma) { self.current_sequence_index += 1; }
-            } else { self.success_timer += dt; }
-            if self.success_timer > 0.4 {
-                self.success_timer = 0.0;
-                self.collected_notes = [false; 12];
-                self.stale_notes = *chroma; 
-                self.current_sequence_index = 0;
-                if self.random_mode { self.random_sequence = self.generate_shuffled_sequence(valid_indices.len()); }
-            }
-        } else {
-            let mut collected_count = 0;
-            let mut required_hits = 0;
-            for &internal_idx in &valid_indices {
-                required_hits += 1;
-                let note_idx = all_targets[internal_idx];
-                if self.is_note_active(note_idx, chroma) { self.collected_notes[note_idx] = true; }
-                if self.collected_notes[note_idx] { collected_count += 1; }
-            }
-            let pass_threshold = if required_hits <= 3 { required_hits } else { required_hits - 1 };
-            if required_hits > 0 && collected_count >= pass_threshold { self.success_timer += dt; } else { self.success_timer = 0.0; }
-            if self.success_timer > 0.4 {
-                self.success_timer = 0.0;
-                self.collected_notes = [false; 12];
-                self.stale_notes = *chroma;
-                self.time_since_change = 0.0;
-                self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
-            }
+            if self.collected_notes[note_idx] { collected_count += 1; }
+        }
+
+        if required_hits > 0 && collected_count >= required_hits { 
+            self.success_timer += dt; 
+        } else { 
+            self.success_timer = 0.0; 
+        }
+
+        if self.success_timer > 0.4 {
+            self.success_timer = 0.0;
+            self.collected_notes = [false; 12];
+            self.stale_notes = *chroma;
+            self.time_since_change = 0.0;
+            self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
         }
     }
 
@@ -273,8 +225,6 @@ impl MyApp {
         if let Ok(mut state) = self.analysis_state.lock() {
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;
-            
-            // Przekazujemy nowe suwaki do wątku audio
             state.input_gain = self.input_gain;
             state.noise_gate = self.noise_gate;
         }
