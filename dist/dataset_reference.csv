@@ -1,0 +1,561 @@
+id,label
+0,C
+1,C
+2,C
+3,C
+4,C
+5,C
+6,C
+7,C
+8,C
+9,C
+10,C
+11,C
+12,C#
+13,C#
+14,C#
+15,C#
+16,C#
+17,C#
+18,C#
+19,C#
+20,C#
+21,C#
+22,C#
+23,C#
+24,D
+25,D
+26,D
+27,D
+28,D
+29,D
+30,D
+31,D
+32,D
+33,D
+34,D
+35,D
+36,D#
+37,D#
+38,D#
+39,D#
+40,D#
+41,D#
+42,D#
+43,D#
+44,D#
+45,D#
+46,D#
+47,D#
+48,E
+49,E
+50,E
+51,E
+52,E
+53,E
+54,E
+55,E
+56,E
+57,E
+58,E
+59,E
+60,F
+61,F
+62,F
+63,F
+64,F
+65,F
+66,F
+67,F
+68,F
+69,F
+70,F
+71,F
+72,F#
+73,F#
+74,F#
+75,F#
+76,F#
+77,F#
+78,F#
+79,F#
+80,F#
+81,F#
+82,F#
+83,F#
+84,G
+85,G
+86,G
+87,G
+88,G
+89,G
+90,G
+91,G
+92,G
+93,G
+94,G
+95,G
+96,G#
+97,G#
+98,G#
+99,G#
+100,G#
+101,G#
+102,G#
+103,G#
+104,G#
+105,G#
+106,G#
+107,G#
+108,A
+109,A
+110,A
+111,A
+112,A
+113,A
+114,A
+115,A
+116,A
+117,A
+118,A
+119,A
+120,A#
+121,A#
+122,A#
+123,A#
+124,A#
+125,A#
+126,A#
+127,A#
+128,A#
+129,A#
+130,A#
+131,A#
+132,B
+133,B
+134,B
+135,B
+136,B
+137,B
+138,B
+139,B
+140,B
+141,B
+142,B
+143,B
+144,Cm
+145,Cm
+146,Cm
+147,Cm
+148,Cm
+149,Cm
+150,Cm
+151,Cm
+152,Cm
+153,Cm
+154,Cm
+155,Cm
+156,C#m
+157,C#m
+158,C#m
+159,C#m
+160,C#m
+161,C#m
+162,C#m
+163,C#m
+164,C#m
+165,C#m
+166,C#m
+167,C#m
+168,Dm
+169,Dm
+170,Dm
+171,Dm
+172,Dm
+173,Dm
+174,Dm
+175,Dm
+176,Dm
+177,Dm
+178,Dm
+179,Dm
+180,D#m
+181,D#m
+182,D#m
+183,D#m
+184,D#m
+185,D#m
+186,D#m
+187,D#m
+188,D#m
+189,D#m
+190,D#m
+191,D#m
+192,Em
+193,Em
+194,Em
+195,Em
+196,Em
+197,Em
+198,Em
+199,Em
+200,Em
+201,Em
+202,Em
+203,Em
+204,Fm
+205,Fm
+206,Fm
+207,Fm
+208,Fm
+209,Fm
+210,Fm
+211,Fm
+212,Fm
+213,Fm
+214,Fm
+215,Fm
+216,F#m
+217,F#m
+218,F#m
+219,F#m
+220,F#m
+221,F#m
+222,F#m
+223,F#m
+224,F#m
+225,F#m
+226,F#m
+227,F#m
+228,Gm
+229,Gm
+230,Gm
+231,Gm
+232,Gm
+233,Gm
+234,Gm
+235,Gm
+236,Gm
+237,Gm
+238,Gm
+239,Gm
+240,G#m
+241,G#m
+242,G#m
+243,G#m
+244,G#m
+245,G#m
+246,G#m
+247,G#m
+248,G#m
+249,G#m
+250,G#m
+251,G#m
+252,Am
+253,Am
+254,Am
+255,Am
+256,Am
+257,Am
+258,Am
+259,Am
+260,Am
+261,Am
+262,Am
+263,Am
+264,A#m
+265,A#m
+266,A#m
+267,A#m
+268,A#m
+269,A#m
+270,A#m
+271,A#m
+272,A#m
+273,A#m
+274,A#m
+275,A#m
+276,Bm
+277,Bm
+278,Bm
+279,Bm
+280,Bm
+281,Bm
+282,Bm
+283,Bm
+284,Bm
+285,Bm
+286,Bm
+287,Bm
+288,C Maj7
+289,C Maj7
+290,C 7
+291,C 7
+292,C m7
+293,C m7
+294,C m7b5
+295,C m7b5
+296,C dim7
+297,C dim7
+298,C 9
+299,C 9
+300,C 13
+301,C# Maj7
+302,C# Maj7
+303,C# 7
+304,C# 7
+305,C# m7
+306,C# m7
+307,C# m7b5
+308,C# m7b5
+309,C# dim7
+310,C# dim7
+311,C# 9
+312,C# 13
+313,D Maj7
+314,D Maj7
+315,D 7
+316,D 7
+317,D m7
+318,D m7
+319,D m7b5
+320,D m7b5
+321,D dim7
+322,D dim7
+323,D 9
+324,D 13
+325,D# Maj7
+326,D# Maj7
+327,D# 7
+328,D# 7
+329,D# m7
+330,D# m7
+331,D# m7b5
+332,D# m7b5
+333,D# dim7
+334,D# dim7
+335,D# 9
+336,D# 13
+337,E Maj7
+338,E Maj7
+339,E Maj7
+340,E 7
+341,E 7
+342,E 7
+343,E m7
+344,E m7
+345,E m7
+346,E m7b5
+347,E m7b5
+348,E dim7
+349,E dim7
+350,E 9
+351,E 13
+352,E 13
+353,F Maj7
+354,F Maj7
+355,F Maj7
+356,F 7
+357,F 7
+358,F 7
+359,F m7
+360,F m7
+361,F m7
+362,F m7b5
+363,F m7b5
+364,F m7b5
+365,F dim7
+366,F dim7
+367,F dim7
+368,F 9
+369,F 13
+370,F 13
+371,F# Maj7
+372,F# Maj7
+373,F# Maj7
+374,F# 7
+375,F# 7
+376,F# 7
+377,F# m7
+378,F# m7
+379,F# m7
+380,F# m7b5
+381,F# m7b5
+382,F# m7b5
+383,F# dim7
+384,F# dim7
+385,F# dim7
+386,F# 9
+387,F# 13
+388,G Maj7
+389,G Maj7
+390,G 7
+391,G 7
+392,G m7
+393,G m7
+394,G m7
+395,G m7b5
+396,G m7b5
+397,G m7b5
+398,G dim7
+399,G dim7
+400,G dim7
+401,G 9
+402,G 13
+403,G# Maj7
+404,G# Maj7
+405,G# 7
+406,G# 7
+407,G# m7
+408,G# m7
+409,G# m7b5
+410,G# m7b5
+411,G# dim7
+412,G# dim7
+413,G# 9
+414,G# 13
+415,A Maj7
+416,A Maj7
+417,A Maj7
+418,A 7
+419,A 7
+420,A 7
+421,A m7
+422,A m7
+423,A m7
+424,A m7b5
+425,A m7b5
+426,A m7b5
+427,A dim7
+428,A dim7
+429,A 9
+430,A 13
+431,A# Maj7
+432,A# Maj7
+433,A# Maj7
+434,A# 7
+435,A# 7
+436,A# 7
+437,A# m7
+438,A# m7
+439,A# m7
+440,A# m7b5
+441,A# m7b5
+442,A# m7b5
+443,A# dim7
+444,A# dim7
+445,A# dim7
+446,A# 9
+447,A# 9
+448,A# 13
+449,B Maj7
+450,B Maj7
+451,B 7
+452,B 7
+453,B m7
+454,B m7
+455,B m7b5
+456,B m7b5
+457,B m7b5
+458,B dim7
+459,B dim7
+460,B dim7
+461,B 9
+462,B 9
+463,B 13
+464,Note C
+465,Note C
+466,Note C
+467,Note C
+468,Note C
+469,Note C
+470,Note C
+471,Note C
+472,Note C#
+473,Note C#
+474,Note C#
+475,Note C#
+476,Note C#
+477,Note C#
+478,Note C#
+479,Note D
+480,Note D
+481,Note D
+482,Note D
+483,Note D
+484,Note D
+485,Note D
+486,Note D
+487,Note D#
+488,Note D#
+489,Note D#
+490,Note D#
+491,Note D#
+492,Note D#
+493,Note D#
+494,Note E
+495,Note E
+496,Note E
+497,Note E
+498,Note E
+499,Note E
+500,Note E
+501,Note E
+502,Note E
+503,Note F
+504,Note F
+505,Note F
+506,Note F
+507,Note F
+508,Note F
+509,Note F
+510,Note F
+511,Note F
+512,Note F#
+513,Note F#
+514,Note F#
+515,Note F#
+516,Note F#
+517,Note F#
+518,Note F#
+519,Note F#
+520,Note G
+521,Note G
+522,Note G
+523,Note G
+524,Note G
+525,Note G
+526,Note G
+527,Note G
+528,Note G
+529,Note G#
+530,Note G#
+531,Note G#
+532,Note G#
+533,Note G#
+534,Note G#
+535,Note G#
+536,Note A
+537,Note A
+538,Note A
+539,Note A
+540,Note A
+541,Note A
+542,Note A
+543,Note A
+544,Note A#
+545,Note A#
+546,Note A#
+547,Note A#
+548,Note A#
+549,Note A#
+550,Note A#
+551,Note A#
+552,Note B
+553,Note B
+554,Note B
+555,Note B
+556,Note B
+557,Note B
+558,Note B
+559,Note B

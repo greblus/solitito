@@ -61,7 +61,9 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     
     // 4. Ładowanie modelu ONNX
+    // ZMIANA: Nowa nazwa pliku z Pythonowego skryptu
     let model_filename = "chord_model.onnx"; 
+    
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),
         Err(e) => {
@@ -122,8 +124,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.check_progress(dt, &chroma); 
         app.sync_audio_settings();
 
-        // --- AI INFERENCE (Poprawiona sekcja) ---
-        // Klonujemy wskaźnik Arc, aby nie trzymać pożyczki na `app` podczas blokowania `brain`.
+        // --- AI INFERENCE ---
         let brain_arc = app.brain.clone();
 
         if let Some(brain_mutex) = brain_arc {
@@ -138,7 +139,6 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     }
 
-                    // Teraz możemy modyfikować `app` (mutable borrow), bo brain_mutex pochodzi z klona
                     app.chord_history.push_back((chord, score));
                     if app.chord_history.len() > 8 { 
                         app.chord_history.pop_front(); 

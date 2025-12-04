@@ -7,16 +7,18 @@ use rustfft::{FftPlanner, num_complex::Complex};
 use anyhow::Result;
 
 // --- KONFIGURACJA ZGODNA Z MODELEM PYTHONOWYM ---
+// Model oczekuje 216 cech (bins)
 pub const LOG_BINS: usize = 216;   
 const F_MIN: f32 = 65.4; 
 const BINS_PER_OCTAVE: f32 = 36.0;
 
-// FFT może być większe dla lepszej precyzji przy 48kHz
+// FFT ustawione na 4096 dla 44.1kHz/48kHz daje podobną rozdzielczość (Hz/bin)
+// co 2048 dla 22.05kHz w Pythonie.
 const FFT_SIZE: usize = 4096; 
 
-// Parametry wizualizacji (bez zmian)
+// Parametry wizualizacji (UI)
 const GLOBAL_BIN_OFFSET: isize = 0; 
-const DEFAULT_INPUT_GAIN: f32 = 5.0; // Podbiłem domyślny gain dla gitary
+const DEFAULT_INPUT_GAIN: f32 = 5.0;
 
 pub struct AudioAnalysis {
     pub raw_input_for_ai: [f32; LOG_BINS], 
@@ -39,7 +41,7 @@ impl AudioProcessor {
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
         
-        // Okno Hanninga
+        // Okno Hanninga - identyczne jak domyślne w librosa/scipy
         let window: Vec<f32> = (0..FFT_SIZE)
             .map(|i| {
                 let n = i as f32;
@@ -58,7 +60,7 @@ impl AudioProcessor {
             (g, s.noise_gate)
         };
 
-        // 1. Przygotowanie bufora FFT
+        // 1. Przygotowanie bufora FFT z oknem i gainem
         let mut buffer: Vec<Complex<f32>> = chunk.iter().zip(&self.window)
             .map(|(&s, &w)| Complex { re: s * ui_gain * w, im: 0.0 })
             .collect();
@@ -73,38 +75,36 @@ impl AudioProcessor {
         // Obliczenie magnitud (tylko pierwsza połowa widma)
         let fft_mags: Vec<f32> = buffer.iter().take(FFT_SIZE/2).map(|c| c.norm()).collect();
         
-        // Bramka szumów
+        // Bramka szumów (Noise Gate)
         let avg = fft_mags.iter().sum::<f32>() / fft_mags.len() as f32;
         if avg < gate {
             if let Ok(mut s) = state.lock() {
-                // Wyciszanie
+                // Wyciszanie wizualizacji i wejścia AI
                 for x in &mut s.spectrum_visual { *x *= 0.8; }
                 for x in &mut s.chroma_sum { *x *= 0.8; }
-                for x in &mut s.raw_input_for_ai { *x = 0.0; } // Cisza dla AI
+                for x in &mut s.raw_input_for_ai { *x = 0.0; } 
             }
             return; 
         }
 
-        // --- MAPOWANIE DLA AI (KLUCZOWA ZMIANA) ---
-        // Zamiast iterować po FFT, iterujemy po oczekiwanych binach AI (0..216)
-        // i szukamy dla nich odpowiedniego prążka w FFT zależnie od Sample Rate.
+        // --- MAPOWANIE DLA AI (Log Spectrogram) ---
+        // Implementacja logiki z Pythona: compute_log_spectrogram
         
         let mut ai_features = [0.0; LOG_BINS];
         let hz_per_bin_live = sample_rate as f32 / FFT_SIZE as f32;
 
         for i in 0..LOG_BINS {
-            // Jaka częstotliwość odpowiada temu binowi w modelu AI?
             // Wzór z Pythona: center_freq = F_MIN * (2.0 ** (i / BINS_PER_OCTAVE))
             let center_freq = F_MIN * (2.0f32).powf(i as f32 / BINS_PER_OCTAVE);
             
-            // Który to jest indeks w NASZYM aktualnym FFT (np. przy 48kHz)?
+            // Mapowanie częstotliwości na indeks FFT
             let fft_idx = (center_freq / hz_per_bin_live).round() as usize;
 
             if fft_idx < fft_mags.len() {
                 let mut val = fft_mags[fft_idx];
                 
-                // Smoothing (tak jak w Pythonie: val += prev*0.5 + next*0.5)
-                // Pomaga to zbierać energię, jeśli prążek nie trafi idealnie w środek
+                // Smoothing (identyczny jak w Pythonie: val += prev*0.5 + next*0.5)
+                // To kluczowe, aby "zebrać" energię, która mogła wpaść między prążki FFT
                 if fft_idx > 0 { val += fft_mags[fft_idx - 1] * 0.5; }
                 if fft_idx < fft_mags.len() - 1 { val += fft_mags[fft_idx + 1] * 0.5; }
                 
@@ -113,7 +113,7 @@ impl AudioProcessor {
         }
 
         // --- Logarytmizacja i Normalizacja (Zgodnie z Pythonem) ---
-        // 1. Log1p
+        // 1. Log1p (np.log1p)
         for x in &mut ai_features {
             *x = (*x).ln_1p();
         }
@@ -124,7 +124,8 @@ impl AudioProcessor {
             for x in &mut ai_features { *x /= max_ai; }
         }
 
-        // --- WIZUALIZACJA I CHROMA (Stara logika, działa ok dla wizualiów) ---
+        // --- WIZUALIZACJA I CHROMA (Dla UI) ---
+        // To jest niezależne od AI, służy do kolorowania pasków w interfejsie
         let mut local_chroma = [0.0; 12];
         let mut local_visual = [0.0; 48];
         
@@ -144,18 +145,20 @@ impl AudioProcessor {
                 }
             }
         }
-        // Normalizacja visual
+        
+        // Normalizacja visual (dla ładniejszego wyglądu UI)
         let max_c = local_chroma.iter().fold(0.0f32, |a, &b| a.max(b));
         if max_c > 0.0001 { for x in &mut local_chroma { *x /= max_c; } }
         let max_v = local_visual.iter().fold(0.0f32, |a, &b| a.max(b));
         if max_v > 0.0001 { for x in &mut local_visual { *x /= max_v; } }
 
-        // --- AKTUALIZACJA STANU ---
+        // --- AKTUALIZACJA STANU WSPÓŁDZIELONEGO ---
         if let Ok(mut s) = state.lock() {
             let alpha = if is_file { 0.8 } else { 0.6 }; 
             
-            s.raw_input_for_ai = ai_features; // Kopiujemy poprawione dane
+            s.raw_input_for_ai = ai_features; // Kopiujemy dane dla AI
             
+            // Wygładzanie czasowe dla wizualizacji (żeby nie mrugało)
             for i in 0..12 {
                 s.chroma_sum[i] = s.chroma_sum[i] * (1.0 - alpha) + local_chroma[i] * alpha;
             }
@@ -183,6 +186,7 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
     let stream = device.build_input_stream(
         &config,
         move |data: &[f32], _: &_| {
+            // Konwersja stereo -> mono
             if channels == 2 {
                 for f in data.chunks(2) { input_buffer.push((f[0]+f[1])*0.5); }
             } else {
@@ -191,7 +195,7 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
 
             // Przetwarzamy, gdy mamy pełny bufor
             while input_buffer.len() >= FFT_SIZE {
-                // Pobieramy próbki (bez overlapa dla wydajności i prostoty synchronizacji)
+                // Pobieramy próbki (bez overlapa dla wydajności w czasie rzeczywistym)
                 let chunk: Vec<f32> = input_buffer.drain(0..FFT_SIZE).collect();
                 processor.process_frame(&chunk, &shared_state, sample_rate, false);
             }
@@ -205,7 +209,6 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
 }
 
 pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<()> {
-    // ... (kod dla plików bez zmian, poza użyciem FFT_SIZE w buforowaniu)
     let reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
     let sample_rate = spec.sample_rate;
@@ -224,7 +227,6 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
 
     thread::spawn(move || {
         let mut processor = AudioProcessor::new();
-        // Dla plików też używamy zdefiniowanego FFT_SIZE
         let chunk_size = FFT_SIZE; 
         let delay = Duration::from_secs_f32(chunk_size as f32 / sample_rate as f32);
         

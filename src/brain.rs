@@ -1,13 +1,11 @@
-// src/brain.rs
-
 use anyhow::Result;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value; 
 use std::collections::VecDeque;
 use crate::audio::LOG_BINS;
 
-// STAŁE IDENTYCZNE JAK W PYTHONIE
-const CTX_FRAMES: usize = 16; 
+// ZMIANA: Zwiększono kontekst do 32 ramek (zgodnie z Pythonem)
+const CTX_FRAMES: usize = 32; 
 
 pub struct ChordBrain {
     session: Session,
@@ -35,7 +33,9 @@ impl ChordBrain {
         
         // Generowanie etykiet
         let roots = vec!["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        let quals = vec!["", "m", "Maj7", "m7", "7", "dim7", "m7b5"];
+        
+        // ZMIANA: Dodano "9" i "13" zgodnie z listą QUALS w Pythonie
+        let quals = vec!["", "m", "Maj7", "m7", "7", "dim7", "m7b5", "9", "13"];
         
         let mut labels = Vec::new();
         for r in &roots {
@@ -86,20 +86,19 @@ impl ChordBrain {
             return Ok(("Error".to_string(), 0.0));
         }
 
-        // --- POPRAWKA TUTAJ ---
-        // Twój model chce [-1, 16, 216], czyli 3 wymiary: [Batch, Time, Freq].
-        // Wcześniej wysyłaliśmy [1, 1, 16, 216], co powodowało błąd.
-        
-        let shape = vec![1, CTX_FRAMES as i64, LOG_BINS as i64]; // [1, 16, 216]
+        // Kształt tensora: [Batch, Time, Freq] -> [1, 32, 216]
+        let shape = vec![1, CTX_FRAMES as i64, LOG_BINS as i64];
         
         // Tworzenie Tensora ORT
         let input_tensor = Value::from_array((shape, flat_data))?;
         
         // 5. Uruchomienie Modelu
-        let outputs = self.session.run(ort::inputs!["input" => input_tensor])?;
+        // ZMIANA: Python export ustawił nazwy na "in" oraz "out".
+        // Musimy użyć tych nazw, inaczej ORT zwróci błąd.
+        let outputs = self.session.run(ort::inputs!["in" => input_tensor])?;
         
-        // 6. Analiza Wyników
-        let (_, probabilities) = outputs["output"].try_extract_tensor::<f32>()?;
+        // 6. Analiza Wyników (klucz "out")
+        let (_, probabilities) = outputs["out"].try_extract_tensor::<f32>()?;
 
         // Sortowanie wyników
         let mut scored_results: Vec<(usize, f32)> = Vec::with_capacity(probabilities.len());
