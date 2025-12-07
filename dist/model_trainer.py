@@ -1,247 +1,404 @@
-import subprocess
-import sys
 import os
-
-# --- INSTALACJA ---
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-try:
-    import librosa, torch, pandas, onnx, onnxscript, soundfile
-except ImportError:
-    install("librosa")
-    install("torch")
-    install("pandas")
-    install("onnx")
-    install("onnxscript")
-    install("tqdm")
-    install("soundfile")
-
+import sys
+import subprocess
+import importlib
+import time
+import requests
+import zipfile
 import glob
+import json
+import shutil
+import warnings
+import random
+import re
+from collections import Counter
+from tqdm import tqdm
+
+# ==========================================
+# 1. INSTALACJA
+# ==========================================
+def install_libs():
+    print("⬇️  Środowisko...")
+    pkgs = ["soundfile", "librosa", "pandas", "tqdm", "onnx", "onnxscript", "onnxruntime", "numpy", "torch", "requests", "scipy"]
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "--quiet"])
+    for p in pkgs:
+        try: importlib.import_module(p)
+        except ImportError: subprocess.check_call([sys.executable, "-m", "pip", "install", p, "--only-binary=:all:", "--quiet"])
+
+install_libs()
+
 import librosa
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
-import torch.onnx
 import pandas as pd
-import gc
-from tqdm import tqdm
-from torch.utils.data import DataLoader, Dataset, random_split
+import onnxruntime as ort
+import scipy.signal
+from torch.utils.data import DataLoader, Dataset, random_split, ConcatDataset
 
 # ==========================================
-# KONFIGURACJA
+# 2. KONFIGURACJA
 # ==========================================
-TARGET_CSV = "dataset_annotations.csv"
-TARGET_WAV_CLEAN = "dataset_clean.wav"
-TARGET_WAV_EOB = "dataset_eob.wav"
+WORK_DIR = "./workspace"
+GUITARSET_DIR = os.path.join(WORK_DIR, "guitarset")
+os.makedirs(GUITARSET_DIR, exist_ok=True)
 
-# --- ZMIANY ---
-# Zwiększamy kontekst (dłuższy fragment audio dla sieci)
-CTX_FRAMES = 32  # Było 16. Teraz sieć widzi ~0.7 sekundy.
-LOG_BINS = 216 
 SAMPLE_RATE = 22050
-FFT_SIZE = 2048
 HOP_LENGTH = 512
-BATCH_SIZE = 128
-EPOCHS = 40
+MIN_NOTE = 'C1' 
+N_BINS = 192         
+BINS_PER_OCTAVE = 24 
+CTX_FRAMES = 32      
+AUDIO_WINDOW_SIZE = (CTX_FRAMES * HOP_LENGTH) + 4096 
 
-# Klasy
-ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-QUALS = ["", "m", "Maj7", "m7", "7", "dim7", "m7b5", "9", "13"] 
-LABELS = [f"{r} {q}".strip() for r in ROOTS for q in QUALS] + ["Noise"]
-for r in ROOTS: LABELS.append(f"Note {r}")
-LABEL_TO_IDX = {l: i for i, l in enumerate(LABELS)}
-NUM_CLASSES = len(LABELS)
+BATCH_SIZE = 256
+EPOCHS = 60
+
+ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "Noise"]
+QUALS = ["", "m", "7", "Maj7", "m7", "dim7", "m7b5", "9", "13", "Note"] 
+
+ROOT_TO_IDX = {r: i for i, r in enumerate(ROOTS)}
+QUAL_TO_IDX = {q: i for i, q in enumerate(QUALS)}
 
 # ==========================================
-# WYSZUKIWANIE
+# 3. DANE
 # ==========================================
-def find_file(filename):
+def download_file(url, destination):
+    if os.path.exists(destination): return
+    print(f"⬇️  Pobieranie {os.path.basename(destination)}...")
+    response = requests.get(url, stream=True)
+    if response.status_code != 200: sys.exit(1)
+    with open(destination, 'wb') as file:
+        for data in response.iter_content(1024*1024):
+            file.write(data)
+
+def setup_guitarset():
+    URL_AUDIO = "https://zenodo.org/records/3371780/files/audio_mono-pickup_mix.zip?download=1"
+    URL_JAMS = "https://zenodo.org/records/3371780/files/annotation.zip?download=1"
+    if not os.path.exists(os.path.join(GUITARSET_DIR, "audio_mono-pickup_mix")):
+        download_file(URL_AUDIO, "audio.zip")
+        try:
+            with zipfile.ZipFile("audio.zip", 'r') as z: z.extractall(GUITARSET_DIR)
+            os.remove("audio.zip")
+        except: pass
+    if not os.path.exists(os.path.join(GUITARSET_DIR, "annotation")):
+        download_file(URL_JAMS, "jams.zip")
+        try:
+            with zipfile.ZipFile("jams.zip", 'r') as z: z.extractall(GUITARSET_DIR)
+            os.remove("jams.zip")
+        except: pass
+
+setup_guitarset()
+
+OUTPUT_CSV = "hybrid_dataset.csv"
+NOTE_MAP = {"Db":"C#", "Eb":"D#", "Gb":"F#", "Ab":"G#", "Bb":"A#"}
+Q_MAP = { "maj": "", "min": "m", "maj7": "Maj7", "min7": "m7", "7": "7", "dim": "dim7", "dim7": "dim7", "hdim7": "m7b5", "maj9": "9", "min9": "m7", "9": "9", "maj13": "13", "min13": "m7", "13": "13" }
+
+# --- FIX: ROBUST PARSER V10 ---
+def split_chord_label(chord_str):
+    if not isinstance(chord_str, str): return None, None
+    chord_str = chord_str.strip()
+    
+    # 1. Noise / Note
+    if chord_str == "N" or chord_str == "Noise": return "Noise", "Note"
+    if chord_str.startswith("Note"): 
+        parts = chord_str.split()
+        if len(parts) > 1: return (NOTE_MAP.get(parts[1], parts[1]), "Note")
+        return None, None
+
+    # 2. JAMS format (dwukropek)
+    if ":" in chord_str:
+        parts = chord_str.split(":")
+        root = parts[0]
+        root = NOTE_MAP.get(root, root)
+        if len(parts) == 1: return root, "" 
+        q_raw = parts[1].split("/")[0].split("(")[0]
+        if "(9)" in parts[1] or "9" in q_raw: return root, ("m7" if "min" in q_raw else "9")
+        if "(13)" in parts[1] or "13" in q_raw: return root, ("m7" if "min" in q_raw else "13")
+        return root, Q_MAP.get(q_raw, None)
+
+    # 3. Custom Format (Regex + Strip)
+    else:
+        match = re.match(r"^([A-G][#b]?)(.*)$", chord_str)
+        if not match: return None, None
+        
+        root = match.group(1)
+        root = NOTE_MAP.get(root, root)
+        
+        # FIX: strip() usuwa spację przed ' Maj7'
+        qp = match.group(2).strip().lower()
+        
+        q = None
+        if qp == "": q = ""
+        elif qp in ["m", "min"]: q = "m"
+        elif qp == "7": q = "7"
+        elif qp in ["maj7", "maj"]: q = "Maj7"
+        elif qp in ["m7", "min7"]: q = "m7"
+        elif qp in ["dim7", "dim"]: q = "dim7"
+        elif qp in ["m7b5", "hdim7"]: q = "m7b5"
+        elif qp == "9": q = "9"
+        elif qp == "13": q = "13"
+        
+        return root, q
+
+def generate_csv():
+    if os.path.exists(OUTPUT_CSV): os.remove(OUTPUT_CSV)
+    data = []
+    
+    # 1. GuitarSet
+    print("🔄 GuitarSet...")
+    audio_map = {}
+    for f in glob.glob(os.path.join(GUITARSET_DIR, "**", "*.wav"), recursive=True):
+        stem = os.path.basename(f).replace(".wav", "").replace("_mic", "").replace("_mix", "")
+        audio_map[stem] = f
+
+    gs_cnt = 0
+    for j_path in tqdm(glob.glob(os.path.join(GUITARSET_DIR, "**", "*.jams"), recursive=True)):
+        j_stem = os.path.basename(j_path).replace(".jams", "")
+        if j_stem not in audio_map: continue
+        try:
+            with open(j_path, "r") as f: content = json.load(f)
+            for ann in content["annotations"]:
+                if ann["namespace"] == "chord":
+                    for obs in ann["data"]:
+                        r, q = split_chord_label(obs["value"])
+                        if r in ROOT_TO_IDX and q in QUAL_TO_IDX:
+                            data.append({"filename": audio_map[j_stem], "start": obs["time"], "end": obs["time"] + obs["duration"], "root": r, "quality": q, "source": "GuitarSet"})
+                            gs_cnt += 1
+        except: pass
+
+    # 2. Custom Data
+    print("🔄 Custom Data...")
+    cu_cnt = 0
+    cu_rejected = 0
     for root, dirs, files in os.walk("/kaggle/input"):
-        if filename in files: return os.path.join(root, filename)
-    for root, dirs, files in os.walk("."):
-        if filename in files: return os.path.join(root, filename)
-    return None
+        if "dataset_annotations.csv" in files:
+            csv_path = os.path.join(root, "dataset_annotations.csv")
+            try:
+                # Robust CSV read
+                df_u = pd.read_csv(csv_path, encoding='utf-8-sig', sep=None, engine='python')
+                df_u.columns = [c.strip().lower() for c in df_u.columns]
+                
+                col_lbl = next((c for c in df_u.columns if 'label' in c or 'chord' in c), None)
+                col_start = next((c for c in df_u.columns if 'start' in c), None)
+                col_end = next((c for c in df_u.columns if 'end' in c), None)
+                
+                # Fallback
+                if not col_lbl and len(df_u.columns) >= 3:
+                    col_start, col_end, col_lbl = df_u.columns[0], df_u.columns[1], df_u.columns[2]
 
-PATH_CSV = find_file(TARGET_CSV)
-PATH_CLEAN = find_file(TARGET_WAV_CLEAN)
-PATH_EOB = find_file(TARGET_WAV_EOB)
+                for wav in ["dataset_clean.wav", "dataset_eob.wav"]:
+                    if wav in files:
+                        w_path = os.path.join(root, wav)
+                        for _, row in df_u.iterrows():
+                            try:
+                                raw_lbl = str(row[col_lbl])
+                                r, q = split_chord_label(raw_lbl)
+                                if r in ROOT_TO_IDX and q in QUAL_TO_IDX:
+                                    data.append({"filename": w_path, "start": float(row[col_start]), "end": float(row[col_end]), "root": r, "quality": q, "source": "Custom"})
+                                    cu_cnt += 1
+                                else:
+                                    cu_rejected += 1
+                            except: pass
+            except: pass
 
-CUSTOM_AUDIO_PATHS = []
-if PATH_CLEAN: CUSTOM_AUDIO_PATHS.append(PATH_CLEAN)
-if PATH_EOB: CUSTOM_AUDIO_PATHS.append(PATH_EOB)
+    df = pd.DataFrame(data)
+    df.to_csv(OUTPUT_CSV, index=False)
+    print(f"✅ CSV Ready: {len(df)} rows. (GuitarSet: {gs_cnt}, Custom: {cu_cnt}, Rejected: {cu_rejected})")
+    
+    if cu_cnt == 0:
+        print("⚠️ OSTRZEŻENIE: Nie załadowano żadnych Twoich próbek! Sprawdź parser.")
 
-if not PATH_CSV or not CUSTOM_AUDIO_PATHS:
-    print("❌ Brak plików wejściowych.")
-    sys.exit(1)
+generate_csv()
 
 # ==========================================
-# DSP
+# 4. DATASET & CACHE
 # ==========================================
-def compute_log_spectrogram(audio):
-    if len(audio) < FFT_SIZE: audio = np.pad(audio, (0, FFT_SIZE - len(audio)))
-    spec = np.abs(np.fft.rfft(audio, n=FFT_SIZE))
-    log_spec = np.zeros(LOG_BINS, dtype=np.float32)
-    hz_per_bin = SAMPLE_RATE / FFT_SIZE
-    F_MIN = 65.4
-    BINS_PER_OCTAVE = 36
-    for i in range(LOG_BINS):
-        center_freq = F_MIN * (2.0 ** (i / BINS_PER_OCTAVE))
-        fft_idx = int(round(center_freq / hz_per_bin))
-        if 0 <= fft_idx < len(spec):
-            val = spec[fft_idx]
-            if fft_idx > 0: val += spec[fft_idx-1] * 0.5
-            if fft_idx < len(spec)-1: val += spec[fft_idx+1] * 0.5
-            log_spec[i] = val
-    log_spec = np.log1p(log_spec)
-    if log_spec.max() > 0: log_spec /= log_spec.max()
-    return log_spec
+print("\n🔥 CACHING CQT...")
+CQT_CACHE = {}
 
-# ==========================================
-# DATASET (FIXED)
-# ==========================================
-class CorrectedDataset(Dataset):
-    def __init__(self, custom_csv, custom_wavs):
-        self.samples = []
-        print(f"\n>>> 🎸 Wczytywanie danych (BEZ BŁĘDNEJ AUGMENTACJI)...")
-        
-        df = pd.read_csv(custom_csv)
-        
-        for wav_path in custom_wavs:
-            fname = os.path.basename(wav_path)
-            print(f"-> {fname}")
-            y_full, sr = librosa.load(wav_path, sr=SAMPLE_RATE, mono=True)
-            total_len = len(y_full)
-            
-            for _, row in tqdm(df.iterrows(), total=len(df)):
-                label = row['label']
-                if label not in LABEL_TO_IDX: continue
-                lbl_idx = LABEL_TO_IDX[label]
-                
-                t_start = float(row['start'])
-                t_end = float(row['end'])
-                
-                s_start = int(t_start * sr)
-                s_end = int(t_end * sr)
-                
-                if s_end > total_len: s_end = total_len
-                if s_end - s_start < FFT_SIZE: continue
-                
-                chunk = y_full[s_start:s_end]
-                
-                # --- POPRAWKA: TYLKO STRIDE, BEZ PITCH SHIFT ---
-                # Żeby mieć więcej danych, robimy gęstszy stride (kroczymy oknem częściej)
-                # Normalnie shiftowaliśmy pitch, teraz po prostu bierzemy więcej okienek z tego samego akordu.
-                
-                specs = []
-                for k in range(0, len(chunk)-FFT_SIZE, HOP_LENGTH):
-                    specs.append(compute_log_spectrogram(chunk[k:k+FFT_SIZE]))
-                
-                if len(specs) < CTX_FRAMES: continue
-                specs = np.array(specs)
-                
-                # Stride = 4 (Bardzo gęsto, żeby nadrobić ilość danych)
-                for t in range(0, len(specs)-CTX_FRAMES, 4):
-                    self.samples.append((specs[t:t+CTX_FRAMES], lbl_idx))
-        
-            del y_full
-            gc.collect()
+def precompute_file(filepath):
+    if filepath in CQT_CACHE: return
+    try:
+        y, _ = librosa.load(filepath, sr=SAMPLE_RATE, mono=True)
+        cqt = librosa.cqt(y, sr=SAMPLE_RATE, hop_length=HOP_LENGTH, fmin=librosa.note_to_hz(MIN_NOTE), n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE)
+        cqt_db = librosa.amplitude_to_db(np.abs(cqt), ref=np.max)
+        chroma = librosa.feature.chroma_cqt(C=np.abs(cqt), sr=SAMPLE_RATE, hop_length=HOP_LENGTH, n_chroma=12, bins_per_octave=BINS_PER_OCTAVE)
+        combined = np.vstack([np.clip((cqt_db + 80.0)/80.0, 0, 1), chroma]).T.astype(np.float32)
+        CQT_CACHE[filepath] = combined
+    except: pass
 
-        # Dodajemy SZUM (to jest bezpieczne i potrzebne)
-        print(">>> 🌫️ Adding Noise samples...")
-        num_noise = int(len(self.samples) * 0.1)
-        noise_idx = LABEL_TO_IDX["Noise"]
-        for _ in range(num_noise):
-            n = np.random.normal(0, 0.02, (CTX_FRAMES, LOG_BINS)).astype(np.float32)
-            self.samples.append((np.log1p(np.abs(n)), noise_idx))
+full_df = pd.read_csv(OUTPUT_CSV).fillna("")
+if len(full_df) == 0: sys.exit("❌ Pusty CSV")
 
-    def __len__(self): return len(self.samples)
+for f in tqdm(full_df['filename'].unique()): precompute_file(f)
+
+class RamDataset(Dataset):
+    def __init__(self, df, source, augmentor=None):
+        self.indices = []
+        self.augmentor = augmentor
+        subset = df[df['source'] == source]
+        stride = 2 if source == "Custom" else 8
+        for _, row in subset.iterrows():
+            if row['filename'] not in CQT_CACHE: continue
+            f_start = int(row['start'] * SAMPLE_RATE / HOP_LENGTH)
+            f_end = int(row['end'] * SAMPLE_RATE / HOP_LENGTH)
+            total = CQT_CACHE[row['filename']].shape[0]
+            if f_end > total: f_end = total
+            if f_end - f_start < CTX_FRAMES: continue
+            for s in range(f_start, f_end - CTX_FRAMES, stride):
+                self.indices.append((row['filename'], s, ROOT_TO_IDX[row['root']], QUAL_TO_IDX[row['quality']]))
+    def __len__(self): return len(self.indices)
     def __getitem__(self, i):
-        return torch.tensor(self.samples[i][0], dtype=torch.float32), torch.tensor(self.samples[i][1], dtype=torch.long)
+        fname, start, r, q = self.indices[i]
+        spec = CQT_CACHE[fname][start:start+CTX_FRAMES, :].copy()
+        if self.augmentor and random.random() < 0.5:
+            spec[:, random.randint(0, 180):random.randint(0, 180)+10] = 0.0
+            t0 = random.randint(0, 28)
+            spec[t0:t0+4, :] = 0.0
+        return torch.tensor(spec), torch.tensor(r), torch.tensor(q)
+
+class AudioAugmentor:
+    def __init__(self, p_heavy=0.5): self.p = p_heavy
+    def apply(self, audio, sr):
+        if random.random() < 0.5: audio *= random.uniform(0.5, 1.5)
+        if random.random() < 0.5: audio += np.random.normal(0, 0.005, audio.shape).astype(np.float32)
+        if random.random() < 0.4: # Varispeed
+            try: audio = scipy.signal.resample(audio, int(len(audio)/random.uniform(0.95, 1.05)))
+            except: pass
+        if random.random() < 0.4: audio = np.tanh(audio * random.uniform(1.2, 3.0))
+        return audio
+
+ds_gs = RamDataset(full_df, "GuitarSet", AudioAugmentor(0.8))
+ds_cu = RamDataset(full_df, "Custom", AudioAugmentor(0.2))
+full_ds = ConcatDataset([ds_gs, ds_cu])
+
+train_len = int(0.9 * len(full_ds))
+tr, te = random_split(full_ds, [train_len, len(full_ds)-train_len])
+train_loader = DataLoader(tr, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+test_loader = DataLoader(te, batch_size=BATCH_SIZE, num_workers=4, pin_memory=True)
 
 # ==========================================
-# TRAINING LOOP
+# 5. MODEL V10 (SE + FOCAL)
 # ==========================================
-ds = CorrectedDataset(PATH_CSV, CUSTOM_AUDIO_PATHS)
-print(f"Liczba próbek: {len(ds)}")
+device = torch.device("cuda")
 
-train_len = int(0.9 * len(ds))
-tr, te = random_split(ds, [train_len, len(ds)-train_len])
-train_loader = DataLoader(tr, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
-test_loader = DataLoader(te, batch_size=BATCH_SIZE, num_workers=2)
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.ce = nn.CrossEntropyLoss(reduction='none')
+    def forward(self, inputs, targets):
+        logpt = -self.ce(inputs, targets)
+        pt = torch.exp(logpt)
+        return (self.alpha * (1 - pt) ** self.gamma * self.ce(inputs, targets)).mean()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, channel//reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel//reduction, channel, bias=False), nn.Sigmoid())
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        return x * self.fc(y).view(b, c, 1, 1).expand_as(x)
 
-# Model nieco głębszy, bo mamy 32 ramki czasu
-model = nn.Sequential(
-    nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d((1, 2)),
-    nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d((1, 2)),
-    nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d((1, 2)), 
-    nn.Conv2d(128, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(), nn.MaxPool2d((1, 2)), # Dodatkowa warstwa
-).to(device)
+class ConvBlockSE(nn.Module):
+    def __init__(self, in_c, out_c):
+        super().__init__()
+        self.conv = nn.Conv2d(in_c, out_c, 3, padding=1)
+        self.gn = nn.GroupNorm(8, out_c)
+        self.relu = nn.ReLU()
+        self.se = SEBlock(out_c)
+        self.pool = nn.MaxPool2d((1, 2)) 
+        self.drop = nn.Dropout2d(0.1)
+    def forward(self, x): return self.drop(self.pool(self.se(self.relu(self.gn(self.conv(x))))))
 
-class FullModel(nn.Module):
+class TransformerV10(nn.Module):
     def __init__(self):
         super().__init__()
-        self.cnn = model
-        # Input size: LOG_BINS(216) / 2 / 2 / 2 / 2 = 13.5 -> 13
-        # 256 kanałów * 13 cech = 3328
-        self.gru = nn.GRU(3328, 256, 2, batch_first=True, dropout=0.3)
-        self.fc = nn.Linear(256, NUM_CLASSES)
+        self.inorm = nn.InstanceNorm2d(1, affine=True)
+        self.layer1 = ConvBlockSE(1, 32)
+        self.layer2 = ConvBlockSE(32, 64)
+        self.layer3 = ConvBlockSE(64, 128)
+        self.layer4 = ConvBlockSE(128, 256)
+        self.proj = nn.Linear(256 * 12, 256)
+        self.cls_token = nn.Parameter(torch.randn(1, 1, 256))
+        self.pos_encoder = nn.Parameter(torch.randn(1, CTX_FRAMES + 1, 256))
+        enc = nn.TransformerEncoderLayer(d_model=256, nhead=4, dim_feedforward=512, batch_first=True, dropout=0.2, norm_first=True)
+        self.transformer = nn.TransformerEncoder(enc, num_layers=3)
+        self.fc_root = nn.Linear(256, len(ROOTS))
+        self.fc_qual = nn.Linear(256, len(QUALS))
     def forward(self, x):
         x = x.unsqueeze(1)
-        x = self.cnn(x)
+        x = self.inorm(x) 
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         b, c, t, f = x.size()
         x = x.permute(0, 2, 1, 3).reshape(b, t, c*f)
-        _, hn = self.gru(x)
-        return self.fc(hn[-1])
+        x = self.proj(x)
+        cls_tokens = self.cls_token.expand(b, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_encoder
+        x = self.transformer(x)
+        return self.fc_root(x[:, 0]), self.fc_qual(x[:, 0])
 
-final_model = FullModel().to(device)
-if torch.cuda.device_count() > 1: final_model = nn.DataParallel(final_model)
+model = TransformerV10().to(device)
+if torch.cuda.device_count() > 1: model = nn.DataParallel(model)
 
-crit = nn.CrossEntropyLoss()
-opt = optim.Adam(final_model.parameters(), lr=0.001)
-sched = optim.lr_scheduler.ReduceLROnPlateau(opt, patience=4, verbose=True)
+crit_root = nn.CrossEntropyLoss(label_smoothing=0.1)
+crit_qual = FocalLoss(gamma=3.0) 
+opt = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=1e-4)
+sched = optim.lr_scheduler.ReduceLROnPlateau(opt, patience=3, verbose=True, factor=0.5)
 
-best_acc = 0.0
-OUTPUT_DIR = "/kaggle/working/"
+print("\n🚀 START TRENINGU V10 (FIXED PARSER)...")
+best_loss = 999.0
 
-print("\n--- START TRENINGU (BEZ BŁĘDÓW) ---")
 for ep in range(EPOCHS):
-    final_model.train()
+    model.train()
     loss_sum = 0
     loop = tqdm(train_loader, desc=f"Ep {ep+1}", leave=False)
-    for X, y in loop:
-        X, y = X.to(device), y.to(device)
+    for specs, roots, quals in loop:
+        specs, roots, quals = specs.to(device), roots.to(device), quals.to(device)
         opt.zero_grad()
-        out = final_model(X)
-        loss = crit(out, y)
+        out_r, out_q = model(specs)
+        loss = 0.5 * crit_root(out_r, roots) + 3.0 * crit_qual(out_q, quals)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         loss_sum += loss.item()
         loop.set_postfix(loss=loss.item())
     
-    final_model.eval()
-    corr = 0; tot = 0
+    model.eval()
+    val_loss = 0
+    corr_r, corr_q, tot = 0, 0, 0
     with torch.no_grad():
-        for X, y in test_loader:
-            X, y = X.to(device), y.to(device)
-            out = final_model(X)
-            _, p = torch.max(out, 1)
-            tot += y.size(0)
-            corr += (p==y).sum().item()
+        for specs, roots, quals in test_loader:
+            specs, roots, quals = specs.to(device), roots.to(device), quals.to(device)
+            out_r, out_q = model(specs)
+            loss = 0.5 * crit_root(out_r, roots) + 3.0 * crit_qual(out_q, quals)
+            val_loss += loss.item()
+            _, pr = torch.max(out_r, 1)
+            _, pq = torch.max(out_q, 1)
+            corr_r += (pr == roots).sum().item()
+            corr_q += (pq == quals).sum().item()
+            tot += roots.size(0)
+    avg_loss = val_loss / len(test_loader)
+    print(f"Ep {ep+1}: Loss {avg_loss:.4f} | Root: {100*corr_r/tot:.2f}% | Qual: {100*corr_q/tot:.2f}%")
+    sched.step(avg_loss)
     
-    avg_loss = loss_sum/len(train_loader)
-    acc = 100*corr/tot
-    print(f"Ep {ep+1}: Loss {avg_loss:.4f} | Acc {acc:.2f}% | LR {opt.param_groups[0]['lr']:.6f}")
-    sched.step(avg_loss) # ReduceLR based on Loss
-    
-    if acc > best_acc:
-        best_acc = acc
-        m = final_model.module if isinstance(final_model, nn.DataParallel) else final_model
-        torch.onnx.export(m, torch.randn(1, CTX_FRAMES, LOG_BINS).to(device), "chord_model_fixed.onnx", 
-                          input_names=['in'], output_names=['out'], dynamic_axes={'in':{0:'b'}, 'out':{0:'b'}})
-        print("💾 Model Zapisany")
-
-print("Done.")
+    if avg_loss < best_loss:
+        best_loss = avg_loss
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                dummy = torch.randn(1, CTX_FRAMES, 204).to(device)
+                m = model.module if isinstance(model, nn.DataParallel) else model
+                torch.onnx.export(m, dummy, "chord_model_v10_final.onnx", input_names=['in'], output_names=['out_root', 'out_qual'], opset_version=14, dynamic_axes={'in':{0:'b'}, 'out_root':{0:'b'}, 'out_qual':{0:'b'}})
+            print("💾 Saved")
+        except: pass
