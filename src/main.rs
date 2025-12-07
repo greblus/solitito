@@ -13,7 +13,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Duration;
 
-use audio::{AudioAnalysis, start_audio_stream, start_file_playback, LOG_BINS};
+// TOTAL_FEATURES = 204
+use audio::{AudioAnalysis, start_audio_stream, start_file_playback, TOTAL_FEATURES};
 use brain::ChordBrain;
 use state::{MyApp, AppMode};
 
@@ -22,23 +23,21 @@ use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString};
 slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
-    // 1. Inicjalizacja biblioteki ORT (ONNX Runtime)
     if let Err(e) = ort::init().with_name("Solitito").commit() {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
 
-    // 2. Stan analizy Audio
+    // Bufor ustawiony na 204 (192 CQT + 12 Chroma)
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
         chroma_sum: [0.0; 12],
         spectrum_visual: [0.0; 48],
-        raw_input_for_ai: [0.0; LOG_BINS],
+        raw_input_for_ai: [0.0; TOTAL_FEATURES],
         bass_boost_enabled: true,
         bass_boost_gain: 5.0,
         input_gain: 3.0,
-        noise_gate: 0.0002,
+        noise_gate: 0.015, // Trochę wyższa bramka dla CQT
     }));
     
-    // 3. Argumenty startowe
     let args: Vec<String> = env::args().collect();
     let mut file_mode = false;
     let mut _mic_stream = None;
@@ -60,9 +59,8 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     
-    // 4. Ładowanie modelu ONNX
-    // ZMIANA: Nowa nazwa pliku z Pythonowego skryptu
-    let model_filename = "chord_model.onnx"; 
+    // MODEL V10
+    let model_filename = "chord_model_v10_final.onnx"; 
     
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),
@@ -73,10 +71,8 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
-    // 5. Inicjalizacja AppState
     let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), brain)));
 
-    // 6. UI
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
@@ -92,7 +88,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let app_clone = my_app.clone();
     let mut frame_counter = 0;
     
-    // 7. Pętla Główna (60Hz)
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
@@ -128,9 +123,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let brain_arc = app.brain.clone();
 
         if let Some(brain_mutex) = brain_arc {
-            // Blokujemy mutex mózgu
             if let Ok(mut b) = brain_mutex.lock() {
-                // Wykonujemy predykcję
+                // Predict używa teraz bufora o rozmiarze 204
                 if let Ok((chord, score)) = b.predict(&raw_ai) {
                     
                     if file_mode && frame_counter % 6 == 0 { 
@@ -157,7 +151,8 @@ fn main() -> Result<(), slint::PlatformError> {
                     
                     let confidence = if !app.chord_history.is_empty() { max_v / app.chord_history.len() as f32 } else { 0.0 };
 
-                    if confidence > 12.0 { 
+                    // Wyświetl wynik, jeśli pewność jest wystarczająca
+                    if confidence > 0.4 {  // Zmniejszony próg dla V10
                          ui.set_ai_text(format!("AI: {} ({:.1})", best_c, confidence).into());
                     } else {
                          ui.set_ai_text("AI: ...".into());
@@ -218,7 +213,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let targets = curr_chord.get_target_indices();
             
             for i in 0..48 {
-                let note_idx = (i + 40) % 12;
+                let note_idx = (i + 40) % 12; // +40 dla offsetu wizualnego
                 let val = spectrum_vis[i];
                 let is_target = targets.contains(&note_idx);
                 let color = if val > 0.1 { 

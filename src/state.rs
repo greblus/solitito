@@ -1,16 +1,14 @@
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
-use crate::audio::AudioAnalysis; 
+use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, ScaleDefinition, ChordQuality};
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum AppMode { Songs, Scales }
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
-    
-    // Brain w Mutex, bo posiada stan wewnętrzny (bufor klatek)
     pub brain: Option<Arc<Mutex<ChordBrain>>>,
     
     pub song_library: Vec<Song>,
@@ -132,7 +130,6 @@ impl MyApp {
         let parts: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
         
-        // POPRAWKA: Iteracja przez referencję &parts
         for p in &parts {
             match *p { 
                 "1" => indices.push(0), 
@@ -147,7 +144,6 @@ impl MyApp {
         }
         
         let mut simple_indices = Vec::new();
-        // POPRAWKA: Iteracja przez referencję &parts
         for p in &parts {
             match *p {
                 "1" => simple_indices.push(0),
@@ -157,7 +153,9 @@ impl MyApp {
                 _ => {}
             }
         }
-        simple_indices
+        
+        if indices.is_empty() { return simple_indices; }
+        indices
     }
 
     pub fn is_note_active(&self, note_idx: usize, chroma: &[f32; 12]) -> bool {
