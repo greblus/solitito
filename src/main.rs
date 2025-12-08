@@ -60,7 +60,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     
     // MODEL V10
-    let model_filename = "chord_model_v10_final.onnx"; 
+    let model_filename = "chord_model_v11_final.onnx"; 
     
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),

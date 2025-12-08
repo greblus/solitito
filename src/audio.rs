@@ -8,8 +8,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{FftPlanner, num_complex::Complex};
 use anyhow::{Result, Context};
 use serde::Deserialize;
+use std::f32::consts::PI;
 
-// --- STAŁE ---
 pub const TOTAL_FEATURES: usize = 204; 
 pub const CQT_BINS: usize = 192;       
 pub const CHROMA_BINS: usize = 12;
@@ -47,6 +47,30 @@ impl AudioAnalysis {
     }
 }
 
+struct GoertzelFilter {
+    coefficient: f32,
+    target_idx: usize, 
+}
+
+impl GoertzelFilter {
+    fn new(target_freq: f32, sr: u32, target_idx: usize) -> Self {
+        let k = (target_freq * FFT_SIZE as f32 / sr as f32).round();
+        let omega = (2.0 * PI * k) / FFT_SIZE as f32;
+        Self { coefficient: 2.0 * omega.cos(), target_idx }
+    }
+
+    fn process(&self, samples: &[f32]) -> f32 {
+        let mut q1 = 0.0;
+        let mut q2 = 0.0;
+        for &sample in samples {
+            let q0 = self.coefficient * q1 - q2 + sample;
+            q2 = q1;
+            q1 = q0;
+        }
+        (q1 * q1 + q2 * q2 - q1 * q2 * self.coefficient).sqrt()
+    }
+}
+
 pub struct CqtAnalyzer {
     #[allow(dead_code)] planner: FftPlanner<f32>,
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
@@ -56,6 +80,7 @@ pub struct CqtAnalyzer {
     chroma_matrix: Vec<f32>,  
     fft_buffer: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>,
+    bass_filters: Vec<GoertzelFilter>,
     running_ref: f32,
 }
 
@@ -83,21 +108,28 @@ impl CqtAnalyzer {
 
         let scratch_len = fft.get_inplace_scratch_len();
 
+        // --- POPRAWIONE INDEKSY GOERTZELA (V13) ---
+        // 24 bins/oct. E2 = 32.
+        let mut bass_filters = Vec::new();
+        bass_filters.push(GoertzelFilter::new(82.41, TARGET_SR, 32)); // E2
+        bass_filters.push(GoertzelFilter::new(87.31, TARGET_SR, 34)); // F2
+        bass_filters.push(GoertzelFilter::new(92.50, TARGET_SR, 36)); // F#2
+        bass_filters.push(GoertzelFilter::new(98.00, TARGET_SR, 38)); // G2
+        bass_filters.push(GoertzelFilter::new(103.83, TARGET_SR, 40)); // G#2
+
         Ok(Self { 
-            planner, 
-            fft, 
-            window,
+            planner, fft, window,
             cqt_re: config.cqt_weights_re,
             cqt_im: config.cqt_weights_im,
             chroma_matrix: config.chroma_weights,
             fft_buffer: vec![Complex{re:0.0, im:0.0}; FFT_SIZE],
             fft_scratch: vec![Complex{re:0.0, im:0.0}; scratch_len],
+            bass_filters,
             running_ref: 0.05, 
         })
     }
 
     pub fn compute_cqt_chroma(&mut self, audio_chunk: &[f32]) -> (Vec<f32>, Vec<f32>) {
-        // 1. FFT
         for (i, &sample) in audio_chunk.iter().enumerate().take(FFT_SIZE) {
             self.fft_buffer[i] = Complex { re: sample * self.window[i], im: 0.0 };
         }
@@ -108,7 +140,6 @@ impl CqtAnalyzer {
         self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
         let n_fft_bins = FFT_SIZE / 2 + 1;
 
-        // 2. CQT (Complex)
         let mut cqt_vals = vec![0.0; CQT_BINS];
         for i in 0..CQT_BINS {
             let mut sum_re = 0.0;
@@ -126,29 +157,31 @@ impl CqtAnalyzer {
             cqt_vals[i] = (sum_re * sum_re + sum_im * sum_im).sqrt();
         }
 
-        // --- SPECTRAL COMPENSATION V3 (Smart Bass) ---
-        // Zamiast tępo podbijać wszystko, robimy to mądrze:
-        
-        for i in 0..cqt_vals.len() {
-            // Pasmo 0-15: C1 (32Hz) do D#2 (77Hz).
-            // Standardowa gitara tu nie gra. To głównie szum sieci (50Hz/60Hz) i uderzenia w pudło.
-            if i < 16 {
-                cqt_vals[i] *= 0.6; // Tłumimy sub-bas, żeby nie "migał"
-            } 
-            // Pasmo 16-48: E2 (82Hz) do E3. 
-            // To są właściwe basowe struny gitary. Wymagają pomocy, ale delikatnej.
-            else if i < 48 {
-                // Liniowy boost od 1.6x (dla E2) spadający do 1.0x
-                let rel_idx = i - 16;
-                let range = 32.0;
-                let boost = 1.6 - (0.6 * (rel_idx as f32 / range));
-                cqt_vals[i] *= boost;
+        // --- BASS DOCTOR (Corrected) ---
+        let base_scaling = 0.5;
+        for filter in &self.bass_filters {
+            let raw_goertzel = filter.process(audio_chunk);
+            let mut goertzel_energy = raw_goertzel * base_scaling;
+
+            let harmonic_idx = filter.target_idx + 24;
+            if harmonic_idx < cqt_vals.len() {
+                let harmonic_energy = cqt_vals[harmonic_idx];
+                if harmonic_energy > goertzel_energy * 0.2 {
+                    goertzel_energy *= 1.5;
+                }
+            }
+
+            let fft_energy = cqt_vals[filter.target_idx];
+            if goertzel_energy > fft_energy {
+                cqt_vals[filter.target_idx] = fft_energy * 0.3 + goertzel_energy * 0.7;
             }
         }
 
-        // 3. AGC & Squelch
-        let frame_max = cqt_vals.iter().fold(0.0f32, |a, &b| a.max(b));
+        // Tłumienie sub-basu (< E2, czyli < 32)
+        for i in 0..32 { cqt_vals[i] *= 0.1; }
 
+        // --- AGC & SOFT SQUELCH (20%) ---
+        let frame_max = cqt_vals.iter().fold(0.0f32, |a, &b| a.max(b));
         if frame_max > self.running_ref {
             self.running_ref = self.running_ref * 0.5 + frame_max * 0.5;
         } else {
@@ -163,18 +196,16 @@ impl CqtAnalyzer {
             let mut norm = (db + 80.0) / 80.0;
             norm = norm.clamp(0.0, 1.0);
             
-            // SQUELCH + KONTRAST
-            if norm < 0.40 {
+            // SOFT SQUELCH 20% (Liniowy)
+            if norm < 0.20 {
                 norm = 0.0;
             } else {
-                norm = (norm - 0.40) / 0.60;
-                norm = norm * norm; 
+                norm = (norm - 0.20) / 0.80;
             }
-            
             *x = norm;
         }
 
-        // 4. Chroma
+        // Chroma
         let mut chroma_vals = vec![0.0; CHROMA_BINS];
         for i in 0..CHROMA_BINS {
             let mut sum = 0.0;
@@ -186,9 +217,7 @@ impl CqtAnalyzer {
         }
 
         let c_max = chroma_vals.iter().fold(0.0f32, |a, &b| a.max(b)).max(1e-9);
-        if c_max > 0.0 {
-            for x in &mut chroma_vals { *x /= c_max; }
-        }
+        if c_max > 0.0 { for x in &mut chroma_vals { *x /= c_max; } }
 
         (cqt_vals, chroma_vals)
     }
