@@ -1,3 +1,4 @@
+# %% [code]
 import os
 import sys
 import subprocess
@@ -17,9 +18,11 @@ from tqdm import tqdm
 import warnings
 import zipfile 
 import gc
+import shutil
+import tempfile
 
 # ==========================================
-# 1. KONFIGURACJA V13
+# 1. KONFIGURACJA (V15)
 # ==========================================
 SR = 22050
 HOP_LENGTH = 512
@@ -30,16 +33,23 @@ FILTER_SCALE = 0.85
 RUST_FFT_SIZE = 8192
 
 CTX_FRAMES = 32     
-BATCH_SIZE = 64     
+BATCH_SIZE = 64     # Bezpieczny rozmiar
 EPOCHS = 60         
 
 WORK_DIR = "./workspace"
 GUITARSET_DIR = os.path.join(WORK_DIR, "guitarset")
 CUSTOM_DATA_DIR = "./custom_data" 
 MODELS_DIR = "./models"
+# Folder tymczasowy na cache dyskowy (poza RAMem!)
+CACHE_DIR = "./temp_cache_npy" 
 
 for d in [WORK_DIR, GUITARSET_DIR, CUSTOM_DATA_DIR, MODELS_DIR]:
     os.makedirs(d, exist_ok=True)
+
+# Czyścimy stare cache przy starcie
+if os.path.exists(CACHE_DIR):
+    shutil.rmtree(CACHE_DIR)
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "Noise"]
 QUALS = ["", "m", "7", "Maj7", "m7", "dim7", "m7b5", "9", "13", "Note"] 
@@ -54,10 +64,13 @@ print(f"🚀 Device: {device}")
 # 2. INSTALACJA
 # ==========================================
 def install_libs():
-    subprocess.call([sys.executable, "-m", "pip", "install", "requests", "librosa", "pandas", "tqdm", "onnx", "onnxruntime", "numpy", "torch", "soundfile"], stdout=subprocess.DEVNULL)
+    pkgs = ["onnx", "onnxruntime", "librosa", "soundfile", "tqdm"]
+    subprocess.call([sys.executable, "-m", "pip", "install"] + pkgs, stdout=subprocess.DEVNULL)
 
 try: import requests
-except ImportError: install_libs(); import requests
+except ImportError: 
+    subprocess.call([sys.executable, "-m", "pip", "install", "requests"], stdout=subprocess.DEVNULL)
+    import requests
 
 def download_file(url, destination):
     if os.path.exists(destination) and os.path.getsize(destination) > 10240: return
@@ -68,35 +81,27 @@ def download_file(url, destination):
     except: pass
 
 def setup_guitarset():
-    URL_AUDIO = "https://zenodo.org/records/3371780/files/audio_mono-pickup_mix.zip?download=1"
-    URL_JAMS = "https://zenodo.org/records/3371780/files/annotation.zip?download=1"
-    
     if not os.path.exists(os.path.join(GUITARSET_DIR, "audio_mono-pickup_mix")):
-        zip_path = os.path.join(GUITARSET_DIR, "audio.zip")
-        download_file(URL_AUDIO, zip_path)
+        download_file("https://zenodo.org/records/3371780/files/audio_mono-pickup_mix.zip", os.path.join(GUITARSET_DIR, "audio.zip"))
         try:
-            with zipfile.ZipFile(zip_path, 'r') as z: z.extractall(GUITARSET_DIR)
+            with zipfile.ZipFile(os.path.join(GUITARSET_DIR, "audio.zip"), 'r') as z: z.extractall(GUITARSET_DIR)
         except: pass
-
     if not os.path.exists(os.path.join(GUITARSET_DIR, "annotation")):
-        zip_path = os.path.join(GUITARSET_DIR, "jams.zip")
-        download_file(URL_JAMS, zip_path)
+        download_file("https://zenodo.org/records/3371780/files/annotation.zip", os.path.join(GUITARSET_DIR, "jams.zip"))
         try:
-            with zipfile.ZipFile(zip_path, 'r') as z: z.extractall(GUITARSET_DIR)
+            with zipfile.ZipFile(os.path.join(GUITARSET_DIR, "jams.zip"), 'r') as z: z.extractall(GUITARSET_DIR)
         except: pass
 
 # ==========================================
-# 3. DSP SIMULATION V13 (FIXED GOERTZEL + SOFT SQUELCH)
+# 3. DSP SIMULATION (V15: Windowed Goertzel)
 # ==========================================
 def rust_dsp_simulation(audio_path, augment=False):
     try:
         y, _ = librosa.load(audio_path, sr=SR, mono=True)
         if len(y) < RUST_FFT_SIZE: return None
 
-        if augment and random.random() < 0.6:
-            steps = random.randint(-2, 2)
-            if steps != 0: y = librosa.effects.pitch_shift(y, sr=SR, n_steps=steps)
-            if random.random() < 0.3: y = y + 0.005 * np.random.randn(len(y))
+        if augment and random.random() < 0.3:
+             y = y + 0.003 * np.random.randn(len(y))
         
         # 1. CQT
         cqt_complex = librosa.cqt(y, sr=SR, hop_length=HOP_LENGTH, fmin=librosa.note_to_hz(MIN_NOTE), 
@@ -105,9 +110,7 @@ def rust_dsp_simulation(audio_path, augment=False):
         cqt_mag = np.abs(cqt_complex)
         n_frames = cqt_mag.shape[1]
         
-        # 2. VECTORIZED GOERTZEL (POPRAWIONE BINY!)
-        # E2=82.4Hz -> Bin 32 (przy 24 b/oct, C1=0)
-        # F2=87.3Hz -> Bin 34 (+2 biny = 1 półton)
+        # 2. WINDOWED GOERTZEL
         target_freqs = [82.41, 87.31, 92.50, 98.00, 103.83]
         target_indices = [32, 34, 36, 38, 40] 
         
@@ -115,9 +118,13 @@ def rust_dsp_simulation(audio_path, augment=False):
         y_padded = np.pad(y, (pad_len, pad_len), mode='constant')
         y_frames = librosa.util.frame(y_padded, frame_length=RUST_FFT_SIZE, hop_length=HOP_LENGTH)
         
+        # Windowing
+        window = np.hanning(RUST_FFT_SIZE).astype(np.float32)
+        y_frames_windowed = y_frames * window[:, np.newaxis]
+        
         min_frames = min(n_frames, y_frames.shape[1])
         cqt_mag = cqt_mag[:, :min_frames]
-        y_frames = y_frames[:, :min_frames]
+        y_frames_windowed = y_frames_windowed[:, :min_frames]
         
         N = RUST_FFT_SIZE
         basis_matrix = np.zeros((len(target_freqs), N), dtype=np.complex64)
@@ -126,12 +133,11 @@ def rust_dsp_simulation(audio_path, augment=False):
             k = np.round(freq * N / SR)
             basis_matrix[i, :] = np.exp(-2j * np.pi * k * t_vec / N)
             
-        goertzel_energies = np.abs(basis_matrix @ y_frames) * 0.5 
+        goertzel_energies = np.abs(basis_matrix @ y_frames_windowed)
+        goertzel_energies *= 1.5 
         
         for i, idx in enumerate(target_indices):
             g_en_row = goertzel_energies[i, :]
-            
-            # Harmonic Check (+24 biny = 1 oktawa)
             harm_idx = idx + 24
             if harm_idx < N_BINS:
                 harm_row = cqt_mag[harm_idx, :]
@@ -143,33 +149,34 @@ def rust_dsp_simulation(audio_path, augment=False):
             cqt_mag[idx, blend_mask] = fft_row[blend_mask] * 0.3 + g_en_row[blend_mask] * 0.7
 
         # 3. Cleanup
-        cqt_mag[0:32, :] *= 0.1 # Tłumimy wszystko poniżej E2 (bin 32)
+        cqt_mag[0:32, :] *= 0.1
         
-        ref_val = np.max(cqt_mag)
-        if ref_val < 1e-9: ref_val = 1.0
-        cqt_db = librosa.amplitude_to_db(cqt_mag, ref=ref_val)
+        # 4. AGC Simulation
+        frame_maxes = np.max(cqt_mag, axis=0)
+        frame_maxes = np.maximum(frame_maxes, 0.001)
+        cqt_db = 20 * np.log10(np.maximum(cqt_mag, 1e-9) / frame_maxes)
         norm = np.clip((cqt_db + 80.0) / 80.0, 0, 1)
 
-        # 4. SOFT SQUELCH (20% & Linear)
-        # To przywróci wykrywanie pojedynczych nut!
+        # 5. SOFT SQUELCH 20%
         mask = norm < 0.20
         norm[mask] = 0.0
         norm[~mask] = (norm[~mask] - 0.20) / 0.80
-        # Brak potęgowania!
 
-        # 5. Chroma
+        # 6. Chroma
         chroma = librosa.feature.chroma_cqt(C=norm, sr=SR, hop_length=HOP_LENGTH, 
                                             n_chroma=12, bins_per_octave=BINS_PER_OCTAVE)
         
         result = np.vstack([norm, chroma]).T.astype(np.float32)
         
-        if np.isnan(result).any() or np.isinf(result).any(): return None
+        # Usuwamy y i pochodne z pamięci przed powrotem
+        del y, y_padded, y_frames, y_frames_windowed, basis_matrix
+        
         return result
 
     except Exception: return None
 
 # ==========================================
-# 4. DATA PARSERS (Full)
+# 4. DATA PARSERS & DISK CACHED DATASET
 # ==========================================
 def split_chord_label(chord_str):
     if not isinstance(chord_str, str): return None, None
@@ -257,32 +264,61 @@ def load_custom_data(root_dir):
             except Exception: pass
     return pd.DataFrame(data)
 
-class ChordDataset(Dataset):
+class DiskCacheDataset(Dataset):
     def __init__(self, df):
-        self.samples = []
-        print(f"📦 Budowanie datasetu ({len(df)} regionów)...")
+        self.indices = []      # (cache_file_path, start_frame, root, qual)
+        print(f"📦 Budowanie datasetu DISK-CACHE ({len(df)} regionów)...")
+        print(f"📂 Cache dir: {CACHE_DIR}")
+        
         grouped = df.groupby("path")
+        
         for path, group in tqdm(grouped):
+            # 1. Oblicz DSP
             feats = rust_dsp_simulation(path, augment=True)
             if feats is None: continue
+            
+            # 2. Zapisz na dysk (npy)
+            cache_name = f"track_{abs(hash(path))}.npy"
+            cache_path = os.path.join(CACHE_DIR, cache_name)
+            np.save(cache_path, feats)
+            
+            # Pobierz długość (ilość ramek)
+            n_total_frames = feats.shape[0]
+            
+            # 3. Usuń z RAM
+            del feats
+            
+            # 4. Indeksuj
             for _, row in group.iterrows():
                 s = int(row['start'] * SR / HOP_LENGTH)
                 e = int(row['end'] * SR / HOP_LENGTH)
+                
                 if e - s > CTX_FRAMES:
                     for i in range(s, e - CTX_FRAMES, 6):
-                        c = feats[i : i+CTX_FRAMES]
-                        if c.shape[0] == CTX_FRAMES:
-                            self.samples.append((c, row['root'], row['qual']))
-        gc.collect()
+                        if i + CTX_FRAMES <= n_total_frames:
+                            self.indices.append((cache_path, i, row['root'], row['qual']))
+            
+            # Wymuś GC
+            gc.collect()
 
-    def __len__(self): return len(self.samples)
-    def __getitem__(self, i):
-        x, r, q = self.samples[i]
+    def __len__(self): return len(self.indices)
+
+    def __getitem__(self, idx):
+        path, start, r, q = self.indices[idx]
+        
+        # MAGIC: mmap_mode='r'
+        # Wczytuje z dysku TYLKO potrzebny fragment, nie cały plik!
+        # To klucz do niskiego zużycia RAM.
+        data_mmap = np.load(path, mmap_mode='r')
+        
+        # Kopiujemy mały fragment do pamięci (32 klatki)
+        x = data_mmap[start : start+CTX_FRAMES].copy()
+        
         if np.isnan(x).any(): x = np.zeros_like(x)
         return torch.tensor(x, dtype=torch.float32), torch.tensor(r, dtype=torch.long), torch.tensor(q, dtype=torch.long)
 
 # ==========================================
-# 5. MODEL
+# 5. MODEL (V10)
 # ==========================================
 class FocalLoss(nn.Module):
     def __init__(self, alpha=1, gamma=2):
@@ -344,10 +380,13 @@ if __name__ == "__main__":
     print(f"📊 Dataset: {len(df_final)} regionów.")
     if len(df_final)==0: sys.exit("Brak danych.")
 
-    ds = ChordDataset(df_final)
+    # Używamy nowej klasy Dataset
+    ds = DiskCacheDataset(df_final)
+    
     tr_len = int(0.9 * len(ds))
     tr, te = random_split(ds, [tr_len, len(ds)-tr_len])
     
+    # num_workers=2 jest bezpieczne przy mmap
     tr_l = DataLoader(tr, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
     te_l = DataLoader(te, batch_size=BATCH_SIZE, shuffle=False)
     
@@ -359,7 +398,7 @@ if __name__ == "__main__":
     sched = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3, verbose=True)
 
     best_v = float('inf')
-    print("\n🔥 START TRENINGU (V13)...")
+    print("\n🔥 START TRENINGU (DISK CACHE MODE)...")
     
     for ep in range(EPOCHS):
         model.train(); l_sum = 0
@@ -372,7 +411,9 @@ if __name__ == "__main__":
                 if torch.isnan(loss): continue
                 loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
                 l_sum += loss.item(); loop.set_postfix(loss=loss.item())
-            except: continue
+            except RuntimeError as e:
+                print(f"Error: {e}")
+                continue
         
         model.eval(); v_loss, cr, cq, tot = 0, 0, 0, 0
         with torch.no_grad():
@@ -393,6 +434,9 @@ if __name__ == "__main__":
                 best_v = vl
                 m_save = model.module if hasattr(model, 'module') else model
                 torch.onnx.export(m_save, torch.randn(1, CTX_FRAMES, N_BINS + 12).to(device), 
-                                "chord_model_v13_final.onnx", input_names=["in"], output_names=["out_root", "out_qual"],
+                                "chord_model_v15_final.onnx", input_names=["in"], output_names=["out_root", "out_qual"],
                                 dynamic_axes={"in":{0:"b"}, "out_root":{0:"b"}, "out_qual":{0:"b"}}, opset_version=14)
                 print("💾 Saved.")
+    
+    # Sprzątanie cache
+    shutil.rmtree(CACHE_DIR)

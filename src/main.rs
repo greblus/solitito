@@ -60,7 +60,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     
     // MODEL V10
-    let model_filename = "chord_model_v11_final.onnx"; 
+    let model_filename = "chord_model_v15_final.onnx"; 
     
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),
@@ -152,7 +152,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let confidence = if !app.chord_history.is_empty() { max_v / app.chord_history.len() as f32 } else { 0.0 };
 
                     // Wyświetl wynik, jeśli pewność jest wystarczająca
-                    if confidence > 0.4 {  // Zmniejszony próg dla V10
+                    if confidence > 0.8 {  // Zmniejszony próg dla V10
                          ui.set_ai_text(format!("AI: {} ({:.1})", best_c, confidence).into());
                     } else {
                          ui.set_ai_text("AI: ...".into());

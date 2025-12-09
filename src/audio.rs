@@ -10,6 +10,7 @@ use anyhow::{Result, Context};
 use serde::Deserialize;
 use std::f32::consts::PI;
 
+// --- STAŁE (V15 Standard) ---
 pub const TOTAL_FEATURES: usize = 204; 
 pub const CQT_BINS: usize = 192;       
 pub const CHROMA_BINS: usize = 12;
@@ -47,6 +48,7 @@ impl AudioAnalysis {
     }
 }
 
+// --- GOERTZEL FILTER ---
 struct GoertzelFilter {
     coefficient: f32,
     target_idx: usize, 
@@ -75,11 +77,19 @@ pub struct CqtAnalyzer {
     #[allow(dead_code)] planner: FftPlanner<f32>,
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
     window: Vec<f32>,
+    
+    // Wagi
     cqt_re: Vec<f32>,     
     cqt_im: Vec<f32>,     
     chroma_matrix: Vec<f32>,  
+    
+    // Bufory
     fft_buffer: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>,
+    
+    // V15: Bufor na sygnał z oknem (dla Goertzela)
+    goertzel_input: Vec<f32>,
+    
     bass_filters: Vec<GoertzelFilter>,
     running_ref: f32,
 }
@@ -108,8 +118,8 @@ impl CqtAnalyzer {
 
         let scratch_len = fft.get_inplace_scratch_len();
 
-        // --- POPRAWIONE INDEKSY GOERTZELA (V13) ---
-        // 24 bins/oct. E2 = 32.
+        // Cele Goertzela (E2..G#2)
+        // Indeksy dla 24 bins/oct (C1=0): E2 = 32
         let mut bass_filters = Vec::new();
         bass_filters.push(GoertzelFilter::new(82.41, TARGET_SR, 32)); // E2
         bass_filters.push(GoertzelFilter::new(87.31, TARGET_SR, 34)); // F2
@@ -124,22 +134,36 @@ impl CqtAnalyzer {
             chroma_matrix: config.chroma_weights,
             fft_buffer: vec![Complex{re:0.0, im:0.0}; FFT_SIZE],
             fft_scratch: vec![Complex{re:0.0, im:0.0}; scratch_len],
+            goertzel_input: vec![0.0; FFT_SIZE],
             bass_filters,
             running_ref: 0.05, 
         })
     }
 
     pub fn compute_cqt_chroma(&mut self, audio_chunk: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        // 1. FFT Preparation & Windowing
         for (i, &sample) in audio_chunk.iter().enumerate().take(FFT_SIZE) {
-            self.fft_buffer[i] = Complex { re: sample * self.window[i], im: 0.0 };
+            // Aplikujemy okno Hanninga
+            let val = sample * self.window[i];
+            
+            // Wrzucamy do FFT
+            self.fft_buffer[i] = Complex { re: val, im: 0.0 };
+            
+            // V15: Kopiujemy sygnał Z OKNEM do osobnego bufora dla Goertzela
+            // Dzięki temu Goertzel nie "widzi" skoków na brzegach bufora.
+            self.goertzel_input[i] = val;
         }
+        // Zero padding
         for i in audio_chunk.len()..FFT_SIZE {
             self.fft_buffer[i] = Complex { re: 0.0, im: 0.0 };
+            self.goertzel_input[i] = 0.0;
         }
         
+        // 2. FFT
         self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
         let n_fft_bins = FFT_SIZE / 2 + 1;
 
+        // 3. CQT (Complex Convolution)
         let mut cqt_vals = vec![0.0; CQT_BINS];
         for i in 0..CQT_BINS {
             let mut sum_re = 0.0;
@@ -148,6 +172,7 @@ impl CqtAnalyzer {
                 let idx = k * CQT_BINS + i;
                 let w_re = self.cqt_re[idx];
                 let w_im = self.cqt_im[idx];
+                // Optymalizacja dla zerowych wag
                 if w_re.abs() > 1e-9 || w_im.abs() > 1e-9 {
                     let fft_val = self.fft_buffer[k];
                     sum_re += fft_val.re * w_re - fft_val.im * w_im;
@@ -157,31 +182,42 @@ impl CqtAnalyzer {
             cqt_vals[i] = (sum_re * sum_re + sum_im * sum_im).sqrt();
         }
 
-        // --- BASS DOCTOR (Corrected) ---
-        let base_scaling = 0.5;
-        for filter in &self.bass_filters {
-            let raw_goertzel = filter.process(audio_chunk);
-            let mut goertzel_energy = raw_goertzel * base_scaling;
+        // --- BASS DOCTOR V15 (Windowed Goertzel) ---
+        // Ponieważ użyliśmy sygnału z oknem (goertzel_input), sygnał jest stłumiony.
+        // CQT też jest tłumione oknem, więc poziomy są zgodne.
+        // Dajemy lekki boost x1.5 dla pewności basu.
+        let boost_factor = 1.5;
 
+        for filter in &self.bass_filters {
+            let raw_goertzel = filter.process(&self.goertzel_input);
+            let mut goertzel_energy = raw_goertzel * boost_factor;
+
+            // Harmonic Check (+1 oktawa = +24 biny)
             let harmonic_idx = filter.target_idx + 24;
             if harmonic_idx < cqt_vals.len() {
                 let harmonic_energy = cqt_vals[harmonic_idx];
+                // Jeśli harmoniczna jest obecna, to bas jest prawdziwy -> BOOST
                 if harmonic_energy > goertzel_energy * 0.2 {
                     goertzel_energy *= 1.5;
                 }
             }
 
+            // Smart Blend (AGC)
             let fft_energy = cqt_vals[filter.target_idx];
             if goertzel_energy > fft_energy {
+                // Mix 70% Goertzel / 30% FFT
                 cqt_vals[filter.target_idx] = fft_energy * 0.3 + goertzel_energy * 0.7;
             }
         }
 
-        // Tłumienie sub-basu (< E2, czyli < 32)
-        for i in 0..32 { cqt_vals[i] *= 0.1; }
+        // Cleanup: Tłumimy pasma poniżej E2 (0-31), bo tam nie ma gitary
+        for i in 0..32 {
+            cqt_vals[i] *= 0.1;
+        }
 
-        // --- AGC & SOFT SQUELCH (20%) ---
+        // 4. AGC & Soft Squelch
         let frame_max = cqt_vals.iter().fold(0.0f32, |a, &b| a.max(b));
+
         if frame_max > self.running_ref {
             self.running_ref = self.running_ref * 0.5 + frame_max * 0.5;
         } else {
@@ -196,16 +232,18 @@ impl CqtAnalyzer {
             let mut norm = (db + 80.0) / 80.0;
             norm = norm.clamp(0.0, 1.0);
             
-            // SOFT SQUELCH 20% (Liniowy)
+            // SOFT SQUELCH (20% - Liniowy)
             if norm < 0.20 {
                 norm = 0.0;
             } else {
+                // Rozciągamy 0.2-1.0 na 0.0-1.0
                 norm = (norm - 0.20) / 0.80;
+                // Bez potęgowania, żeby ciche nuty były widoczne
             }
             *x = norm;
         }
 
-        // Chroma
+        // 5. Chroma
         let mut chroma_vals = vec![0.0; CHROMA_BINS];
         for i in 0..CHROMA_BINS {
             let mut sum = 0.0;
@@ -217,7 +255,9 @@ impl CqtAnalyzer {
         }
 
         let c_max = chroma_vals.iter().fold(0.0f32, |a, &b| a.max(b)).max(1e-9);
-        if c_max > 0.0 { for x in &mut chroma_vals { *x /= c_max; } }
+        if c_max > 0.0 {
+            for x in &mut chroma_vals { *x /= c_max; }
+        }
 
         (cqt_vals, chroma_vals)
     }

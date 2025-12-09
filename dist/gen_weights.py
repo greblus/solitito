@@ -4,19 +4,18 @@ import json
 import warnings
 
 # ==========================================
-# KONFIGURACJA V13 (Hybrid Precision)
+# KONFIGURACJA V15 (High Fidelity)
 # ==========================================
-SR = 22050          # Wysokie próbkowanie (dobre dla góry)
+SR = 22050          
 MIN_NOTE = 'C1'
-N_BINS = 192        # Pełne 8 oktaw
+N_BINS = 192        
 BINS_PER_OCTAVE = 24 
 RUST_FFT_SIZE = 8192 
 
-# Skracamy filtry, żeby E2 weszło do bufora (mimo że nadpiszemy je Goerzellem,
-# reszta pasma musi być spójna fazowo).
+# Używamy 0.85, żeby filtry były zwarte w czasie
 FILTER_SCALE = 0.85 
 
-print(f"🔧 Generowanie V13: SR={SR}, FFT={RUST_FFT_SIZE}, Scale={FILTER_SCALE}")
+print(f"🔧 Generowanie V15: SR={SR}, FFT={RUST_FFT_SIZE}, Scale={FILTER_SCALE}")
 
 try:
     with warnings.catch_warnings():
@@ -35,11 +34,9 @@ try:
         n_fft_bins = RUST_FFT_SIZE // 2 + 1
         cqt_kernel = np.zeros((N_BINS, n_fft_bins), dtype=np.complex64)
         
-        max_len = 0
         for i, filter_kernel in enumerate(basis):
             fk = np.array(filter_kernel).flatten() if not hasattr(filter_kernel, "toarray") else filter_kernel.toarray().flatten()
             k_len = len(fk)
-            max_len = max(max_len, k_len)
             
             padded = np.zeros(RUST_FFT_SIZE, dtype=np.complex64)
             if k_len > RUST_FFT_SIZE:
@@ -72,6 +69,6 @@ try:
 
         with open("dsp_weights.json", "w") as f: json.dump(data, f)
 
-    print(f"✅ SUKCES V13. Max len: {max_len}")
+    print(f"✅ SUKCES V15.")
 
 except Exception as e: print(f"❌ BŁĄD: {e}")
