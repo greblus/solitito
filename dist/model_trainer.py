@@ -1,4 +1,3 @@
-# %% [code]
 import os
 import sys
 import subprocess
@@ -19,10 +18,9 @@ import warnings
 import zipfile 
 import gc
 import shutil
-import tempfile
 
 # ==========================================
-# 1. KONFIGURACJA (V15)
+# 1. KONFIGURACJA (V16 - Smart Hybrid)
 # ==========================================
 SR = 22050
 HOP_LENGTH = 512
@@ -33,20 +31,19 @@ FILTER_SCALE = 0.85
 RUST_FFT_SIZE = 8192
 
 CTX_FRAMES = 32     
-BATCH_SIZE = 64     # Bezpieczny rozmiar
+BATCH_SIZE = 64     
 EPOCHS = 60         
 
 WORK_DIR = "./workspace"
 GUITARSET_DIR = os.path.join(WORK_DIR, "guitarset")
 CUSTOM_DATA_DIR = "./custom_data" 
 MODELS_DIR = "./models"
-# Folder tymczasowy na cache dyskowy (poza RAMem!)
 CACHE_DIR = "./temp_cache_npy" 
 
+# Sprzątanie i tworzenie katalogów
 for d in [WORK_DIR, GUITARSET_DIR, CUSTOM_DATA_DIR, MODELS_DIR]:
     os.makedirs(d, exist_ok=True)
 
-# Czyścimy stare cache przy starcie
 if os.path.exists(CACHE_DIR):
     shutil.rmtree(CACHE_DIR)
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -61,7 +58,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"🚀 Device: {device}")
 
 # ==========================================
-# 2. INSTALACJA
+# 2. INSTALACJA I POBIERANIE
 # ==========================================
 def install_libs():
     pkgs = ["onnx", "onnxruntime", "librosa", "soundfile", "tqdm"]
@@ -93,13 +90,14 @@ def setup_guitarset():
         except: pass
 
 # ==========================================
-# 3. DSP SIMULATION (V15: Windowed Goertzel)
+# 3. DSP SIMULATION (V16: Smart Blend + Jitter)
 # ==========================================
 def rust_dsp_simulation(audio_path, augment=False):
     try:
         y, _ = librosa.load(audio_path, sr=SR, mono=True)
         if len(y) < RUST_FFT_SIZE: return None
 
+        # Augmentacja (tylko szum, bez pitch shift)
         if augment and random.random() < 0.3:
              y = y + 0.003 * np.random.randn(len(y))
         
@@ -110,21 +108,22 @@ def rust_dsp_simulation(audio_path, augment=False):
         cqt_mag = np.abs(cqt_complex)
         n_frames = cqt_mag.shape[1]
         
-        # 2. WINDOWED GOERTZEL
+        # 2. VECTORIZED GOERTZEL (Indeksy V13: E2=32)
         target_freqs = [82.41, 87.31, 92.50, 98.00, 103.83]
         target_indices = [32, 34, 36, 38, 40] 
         
+        # Przygotowanie ramek pod Goertzela
         pad_len = RUST_FFT_SIZE // 2
         y_padded = np.pad(y, (pad_len, pad_len), mode='constant')
         y_frames = librosa.util.frame(y_padded, frame_length=RUST_FFT_SIZE, hop_length=HOP_LENGTH)
         
-        # Windowing
-        window = np.hanning(RUST_FFT_SIZE).astype(np.float32)
-        y_frames_windowed = y_frames * window[:, np.newaxis]
+        # Windowing (Symulacja Rusta, gdzie okno nie jest stosowane do Goertzela, ale w V15 było.
+        # W Goertzel V2 (Rust) NIE ma okna. Więc tutaj też NIE dajemy okna na y_frames!)
+        # Usuwam np.hanning z V15, żeby być zgodnym z Rustem Goertzel V2.
         
         min_frames = min(n_frames, y_frames.shape[1])
         cqt_mag = cqt_mag[:, :min_frames]
-        y_frames_windowed = y_frames_windowed[:, :min_frames]
+        y_frames = y_frames[:, :min_frames]
         
         N = RUST_FFT_SIZE
         basis_matrix = np.zeros((len(target_freqs), N), dtype=np.complex64)
@@ -133,25 +132,40 @@ def rust_dsp_simulation(audio_path, augment=False):
             k = np.round(freq * N / SR)
             basis_matrix[i, :] = np.exp(-2j * np.pi * k * t_vec / N)
             
-        goertzel_energies = np.abs(basis_matrix @ y_frames_windowed)
-        goertzel_energies *= 1.5 
+        # Obliczanie energii Goertzela
+        goertzel_energies = np.abs(basis_matrix @ y_frames) * 0.5 # Skaling z Rusta
         
+        # --- SMART BLEND LOGIC ---
         for i, idx in enumerate(target_indices):
             g_en_row = goertzel_energies[i, :]
+            
+            # A. Jitter (Tylko trening) - Przeciwko overfittingowi
+            if augment:
+                jitter = np.random.normal(1.0, 0.05, size=g_en_row.shape)
+                g_en_row *= jitter
+
+            # B. Harmonic Penalty (Sprawdź +1 oktawę)
             harm_idx = idx + 24
             if harm_idx < N_BINS:
                 harm_row = cqt_mag[harm_idx, :]
-                boost_mask = harm_row > (g_en_row * 0.2)
-                g_en_row[boost_mask] *= 1.5
+                # Jeśli harmoniczna jest bardzo słaba (<10% Goertzela), to prawdopodobnie błąd
+                weak_mask = harm_row < (g_en_row * 0.1)
+                g_en_row[weak_mask] *= 0.5
             
+            # C. Ratio Check & Blend
             fft_row = cqt_mag[idx, :]
-            blend_mask = g_en_row > fft_row
-            cqt_mag[idx, blend_mask] = fft_row[blend_mask] * 0.3 + g_en_row[blend_mask] * 0.7
+            ratio = g_en_row / (fft_row + 1e-6)
+            
+            # Blendujemy tylko gdy Goertzel jest wyraźny (1.3x), ale nie absurdalny (3.0x)
+            blend_mask = (ratio > 1.3) & (ratio < 3.0)
+            
+            # Conservative Blend: 60% FFT, 40% Goertzel
+            cqt_mag[idx, blend_mask] = fft_row[blend_mask] * 0.6 + g_en_row[blend_mask] * 0.4
 
         # 3. Cleanup
         cqt_mag[0:32, :] *= 0.1
         
-        # 4. AGC Simulation
+        # 4. AGC / Normalization
         frame_maxes = np.max(cqt_mag, axis=0)
         frame_maxes = np.maximum(frame_maxes, 0.001)
         cqt_db = 20 * np.log10(np.maximum(cqt_mag, 1e-9) / frame_maxes)
@@ -168,15 +182,13 @@ def rust_dsp_simulation(audio_path, augment=False):
         
         result = np.vstack([norm, chroma]).T.astype(np.float32)
         
-        # Usuwamy y i pochodne z pamięci przed powrotem
-        del y, y_padded, y_frames, y_frames_windowed, basis_matrix
-        
+        del y, y_padded, y_frames, basis_matrix
         return result
 
     except Exception: return None
 
 # ==========================================
-# 4. DATA PARSERS & DISK CACHED DATASET
+# 4. DATA PARSERS & DATASET
 # ==========================================
 def split_chord_label(chord_str):
     if not isinstance(chord_str, str): return None, None
@@ -266,59 +278,39 @@ def load_custom_data(root_dir):
 
 class DiskCacheDataset(Dataset):
     def __init__(self, df):
-        self.indices = []      # (cache_file_path, start_frame, root, qual)
+        self.indices = []
         print(f"📦 Budowanie datasetu DISK-CACHE ({len(df)} regionów)...")
-        print(f"📂 Cache dir: {CACHE_DIR}")
-        
         grouped = df.groupby("path")
-        
         for path, group in tqdm(grouped):
-            # 1. Oblicz DSP
             feats = rust_dsp_simulation(path, augment=True)
             if feats is None: continue
             
-            # 2. Zapisz na dysk (npy)
             cache_name = f"track_{abs(hash(path))}.npy"
             cache_path = os.path.join(CACHE_DIR, cache_name)
             np.save(cache_path, feats)
             
-            # Pobierz długość (ilość ramek)
             n_total_frames = feats.shape[0]
-            
-            # 3. Usuń z RAM
             del feats
             
-            # 4. Indeksuj
             for _, row in group.iterrows():
                 s = int(row['start'] * SR / HOP_LENGTH)
                 e = int(row['end'] * SR / HOP_LENGTH)
-                
                 if e - s > CTX_FRAMES:
                     for i in range(s, e - CTX_FRAMES, 6):
                         if i + CTX_FRAMES <= n_total_frames:
                             self.indices.append((cache_path, i, row['root'], row['qual']))
-            
-            # Wymuś GC
             gc.collect()
 
     def __len__(self): return len(self.indices)
-
     def __getitem__(self, idx):
         path, start, r, q = self.indices[idx]
-        
-        # MAGIC: mmap_mode='r'
-        # Wczytuje z dysku TYLKO potrzebny fragment, nie cały plik!
-        # To klucz do niskiego zużycia RAM.
         data_mmap = np.load(path, mmap_mode='r')
-        
-        # Kopiujemy mały fragment do pamięci (32 klatki)
         x = data_mmap[start : start+CTX_FRAMES].copy()
-        
         if np.isnan(x).any(): x = np.zeros_like(x)
         return torch.tensor(x, dtype=torch.float32), torch.tensor(r, dtype=torch.long), torch.tensor(q, dtype=torch.long)
 
 # ==========================================
-# 5. MODEL (V10)
+# 5. MODEL
 # ==========================================
 class FocalLoss(nn.Module):
     def __init__(self, alpha=1, gamma=2):
@@ -380,13 +372,11 @@ if __name__ == "__main__":
     print(f"📊 Dataset: {len(df_final)} regionów.")
     if len(df_final)==0: sys.exit("Brak danych.")
 
-    # Używamy nowej klasy Dataset
     ds = DiskCacheDataset(df_final)
     
     tr_len = int(0.9 * len(ds))
     tr, te = random_split(ds, [tr_len, len(ds)-tr_len])
     
-    # num_workers=2 jest bezpieczne przy mmap
     tr_l = DataLoader(tr, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
     te_l = DataLoader(te, batch_size=BATCH_SIZE, shuffle=False)
     
@@ -398,7 +388,7 @@ if __name__ == "__main__":
     sched = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3, verbose=True)
 
     best_v = float('inf')
-    print("\n🔥 START TRENINGU (DISK CACHE MODE)...")
+    print("\n🔥 START TRENINGU (V16 - Smart Blend)...")
     
     for ep in range(EPOCHS):
         model.train(); l_sum = 0
@@ -412,8 +402,7 @@ if __name__ == "__main__":
                 loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
                 l_sum += loss.item(); loop.set_postfix(loss=loss.item())
             except RuntimeError as e:
-                print(f"Error: {e}")
-                continue
+                print(f"Err: {e}"); continue
         
         model.eval(); v_loss, cr, cq, tot = 0, 0, 0, 0
         with torch.no_grad():
@@ -434,9 +423,8 @@ if __name__ == "__main__":
                 best_v = vl
                 m_save = model.module if hasattr(model, 'module') else model
                 torch.onnx.export(m_save, torch.randn(1, CTX_FRAMES, N_BINS + 12).to(device), 
-                                "chord_model_v15_final.onnx", input_names=["in"], output_names=["out_root", "out_qual"],
+                                "chord_model_v16_final.onnx", input_names=["in"], output_names=["out_root", "out_qual"],
                                 dynamic_axes={"in":{0:"b"}, "out_root":{0:"b"}, "out_qual":{0:"b"}}, opset_version=14)
                 print("💾 Saved.")
     
-    # Sprzątanie cache
     shutil.rmtree(CACHE_DIR)

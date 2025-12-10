@@ -1,189 +1,199 @@
-# %% [code]
-import os
 import sys
 import subprocess
-import random
-import json
-import glob
+import importlib
+import os
 import re
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import librosa
-import soundfile as sf
-from torch.utils.data import DataLoader, Dataset, random_split
-from tqdm import tqdm
 import warnings
-import zipfile 
-import gc
-import shutil
-import tempfile
+import glob
 
 # ==========================================
-# 1. KONFIGURACJA (V15)
+# 0. DUAL LOGGER
 # ==========================================
-SR = 22050
+class DualLogger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w", encoding='utf-8')
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(self.ansi_escape.sub('', message))
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = DualLogger("model_benchmark.txt")
+
+# ==========================================
+# 1. SETUP
+# ==========================================
+def install_libs():
+    pkgs = ["numpy", "pandas", "librosa", "soundfile", "onnxruntime", "seaborn", "matplotlib", "tqdm", "scikit-learn", "scipy"]
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--quiet"])
+    for p in pkgs:
+        try: importlib.import_module(p if p != "scikit-learn" else "sklearn")
+        except: subprocess.check_call([sys.executable, "-m", "pip", "install", p, "--quiet"])
+
+print("🔍 Inicjalizacja środowiska...")
+install_libs()
+
+import numpy as np
+import pandas as pd
+import librosa
+import onnxruntime as ort
+import matplotlib.pyplot as plt
+import seaborn as sns
+import scipy.io.wavfile
+import scipy.signal
+from tqdm.notebook import tqdm
+from sklearn.metrics import confusion_matrix
+from collections import Counter
+
+warnings.filterwarnings("ignore")
+
+# ==========================================
+# 2. KONFIGURACJA V16
+# ==========================================
+MODEL_FILENAME = "chord_model_v16_final.onnx" 
+TEST_WAV = "dataset_eob.wav" 
+TEST_CSV = "dataset_annotations.csv"
+
+SR = 22050          
 HOP_LENGTH = 512
 MIN_NOTE = 'C1'
 N_BINS = 192        
 BINS_PER_OCTAVE = 24
 FILTER_SCALE = 0.85 
 RUST_FFT_SIZE = 8192
-
-CTX_FRAMES = 32     
-BATCH_SIZE = 64     # Bezpieczny rozmiar
-EPOCHS = 60         
-
-WORK_DIR = "./workspace"
-GUITARSET_DIR = os.path.join(WORK_DIR, "guitarset")
-CUSTOM_DATA_DIR = "./custom_data" 
-MODELS_DIR = "./models"
-# Folder tymczasowy na cache dyskowy (poza RAMem!)
-CACHE_DIR = "./temp_cache_npy" 
-
-for d in [WORK_DIR, GUITARSET_DIR, CUSTOM_DATA_DIR, MODELS_DIR]:
-    os.makedirs(d, exist_ok=True)
-
-# Czyścimy stare cache przy starcie
-if os.path.exists(CACHE_DIR):
-    shutil.rmtree(CACHE_DIR)
-os.makedirs(CACHE_DIR, exist_ok=True)
+CTX_FRAMES = 32
 
 ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "Noise"]
 QUALS = ["", "m", "7", "Maj7", "m7", "dim7", "m7b5", "9", "13", "Note"] 
+
 ROOT_TO_IDX = {r: i for i, r in enumerate(ROOTS)}
 QUAL_TO_IDX = {q: i for i, q in enumerate(QUALS)}
+
+JAZZ_QUALS = ["7", "Maj7", "m7", "dim7", "m7b5", "9", "13"]
+BASIC_QUALS = ["", "m", "Note"]
+
+# ==========================================
+# 3. DSP SIMULATION (V16: SMART HYBRID)
+# ==========================================
+def rust_dsp_simulation(y):
+    # 1. CQT
+    cqt_complex = librosa.cqt(y, sr=SR, hop_length=HOP_LENGTH, fmin=librosa.note_to_hz(MIN_NOTE), 
+                              n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, 
+                              filter_scale=FILTER_SCALE)
+    cqt_mag = np.abs(cqt_complex)
+    n_frames = cqt_mag.shape[1]
+    
+    # 2. VECTORIZED GOERTZEL
+    target_freqs = [82.41, 87.31, 92.50, 98.00, 103.83]
+    # Indeksy poprawione dla V13+ (E2=32)
+    target_indices = [32, 34, 36, 38, 40]
+    
+    # Framing
+    pad_len = RUST_FFT_SIZE // 2
+    y_padded = np.pad(y, (pad_len, pad_len), mode='constant')
+    y_frames = librosa.util.frame(y_padded, frame_length=RUST_FFT_SIZE, hop_length=HOP_LENGTH)
+    
+    min_frames = min(n_frames, y_frames.shape[1])
+    cqt_mag = cqt_mag[:, :min_frames]
+    y_frames = y_frames[:, :min_frames]
+    
+    # Basis Matrix
+    N = RUST_FFT_SIZE
+    basis_matrix = np.zeros((len(target_freqs), N), dtype=np.complex64)
+    t_vec = np.arange(N)
+    for i, freq in enumerate(target_freqs):
+        k = np.round(freq * N / SR)
+        basis_matrix[i, :] = np.exp(-2j * np.pi * k * t_vec / N)
+        
+    # Goertzel Calculation
+    goertzel_energies = np.abs(basis_matrix @ y_frames) * 0.5 
+    
+    # Injection Logic (Smart Blend)
+    for i, idx in enumerate(target_indices):
+        g_en_row = goertzel_energies[i, :]
+        
+        # A. Harmonic Penalty
+        harm_idx = idx + 24
+        if harm_idx < N_BINS:
+            harm_row = cqt_mag[harm_idx, :]
+            # Tłumienie "duchów" bez harmoniki
+            weak_mask = harm_row < (g_en_row * 0.1)
+            g_en_row[weak_mask] *= 0.5
+        
+        # B. Smart Blend
+        fft_row = cqt_mag[idx, :]
+        ratio = g_en_row / (fft_row + 1e-6)
+        
+        # Blendujemy tylko gdy ratio jest w rozsądnym zakresie (1.3x - 3.0x)
+        blend_mask = (ratio > 1.3) & (ratio < 3.0)
+        
+        # Konserwatywny mix: 60% FFT, 40% Goertzel
+        cqt_mag[idx, blend_mask] = fft_row[blend_mask] * 0.6 + g_en_row[blend_mask] * 0.4
+
+    # 3. Cleanup (Sub-bass < 32)
+    cqt_mag[0:32, :] *= 0.1
+    
+    # 4. AGC Simulation (Per-Frame Max)
+    frame_maxes = np.max(cqt_mag, axis=0)
+    frame_maxes = np.maximum(frame_maxes, 0.001)
+    cqt_db = 20 * np.log10(np.maximum(cqt_mag, 1e-9) / frame_maxes)
+    norm = np.clip((cqt_db + 80.0) / 80.0, 0, 1)
+
+    # 5. SOFT SQUELCH (20%, Linear)
+    mask = norm < 0.20
+    norm[mask] = 0.0
+    norm[~mask] = (norm[~mask] - 0.20) / 0.80 
+
+    # 6. Chroma
+    chroma = librosa.feature.chroma_cqt(C=norm, sr=SR, hop_length=HOP_LENGTH, 
+                                        n_chroma=12, bins_per_octave=BINS_PER_OCTAVE)
+    
+    return np.vstack([norm, chroma]).T.astype(np.float32)
+
+def robust_load(path, target_sr):
+    try:
+        y, _ = librosa.load(path, sr=target_sr, mono=True)
+        return y
+    except Exception:
+        try:
+            sr_native, y = scipy.io.wavfile.read(path)
+            if y.dtype == np.int16: y = y.astype(np.float32) / 32768.0
+            elif y.dtype == np.int32: y = y.astype(np.float32) / 2147483648.0
+            elif y.dtype == np.uint8: y = (y.astype(np.float32) - 128.0) / 128.0
+            else: y = y.astype(np.float32)
+            if len(y.shape) > 1: y = y.mean(axis=1)
+            if sr_native != target_sr:
+                y = scipy.signal.resample(y, int(len(y) * target_sr / sr_native))
+            return y
+        except Exception: return None
+
+# ==========================================
+# 4. PARSER
+# ==========================================
 NOTE_MAP = {"Db":"C#", "Eb":"D#", "Gb":"F#", "Ab":"G#", "Bb":"A#"}
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"🚀 Device: {device}")
-
-# ==========================================
-# 2. INSTALACJA
-# ==========================================
-def install_libs():
-    pkgs = ["onnx", "onnxruntime", "librosa", "soundfile", "tqdm"]
-    subprocess.call([sys.executable, "-m", "pip", "install"] + pkgs, stdout=subprocess.DEVNULL)
-
-try: import requests
-except ImportError: 
-    subprocess.call([sys.executable, "-m", "pip", "install", "requests"], stdout=subprocess.DEVNULL)
-    import requests
-
-def download_file(url, destination):
-    if os.path.exists(destination) and os.path.getsize(destination) > 10240: return
-    try:
-        response = requests.get(url, stream=True)
-        with open(destination, 'wb') as file:
-            for data in response.iter_content(1024*1024): file.write(data)
-    except: pass
-
-def setup_guitarset():
-    if not os.path.exists(os.path.join(GUITARSET_DIR, "audio_mono-pickup_mix")):
-        download_file("https://zenodo.org/records/3371780/files/audio_mono-pickup_mix.zip", os.path.join(GUITARSET_DIR, "audio.zip"))
-        try:
-            with zipfile.ZipFile(os.path.join(GUITARSET_DIR, "audio.zip"), 'r') as z: z.extractall(GUITARSET_DIR)
-        except: pass
-    if not os.path.exists(os.path.join(GUITARSET_DIR, "annotation")):
-        download_file("https://zenodo.org/records/3371780/files/annotation.zip", os.path.join(GUITARSET_DIR, "jams.zip"))
-        try:
-            with zipfile.ZipFile(os.path.join(GUITARSET_DIR, "jams.zip"), 'r') as z: z.extractall(GUITARSET_DIR)
-        except: pass
-
-# ==========================================
-# 3. DSP SIMULATION (V15: Windowed Goertzel)
-# ==========================================
-def rust_dsp_simulation(audio_path, augment=False):
-    try:
-        y, _ = librosa.load(audio_path, sr=SR, mono=True)
-        if len(y) < RUST_FFT_SIZE: return None
-
-        if augment and random.random() < 0.3:
-             y = y + 0.003 * np.random.randn(len(y))
-        
-        # 1. CQT
-        cqt_complex = librosa.cqt(y, sr=SR, hop_length=HOP_LENGTH, fmin=librosa.note_to_hz(MIN_NOTE), 
-                                  n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, 
-                                  filter_scale=FILTER_SCALE)
-        cqt_mag = np.abs(cqt_complex)
-        n_frames = cqt_mag.shape[1]
-        
-        # 2. WINDOWED GOERTZEL
-        target_freqs = [82.41, 87.31, 92.50, 98.00, 103.83]
-        target_indices = [32, 34, 36, 38, 40] 
-        
-        pad_len = RUST_FFT_SIZE // 2
-        y_padded = np.pad(y, (pad_len, pad_len), mode='constant')
-        y_frames = librosa.util.frame(y_padded, frame_length=RUST_FFT_SIZE, hop_length=HOP_LENGTH)
-        
-        # Windowing
-        window = np.hanning(RUST_FFT_SIZE).astype(np.float32)
-        y_frames_windowed = y_frames * window[:, np.newaxis]
-        
-        min_frames = min(n_frames, y_frames.shape[1])
-        cqt_mag = cqt_mag[:, :min_frames]
-        y_frames_windowed = y_frames_windowed[:, :min_frames]
-        
-        N = RUST_FFT_SIZE
-        basis_matrix = np.zeros((len(target_freqs), N), dtype=np.complex64)
-        t_vec = np.arange(N)
-        for i, freq in enumerate(target_freqs):
-            k = np.round(freq * N / SR)
-            basis_matrix[i, :] = np.exp(-2j * np.pi * k * t_vec / N)
-            
-        goertzel_energies = np.abs(basis_matrix @ y_frames_windowed)
-        goertzel_energies *= 1.5 
-        
-        for i, idx in enumerate(target_indices):
-            g_en_row = goertzel_energies[i, :]
-            harm_idx = idx + 24
-            if harm_idx < N_BINS:
-                harm_row = cqt_mag[harm_idx, :]
-                boost_mask = harm_row > (g_en_row * 0.2)
-                g_en_row[boost_mask] *= 1.5
-            
-            fft_row = cqt_mag[idx, :]
-            blend_mask = g_en_row > fft_row
-            cqt_mag[idx, blend_mask] = fft_row[blend_mask] * 0.3 + g_en_row[blend_mask] * 0.7
-
-        # 3. Cleanup
-        cqt_mag[0:32, :] *= 0.1
-        
-        # 4. AGC Simulation
-        frame_maxes = np.max(cqt_mag, axis=0)
-        frame_maxes = np.maximum(frame_maxes, 0.001)
-        cqt_db = 20 * np.log10(np.maximum(cqt_mag, 1e-9) / frame_maxes)
-        norm = np.clip((cqt_db + 80.0) / 80.0, 0, 1)
-
-        # 5. SOFT SQUELCH 20%
-        mask = norm < 0.20
-        norm[mask] = 0.0
-        norm[~mask] = (norm[~mask] - 0.20) / 0.80
-
-        # 6. Chroma
-        chroma = librosa.feature.chroma_cqt(C=norm, sr=SR, hop_length=HOP_LENGTH, 
-                                            n_chroma=12, bins_per_octave=BINS_PER_OCTAVE)
-        
-        result = np.vstack([norm, chroma]).T.astype(np.float32)
-        
-        # Usuwamy y i pochodne z pamięci przed powrotem
-        del y, y_padded, y_frames, y_frames_windowed, basis_matrix
-        
-        return result
-
-    except Exception: return None
-
-# ==========================================
-# 4. DATA PARSERS & DISK CACHED DATASET
-# ==========================================
-def split_chord_label(chord_str):
+def split_chord_label_smart(chord_str):
     if not isinstance(chord_str, str): return None, None
     chord_str = chord_str.strip()
     if chord_str in ["N", "Noise"]: return "Noise", ""
     match = re.match(r"^([A-G][#b]?)\s*(.*)$", chord_str)
-    if not match: return None, None
+    if not match: 
+        if ":" in chord_str:
+            parts = chord_str.split(":")
+            r = NOTE_MAP.get(parts[0], parts[0])
+            q = parts[1].split("/")[0].split("(")[0]
+            if "maj7" in q: q = "Maj7"
+            elif "min7" in q: q = "m7"
+            elif "7" in q: q = "7"
+            elif "maj" in q: q = ""
+            elif "min" in q: q = "m"
+            return r, q
+        return None, None
+
     root = NOTE_MAP.get(match.group(1), match.group(1))
     qual_raw = match.group(2).strip().lower()
     q = None
@@ -199,244 +209,152 @@ def split_chord_label(chord_str):
     elif qual_raw == "note": return root, "Note"
     return root, q
 
-def load_guitarset_data():
-    data = []
-    print("🔍 GuitarSet: Parsowanie JAMS...")
-    audio_files = glob.glob(os.path.join(GUITARSET_DIR, "**", "*.wav"), recursive=True)
-    audio_map = {os.path.basename(f).replace("_mic.wav", "").replace("_mix.wav", ""): f for f in audio_files}
-    jams_files = glob.glob(os.path.join(GUITARSET_DIR, "**", "*.jams"), recursive=True)
+def find_file(filename):
+    if os.path.exists(filename): return filename
+    for root, dirs, files in os.walk('/kaggle/input'):
+        if filename in files: return os.path.join(root, filename)
+    for root, dirs, files in os.walk('./'):
+        if filename in files: return os.path.join(root, filename)
+    return None
 
-    for j_path in tqdm(jams_files):
-        stem = os.path.basename(j_path).replace(".jams", "")
-        audio_path = None
-        for k, v in audio_map.items():
-            if stem in k: audio_path = v; break
-        if not audio_path: continue
+model_path = find_file(MODEL_FILENAME)
+wav_path = find_file(TEST_WAV)
+csv_path = find_file(TEST_CSV)
 
-        try:
-            with open(j_path, 'r') as f: content = json.load(f)
-            for ann in content["annotations"]:
-                if ann["namespace"] == "chord":
-                    for obs in ann["data"]:
-                        lbl = obs["value"]
-                        if ":" in lbl:
-                            r, q = lbl.split(":")
-                            q = q.split("/")[0].split("(")[0]
-                            r_final, q_final = split_chord_label(f"{r} {q}")
-                            if r_final in ROOTS and q_final in QUALS:
-                                data.append({"path": audio_path, "start": obs["time"], "end": obs["time"]+obs["duration"], 
-                                             "root": ROOT_TO_IDX[r_final], "qual": QUAL_TO_IDX[q_final]})
-                        elif lbl == "N":
-                             data.append({"path": audio_path, "start": obs["time"], "end": obs["time"]+obs["duration"], 
-                                          "root": ROOT_TO_IDX["Noise"], "qual": QUAL_TO_IDX[""]})
-        except: pass
-    return pd.DataFrame(data)
+if not model_path: sys.exit(f"❌ Brak modelu: {MODEL_FILENAME}")
+if not wav_path or not csv_path: sys.exit("❌ Brak plików datasetu.")
 
-def load_custom_data(root_dir):
-    data = []
-    print(f"🔍 Custom Data: Szukanie w {root_dir}...")
-    target_wavs = ["dataset_clean.wav", "dataset_eob.wav"]
-    for root, dirs, files in os.walk(root_dir):
-        if "dataset_annotations.csv" in files:
-            csv_path = os.path.join(root, "dataset_annotations.csv")
-            try:
-                df_raw = pd.read_csv(csv_path, sep=None, engine='python')
-                cols = [c.lower() for c in df_raw.columns]; df_raw.columns = cols
-                col_lbl = next((c for c in cols if 'label' in c or 'chord' in c), None)
-                col_start = next((c for c in cols if 'start' in c), None)
-                col_end = next((c for c in cols if 'end' in c), None)
-                col_file = next((c for c in cols if 'file' in c or 'audio' in c), None)
-                if not col_lbl: continue
-                local_wavs = [f for f in files if f.endswith(".wav")]
-                found_targets = [t for t in target_wavs if t in local_wavs]
-                for _, row in df_raw.iterrows():
-                    r, q = split_chord_label(str(row[col_lbl]))
-                    if r not in ROOTS or q not in QUALS: continue
-                    start = float(row[col_start]) if col_start else 0.0
-                    end = float(row[col_end]) if col_end else 10.0
-                    files_proc = []
-                    if col_file and str(row[col_file]) in local_wavs: files_proc.append(str(row[col_file]))
-                    elif found_targets: files_proc = found_targets
-                    else: files_proc = local_wavs
-                    for fname in files_proc:
-                        data.append({"path": os.path.join(root, fname), "start": start, "end": end,
-                                     "root": ROOT_TO_IDX[r], "qual": QUAL_TO_IDX[q]})
-            except Exception: pass
-    return pd.DataFrame(data)
-
-class DiskCacheDataset(Dataset):
-    def __init__(self, df):
-        self.indices = []      # (cache_file_path, start_frame, root, qual)
-        print(f"📦 Budowanie datasetu DISK-CACHE ({len(df)} regionów)...")
-        print(f"📂 Cache dir: {CACHE_DIR}")
-        
-        grouped = df.groupby("path")
-        
-        for path, group in tqdm(grouped):
-            # 1. Oblicz DSP
-            feats = rust_dsp_simulation(path, augment=True)
-            if feats is None: continue
-            
-            # 2. Zapisz na dysk (npy)
-            cache_name = f"track_{abs(hash(path))}.npy"
-            cache_path = os.path.join(CACHE_DIR, cache_name)
-            np.save(cache_path, feats)
-            
-            # Pobierz długość (ilość ramek)
-            n_total_frames = feats.shape[0]
-            
-            # 3. Usuń z RAM
-            del feats
-            
-            # 4. Indeksuj
-            for _, row in group.iterrows():
-                s = int(row['start'] * SR / HOP_LENGTH)
-                e = int(row['end'] * SR / HOP_LENGTH)
-                
-                if e - s > CTX_FRAMES:
-                    for i in range(s, e - CTX_FRAMES, 6):
-                        if i + CTX_FRAMES <= n_total_frames:
-                            self.indices.append((cache_path, i, row['root'], row['qual']))
-            
-            # Wymuś GC
-            gc.collect()
-
-    def __len__(self): return len(self.indices)
-
-    def __getitem__(self, idx):
-        path, start, r, q = self.indices[idx]
-        
-        # MAGIC: mmap_mode='r'
-        # Wczytuje z dysku TYLKO potrzebny fragment, nie cały plik!
-        # To klucz do niskiego zużycia RAM.
-        data_mmap = np.load(path, mmap_mode='r')
-        
-        # Kopiujemy mały fragment do pamięci (32 klatki)
-        x = data_mmap[start : start+CTX_FRAMES].copy()
-        
-        if np.isnan(x).any(): x = np.zeros_like(x)
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(r, dtype=torch.long), torch.tensor(q, dtype=torch.long)
+print(f"🧠 Model: {os.path.basename(model_path)}")
+print(f"🎵 Audio: {os.path.basename(wav_path)}")
 
 # ==========================================
-# 5. MODEL (V10)
+# 5. PROCESSING
 # ==========================================
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2):
-        super().__init__()
-        self.alpha = alpha; self.gamma = gamma; self.ce = nn.CrossEntropyLoss(reduction='none')
-    def forward(self, inputs, targets):
-        logpt = -self.ce(inputs, targets); pt = torch.exp(logpt)
-        return (self.alpha * (1-pt)**self.gamma * self.ce(inputs, targets)).mean()
+print("⏳ Przetwarzanie DSP (Symulacja Rust V16)...")
+y = robust_load(wav_path, SR)
+features = rust_dsp_simulation(y)
 
-class SEBlock(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel//16, bias=False), nn.ReLU(True), nn.Linear(channel//16, channel, bias=False), nn.Sigmoid())
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c); y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
+if features is None: sys.exit("❌ Błąd DSP.")
+print(f"✅ DSP Gotowe. Kształt: {features.shape}")
 
-class ConvBlockSE(nn.Module):
-    def __init__(self, in_c, out_c):
-        super().__init__()
-        self.conv = nn.Conv2d(in_c, out_c, 3, padding=1)
-        self.gn = nn.GroupNorm(8, out_c); self.relu = nn.ReLU(); self.se = SEBlock(out_c)
-        self.pool = nn.MaxPool2d((1, 2)); self.drop = nn.Dropout2d(0.1)
-    def forward(self, x): return self.drop(self.pool(self.se(self.relu(self.gn(self.conv(x))))))
+sess = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+input_name = sess.get_inputs()[0].name
 
-class TransformerV10(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.inorm = nn.InstanceNorm2d(1, affine=True)
-        self.enc = nn.Sequential(ConvBlockSE(1, 32), ConvBlockSE(32, 64), ConvBlockSE(64, 128), ConvBlockSE(128, 256))
-        self.proj = nn.Linear(256 * 12, 256)
-        self.cls = nn.Parameter(torch.randn(1, 1, 256))
-        self.pos = nn.Parameter(torch.randn(1, CTX_FRAMES + 1, 256))
-        self.tr = nn.TransformerEncoder(nn.TransformerEncoderLayer(256, 4, 512, 0.2, batch_first=True, norm_first=True), 3)
-        self.fc_r = nn.Linear(256, len(ROOTS)); self.fc_q = nn.Linear(256, len(QUALS))
+try:
+    df = pd.read_csv(csv_path, sep=None, engine='python')
+    df.columns = [c.strip().lower() for c in df.columns]
+    col_lbl = next((c for c in df.columns if 'label' in c or 'chord' in c), None)
+    col_start = next((c for c in df.columns if 'start' in c), None)
+    col_end = next((c for c in df.columns if 'end' in c), None)
+except: sys.exit("❌ Błąd CSV")
 
-    def forward(self, x):
-        x = self.enc(self.inorm(x.unsqueeze(1)))
-        b, c, t, f = x.size()
-        x = self.proj(x.permute(0, 2, 1, 3).reshape(b, t, c*f))
-        x = torch.cat((self.cls.expand(b, -1, -1), x), 1) + self.pos
-        x = self.tr(x)[:, 0]
-        return self.fc_r(x), self.fc_q(x)
+def get_truth_tuple(t_sec):
+    row = df[(df[col_start] <= t_sec) & (df[col_end] > t_sec)]
+    if not row.empty: 
+        return split_chord_label_smart(str(row.iloc[0][col_lbl]))
+    return None, None
+
+def format_chord(r, q):
+    if r == "Noise": return "Noise"
+    if q == "Note": return f"Note {r}"
+    if q == "": return r 
+    return f"{r} {q}"
+
+y_true_str, y_pred_str = [], []
+y_true_q = []
+
+STRIDE = 4
+num_steps = features.shape[0] - CTX_FRAMES
+
+print("🚀 Uruchamianie benchmarku...")
+ignored = 0
+
+for t in tqdm(range(0, num_steps, STRIDE)):
+    center_time = (t + CTX_FRAMES//2) * HOP_LENGTH / SR
+    t_root, t_qual = get_truth_tuple(center_time)
+    
+    if not t_root: continue
+    if t_root not in ROOTS or t_qual not in QUALS:
+        ignored += 1
+        continue
+    
+    inp = features[t : t+CTX_FRAMES][np.newaxis, :, :]
+    outs = sess.run(None, {input_name: inp})
+    
+    def sm(x): 
+        e=np.exp(x-np.max(x)); return e/e.sum()
+    
+    pr = sm(outs[0][0])
+    pq = sm(outs[1][0])
+    
+    p_root = ROOTS[np.argmax(pr)]
+    p_qual = QUALS[np.argmax(pq)]
+    
+    t_full = format_chord(t_root, t_qual)
+    p_full = format_chord(p_root, p_qual)
+    
+    y_true_str.append(t_full)
+    y_pred_str.append(p_full)
+    y_true_q.append(t_qual)
 
 # ==========================================
-# 6. MAIN
+# 6. RAPORT
 # ==========================================
-if __name__ == "__main__":
-    install_libs()
-    setup_guitarset()
-    
-    df_gs = load_guitarset_data()
-    df_custom = load_custom_data(CUSTOM_DATA_DIR)
-    df_kaggle = load_custom_data("/kaggle/input")
-    
-    df_final = pd.concat([df_gs, df_custom, df_kaggle], ignore_index=True).drop_duplicates(subset=["path", "start"])
-    print(f"📊 Dataset: {len(df_final)} regionów.")
-    if len(df_final)==0: sys.exit("Brak danych.")
+if not y_true_str: sys.exit("❌ Brak wyników.")
 
-    # Używamy nowej klasy Dataset
-    ds = DiskCacheDataset(df_final)
-    
-    tr_len = int(0.9 * len(ds))
-    tr, te = random_split(ds, [tr_len, len(ds)-tr_len])
-    
-    # num_workers=2 jest bezpieczne przy mmap
-    tr_l = DataLoader(tr, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
-    te_l = DataLoader(te, batch_size=BATCH_SIZE, shuffle=False)
-    
-    model = TransformerV10().to(device)
-    if torch.cuda.device_count() > 1: model = nn.DataParallel(model)
+acc = 100 * sum([1 for t, p in zip(y_true_str, y_pred_str) if t == p]) / len(y_true_str)
 
-    opt = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
-    crit_r, crit_q = nn.CrossEntropyLoss(), FocalLoss(gamma=2.0)
-    sched = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3, verbose=True)
+jazz_ok = sum([1 for tq, t, p in zip(y_true_q, y_true_str, y_pred_str) if tq in JAZZ_QUALS and t==p])
+jazz_tot = sum([1 for tq in y_true_q if tq in JAZZ_QUALS])
+basic_ok = sum([1 for tq, t, p in zip(y_true_q, y_true_str, y_pred_str) if tq in BASIC_QUALS and t==p])
+basic_tot = sum([1 for tq in y_true_q if tq in BASIC_QUALS])
 
-    best_v = float('inf')
-    print("\n🔥 START TRENINGU (DISK CACHE MODE)...")
+print("\n" + "="*60)
+print(f"📊 RAPORT SKUTECZNOŚCI MODELU: {MODEL_FILENAME}")
+print("="*60)
+print(f"🏆 GLOBAL ACCURACY:      {acc:.2f}%")
+if basic_tot > 0:
+    print(f"🔹 BASIC (Triady/Notes): {100*basic_ok/basic_tot:.2f}%")
+if jazz_tot > 0:
+    print(f"🎷 JAZZ (7/9/13/dim):    {100*jazz_ok/jazz_tot:.2f}%")
+print("-" * 60)
+
+stats = {}
+for t, p in zip(y_true_str, y_pred_str):
+    if t not in stats: stats[t] = {'ok': 0, 'tot': 0, 'errs': []}
+    stats[t]['tot'] += 1
+    if t == p: 
+        stats[t]['ok'] += 1
+    else:
+        stats[t]['errs'].append(p)
+
+results = sorted([(k, v) for k, v in stats.items()], key=lambda x: 100*x[1]['ok']/x[1]['tot'])
+
+print(f"{'AKORD':<15} | {'ACC':<8} | {'SAMPLES'} | {'TYPOWE BŁĘDY'}")
+print("-" * 75)
+
+for label, data in results:
+    acc_lbl = 100 * data['ok'] / data['tot']
+    c = "\033[91m" if acc_lbl < 50 else "\033[93m" if acc_lbl < 80 else "\033[92m"
     
-    for ep in range(EPOCHS):
-        model.train(); l_sum = 0
-        loop = tqdm(tr_l, desc=f"Ep {ep+1}")
-        for x, r, q in loop:
-            try:
-                x,r,q = x.to(device), r.to(device), q.to(device)
-                opt.zero_grad(); or_, oq_ = model(x)
-                loss = crit_r(or_, r) + crit_q(oq_, q)
-                if torch.isnan(loss): continue
-                loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
-                l_sum += loss.item(); loop.set_postfix(loss=loss.item())
-            except RuntimeError as e:
-                print(f"Error: {e}")
-                continue
-        
-        model.eval(); v_loss, cr, cq, tot = 0, 0, 0, 0
-        with torch.no_grad():
-            for x, r, q in te_l:
-                try:
-                    x,r,q = x.to(device), r.to(device), q.to(device)
-                    or_, oq_ = model(x)
-                    v_loss += (crit_r(or_, r) + crit_q(oq_, q)).item()
-                    cr += (or_.argmax(1)==r).sum().item(); cq += (oq_.argmax(1)==q).sum().item()
-                    tot += r.size(0)
-                except: pass
-        
-        if tot > 0:
-            vl = v_loss/len(te_l)
-            print(f"📉 Val: {vl:.4f} | R: {cr/tot:.2%} | Q: {cq/tot:.2%}")
-            sched.step(vl)
-            if vl < best_v:
-                best_v = vl
-                m_save = model.module if hasattr(model, 'module') else model
-                torch.onnx.export(m_save, torch.randn(1, CTX_FRAMES, N_BINS + 12).to(device), 
-                                "chord_model_v15_final.onnx", input_names=["in"], output_names=["out_root", "out_qual"],
-                                dynamic_axes={"in":{0:"b"}, "out_root":{0:"b"}, "out_qual":{0:"b"}}, opset_version=14)
-                print("💾 Saved.")
-    
-    # Sprzątanie cache
-    shutil.rmtree(CACHE_DIR)
+    err_str = ""
+    if data['errs']:
+        most_common = Counter(data['errs']).most_common(1)
+        err_chord, err_count = most_common[0]
+        err_pct = int(100 * err_count / len(data['errs']))
+        err_str = f"-> {err_chord} ({err_pct}%)"
+
+    print(f"{c}{label:<15} | {acc_lbl:6.2f}% | {data['tot']:<7} | {err_str}\033[0m")
+
+print("\n✅ Wyniki zapisano do pliku: model_benchmark.txt")
+
+# Wykres
+plt.figure(figsize=(20, 18))
+labels_sorted = sorted(list(set(y_true_str + y_pred_str)))
+cm = confusion_matrix(y_true_str, y_pred_str, labels=labels_sorted, normalize='true')
+
+sns.heatmap(cm, annot=False, xticklabels=labels_sorted, yticklabels=labels_sorted, cmap='viridis')
+plt.title(f"Confusion Matrix (Accuracy: {acc:.2f}%)", fontsize=16)
+plt.tight_layout()
+plt.savefig("confusion_matrix.png", dpi=150)
+print("✅ Wykres zapisano jako: confusion_matrix.png")
