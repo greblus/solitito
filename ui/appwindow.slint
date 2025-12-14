@@ -34,9 +34,9 @@ component DebugBar inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "Solitito 5.0";
+    title: "Solitito V26";
     width: 400px;
-    height: 700px; // Zwiększyłem wysokość, żeby zmieściły się suwaki
+    height: 700px; 
     background: #000000;
 
     // --- DANE ---
@@ -64,9 +64,9 @@ export component AppWindow inherits Window {
     in-out property <bool> random_enabled: false;
     in-out property <string> interval_input_text: "1 3 5";
 
-    // NOWE SUWAKI AUDIO
-    in-out property <float> input_gain: 3.0;      // Domyślnie 3.0
-    in-out property <float> noise_gate: 0.0002;   // Domyślnie 0.0002
+    // --- AUDIO CONTROL ---
+    in-out property <float> input_gain: 2.0;    
+    in-out property <float> noise_gate: 0.02;   
     
     callback toggle_mode(int); 
     callback item_selected(int); 
@@ -92,7 +92,7 @@ export component AppWindow inherits Window {
             
             VerticalLayout {
                 padding: 10px; 
-                spacing: 8px; // Zmniejszyłem odstępy żeby się zmieściło
+                spacing: 8px; 
                 
                 Text { text: "Settings"; font-size: 18px; color: white; horizontal-alignment: center; }
                 
@@ -111,30 +111,30 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // --- AUDIO CONTROL (NOWE) ---
-                Rectangle { height: 1px; background: #444; } // Separator
+                Rectangle { height: 1px; background: #444; } 
                 Text { text: "Audio Calibration"; color: #ddd; font-size: 12px; }
 
                 // 1. INPUT GAIN
                 HorizontalLayout {
-                    Text { text: "In Gain: " + round(root.input_gain); color: white; vertical-alignment: center; width: 80px; }
+                    Text { text: "In Gain: " + round(root.input_gain*10)/10; color: white; vertical-alignment: center; width: 80px; }
                     Slider { 
-                        minimum: 1.0; maximum: 20.0; 
+                        minimum: 1.0; maximum: 20.0; step: 0.1;
                         value <=> root.input_gain; 
                     }
                 }
 
-                // 2. NOISE GATE (Bramka)
+                // 2. NOISE GATE (FIXED RANGE)
                 HorizontalLayout {
-                    // Wyświetlamy mnożnik x10000 dla czytelności (np. 2.0 zamiast 0.0002)
+                    // Wyświetlanie z dokładnością 0.0001
                     Text { text: "Gate: " + round(root.noise_gate * 10000) / 10000; color: white; vertical-alignment: center; width: 80px; }
                     Slider { 
-                        minimum: 0.0; maximum: 0.005; step: 0.0001;
+                        minimum: 0.0; 
+                        maximum: 0.1; // Duży zapas (umożliwia 0.02)
+                        step: 0.0001;
                         value <=> root.noise_gate; 
                     }
                 }
-                Rectangle { height: 1px; background: #444; } // Separator
-                // ---------------------------
+                Rectangle { height: 1px; background: #444; }
 
                 HorizontalLayout {
                     Text { text: "Thresh: "; color: #aaa; vertical-alignment: center; width: 60px; }
@@ -170,7 +170,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Debugger
+                // Debugger (Paski)
                 Rectangle {
                     height: 50px;
                     background: black;

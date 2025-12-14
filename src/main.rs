@@ -13,7 +13,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Duration;
 
-// TOTAL_FEATURES = 204
+// Używamy V26 (156 cech)
 use audio::{AudioAnalysis, start_audio_stream, start_file_playback, TOTAL_FEATURES};
 use brain::ChordBrain;
 use state::{MyApp, AppMode};
@@ -27,15 +27,20 @@ fn main() -> Result<(), slint::PlatformError> {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
 
-    // Bufor ustawiony na 204 (192 CQT + 12 Chroma)
+    // --- USTAWIENIA DOMYŚLNE STARTOWE ---
+    // Tu ustawiasz to, z czym program ma wstać.
+    let default_gain = 2.0;
+    let default_gate = 0.02; // Próg 2% (wystarczający dla soft squelch)
+
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
         chroma_sum: [0.0; 12],
         spectrum_visual: [0.0; 48],
-        raw_input_for_ai: [0.0; TOTAL_FEATURES],
+        // Bufor dynamiczny zależny od TOTAL_FEATURES (156)
+        raw_input_for_ai: [0.0; TOTAL_FEATURES], 
         bass_boost_enabled: true,
-        bass_boost_gain: 5.0,
-        input_gain: 3.0,
-        noise_gate: 0.015, // Trochę wyższa bramka dla CQT
+        bass_boost_gain: 1.0, 
+        input_gain: default_gain,      
+        noise_gate: default_gate,    
     }));
     
     let args: Vec<String> = env::args().collect();
@@ -59,35 +64,43 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     
-    // MODEL V10
-    let model_filename = "chord_model_v10_final.onnx"; 
+    // MODEL V26 (Czysta Fizyka)
+    let model_filename = "chord_model_v31_16k.onnx"; 
     
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),
         Err(e) => {
             eprintln!("WARNING: Could not load AI Model '{}': {}", model_filename, e);
-            eprintln!("AI Chord recognition will be DISABLED.");
             None
         }
     };
 
     let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), brain)));
-
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
+    // --- BLOK INICJALIZACYJNY UI ---
+    // To wykonuje się RAZ, zanim ruszy pętla odświeżania.
     {
         let app = my_app.lock().unwrap();
+        
+        // 1. Ładowanie listy
         let titles: Vec<SharedString> = app.song_library.iter()
             .map(|s| SharedString::from(&s.title))
             .collect();
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
+        
+        // 2. FORSUJEMY WARTOŚCI STARTOWE DO UI
+        // Dzięki temu suwaki ustawią się na 2.0 i 0.02, a nie na swoje domyślne.
+        ui.set_input_gain(default_gain);
+        ui.set_noise_gate(default_gate); 
     }
 
     let timer = Timer::default();
     let app_clone = my_app.clone();
     let mut frame_counter = 0;
     
+    // PĘTLA GŁÓWNA (60 FPS)
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
@@ -99,14 +112,16 @@ fn main() -> Result<(), slint::PlatformError> {
         };
 
         if !file_mode {
+            // CZYTAMY UI -> RUST
+            // Bez mnożników. 1:1 mapping.
             app.input_gain = ui.get_input_gain();
             app.noise_gate = ui.get_noise_gate();
         }
+        
         app.sensitivity = ui.get_threshold();
         app.tail_threshold = ui.get_tail();
         app.transition_delay = ui.get_delay();
         app.bass_boost_enabled = ui.get_boost_enabled();
-        app.bass_boost_gain = ui.get_boost_gain();
         app.random_mode = ui.get_random_enabled();
         
         let input_txt = ui.get_interval_input_text().to_string();
@@ -119,12 +134,10 @@ fn main() -> Result<(), slint::PlatformError> {
         app.check_progress(dt, &chroma); 
         app.sync_audio_settings();
 
-        // --- AI INFERENCE ---
         let brain_arc = app.brain.clone();
 
         if let Some(brain_mutex) = brain_arc {
             if let Ok(mut b) = brain_mutex.lock() {
-                // Predict używa teraz bufora o rozmiarze 204
                 if let Ok((chord, score)) = b.predict(&raw_ai) {
                     
                     if file_mode && frame_counter % 6 == 0 { 
@@ -134,9 +147,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
 
                     app.chord_history.push_back((chord, score));
-                    if app.chord_history.len() > 8 { 
-                        app.chord_history.pop_front(); 
-                    }
+                    if app.chord_history.len() > 6 { app.chord_history.pop_front(); }
                     
                     let mut votes: HashMap<String, f32> = HashMap::new();
                     for (c, s) in &app.chord_history {
@@ -149,11 +160,12 @@ fn main() -> Result<(), slint::PlatformError> {
                         if v > max_v { max_v = v; best_c = c; }
                     }
                     
-                    let confidence = if !app.chord_history.is_empty() { max_v / app.chord_history.len() as f32 } else { 0.0 };
+                    let confidence = if !app.chord_history.is_empty() { 
+                        max_v / app.chord_history.len() as f32 
+                    } else { 0.0 };
 
-                    // Wyświetl wynik, jeśli pewność jest wystarczająca
-                    if confidence > 0.4 {  // Zmniejszony próg dla V10
-                         ui.set_ai_text(format!("AI: {} ({:.1})", best_c, confidence).into());
+                    if confidence > 0.4 { 
+                         ui.set_ai_text(format!("AI: {} ({:.0}%)", best_c, confidence * 100.0).into());
                     } else {
                          ui.set_ai_text("AI: ...".into());
                     }
@@ -195,10 +207,9 @@ fn main() -> Result<(), slint::PlatformError> {
                  let was_collected = app.collected_notes[note_idx];
                  let in_delay = app.time_since_change < app.transition_delay;
                  let active_now = app.is_note_active(note_idx, &chroma) && !in_delay;
-                 let is_active = was_collected || active_now;
                  
                  ui_names.push(SharedString::from(name));
-                 if is_active { 
+                 if was_collected || active_now { 
                      ui_colors.push(Color::from_rgb_u8(100, 255, 100)); 
                  } else { 
                      ui_colors.push(Color::from_rgb_u8(80, 80, 80)); 
@@ -213,10 +224,10 @@ fn main() -> Result<(), slint::PlatformError> {
             let targets = curr_chord.get_target_indices();
             
             for i in 0..48 {
-                let note_idx = (i + 40) % 12; // +40 dla offsetu wizualnego
+                let note_idx = (i + 40) % 12; 
                 let val = spectrum_vis[i];
                 let is_target = targets.contains(&note_idx);
-                let color = if val > 0.1 { 
+                let color = if val > 0.05 { 
                     if is_target { Color::from_rgb_u8(50, 255, 100) } 
                     else { Color::from_rgb_u8(255, 50, 50) }
                 } else {
@@ -230,6 +241,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
+    // Callbacki
     let app_weak = my_app.clone();
     let ui_weak_cb = ui.as_weak();
     

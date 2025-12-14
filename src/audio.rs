@@ -8,17 +8,23 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{FftPlanner, num_complex::Complex};
 use anyhow::{Result, Context};
 use serde::Deserialize;
+use std::f32::consts::PI;
 
-// --- STAŁE ---
-pub const TOTAL_FEATURES: usize = 204; 
-pub const CQT_BINS: usize = 192;       
+// --- STAŁE V26 (16k Standard) ---
+// 144 CQT + 12 Chroma = 156 cech dla modelu AI
+pub const TOTAL_FEATURES: usize = 156; 
+pub const CQT_BINS: usize = 144;       
 pub const CHROMA_BINS: usize = 12;
 
-const TARGET_SR: u32 = 22050; 
+// Próbkowanie 16kHz - idealny balans dla gitary
+const TARGET_SR: u32 = 16000; 
 const FFT_SIZE: usize = 8192; 
-const HOP_LENGTH: usize = 512; 
+// Hop 256 przy 16k daje ~16ms (płynne 60fps)
+const HOP_LENGTH: usize = 256; 
 
-const MIN_REF_LEVEL: f32 = 0.0001; 
+// FIX: Podniesiony poziom referencyjny (z 0.0001 na 0.02).
+// Zapobiega podbijaniu szumu tła do maksymalnej głośności w ciszy.
+const MIN_REF_LEVEL: f32 = 0.02; 
 
 #[derive(Deserialize)]
 struct DspConfig {
@@ -51,11 +57,16 @@ pub struct CqtAnalyzer {
     #[allow(dead_code)] planner: FftPlanner<f32>,
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
     window: Vec<f32>,
+    
+    // Wagi macierzowe (Complex CQT)
     cqt_re: Vec<f32>,     
     cqt_im: Vec<f32>,     
     chroma_matrix: Vec<f32>,  
+    
     fft_buffer: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>,
+    
+    // AGC (Auto Gain Control)
     running_ref: f32,
 }
 
@@ -68,16 +79,18 @@ impl CqtAnalyzer {
 
         if config.fft_size != FFT_SIZE {
             eprintln!("WARNING: JSON FFT Size {} != Rust FFT Size {}", config.fft_size, FFT_SIZE);
+            eprintln!("Upewnij się, że wygenerowałeś wagi dla SR=16000 i FFT=8192.");
         }
 
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
         
+        // Okno Hanninga (redukcja przecieków widma)
         let window: Vec<f32> = (0..FFT_SIZE)
             .map(|i| {
                 let n = i as f32;
                 let size = (FFT_SIZE - 1) as f32;
-                0.5 * (1.0 - (2.0 * std::f32::consts::PI * n / size).cos())
+                0.5 * (1.0 - (2.0 * PI * n / size).cos())
             })
             .collect();
 
@@ -97,7 +110,7 @@ impl CqtAnalyzer {
     }
 
     pub fn compute_cqt_chroma(&mut self, audio_chunk: &[f32]) -> (Vec<f32>, Vec<f32>) {
-        // 1. FFT
+        // 1. FFT Processing
         for (i, &sample) in audio_chunk.iter().enumerate().take(FFT_SIZE) {
             self.fft_buffer[i] = Complex { re: sample * self.window[i], im: 0.0 };
         }
@@ -108,7 +121,7 @@ impl CqtAnalyzer {
         self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
         let n_fft_bins = FFT_SIZE / 2 + 1;
 
-        // 2. CQT (Complex)
+        // 2. Matrix CQT Calculation (Complex Multiplication)
         let mut cqt_vals = vec![0.0; CQT_BINS];
         for i in 0..CQT_BINS {
             let mut sum_re = 0.0;
@@ -117,8 +130,11 @@ impl CqtAnalyzer {
                 let idx = k * CQT_BINS + i;
                 let w_re = self.cqt_re[idx];
                 let w_im = self.cqt_im[idx];
+                
+                // Optymalizacja dla rzadkiej macierzy
                 if w_re.abs() > 1e-9 || w_im.abs() > 1e-9 {
                     let fft_val = self.fft_buffer[k];
+                    // (a+bi)(c+di) = (ac-bd) + (ad+bc)i
                     sum_re += fft_val.re * w_re - fft_val.im * w_im;
                     sum_im += fft_val.re * w_im + fft_val.im * w_re;
                 }
@@ -126,35 +142,23 @@ impl CqtAnalyzer {
             cqt_vals[i] = (sum_re * sum_re + sum_im * sum_im).sqrt();
         }
 
-        // --- SPECTRAL COMPENSATION V3 (Smart Bass) ---
-        // Zamiast tępo podbijać wszystko, robimy to mądrze:
-        
-        for i in 0..cqt_vals.len() {
-            // Pasmo 0-15: C1 (32Hz) do D#2 (77Hz).
-            // Standardowa gitara tu nie gra. To głównie szum sieci (50Hz/60Hz) i uderzenia w pudło.
-            if i < 16 {
-                cqt_vals[i] *= 0.6; // Tłumimy sub-bas, żeby nie "migał"
-            } 
-            // Pasmo 16-48: E2 (82Hz) do E3. 
-            // To są właściwe basowe struny gitary. Wymagają pomocy, ale delikatnej.
-            else if i < 48 {
-                // Liniowy boost od 1.6x (dla E2) spadający do 1.0x
-                let rel_idx = i - 16;
-                let range = 32.0;
-                let boost = 1.6 - (0.6 * (rel_idx as f32 / range));
-                cqt_vals[i] *= boost;
-            }
+        // --- SUB-BASS CLEANUP ---
+        // Tłumimy pasmo poniżej E2 (indeks ~28-30).
+        for i in 0..28 {
+            cqt_vals[i] *= 0.1;
         }
 
-        // 3. AGC & Squelch
+        // 3. AGC & Normalization
         let frame_max = cqt_vals.iter().fold(0.0f32, |a, &b| a.max(b));
 
+        // Dynamika AGC (Fast Attack, Slow Decay)
         if frame_max > self.running_ref {
             self.running_ref = self.running_ref * 0.5 + frame_max * 0.5;
         } else {
-            self.running_ref = self.running_ref * 0.9995 + frame_max * 0.0005;
+            self.running_ref = self.running_ref * 0.995 + frame_max * 0.005;
         }
         
+        // FIX: Używamy stałej MIN_REF_LEVEL (0.02), żeby nie wzmacniać szumu w ciszy
         let effective_ref = self.running_ref.max(MIN_REF_LEVEL);
 
         for x in &mut cqt_vals {
@@ -163,18 +167,18 @@ impl CqtAnalyzer {
             let mut norm = (db + 80.0) / 80.0;
             norm = norm.clamp(0.0, 1.0);
             
-            // SQUELCH + KONTRAST
-            if norm < 0.40 {
+            // Soft Squelch (20% - Liniowy)
+            // Jeśli sygnał jest poniżej 20% max głośności, tniemy do zera.
+            if norm < 0.20 {
                 norm = 0.0;
             } else {
-                norm = (norm - 0.40) / 0.60;
-                norm = norm * norm; 
+                // Rozciągamy zakres 0.2-1.0 na 0.0-1.0
+                norm = (norm - 0.20) / 0.80;
             }
-            
             *x = norm;
         }
 
-        // 4. Chroma
+        // 4. Chroma Calculation
         let mut chroma_vals = vec![0.0; CHROMA_BINS];
         for i in 0..CHROMA_BINS {
             let mut sum = 0.0;
@@ -185,6 +189,7 @@ impl CqtAnalyzer {
             chroma_vals[i] = sum;
         }
 
+        // Chroma Normalization
         let c_max = chroma_vals.iter().fold(0.0f32, |a, &b| a.max(b)).max(1e-9);
         if c_max > 0.0 {
             for x in &mut chroma_vals { *x /= c_max; }
@@ -205,7 +210,9 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
     
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     
+    // Resampling do 16000 Hz
     let ratio = mic_sr as f32 / TARGET_SR as f32;
+    
     let mut input_accumulator: Vec<f32> = Vec::with_capacity(8192 * 2);
     let mut processed_audio_buffer: Vec<f32> = Vec::with_capacity(FFT_SIZE * 2);
 
@@ -245,13 +252,16 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
             while processed_audio_buffer.len() >= FFT_SIZE {
                 let chunk_to_process = &processed_audio_buffer[0..FFT_SIZE];
                 
+                // Pobieramy ustawienia z UI
                 let (gain, gate) = {
                     let s = shared_state.lock().unwrap();
                     (s.input_gain, s.noise_gate)
                 };
                 
+                // RMS Gate
                 let rms = (chunk_to_process.iter().map(|x| x*x).sum::<f32>() / FFT_SIZE as f32).sqrt();
                 
+                // Jeśli RMS (po wzmocnieniu) przebija bramkę -> analizujemy
                 if rms * gain > gate {
                     let amplified: Vec<f32> = chunk_to_process.iter().map(|&x| x * gain).collect();
                     let (cqt, chroma) = analyzer.compute_cqt_chroma(&amplified);
@@ -262,9 +272,12 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                         frame.extend_from_slice(&chroma);
                         state.copy_to_input(&frame);
                         
+                        // Wizualizacja 48 pasków (24-72)
                         for k in 0..48 {
-                            let start = k * 4;
-                            let avg = (cqt[start] + cqt[start+1] + cqt[start+2] + cqt[start+3]) / 4.0;
+                            let start = k * 2 + 24; 
+                            let avg = if start+1 < cqt.len() {
+                                (cqt[start] + cqt[start+1]) / 2.0
+                            } else { 0.0 };
                             state.spectrum_visual[k] = state.spectrum_visual[k] * 0.7 + avg * 0.3;
                         }
                         for k in 0..12 {
@@ -272,6 +285,7 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                         }
                     }
                 } else {
+                    // Cisza -> Fade out
                     if let Ok(mut state) = shared_state.lock() {
                         for x in &mut state.spectrum_visual { *x *= 0.8; }
                         for x in &mut state.chroma_sum { *x *= 0.8; }
@@ -344,7 +358,11 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 frame.extend_from_slice(&chroma);
                 state.copy_to_input(&frame);
                 
-                for k in 0..48 { state.spectrum_visual[k] = cqt[k*4]; }
+                for k in 0..48 { 
+                    let start = k * 2 + 24; 
+                    let avg = if start+1 < cqt.len() { (cqt[start] + cqt[start+1]) / 2.0 } else { 0.0 };
+                    state.spectrum_visual[k] = avg; 
+                }
                 state.chroma_sum = chroma.try_into().unwrap_or([0.0;12]);
             }
             
