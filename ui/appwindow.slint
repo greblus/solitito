@@ -3,8 +3,8 @@ import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollVi
 component NoteBar inherits Rectangle {
     in property <string> label;
     in property <brush> bar_color;
-    width: 55px;
-    height: 60px;
+    width: 60px;
+    height: 65px;
     background: transparent;
 
     VerticalLayout {
@@ -18,10 +18,31 @@ component NoteBar inherits Rectangle {
     }
 }
 
+component ModeButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    
+    border-radius: 4px;
+    background: selected ? #0055ff : #222;
+    border-width: 1px;
+    border-color: selected ? #4488ff : #444;
+    
+    TouchArea { clicked => { root.clicked() } }
+    
+    Text {
+        text: root.text;
+        color: root.selected ? white : #aaa;
+        font-weight: root.selected ? 700 : 400;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+}
+
 component DebugBar inherits Rectangle {
     in property <float> level;
     in property <color> active_color; 
-    width: 6px;
+    width: 8px;
     height: 60px;
     background: #111;
     
@@ -34,15 +55,15 @@ component DebugBar inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "Solitito V26";
-    width: 400px;
-    height: 700px; 
+    title: "Solitito";
+    width: 550px;
+    height: 800px; 
     background: #000000;
 
     // --- DANE ---
     in property <string> song_title: "No Data";
     in property <string> chord_name: "...";
-    in property <string> ai_text: "AI: ...";
+    in property <string> ai_text: "";
     in property <string> next_chord: "";
     
     in property <[string]> interval_names;
@@ -51,16 +72,29 @@ export component AppWindow inherits Window {
     in property <[color]> spectrum_colors; 
     
     in property <[string]> library_items;
+    in property <string> library_label: "Select Song:"; 
     in-out property <int> current_item_index: 0;
+
+    // Drugie menu (Key / Pattern)
+    in property <[string]> secondary_items;
+    in property <string> secondary_label: "Key (Root):";
+    in-out property <int> current_secondary_index: 0;
+
+    // --- LOGIKA UI ---
+    // 0 = Chords, 1 = Intervals, 2 = Scales, 3 = Arpeggios
+    in-out property <int> current_mode: 1; 
+    in-out property <bool> ai_debug_visible: false; 
 
     // --- USTAWIENIA ---
     in-out property <bool> show_settings: false;
     
-    in-out property <float> threshold: 0.15;
-    in-out property <float> tail: 0.3;
-    in-out property <float> delay: 0.6;
+    in-out property <float> threshold: 0.15; 
+    in-out property <float> tail: 0.3;       
+    in-out property <float> delay: 0.6;      
+    
     in-out property <bool> boost_enabled: true;
     in-out property <float> boost_gain: 5.0;
+    
     in-out property <bool> random_enabled: false;
     in-out property <string> interval_input_text: "1 3 5";
 
@@ -68,19 +102,31 @@ export component AppWindow inherits Window {
     in-out property <float> input_gain: 2.0;    
     in-out property <float> noise_gate: 0.02;   
     
-    callback toggle_mode(int); 
-    callback item_selected(int); 
+    callback mode_changed(int); 
+    callback item_selected(int);
+    callback secondary_item_selected(int); // Zmiana nazwy callbacku
 
     VerticalLayout {
-        padding: 10px;
-        spacing: 10px;
+        padding: 15px;
+        spacing: 15px;
 
-        // GÓRA
+        // GÓRA: Mode Selector & Settings Button
         HorizontalLayout {
-            alignment: end;
+            alignment: space-between;
+            
+            HorizontalLayout {
+                spacing: 5px;
+                width: 320px; 
+                height: 36px;
+                ModeButton { text: "Chords"; selected: root.current_mode == 0; width: 25%; clicked => { root.mode_changed(0); } }
+                ModeButton { text: "Intervals"; selected: root.current_mode == 1; width: 25%; clicked => { root.mode_changed(1); } }
+                ModeButton { text: "Scales"; selected: root.current_mode == 2; width: 25%; clicked => { root.mode_changed(2); } }
+                ModeButton { text: "Arpeggios"; selected: root.current_mode == 3; width: 25%; clicked => { root.mode_changed(3); } }
+            }
+
             Button {
                 text: root.show_settings ? "Close" : "⚙ Settings";
-                height: 32px; 
+                height: 36px; 
                 clicked => { root.show_settings = !root.show_settings; }
             }
         }
@@ -89,21 +135,18 @@ export component AppWindow inherits Window {
         if root.show_settings : Rectangle {
             background: #222;
             border-radius: 10px;
+            border-width: 1px;
+            border-color: #333;
             
             VerticalLayout {
-                padding: 10px; 
-                spacing: 8px; 
+                padding: 15px; 
+                spacing: 12px; 
                 
-                Text { text: "Settings"; font-size: 18px; color: white; horizontal-alignment: center; }
+                Text { text: "Settings"; font-size: 20px; color: white; horizontal-alignment: center; }
                 
+                // Wybór utworu / skali (Zmieniona etykieta)
                 HorizontalLayout {
-                    spacing: 10px;
-                    Button { text: "Songs"; clicked => { root.toggle_mode(0); } }
-                    Button { text: "Scales"; clicked => { root.toggle_mode(1); } }
-                }
-
-                HorizontalLayout {
-                    Text { text: "Select: "; color: #aaa; vertical-alignment: center; width: 60px; }
+                    Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                     ComboBox {
                         model: root.library_items;
                         current-index <=> root.current_item_index;
@@ -111,41 +154,51 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #444; } 
-                Text { text: "Audio Calibration"; color: #ddd; font-size: 12px; }
+                // Drugie menu (Key / Pattern) - widoczne dla Scales(2) i Arpeggios(3)
+                if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
+                    Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                    ComboBox {
+                        model: root.secondary_items;
+                        current-index <=> root.current_secondary_index;
+                        selected => { root.secondary_item_selected(self.current-index); }
+                    }
+                }
 
-                // 1. INPUT GAIN
+                Rectangle { height: 1px; background: #444; } 
+                
+                // Intervals Config
+                HorizontalLayout {
+                    Text { text: "Intervals: "; color: #aaa; vertical-alignment: center; width: 80px; }
+                    LineEdit {
+                        text <=> root.interval_input_text;
+                        placeholder-text: "e.g. 1 3 5";
+                    }
+                }
+                Text { 
+                    text: "(Input specific intervals to practice, e.g. '1 3' for shell chords)"; 
+                    color: #666; font-size: 11px; 
+                }
+
+                Rectangle { height: 1px; background: #444; } 
+
+                // AI Debug Checkbox
+                HorizontalLayout {
+                    CheckBox { checked <=> root.ai_debug_visible; }
+                    Text { text: "Show AI Debug Info"; color: #aaa; vertical-alignment: center; }
+                }
+
+                Text { text: "Audio Calibration"; color: #ddd; font-size: 13px; }
+
                 HorizontalLayout {
                     Text { text: "In Gain: " + round(root.input_gain*10)/10; color: white; vertical-alignment: center; width: 80px; }
-                    Slider { 
-                        minimum: 1.0; maximum: 20.0; step: 0.1;
-                        value <=> root.input_gain; 
-                    }
+                    Slider { minimum: 1.0; maximum: 20.0; step: 0.1; value <=> root.input_gain; }
                 }
 
-                // 2. NOISE GATE (FIXED RANGE)
                 HorizontalLayout {
-                    // Wyświetlanie z dokładnością 0.0001
                     Text { text: "Gate: " + round(root.noise_gate * 10000) / 10000; color: white; vertical-alignment: center; width: 80px; }
-                    Slider { 
-                        minimum: 0.0; 
-                        maximum: 0.1; // Duży zapas (umożliwia 0.02)
-                        step: 0.0001;
-                        value <=> root.noise_gate; 
-                    }
-                }
-                Rectangle { height: 1px; background: #444; }
-
-                HorizontalLayout {
-                    Text { text: "Thresh: "; color: #aaa; vertical-alignment: center; width: 60px; }
-                    Slider { minimum: 0.0; maximum: 2.0; value <=> root.threshold; }
+                    Slider { minimum: 0.0; maximum: 0.1; step: 0.0001; value <=> root.noise_gate; }
                 }
                 
-                HorizontalLayout {
-                    Text { text: "Tail: "; color: #aaa; vertical-alignment: center; width: 60px; }
-                    Slider { minimum: 0.1; maximum: 0.9; value <=> root.tail; }
-                }
-
                 HorizontalLayout {
                     spacing: 10px;
                     HorizontalLayout {
@@ -156,26 +209,25 @@ export component AppWindow inherits Window {
                         minimum: 1.0; maximum: 20.0; value <=> root.boost_gain; 
                     }
                 }
+
+                Rectangle { height: 1px; background: #444; }
+
+                HorizontalLayout {
+                    Text { text: "Confidence: "; color: #aaa; vertical-alignment: center; width: 80px; }
+                    Slider { minimum: 0.1; maximum: 1.0; value <=> root.threshold; }
+                }
                 
                 HorizontalLayout {
-                    CheckBox { checked <=> root.random_enabled; }
-                    Text { text: "Random Trainer"; color: #aaa; vertical-alignment: center; }
+                    Text { text: "Hold Time: "; color: #aaa; vertical-alignment: center; width: 80px; }
+                    Slider { minimum: 0.1; maximum: 2.0; value <=> root.delay; }
                 }
 
-                HorizontalLayout {
-                    Text { text: "Intervals: "; color: #aaa; vertical-alignment: center; }
-                    LineEdit {
-                        text <=> root.interval_input_text;
-                        placeholder-text: "e.g. 1 3 5 7";
-                    }
-                }
-
-                // Debugger (Paski)
                 Rectangle {
                     height: 50px;
                     background: black;
+                    border-radius: 4px;
                     HorizontalLayout {
-                        spacing: 1px;
+                        spacing: 2px;
                         for val[i] in root.spectrum_data : DebugBar {
                             level: val;
                             active_color: root.spectrum_colors[i]; 
@@ -188,11 +240,11 @@ export component AppWindow inherits Window {
         // GŁÓWNY WIDOK
         VerticalLayout {
             alignment: center;
-            spacing: 30px;
+            spacing: 25px;
             
             Text {
                 text: root.song_title;
-                font-size: 24px;
+                font-size: 26px;
                 color: #aaa;
                 horizontal-alignment: center;
                 wrap: word-wrap;
@@ -200,22 +252,22 @@ export component AppWindow inherits Window {
 
             Text {
                 text: root.chord_name;
-                font-size: 70px;
+                font-size: 80px; 
                 font-weight: 800;
                 color: white;
                 horizontal-alignment: center;
             }
             
-            Text {
+            if root.ai_debug_visible : Text {
                 text: root.ai_text;
-                font-size: 40px;
+                font-size: 24px;
                 color: #ffee00; 
                 horizontal-alignment: center;
             }
             
             HorizontalLayout {
                 alignment: center;
-                spacing: 5px;
+                spacing: 10px;
                 for i in root.interval_names.length : NoteBar {
                     label: root.interval_names[i];
                     bar_color: root.interval_colors[i];
@@ -229,10 +281,10 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 alignment: center;
                 Text { 
-                    text: "Next: " + root.next_chord; 
-                    color: #666; 
+                    text: root.next_chord != "" ? "Next: " + root.next_chord : " "; 
+                    color: #555; 
                     horizontal-alignment: center; 
-                    font-size: 24px; 
+                    font-size: 26px; 
                 }
             }
         }

@@ -1,4 +1,3 @@
-// src/model.rs
 use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,10 +15,6 @@ impl NoteName {
         ALL_NOTES[i % 12]
     }
     
-    pub fn to_index(&self) -> usize {
-        *self as usize
-    }
-
     pub fn to_string(&self) -> &str {
         match self {
             NoteName::C => "C",  NoteName::Df => "Db", NoteName::D => "D",
@@ -88,11 +83,6 @@ impl Chord {
             .map(|interval| (root_idx + *interval as usize) % 12)
             .collect()
     }
-    
-    // TA METODA JEST WYMAGANA PRZEZ STATE.RS
-    pub fn get_components(&self) -> Vec<usize> {
-        self.get_target_indices()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -101,28 +91,84 @@ pub struct Song {
     pub chords: Vec<Chord>,
 }
 
+// --- ARPEGGIO PATTERNS ---
+pub const ARPEGGIOS_PATTERNS_DEF: &str = r#"
+Up from Root (1 3 5 7)
+1 3 5 7
+
+Down from Root (1 7 5 3)
+1 7 5 3
+
+Down from 7th (7 5 3 1)
+7 5 3 1
+
+Up from 3rd (3 5 7 1)
+3 5 7 1
+
+Up from 5th (5 7 1 3)
+5 7 1 3
+
+Up from 7th (7 1 3 5)
+7 1 3 5
+
+Down from 3rd (3 1 7 5)
+3 1 7 5
+
+Down from 5th (5 3 1 7)
+5 3 1 7
+
+Up & Down (1 3 5 7 5 3)
+1 3 5 7 5 3
+
+Down & Up (7 5 3 1 3 5)
+7 5 3 1 3 5
+
+Broken Thirds Up (1 5 3 7)
+1 5 3 7
+
+Broken Thirds Down (7 3 5 1)
+7 3 5 1
+
+Zig Zag 1 (1 7 3 5)
+1 7 3 5
+
+Zig Zag 2 (3 1 5 7)
+3 1 5 7
+
+Pivot Arpeggio (7 1 3 5)
+7 1 3 5
+
+Rootless / From 3rd (3 5 7 9)
+3 5 7 9
+
+From 5th Extended (5 7 9 11)
+5 7 9 4
+
+Triad + 9 (1 3 5 9)
+1 3 5 9
+
+Shell Voicing (1 7 3)
+1 7 3
+
+1-5-1-3 (Spread)
+1 5 1 3
+"#;
+
 const BUILTIN_SCALES_DEF: &str = r#"
+--- BASIC SCALES ---
 Major Scale (Ionian)
 1 2 3 4 5 6 7
 
-Minor Scale (Aeolian)
+Natural Minor (Aeolian)
 1 2 b3 4 5 b6 b7
 
-Dorian
-1 2 b3 4 5 6 b7
+Harmonic Minor
+1 2 b3 4 5 b6 7
 
-Mixolydian
-1 2 3 4 5 6 b7
+Melodic Minor (Jazz)
+1 2 b3 4 5 6 7
 
-Phrygian
-1 b2 b3 4 5 b6 b7
-
-Lydian
-1 2 3 #4 5 6 7
-
-Locrian
-1 b2 b3 4 b5 b6 b7
-
+--- PENTATONIC / BLUES ---
 Pentatonic Minor
 1 b3 4 5 b7
 
@@ -131,17 +177,181 @@ Pentatonic Major
 
 Blues Scale
 1 b3 4 #4 5 b7
+
+--- SYMMETRIC SCALES ---
+Whole-Half Diminished
+1 2 b3 4 b5 #5 6 7
+
+Half-Whole Diminished (Dominant)
+1 b2 #2 3 #4 5 6 b7
+
+Whole Tone
+1 2 3 #4 #5 b7
+
+--- JAZZ MODES ---
+Altered Scale (Super Locrian)
+1 b2 #2 3 b5 #5 b7
+
+Lydian Dominant
+1 2 3 #4 5 6 b7
+
+Lydian Augmented
+1 2 3 #4 #5 6 7
+
+Phrygian Dominant
+1 b2 3 4 5 b6 b7
+
+Locrian #2
+1 2 b3 4 b5 b6 b7
+
+--- STANDARD MODES ---
+Dorian
+1 2 b3 4 5 6 b7
+
+Mixolydian
+1 2 3 4 5 6 b7
+
+Lydian
+1 2 3 #4 5 6 7
+
+Phrygian
+1 b2 b3 4 5 b6 b7
+
+Locrian
+1 b2 b3 4 b5 b6 b7
+
+--- BEBOP SCALES ---
+Bebop Dominant
+1 2 3 4 5 6 b7 7
+
+Bebop Major
+1 2 3 4 5 #5 6 7
+
+Bebop Dorian
+1 2 b3 3 4 5 6 b7
+
+--- BARRY HARRIS (6th Dim) ---
+Major 6 Diminished
+1 2 3 4 5 b6 6 7
+
+Minor 6 Diminished
+1 2 b3 4 5 b6 6 7
+
+Dominant 7th Diminished
+1 2 3 4 5 b6 b7 7
 "#;
 
 const SONGS_DB: &str = r#"
-Giant Steps
-BMaj7 D7 GMaj7 Bb7 EbMaj7 Am7 D7 GMaj7 Bb7 EbMaj7 F#7 BMaj7 Fm7 Bb7 EbMaj7 Am7 D7 GMaj7 C#m7 F#7 BMaj7 Fm7 Bb7 EbMaj7 C#m7 F#7
-
 Autumn Leaves
 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7
 
+All The Things You Are
+Fm7 Bbm7 Eb7 AbMaj7 DbMaj7 G7 CMaj7 CMaj7 Cm7 Fm7 Bb7 EbMaj7 AbMaj7 Am7 D7 GMaj7 GMaj7 Am7 D7 GMaj7 GMaj7 F#m7 B7 EMaj7 C7+5 Fm7 Bbm7 Eb7 AbMaj7 DbMaj7 Gbm7 C7 Fm7 Fm7
+
 Blue Bossa
 Cm7 Cm7 Fm7 Fm7 Dm7b5 G7 Cm7 Cm7 Ebm7 Ab7 DbMaj7 DbMaj7 Dm7b5 G7 Cm7 Dm7b5 G7
+
+Take The A Train
+CMaj7 CMaj7 D7b5 D7b5 Dm7 G7 CMaj7 Dm7 G7 CMaj7 CMaj7 D7b5 D7b5 Dm7 G7 CMaj7 CMaj7 FMaj7 FMaj7 FMaj7 FMaj7 D7 D7 Dm7 G7 CMaj7 CMaj7 D7b5 D7b5 Dm7 G7 CMaj7 CMaj7
+
+Stella By Starlight
+Em7b5 A7 Cm7 F7 Fm7 Bb7 EbMaj7 Ab7 BbMaj7 Em7b5 A7 Dm7b5 G7 Cm7b5 F7 BbMaj7 Em7b5 A7 Dm7b5 G7 Cm7b5 F7 BbMaj7 BbMaj7
+
+Satin Doll
+Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7 Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7 GMaj7 Gm7 C7 FMaj7 FMaj7 Am7 D7 GMaj7 GMaj7 Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7
+
+Girl From Ipanema
+FMaj7 FMaj7 G7 G7 Gm7 Gb7 FMaj7 Gb7 FMaj7 FMaj7 G7 G7 Gm7 Gb7 FMaj7 FMaj7 GbMaj7 GbMaj7 B7 B7 F#m7 F#m7 D7 D7 Gm7 Gm7 Eb7 Eb7 Am7 D7 Gm7 C7
+
+Black Orpheus
+Am7 Bm7b5 E7 Am7 Dm7 G7 CMaj7 FMaj7 Bm7b5 E7 Am7 E7 Am7 Bm7b5 E7 Am7 Dm7 G7 CMaj7 FMaj7 Bm7b5 E7 Am7 Am7 Bm7b5 E7 Am7 Dm7 G7 CMaj7 FMaj7 Bm7b5 E7 Am7 Am7
+
+Misty
+EbMaj7 Cm7 Fm7 Bb7 Gm7 C7 Fm7 Bb7 EbMaj7 Cm7 Fm7 Bb7 EbMaj7 EbMaj7 Bbm7 Eb7 AbMaj7 Abm7 Db7 EbMaj7 Cm7 Fm7 Bb7 EbMaj7 EbMaj7
+
+My Funny Valentine
+Cm CmMaj7 Cm7 Cm6 AbMaj7 Fm7 Dm7b5 G7 Cm CmMaj7 Cm7 Cm6 AbMaj7 Fm7 Dm7b5 G7 EbMaj7 Fm7 Gm7 Fm7 EbMaj7 Fm7 Gm7 Fm7 AbMaj7 Fm7 Dm7b5 G7 Cm7 Bbm7 A7 AbMaj7 Dm7b5 G7 Cm7 G7
+
+Someday My Prince Will Come
+BbMaj7 D7 EbMaj7 G7 Cm7 G7 Cm7 F7 Dm7 Dbdim Cm7 F7 BbMaj7 G7 Cm7 F7 BbMaj7 D7 EbMaj7 G7 Cm7 G7 Cm7 F7 Dm7 Dbdim Cm7 F7 BbMaj7 F7 BbMaj7 BbMaj7
+
+Yesterdays
+Dm7b5 G7 Cm7 F7 BbMaj7 BbMaj7 Em7b5 A7 Dm7 Dm7 Dm7 Dm7 Em7b5 A7 Dm7 Dm7 Dm7 Dm7
+
+Song For My Father
+Fm7 Fm7 Eb7 Eb7 Db7 C7 Fm7 Fm7 Fm7 Fm7 Eb7 Eb7 Db7 C7 Fm7 Fm7 Eb9 Eb9 Db9 Db9 Fm7 Fm7 Eb9 Eb9 Db9 C7 Fm7 Fm7
+
+Maiden Voyage
+D9 D9 D9 D9 F9 F9 F9 F9 Eb9 Eb9 Eb9 Eb9 Db9 Db9 Db9 Db9
+
+Cantaloupe Island
+Fm7 Fm7 Fm7 Fm7 Db7 Db7 Db7 Db7 Dm7 Dm7 Dm7 Dm7 Fm7 Fm7 Fm7 Fm7
+
+Watermelon Man
+F7 F7 F7 F7 Bb7 Bb7 F7 F7 C7 Bb7 F7 C7
+
+Impressions
+Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Ebm7 Ebm7 Ebm7 Ebm7 Dm7 Dm7 Dm7 Dm7
+
+Solar
+CmMaj7 CmMaj7 Gm7 C7 FMaj7 FMaj7 Fm7 Bb7 EbMaj7 EbMaj7 Ebm7 Ab7 DbMaj7 Dm7b5 G7
+
+Tune Up
+Em7 A7 DMaj7 DMaj7 Dm7 G7 CMaj7 CMaj7 Cm7 F7 BbMaj7 BbMaj7 Em7 A7 DMaj7 DMaj7
+
+So What
+Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Ebm7 Ebm7 Ebm7 Ebm7 Dm7 Dm7 Dm7 Dm7
+
+Giant Steps
+BMaj7 D7 GMaj7 Bb7 EbMaj7 Am7 D7 GMaj7 Bb7 EbMaj7 F#7 BMaj7 Fm7 Bb7 EbMaj7 Am7 D7 GMaj7 C#m7 F#7 BMaj7 Fm7 Bb7 EbMaj7 C#m7 F#7
+
+Body And Soul
+Ebm7 Bb7 Ebm7 D7 DbMaj7 Gb7 Fm7 E7 EbMaj7 Em7 A7 DMaj7 Em7 A7 DMaj7 Dm7 G7 CMaj7 Ebdim Dm7 G7 CMaj7 B7 Em7 A7 D7 Gm7 C7 Fm7 Bb7 EbMaj7 Ab7 DbMaj7
+
+There Is No Greater Love
+BbMaj7 BbMaj7 Eb7 Eb7 BbMaj7 G7 Cm7 F7 Dm7 G7 Cm7 F7 BbMaj7 G7 Cm7 F7 BbMaj7 BbMaj7 Eb7 Ab7 Dm7 G7 Cm7 F7 BbMaj7 G7 Cm7 F7
+
+All Blues
+G7 G7 G7 G7 Gm7 Gm7 G7 G7 D7 Eb7 D7 G7 G7
+
+Footprints
+Cm7 Cm7 Cm7 Cm7 Fm7 Fm7 Cm7 Cm7 D7 Db7 Cm7 Cm7
+
+Four
+EbMaj7 EbMaj7 Ebm7 Ab7 Fm7 Bb7 Bbm7 Eb7 AbMaj7 AbMaj7 Abm7 Db7 EbMaj7 C7 Fm7 Bb7
+
+Have You Met Miss Jones
+FMaj7 F#dim Gm7 C7 Am7 Dm7 Gm7 C7 BbMaj7 Abm7 Db7 GbMaj7 Em7 A7 DMaj7 Abm7 Db7 GbMaj7 Gm7 C7 FMaj7 F#dim Gm7 C7 FMaj7
+
+How High The Moon
+GMaj7 GMaj7 Gm7 C7 FMaj7 FMaj7 Fm7 Bb7 EbMaj7 Am7b5 D7 Gm7 Am7b5 D7 GMaj7 Gm7 C7 FMaj7 Fm7 Bb7 EbMaj7 Am7b5 D7 GMaj7
+
+Just Friends
+FMaj7 FMaj7 FMaj7 FMaj7 Fm7 Bb7 C7 C7 A7 A7 D7 D7 Dm7 G7 CMaj7 CMaj7
+
+Lady Bird
+CMaj7 CMaj7 Fm7 Bb7 CMaj7 CMaj7 Bbm7 Eb7 AbMaj7 AbMaj7 Am7 D7 Dm7 G7 CMaj7 EbMaj7 AbMaj7 DbMaj7
+
+Night And Day
+EbMaj7 G7b5 CMaj7 C7 Fm7 Bb7 EbMaj7 EbMaj7 Dm7b5 G7 CMaj7 C7 Fm7 Bb7 EbMaj7 EbMaj7 Fm7b5 Bb7 EbMaj7 EbMaj7 Fm7b5 Bb7 EbMaj7 EbMaj7
+
+Oleo
+BbMaj7 Gm7 Cm7 F7 BbMaj7 Gm7 Cm7 F7 E7 A7 D7 G7 C7 F7 BbMaj7 Gm7 Cm7 F7
+
+On Green Dolphin Street
+EbMaj7 EbMaj7 EbMaj7 EbMaj7 GbMaj7 GbMaj7 GbMaj7 GbMaj7 FMaj7 FMaj7 EMaj7 EMaj7 EbMaj7 EbMaj7 Dm7 G7 C7 C7 Fm7 Bb7 EbMaj7 Dm7 G7
+
+Recorda Me
+Am7 Am7 Cm7 Cm7 Cm7 F7 BbMaj7 BbMaj7 Bbm7 Eb7 AbMaj7 AbMaj7 Gm7 C7 FMaj7 E7
+
+St Thomas
+CMaj7 CMaj7 Em7b5 A7 Dm7 G7 CMaj7 C7 FMaj7 Fm7 Em7 A7 Dm7 G7 CMaj7 G7
+
+Wave
+DMaj7 DMaj7 Bm7b5 E7 Em7 A7 DMaj7 Ddim Am7 D7 GMaj7 Gm6 F#7 F#7 B7 B7 E7 E7 A7 A7 Dm7 G7
+
+Yardbird Suite
+CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 D7 D7 Dm7 G7 CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 Dm7 G7 CMaj7 E7
 "#;
 
 pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
@@ -151,6 +361,10 @@ pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
         scales.extend(parse_scale_definitions(&user_content));
     }
     scales
+}
+
+pub fn load_arpeggio_patterns() -> Vec<ScaleDefinition> {
+    parse_scale_definitions(ARPEGGIOS_PATTERNS_DEF)
 }
 
 pub fn load_songs() -> Vec<Song> {
@@ -165,7 +379,9 @@ pub fn load_songs() -> Vec<Song> {
 fn parse_scale_definitions(content: &str) -> Vec<ScaleDefinition> {
     let mut defs = Vec::new();
     let lines: Vec<&str> = content.trim().split('\n').filter(|l| !l.trim().is_empty()).collect();
-    for chunk in lines.chunks(2) {
+    let valid_lines: Vec<&str> = lines.into_iter().filter(|l| !l.starts_with("---")).collect();
+    
+    for chunk in valid_lines.chunks(2) {
         if chunk.len() < 2 { break; }
         let name = chunk[0].trim().to_string();
         let (intervals, names) = parse_intervals_string(chunk[1].trim());
@@ -181,9 +397,20 @@ fn parse_intervals_string(s: &str) -> (Vec<u8>, Vec<String>) {
     let mut names = Vec::new();
     for part in s.split_whitespace() {
         let semitone = match part {
-            "1" => 0, "b2" => 1, "2" => 2, "b3" | "#2" => 3, "3" => 4, "4" => 5,
-            "b5" | "#4" => 6, "5" => 7, "b6" | "#5" => 8, "6" | "bb7" => 9,
-            "b7" | "#6" => 10, "7" => 11, _ => continue,
+            "1" | "8" => 0, 
+            "b2" => 1, 
+            "2" | "9" => 2, 
+            "b3" | "#2" | "#9" => 3, 
+            "3" => 4, 
+            "4" | "11" => 5,
+            "b5" | "#4" | "#11" => 6, 
+            "5" => 7, 
+            "#5" | "b6" | "b13" => 8, 
+            "6" | "bb7" | "13" => 9,
+            "b7" | "#6" => 10, 
+            "7" => 11, 
+            "b9" => 1, 
+            _ => 0,
         };
         semitones.push(semitone);
         names.push(part.to_string());

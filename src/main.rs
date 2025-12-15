@@ -9,16 +9,13 @@ use std::sync::{Arc, Mutex};
 use std::rc::Rc;
 use std::collections::HashMap;
 use std::env;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::time::Duration;
 
-// Używamy V26 (156 cech)
-use audio::{AudioAnalysis, start_audio_stream, start_file_playback, TOTAL_FEATURES};
+use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
 use brain::ChordBrain;
 use state::{MyApp, AppMode};
 
-use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString};
+use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
 
 slint::include_modules!();
 
@@ -27,18 +24,17 @@ fn main() -> Result<(), slint::PlatformError> {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
 
-    // --- USTAWIENIA DOMYŚLNE STARTOWE ---
-    // Tu ustawiasz to, z czym program ma wstać.
     let default_gain = 2.0;
-    let default_gate = 0.02; // Próg 2% (wystarczający dla soft squelch)
+    let default_gate = 0.02;
+    let default_boost_enabled = true;
+    let default_boost_gain = 5.0;
 
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
         chroma_sum: [0.0; 12],
         spectrum_visual: [0.0; 48],
-        // Bufor dynamiczny zależny od TOTAL_FEATURES (156)
-        raw_input_for_ai: [0.0; TOTAL_FEATURES], 
-        bass_boost_enabled: true,
-        bass_boost_gain: 1.0, 
+        raw_input_for_ai: [0.0; 156], 
+        bass_boost_enabled: default_boost_enabled,
+        bass_boost_gain: default_boost_gain, 
         input_gain: default_gain,      
         noise_gate: default_gate,    
     }));
@@ -48,7 +44,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut _mic_stream = None;
 
     if args.len() > 2 && args[1] == "--file" {
-        let _ = std::fs::File::create("benchmark_results.txt");
         let path = args[2].clone();
         println!("Starting FILE mode: {}", path);
         if let Err(e) = start_file_playback(path, analysis_state.clone()) {
@@ -64,9 +59,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     
-    // MODEL V26 (Czysta Fizyka)
     let model_filename = "chord_model_v31_16k.onnx"; 
-    
     let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
         Ok(b) => Some(Arc::new(Mutex::new(b))),
         Err(e) => {
@@ -79,96 +72,90 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    // --- BLOK INICJALIZACYJNY UI ---
-    // To wykonuje się RAZ, zanim ruszy pętla odświeżania.
+    // INICJALIZACJA UI
     {
         let app = my_app.lock().unwrap();
         
-        // 1. Ładowanie listy
         let titles: Vec<SharedString> = app.song_library.iter()
             .map(|s| SharedString::from(&s.title))
             .collect();
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
         
-        // 2. FORSUJEMY WARTOŚCI STARTOWE DO UI
-        // Dzięki temu suwaki ustawią się na 2.0 i 0.02, a nie na swoje domyślne.
         ui.set_input_gain(default_gain);
-        ui.set_noise_gate(default_gate); 
+        ui.set_noise_gate(default_gate);
+        ui.set_boost_enabled(default_boost_enabled);
+        ui.set_boost_gain(default_boost_gain);
+        ui.set_current_mode(app.app_mode as i32); 
+        ui.set_interval_input_text(app.intervals_input.clone().into()); 
     }
+
+    ui.window().set_position(PhysicalPosition::new(450, 10));
 
     let timer = Timer::default();
     let app_clone = my_app.clone();
-    let mut frame_counter = 0;
     
-    // PĘTLA GŁÓWNA (60 FPS)
+    // Lista kluczy muzycznych (dla trybu Scales)
+    let keys_list: Vec<SharedString> = vec!["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+        .into_iter().map(SharedString::from).collect();
+
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
-        frame_counter += 1;
 
-        let (chroma, spectrum_vis, raw_ai) = {
+        let (spectrum_vis, raw_ai) = {
             let s = app.analysis_state.lock().unwrap();
-            (s.chroma_sum, s.spectrum_visual, s.raw_input_for_ai)
+            (s.spectrum_visual, s.raw_input_for_ai)
         };
 
         if !file_mode {
-            // CZYTAMY UI -> RUST
-            // Bez mnożników. 1:1 mapping.
             app.input_gain = ui.get_input_gain();
             app.noise_gate = ui.get_noise_gate();
         }
         
-        app.sensitivity = ui.get_threshold();
-        app.tail_threshold = ui.get_tail();
-        app.transition_delay = ui.get_delay();
         app.bass_boost_enabled = ui.get_boost_enabled();
+        app.bass_boost_gain = ui.get_boost_gain();
+        app.sensitivity = ui.get_threshold();     
+        app.transition_delay = ui.get_delay();    
+        app.tail_threshold = ui.get_tail();       
         app.random_mode = ui.get_random_enabled();
         
-        let input_txt = ui.get_interval_input_text().to_string();
-        if input_txt != app.intervals_input {
-            app.intervals_input = input_txt;
+        let ui_txt = ui.get_interval_input_text().to_string();
+        if ui_txt != app.intervals_input {
+            app.intervals_input = ui_txt;
+            app.reset_logic_state();
         }
-
-        let dt = 0.016; 
-        app.update_stale_notes(&chroma);
-        app.check_progress(dt, &chroma); 
+        
         app.sync_audio_settings();
 
         let brain_arc = app.brain.clone();
-
         if let Some(brain_mutex) = brain_arc {
             if let Ok(mut b) = brain_mutex.lock() {
                 if let Ok((chord, score)) = b.predict(&raw_ai) {
-                    
-                    if file_mode && frame_counter % 6 == 0 { 
-                         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("benchmark_results.txt") {
-                             let _ = writeln!(f, "{:.2}s | {} | {:.2}", app.total_time, chord, score);
-                        }
-                    }
-
-                    app.chord_history.push_back((chord, score));
-                    if app.chord_history.len() > 6 { app.chord_history.pop_front(); }
+                    app.chord_history.push_back((chord.clone(), score));
+                    if app.chord_history.len() > 5 { app.chord_history.pop_front(); }
                     
                     let mut votes: HashMap<String, f32> = HashMap::new();
                     for (c, s) in &app.chord_history {
                         *votes.entry(c.clone()).or_insert(0.0) += *s; 
                     }
-                    
-                    let mut best_c = String::from("...");
-                    let mut max_v = 0.0;
-                    for (c, v) in votes {
-                        if v > max_v { max_v = v; best_c = c; }
-                    }
-                    
-                    let confidence = if !app.chord_history.is_empty() { 
-                        max_v / app.chord_history.len() as f32 
-                    } else { 0.0 };
 
-                    if confidence > 0.4 { 
-                         ui.set_ai_text(format!("AI: {} ({:.0}%)", best_c, confidence * 100.0).into());
-                    } else {
-                         ui.set_ai_text("AI: ...".into());
+                    let fallback_str = String::from("...");
+                    let fallback_val = 0.0;
+                    let (best_c, max_v) = votes.iter()
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                        .unwrap_or((&fallback_str, &fallback_val));
+                    
+                    let current_chord_str = best_c.clone();
+                    let current_confidence = if !app.chord_history.is_empty() { 
+                        *max_v / app.chord_history.len() as f32 
+                    } else { 0.0 };
+                    
+                    if ui.get_ai_debug_visible() {
+                         ui.set_ai_text(format!("AI: {} ({:.0}%)", current_chord_str, current_confidence * 100.0).into());
                     }
+
+                    let dt = 0.016;
+                    app.check_progress_with_ai(dt, &chord, score);
                 }
             }
         }
@@ -182,38 +169,52 @@ fn main() -> Result<(), slint::PlatformError> {
             
             if app.app_mode == AppMode::Scales {
                  ui.set_chord_name(curr_chord.root.to_string().into());
-                 ui.set_next_chord("".into());
             } else {
-                 ui.set_chord_name(format!("{} {}", curr_chord.root.to_string(), curr_chord.quality.to_string()).into());
-                 let next = &app.chords[(app.current_chord_index + 1) % app.chords.len()];
-                 ui.set_next_chord(format!("{} {}", next.root.to_string(), next.quality.to_string()).into());
+                 let q_str = curr_chord.quality.to_string();
+                 let quality_display = if q_str.is_empty() { "Maj" } else { q_str.as_str() };
+                 ui.set_chord_name(format!("{} {}", curr_chord.root.to_string(), quality_display).into());
             }
+            
+            let next_idx = (app.current_chord_index + 1) % app.chords.len();
+            let next_c = &app.chords[next_idx];
+            ui.set_next_chord(format!("{} {}", next_c.root.to_string(), next_c.quality.to_string()).into());
 
-            let all_interval_names = curr_chord.quality.interval_names();
-            let all_target_indices = curr_chord.get_target_indices();
-            let config_indices = app.get_target_config_indices();
+            let all_names = curr_chord.quality.interval_names();
+            let active_indices = app.get_active_indices(curr_chord);
             
             let mut ui_names = Vec::new();
             let mut ui_colors = Vec::new();
             
-            let valid_indices: Vec<(usize, usize)> = config_indices.into_iter()
-                .enumerate()
-                .filter(|(_, idx)| *idx < all_interval_names.len())
-                .collect();
+            for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
+                if internal_idx < all_names.len() {
+                    let name = &all_names[internal_idx];
+                    ui_names.push(SharedString::from(name));
 
-            for (_col_idx, &(_, internal_idx)) in valid_indices.iter().enumerate() {
-                 let name = &all_interval_names[internal_idx];
-                 let note_idx = all_target_indices[internal_idx];
-                 let was_collected = app.collected_notes[note_idx];
-                 let in_delay = app.time_since_change < app.transition_delay;
-                 let active_now = app.is_note_active(note_idx, &chroma) && !in_delay;
-                 
-                 ui_names.push(SharedString::from(name));
-                 if was_collected || active_now { 
-                     ui_colors.push(Color::from_rgb_u8(100, 255, 100)); 
-                 } else { 
-                     ui_colors.push(Color::from_rgb_u8(80, 80, 80)); 
-                 }
+                    match app.app_mode {
+                        AppMode::Chords => {
+                            if app.success_timer > 0.1 {
+                                let intensity = (app.success_timer / app.transition_delay).min(1.0);
+                                let g = (100.0 + 155.0 * intensity) as u8;
+                                ui_colors.push(Color::from_rgb_u8(50, g, 50));
+                            } else {
+                                ui_colors.push(Color::from_rgb_u8(80, 80, 80));
+                            }
+                        },
+                        AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
+                            if step_idx < app.current_note_step {
+                                ui_colors.push(Color::from_rgb_u8(50, 255, 50));
+                            } else if step_idx == app.current_note_step {
+                                if app.success_timer > 0.05 {
+                                     ui_colors.push(Color::from_rgb_u8(200, 255, 50));
+                                } else {
+                                     ui_colors.push(Color::from_rgb_u8(180, 180, 180));
+                                }
+                            } else {
+                                ui_colors.push(Color::from_rgb_u8(60, 60, 60));
+                            }
+                        }
+                    }
+                }
             }
             
             ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
@@ -221,18 +222,16 @@ fn main() -> Result<(), slint::PlatformError> {
             
             let spec_vec: Vec<f32> = spectrum_vis.to_vec();
             let mut spec_colors = Vec::new();
-            let targets = curr_chord.get_target_indices();
             
+            let targets = curr_chord.get_target_indices();
             for i in 0..48 {
                 let note_idx = (i + 40) % 12; 
                 let val = spectrum_vis[i];
                 let is_target = targets.contains(&note_idx);
                 let color = if val > 0.05 { 
-                    if is_target { Color::from_rgb_u8(50, 255, 100) } 
-                    else { Color::from_rgb_u8(255, 50, 50) }
+                    if is_target { Color::from_rgb_u8(50, 255, 100) } else { Color::from_rgb_u8(255, 50, 50) }
                 } else {
-                    if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } 
-                    else { Color::from_rgb_u8(30, 30, 30) }
+                    if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } else { Color::from_rgb_u8(30, 30, 30) }
                 };
                 spec_colors.push(color);
             }
@@ -241,43 +240,70 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    // Callbacki
     let app_weak = my_app.clone();
     let ui_weak_cb = ui.as_weak();
+    let keys_list_clone = keys_list.clone();
     
-    ui.on_toggle_mode(move |mode_idx| {
+    ui.on_mode_changed(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
         let ui = ui_weak_cb.unwrap();
         
-        if mode_idx == 0 { 
-            app.app_mode = AppMode::Songs; 
-            app.selected_song_idx = 0; 
-            app.intervals_input = "1 3 5".to_string(); 
-            let titles: Vec<SharedString> = app.song_library.iter().map(|s| SharedString::from(&s.title)).collect();
-            ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-            app.load_selected_song();
-        } else { 
-            app.app_mode = AppMode::Scales; 
-            app.selected_scale_def_idx = 0; 
-            app.intervals_input = "1 2 3 4 5 6 7".to_string(); 
-            let titles: Vec<SharedString> = app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect();
-            ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-            app.build_scale_chord();
-        }
-        app.reset_logic_state();
+        app.set_mode(mode_idx);
+        ui.set_current_mode(mode_idx);
+        ui.set_interval_input_text(app.intervals_input.clone().into());
+        
+        // DYNAMICZNE ZASILANIE UI
+        let (lib_label, lib_items, sec_label, sec_items) = match app.app_mode {
+            AppMode::Scales => (
+                "Select Scale:", 
+                app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
+                "Key (Root):",
+                keys_list_clone.clone()
+            ),
+            AppMode::Arpeggios => (
+                "Select Song:", 
+                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
+                "Pattern:",
+                app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
+            ),
+            _ => (
+                "Select Song:", 
+                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
+                "", 
+                vec![]
+            ),
+        };
+        
+        ui.set_library_label(lib_label.into());
+        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(lib_items))));
+        ui.set_current_item_index(0);
+        
+        ui.set_secondary_label(sec_label.into());
+        ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
+        ui.set_current_secondary_index(0);
     });
 
     let app_weak_2 = my_app.clone();
+    let ui_weak_2 = ui.as_weak();
     ui.on_item_selected(move |index| {
         let mut app = app_weak_2.lock().unwrap();
-        if app.app_mode == AppMode::Songs { 
-            app.selected_song_idx = index as usize; 
-            app.load_selected_song(); 
-        } else { 
-            app.selected_scale_def_idx = index as usize; 
-            app.build_scale_chord(); 
+        let ui = ui_weak_2.unwrap();
+        app.item_selected(index);
+        if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
+             ui.set_interval_input_text(app.intervals_input.clone().into());
         }
-        app.reset_logic_state();
+    });
+
+    // To obsługuje zarówno wybór Key (w Scales), jak i Patternu (w Arpeggios)
+    let app_weak_3 = my_app.clone();
+    let ui_weak_3 = ui.as_weak();
+    ui.on_secondary_item_selected(move |index| {
+        let mut app = app_weak_3.lock().unwrap();
+        let ui = ui_weak_3.unwrap();
+        app.secondary_item_selected(index); // Używamy nowej metody w state
+        if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
+             ui.set_interval_input_text(app.intervals_input.clone().into());
+        }
     });
 
     ui.run()
