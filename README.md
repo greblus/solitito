@@ -4,11 +4,10 @@
 
 It's a proof-of-concept **experiment** - heavily inspired by another, amazing Android/iOS app - Solo. I just want to experiment a little bit with FFT and some neural networks architectures for chords detection, so as many of my experiments, this little project might just be left as is at some point. I don't intent to create alternative to Solo ;) which I use daily.  
 <div align="center">
-<img width="284" height="500" alt="solitito_main" src="https://github.com/user-attachments/assets/442ad915-b21d-4a26-ba3e-db10c3ce32cc" />
+<img width="284" height="500" alt="solitito_main" src="https://github.com/user-attachments/assets/f35c7778-30e2-424c-b3d0-6708f8b705ae" />
 </div>
-  
-
-# How the model was trained?
+ 
+ # How the model was trained?
 
 In **dist** directory I included all scripts which were used for dataset preparation, model training, testing and pseudo-CQT weights generation to be able to use it in Rust.  
 
@@ -45,7 +44,7 @@ Basic Benchmarks (full benchmark in model_benchmark.txt):
 
 ## ⚙️ Settings
 <div align="center">
-<img width="284" height="500" alt="solitito_settings" src="https://github.com/user-attachments/assets/5cc1de87-052c-42a5-8bcb-181d8d2d5054" />
+<img width="284" height="500" alt="solitito_settings" src="https://github.com/user-attachments/assets/734d6874-f4e1-4bfa-92cd-9e28a493b47a" />
 </div>
 <br> 
 

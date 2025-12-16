@@ -1,5 +1,7 @@
 import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, ComboBox, LineEdit } from "std-widgets.slint";
 
+import "./AppFont.ttf";
+
 component NoteBar inherits Rectangle {
     in property <string> label;
     in property <brush> bar_color;
@@ -59,6 +61,8 @@ export component AppWindow inherits Window {
     width: 550px;
     height: 800px; 
     background: #000000;
+    default-font-family: "Noto Sans"; 
+
 
     // --- DANE ---
     in property <string> song_title: "No Data";
@@ -252,8 +256,8 @@ export component AppWindow inherits Window {
 
             Text {
                 text: root.chord_name;
-                font-size: 80px; 
-                font-weight: 800;
+                font-size: 60px; 
+                //font-weight: 400;
                 color: white;
                 horizontal-alignment: center;
             }
