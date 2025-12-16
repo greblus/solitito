@@ -48,6 +48,9 @@ pub struct MyApp {
     pub sensitivity: f32,
     pub tail_threshold: f32,
     
+    // Czy zaliczenie było "częściowe" (np. triada zamiast septymy)
+    pub is_partial_match: bool,
+    
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
     pub input_gain: f32,
@@ -94,6 +97,8 @@ impl MyApp {
             sensitivity: 0.3,
             tail_threshold: 0.3,
             
+            is_partial_match: false,
+            
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
             input_gain: 2.0,
@@ -114,6 +119,7 @@ impl MyApp {
         
         if self.app_mode == AppMode::Arpeggios {
             for token in user_tokens {
+                // FIX: Usunięto '*' przed token
                 let target_idx = match token {
                     "1" | "8" => 0,
                     "3" => 1,
@@ -125,6 +131,7 @@ impl MyApp {
                 
                 if target_idx < all_names.len() {
                     indices.push(target_idx);
+                // FIX: Usunięto '*' przed token
                 } else if token == "9" {
                     if let Some(pos) = all_names.iter().position(|n| n.contains("2") || n.contains("9")) {
                         indices.push(pos);
@@ -132,9 +139,9 @@ impl MyApp {
                 }
             }
         } else {
-            // FIX: Usunięto gwiazdki (*token, *name)
             for token in user_tokens {
                  for (idx, name) in all_names.iter().enumerate() {
+                    // FIX: Usunięto '*' przed token i name
                     let is_match = if token == name { true } else {
                         match token {
                             "3" => name.contains("3") || name == "#2",
@@ -226,6 +233,7 @@ impl MyApp {
         self.current_chord_index = 0;
         self.current_note_step = 0;
         self.success_timer = 0.0;
+        self.is_partial_match = false; 
         self.chord_history.clear();
         self.update_collected_notes_size();
     }
@@ -270,6 +278,7 @@ impl MyApp {
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         if self.chords.is_empty() { return; }
+        
         if confidence < self.sensitivity { 
             self.success_timer = 0.0;
             return; 
@@ -286,15 +295,36 @@ impl MyApp {
             AppMode::Chords => {
                 let target_qual_str = target_chord.quality.to_string();
                 let mut match_found = false;
+                let mut partial = false;
 
                 if let Some(r) = ai_root {
                     if r == target_root {
-                        if ai_qual == target_qual_str { match_found = true; }
-                        if target_qual_str == "Maj7" && ai_qual == "" { match_found = true; }
+                        if ai_qual == target_qual_str { 
+                            match_found = true; 
+                            partial = false; 
+                        } else {
+                            match (target_qual_str.as_str(), ai_qual.as_str()) {
+                                ("Maj7", "") => { match_found = true; partial = true; },    
+                                ("Maj7", "Maj") => { match_found = true; partial = true; }, 
+                                ("m7", "m") => { match_found = true; partial = true; },     
+                                ("7", "") => { match_found = true; partial = true; },       
+                                ("m7b5", "dim") => { match_found = true; partial = true; }, 
+                                _ => {}
+                            }
+                        }
                     }
                 }
-                if match_found { self.success_timer += dt; } else { self.success_timer = 0.0; }
-                if self.success_timer > self.transition_delay { self.advance_chord(); }
+                
+                if match_found { 
+                    self.success_timer += dt; 
+                    self.is_partial_match = partial;
+                } else { 
+                    self.success_timer = 0.0; 
+                }
+                
+                if self.success_timer > self.transition_delay { 
+                    self.advance_chord(); 
+                }
             },
             
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
@@ -313,7 +343,8 @@ impl MyApp {
 
                 if note_match { self.success_timer += dt; } else { self.success_timer = 0.0; }
 
-                if self.success_timer > self.transition_delay {
+                let note_delay = 0.12; 
+                if self.success_timer > note_delay {
                     if self.current_note_step < self.collected_notes.len() {
                         self.collected_notes[self.current_note_step] = true;
                     }
@@ -331,6 +362,7 @@ impl MyApp {
     fn advance_chord(&mut self) {
         self.success_timer = 0.0;
         self.current_note_step = 0;
+        self.is_partial_match = false; 
         self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
         self.update_collected_notes_size();
     }

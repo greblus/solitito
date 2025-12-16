@@ -72,7 +72,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    // INICJALIZACJA UI
     {
         let app = my_app.lock().unwrap();
         
@@ -193,9 +192,16 @@ fn main() -> Result<(), slint::PlatformError> {
                     match app.app_mode {
                         AppMode::Chords => {
                             if app.success_timer > 0.1 {
+                                // Wizualizacja ładowania
                                 let intensity = (app.success_timer / app.transition_delay).min(1.0);
                                 let g = (100.0 + 155.0 * intensity) as u8;
-                                ui_colors.push(Color::from_rgb_u8(50, g, 50));
+                                
+                                // FIX: Jeśli partial match (triada zamiast septymy), świeć na czerwono/pomarańczowo
+                                if app.is_partial_match {
+                                    ui_colors.push(Color::from_rgb_u8(255, (100.0 + 50.0 * intensity) as u8, 50)); 
+                                } else {
+                                    ui_colors.push(Color::from_rgb_u8(50, g, 50));
+                                }
                             } else {
                                 ui_colors.push(Color::from_rgb_u8(80, 80, 80));
                             }
@@ -252,8 +258,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_current_mode(mode_idx);
         ui.set_interval_input_text(app.intervals_input.clone().into());
         
-        // DYNAMICZNE ZASILANIE UI
-        let (lib_label, lib_items, sec_label, sec_items) = match app.app_mode {
+        let (label, items, sec_label, sec_items) = match app.app_mode {
             AppMode::Scales => (
                 "Select Scale:", 
                 app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
@@ -274,8 +279,8 @@ fn main() -> Result<(), slint::PlatformError> {
             ),
         };
         
-        ui.set_library_label(lib_label.into());
-        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(lib_items))));
+        ui.set_library_label(label.into());
+        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
         ui.set_current_item_index(0);
         
         ui.set_secondary_label(sec_label.into());
@@ -294,13 +299,12 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    // To obsługuje zarówno wybór Key (w Scales), jak i Patternu (w Arpeggios)
     let app_weak_3 = my_app.clone();
     let ui_weak_3 = ui.as_weak();
     ui.on_secondary_item_selected(move |index| {
         let mut app = app_weak_3.lock().unwrap();
         let ui = ui_weak_3.unwrap();
-        app.secondary_item_selected(index); // Używamy nowej metody w state
+        app.secondary_item_selected(index);
         if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
              ui.set_interval_input_text(app.intervals_input.clone().into());
         }
