@@ -44,7 +44,7 @@ Basic Benchmarks (full benchmark in model_benchmark.txt):
 
 ## ⚙️ Settings
 <div align="center">
-<img width="284" height="500" alt="solitito_settings" src="https://github.com/user-attachments/assets/734d6874-f4e1-4bfa-92cd-9e28a493b47a" />
+<img width="284" height="500" alt="solitito_settings" src="https://github.com/user-attachments/assets/42ddc4b1-5711-41d4-aec0-45812739af57" />
 </div>
 <br> 
 
