@@ -13,13 +13,27 @@ use std::time::Duration;
 
 use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
 use brain::ChordBrain;
-use state::{MyApp, AppMode};
+use state::{MyApp, AppMode, MatchStatus};
 
 use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
 
 slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
+
+    let _keep_awake = keepawake::Builder::new()
+        .display(true) // Trzymaj ekran włączony
+        .idle(true)    // Nie usypiaj przy bezczynności
+        .sleep(true)   // Blokuj stan uśpienia
+        .create();
+
+    if let Err(e) = &_keep_awake {
+        eprintln!("Warning: Could not enable keep-awake: {}", e);
+    }
+    
+    //#[cfg(target_os = "linux")]
+    //std::env::set_var("SLINT_BACKEND", "winit-x11");
+
     if let Err(e) = ort::init().with_name("Solitito").commit() {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
@@ -148,7 +162,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         *max_v / app.chord_history.len() as f32 
                     } else { 0.0 };
                     
-                    // FIX: Aktualizujemy tekst ZAWSZE (bez warunku if ui.get_ai_visible)
+                    // FIX: Aktualizujemy tekst ZAWSZE (Slint decyduje gdzie go wyświetlić)
+                    // Usunąłem "AI: " z formatowania, bo Slint dodaje "AI Prediction: "
                     ui.set_ai_text(format!("{} ({:.0}%)", current_chord_str, current_confidence * 100.0).into());
 
                     let dt = 0.016;
@@ -172,55 +187,50 @@ fn main() -> Result<(), slint::PlatformError> {
                  ui.set_chord_name(format!("{} {}", curr_chord.root.to_string(), quality_display).into());
             }
             
+            if app.app_mode == AppMode::Chords {
+                match app.match_status {
+                    MatchStatus::Exact => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(50, 255, 50))), 
+                    MatchStatus::Partial => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 220, 50))), 
+                    MatchStatus::Flicker => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 50, 50))), 
+                    MatchStatus::None => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 255, 255))), 
+                }
+            } else {
+                ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 255, 255)));
+            }
+            
             let next_idx = (app.current_chord_index + 1) % app.chords.len();
             let next_c = &app.chords[next_idx];
             ui.set_next_chord(format!("{} {}", next_c.root.to_string(), next_c.quality.to_string()).into());
 
-            let all_names = curr_chord.quality.interval_names();
-            let active_indices = app.get_active_indices(curr_chord);
-            
-            let mut ui_names = Vec::new();
-            let mut ui_colors = Vec::new();
-            
-            for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
-                if internal_idx < all_names.len() {
-                    let name = &all_names[internal_idx];
-                    ui_names.push(SharedString::from(name));
+            if app.app_mode != AppMode::Chords {
+                let all_names = curr_chord.quality.interval_names();
+                let active_indices = app.get_active_indices(curr_chord);
+                
+                let mut ui_names = Vec::new();
+                let mut ui_colors = Vec::new();
+                
+                for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
+                    if internal_idx < all_names.len() {
+                        let name = &all_names[internal_idx];
+                        ui_names.push(SharedString::from(name));
 
-                    match app.app_mode {
-                        AppMode::Chords => {
-                            if app.success_timer > 0.1 {
-                                let intensity = (app.success_timer / app.transition_delay).min(1.0);
-                                let g = (100.0 + 155.0 * intensity) as u8;
-                                
-                                if app.is_partial_match {
-                                    ui_colors.push(Color::from_rgb_u8(255, (100.0 + 50.0 * intensity) as u8, 50)); 
-                                } else {
-                                    ui_colors.push(Color::from_rgb_u8(50, g, 50));
-                                }
+                        if step_idx < app.current_note_step {
+                            ui_colors.push(Color::from_rgb_u8(50, 255, 50));
+                        } else if step_idx == app.current_note_step {
+                            if app.success_timer > 0.05 {
+                                    ui_colors.push(Color::from_rgb_u8(200, 255, 50));
                             } else {
-                                ui_colors.push(Color::from_rgb_u8(80, 80, 80));
+                                    ui_colors.push(Color::from_rgb_u8(180, 180, 180));
                             }
-                        },
-                        AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
-                            if step_idx < app.current_note_step {
-                                ui_colors.push(Color::from_rgb_u8(50, 255, 50));
-                            } else if step_idx == app.current_note_step {
-                                if app.success_timer > 0.05 {
-                                     ui_colors.push(Color::from_rgb_u8(200, 255, 50));
-                                } else {
-                                     ui_colors.push(Color::from_rgb_u8(180, 180, 180));
-                                }
-                            } else {
-                                ui_colors.push(Color::from_rgb_u8(60, 60, 60));
-                            }
+                        } else {
+                            ui_colors.push(Color::from_rgb_u8(60, 60, 60));
                         }
                     }
                 }
+                
+                ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
+                ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             }
-            
-            ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
-            ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             
             let spec_vec: Vec<f32> = spectrum_vis.to_vec();
             let mut spec_colors = Vec::new();

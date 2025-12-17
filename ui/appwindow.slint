@@ -67,6 +67,8 @@ export component AppWindow inherits Window {
     // --- DANE ---
     in property <string> song_title: "No Data";
     in property <string> chord_name: "...";
+    in property <brush> chord_text_color: white;
+    
     in property <string> ai_text: "";
     in property <string> next_chord: "";
     
@@ -85,6 +87,8 @@ export component AppWindow inherits Window {
 
     // --- LOGIKA UI ---
     in-out property <int> current_mode: 1; 
+    
+    // ZMIANA: Domyślnie FALSE (ukryte w oknie głównym)
     in-out property <bool> ai_debug_visible: false; 
 
     // --- USTAWIENIA ---
@@ -222,6 +226,7 @@ export component AppWindow inherits Window {
                     Slider { minimum: 0.1; maximum: 2.0; value <=> root.delay; }
                 }
 
+                // AI DEBUG W SETTINGS (Zawsze widoczny, niezależnie od checkboxa)
                 Text { 
                     text: "AI Prediction:  " + root.ai_text; 
                     font-size: 18px; 
@@ -262,18 +267,19 @@ export component AppWindow inherits Window {
                 text: root.chord_name;
                 font-size: 60px; 
                 font-weight: 400; 
-                color: white;
+                color: root.chord_text_color; 
                 horizontal-alignment: center;
             }
             
+            // W OKNIE GŁÓWNYM: Widoczne tylko gdy checkbox zaznaczony
             if root.ai_debug_visible : Text {
                 text: "AI Prediction:  " + root.ai_text;
                 font-size: 24px;
                 horizontal-alignment: center;
-                color: white; // <-- DODANO KOLOR
+                color: white; 
             }
             
-            HorizontalLayout {
+            if root.current_mode != 0 : HorizontalLayout {
                 alignment: center;
                 spacing: 10px;
                 for i in root.interval_names.length : NoteBar {
@@ -283,7 +289,7 @@ export component AppWindow inherits Window {
             }
         }
         
-        // STOPKA - widoczna tylko gdy settings są ZAMKNIĘTE
+        // STOPKA
         if !root.show_settings : Rectangle {
             height: 60px;
             VerticalLayout {

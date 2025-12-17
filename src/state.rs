@@ -24,6 +24,14 @@ impl From<i32> for AppMode {
     }
 }
 
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum MatchStatus {
+    None,       // Biały
+    Exact,      // Zielony (Idealny)
+    Partial,    // Żółty (Triada lub Jazz Substitution)
+    Flicker,    // Czerwony (Wykryto, ale słaby sygnał)
+}
+
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
     pub brain: Option<Arc<Mutex<ChordBrain>>>,
@@ -48,8 +56,7 @@ pub struct MyApp {
     pub sensitivity: f32,
     pub tail_threshold: f32,
     
-    // Czy zaliczenie było "częściowe" (np. triada zamiast septymy)
-    pub is_partial_match: bool,
+    pub match_status: MatchStatus,
     
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
@@ -97,7 +104,7 @@ impl MyApp {
             sensitivity: 0.3,
             tail_threshold: 0.3,
             
-            is_partial_match: false,
+            match_status: MatchStatus::None,
             
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
@@ -119,7 +126,7 @@ impl MyApp {
         
         if self.app_mode == AppMode::Arpeggios {
             for token in user_tokens {
-                // FIX: Usunięto '*' przed token
+                // FIX: Usunięto * (dereferencję) przed token
                 let target_idx = match token {
                     "1" | "8" => 0,
                     "3" => 1,
@@ -131,7 +138,7 @@ impl MyApp {
                 
                 if target_idx < all_names.len() {
                     indices.push(target_idx);
-                // FIX: Usunięto '*' przed token
+                // FIX: Usunięto * przed token
                 } else if token == "9" {
                     if let Some(pos) = all_names.iter().position(|n| n.contains("2") || n.contains("9")) {
                         indices.push(pos);
@@ -141,7 +148,7 @@ impl MyApp {
         } else {
             for token in user_tokens {
                  for (idx, name) in all_names.iter().enumerate() {
-                    // FIX: Usunięto '*' przed token i name
+                    // FIX: Usunięto * przed token i name
                     let is_match = if token == name { true } else {
                         match token {
                             "3" => name.contains("3") || name == "#2",
@@ -233,7 +240,7 @@ impl MyApp {
         self.current_chord_index = 0;
         self.current_note_step = 0;
         self.success_timer = 0.0;
-        self.is_partial_match = false; 
+        self.match_status = MatchStatus::None;
         self.chord_history.clear();
         self.update_collected_notes_size();
     }
@@ -279,11 +286,6 @@ impl MyApp {
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         if self.chords.is_empty() { return; }
         
-        if confidence < self.sensitivity { 
-            self.success_timer = 0.0;
-            return; 
-        }
-
         let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
         let target_chord = &self.chords[self.current_chord_index];
         let target_root = target_chord.root;
@@ -294,32 +296,66 @@ impl MyApp {
         match self.app_mode {
             AppMode::Chords => {
                 let target_qual_str = target_chord.quality.to_string();
-                let mut match_found = false;
-                let mut partial = false;
+                let mut exact_match = false;
+                let mut partial_match = false;
+                
+                if ai_qual == "Note" {
+                    self.match_status = MatchStatus::None;
+                    self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
+                    return; 
+                }
+
+                let is_weak_signal = confidence < self.sensitivity;
 
                 if let Some(r) = ai_root {
+                    // Oblicz interwał (półtony) między wykrytym a celem
+                    let root_diff = (r as i32 - target_root as i32).rem_euclid(12);
+
                     if r == target_root {
                         if ai_qual == target_qual_str { 
-                            match_found = true; 
-                            partial = false; 
+                            exact_match = true; 
                         } else {
                             match (target_qual_str.as_str(), ai_qual.as_str()) {
-                                ("Maj7", "") => { match_found = true; partial = true; },    
-                                ("Maj7", "Maj") => { match_found = true; partial = true; }, 
-                                ("m7", "m") => { match_found = true; partial = true; },     
-                                ("7", "") => { match_found = true; partial = true; },       
-                                ("m7b5", "dim") => { match_found = true; partial = true; }, 
+                                ("Maj7", "") | ("Maj7", "Maj") => partial_match = true, 
+                                ("m7", "m") => partial_match = true,     
+                                ("7", "") => partial_match = true,       
+                                ("m7b5", "dim") => partial_match = true, 
                                 _ => {}
                             }
+                        }
+                    } else {
+                        // --- JAZZ LOGIC ---
+                        // m7b5 -> rozpoznane jako m (tercja mała wyżej), np. A m7b5 -> C m
+                        if target_qual_str == "m7b5" && ai_qual == "m" && root_diff == 3 {
+                            partial_match = true;
+                        }
+                        // Maj7 -> rozpoznane jako m/m7 (tercja wielka wyżej), np. C Maj7 -> E m
+                        if target_qual_str == "Maj7" && (ai_qual == "m" || ai_qual == "m7") && root_diff == 4 {
+                            partial_match = true;
                         }
                     }
                 }
                 
-                if match_found { 
-                    self.success_timer += dt; 
-                    self.is_partial_match = partial;
-                } else { 
-                    self.success_timer = 0.0; 
+                // LEAKY BUCKET LOGIC
+                if exact_match {
+                    if is_weak_signal {
+                        self.match_status = MatchStatus::Flicker;
+                        self.success_timer = (self.success_timer - dt).max(0.0);
+                    } else {
+                        self.match_status = MatchStatus::Exact;
+                        self.success_timer += dt; 
+                    }
+                } else if partial_match {
+                    if is_weak_signal {
+                        self.match_status = MatchStatus::None;
+                        self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
+                    } else {
+                        self.match_status = MatchStatus::Partial;
+                        self.success_timer += dt;
+                    }
+                } else {
+                    self.match_status = MatchStatus::None;
+                    self.success_timer = (self.success_timer - dt * 4.0).max(0.0);
                 }
                 
                 if self.success_timer > self.transition_delay { 
@@ -328,6 +364,11 @@ impl MyApp {
             },
             
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
+                if confidence < self.sensitivity { 
+                    self.success_timer = 0.0;
+                    return; 
+                }
+
                 if self.current_note_step >= active_indices.len() { return; }
 
                 let internal_idx = active_indices[self.current_note_step];
@@ -362,7 +403,7 @@ impl MyApp {
     fn advance_chord(&mut self) {
         self.success_timer = 0.0;
         self.current_note_step = 0;
-        self.is_partial_match = false; 
+        self.match_status = MatchStatus::None;
         self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
         self.update_collected_notes_size();
     }

@@ -38,7 +38,7 @@ Basic Benchmarks (full benchmark in model_benchmark.txt):
 🎵 NOTES:       100.00%  
 
 ## Key Features
-- Play **Chords**, **Intervals** and **Arpeggios** with popular jazz standards. 
+- Play **Chords**, **Intervals** and **Arpeggios** with popular jazz standards. While in chords mode - green confirms an exact match, yellow accepts triads and jazz substitutions (e.g., rootless voicings). Red signals that the correct chord was detected, but the signal is too weak or unstable to lock.
 - **Scales** — sequential practice.  
 - Load your own **songs** and **scales** from simple text files  
 

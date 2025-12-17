@@ -12,6 +12,7 @@ ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"]
 ndarray = "0.15"
 slint = "1.8" 
 hound = "3.5"
+keepawake = "0.4"
 
 # Nowe zależności do wczytywania dsp_weights.json
 serde = { version = "1.0", features = ["derive"] }
