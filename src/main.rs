@@ -1,4 +1,4 @@
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod model;
 mod audio;
@@ -93,7 +93,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let timer = Timer::default();
     let app_clone = my_app.clone();
     
-    // Lista kluczy muzycznych (dla trybu Scales)
     let keys_list: Vec<SharedString> = vec!["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
         .into_iter().map(SharedString::from).collect();
 
@@ -149,9 +148,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         *max_v / app.chord_history.len() as f32 
                     } else { 0.0 };
                     
-                    if ui.get_ai_debug_visible() {
-                         ui.set_ai_text(format!("AI: {} ({:.0}%)", current_chord_str, current_confidence * 100.0).into());
-                    }
+                    // FIX: Aktualizujemy tekst ZAWSZE (bez warunku if ui.get_ai_visible)
+                    ui.set_ai_text(format!("{} ({:.0}%)", current_chord_str, current_confidence * 100.0).into());
 
                     let dt = 0.016;
                     app.check_progress_with_ai(dt, &chord, score);
@@ -192,11 +190,9 @@ fn main() -> Result<(), slint::PlatformError> {
                     match app.app_mode {
                         AppMode::Chords => {
                             if app.success_timer > 0.1 {
-                                // Wizualizacja ładowania
                                 let intensity = (app.success_timer / app.transition_delay).min(1.0);
                                 let g = (100.0 + 155.0 * intensity) as u8;
                                 
-                                // FIX: Jeśli partial match (triada zamiast septymy), świeć na czerwono/pomarańczowo
                                 if app.is_partial_match {
                                     ui_colors.push(Color::from_rgb_u8(255, (100.0 + 50.0 * intensity) as u8, 50)); 
                                 } else {

@@ -1,6 +1,6 @@
 import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, ComboBox, LineEdit } from "std-widgets.slint";
 
-import "./AppFont.ttf";
+import "./AppFont.ttf"; 
 
 component NoteBar inherits Rectangle {
     in property <string> label;
@@ -61,8 +61,8 @@ export component AppWindow inherits Window {
     width: 550px;
     height: 800px; 
     background: #000000;
+    
     default-font-family: "Noto Sans"; 
-
 
     // --- DANE ---
     in property <string> song_title: "No Data";
@@ -79,13 +79,11 @@ export component AppWindow inherits Window {
     in property <string> library_label: "Select Song:"; 
     in-out property <int> current_item_index: 0;
 
-    // Drugie menu (Key / Pattern)
     in property <[string]> secondary_items;
     in property <string> secondary_label: "Key (Root):";
     in-out property <int> current_secondary_index: 0;
 
     // --- LOGIKA UI ---
-    // 0 = Chords, 1 = Intervals, 2 = Scales, 3 = Arpeggios
     in-out property <int> current_mode: 1; 
     in-out property <bool> ai_debug_visible: false; 
 
@@ -108,13 +106,13 @@ export component AppWindow inherits Window {
     
     callback mode_changed(int); 
     callback item_selected(int);
-    callback secondary_item_selected(int); // Zmiana nazwy callbacku
+    callback secondary_item_selected(int); 
 
     VerticalLayout {
         padding: 15px;
         spacing: 15px;
 
-        // GÓRA: Mode Selector & Settings Button
+        // GÓRA
         HorizontalLayout {
             alignment: space-between;
             
@@ -146,9 +144,9 @@ export component AppWindow inherits Window {
                 padding: 15px; 
                 spacing: 12px; 
                 
-                Text { text: "Settings"; font-size: 20px; color: white; horizontal-alignment: center; }
+                Text { text: "Settings & Calibration"; font-size: 20px; color: white; horizontal-alignment: center; }
                 
-                // Wybór utworu / skali (Zmieniona etykieta)
+                // Wybór utworu / skali
                 HorizontalLayout {
                     Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                     ComboBox {
@@ -158,7 +156,6 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Drugie menu (Key / Pattern) - widoczne dla Scales(2) i Arpeggios(3)
                 if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
                     Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
                     ComboBox {
@@ -170,7 +167,6 @@ export component AppWindow inherits Window {
 
                 Rectangle { height: 1px; background: #444; } 
                 
-                // Intervals Config
                 HorizontalLayout {
                     Text { text: "Intervals: "; color: #aaa; vertical-alignment: center; width: 80px; }
                     LineEdit {
@@ -185,10 +181,10 @@ export component AppWindow inherits Window {
 
                 Rectangle { height: 1px; background: #444; } 
 
-                // AI Debug Checkbox
                 HorizontalLayout {
+                    spacing: 15px;
                     CheckBox { checked <=> root.ai_debug_visible; }
-                    Text { text: "Show AI Debug Info"; color: #aaa; vertical-alignment: center; }
+                    Text { text: "Show AI Debug in Main Window"; color: #aaa; vertical-alignment: center; }
                 }
 
                 Text { text: "Audio Calibration"; color: #ddd; font-size: 13px; }
@@ -226,6 +222,14 @@ export component AppWindow inherits Window {
                     Slider { minimum: 0.1; maximum: 2.0; value <=> root.delay; }
                 }
 
+                Text { 
+                    text: "AI Prediction:  " + root.ai_text; 
+                    font-size: 18px; 
+                    font-weight: 700;
+                    horizontal-alignment: center; 
+                    color: white;
+                }
+
                 Rectangle {
                     height: 50px;
                     background: black;
@@ -241,8 +245,8 @@ export component AppWindow inherits Window {
             }
         }
 
-        // GŁÓWNY WIDOK
-        VerticalLayout {
+        // --- GŁÓWNY WIDOK GRY ---
+        if !root.show_settings : VerticalLayout {
             alignment: center;
             spacing: 25px;
             
@@ -257,16 +261,16 @@ export component AppWindow inherits Window {
             Text {
                 text: root.chord_name;
                 font-size: 60px; 
-                //font-weight: 400;
+                font-weight: 400; 
                 color: white;
                 horizontal-alignment: center;
             }
             
             if root.ai_debug_visible : Text {
-                text: root.ai_text;
+                text: "AI Prediction:  " + root.ai_text;
                 font-size: 24px;
-                color: #ffee00; 
                 horizontal-alignment: center;
+                color: white; // <-- DODANO KOLOR
             }
             
             HorizontalLayout {
@@ -279,8 +283,8 @@ export component AppWindow inherits Window {
             }
         }
         
-        // STOPKA
-        Rectangle {
+        // STOPKA - widoczna tylko gdy settings są ZAMKNIĘTE
+        if !root.show_settings : Rectangle {
             height: 60px;
             VerticalLayout {
                 alignment: center;
