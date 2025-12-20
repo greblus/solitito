@@ -20,6 +20,8 @@ and dataset_reference.csv with proper names of sound samples and creates dataset
 - **model_trainer.py** takes dataset_clean.wav, dataset_eob.wav and dataset_annotations.csv, 
 adds GuitarSet[1] with it's own annotations and splits the datasets accordingly for training.
 
+All datasets are available here: https://huggingface.co/greblus/datasets
+
 **A short description of the current model architecture:**  
 - Hybrid  CNN with Squeeze-and-Excitation (SE) blocks.    
 - Transformer Encoder for temporal context.   
