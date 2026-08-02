@@ -1,0 +1,174 @@
+name: release
+
+# Runs on a version tag. Windows is built natively rather than cross-compiled:
+# the GUI stack (Slint -> winit -> femtovg -> OpenGL) is exactly where
+# cross-builds break, and a native runner costs nothing here.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ort_version:
+        description: "ONNX Runtime version (empty = latest release)"
+        required: false
+        default: ""
+
+env:
+  MODEL: best_model_v2_take6.onnx
+  # The model is not in the repository - 29 MB per checkpoint.
+  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6.onnx
+
+jobs:
+  resolve-ort:
+    # Both jobs must ship the same ONNX Runtime version, so resolve it once.
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - id: pick
+        run: |
+          V="${{ github.event.inputs.ort_version }}"
+          if [ -z "$V" ]; then
+            V=$(curl -fsSL https://api.github.com/repos/microsoft/onnxruntime/releases/latest \
+                | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+          fi
+          [ -n "$V" ] || { echo "could not resolve ONNX Runtime version"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "ONNX Runtime $V"
+
+  linux:
+    needs: resolve-ort
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: System dependencies
+        # alsa for cpal, the rest for winit + femtovg (X11, Wayland, fonts).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig-dev libxkbcommon-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libwayland-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --release
+      - run: cargo build --release
+
+      - name: Assemble package
+        env:
+          ORT: ${{ needs.resolve-ort.outputs.version }}
+        run: |
+          set -eux
+          NAME="solitito_linux-${GITHUB_REF_NAME#v}"
+          mkdir -p "$NAME"
+
+          cp target/release/solitito "$NAME"/
+          strip "$NAME"/solitito
+
+          curl -fsSL -o ort.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT}/onnxruntime-linux-x64-${ORT}.tgz"
+          tar xzf ort.tgz
+          cp onnxruntime-linux-x64-${ORT}/lib/libonnxruntime.so.${ORT} "$NAME"/libonnxruntime.so
+
+          cp dsp_weights.json "$NAME"/
+          curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+
+          # The app opens dsp_weights.json and the model by relative path, so the
+          # working directory has to be the package directory. RUNPATH=$ORIGIN
+          # (see .cargo/config.toml) already handles finding libonnxruntime.so.
+          # printf, not a heredoc: the YAML indentation would end up in the file
+          # and break the shebang.
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' \
+            'cd "$DIR"' \
+            'exec ./solitito "$@"' > "$NAME"/solitito.sh
+          chmod +x "$NAME"/solitito.sh
+
+          tar czf "$NAME.tar.gz" "$NAME"
+          sha256sum "$NAME.tar.gz"
+
+      - name: Smoke test
+        # --check loads the DSP weights and the model, then exits. Starting the
+        # app normally would need a display and an audio device, and the weights
+        # are only read when the audio stream opens - so a headless run would
+        # verify nothing.
+        run: |
+          set -eux
+          cd "solitito_linux-${GITHUB_REF_NAME#v}"
+          ./solitito --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: solitito_linux-*.tar.gz
+
+  windows:
+    needs: resolve-ort
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --release
+      - run: cargo build --release
+
+      - name: Assemble package
+        shell: bash
+        env:
+          ORT: ${{ needs.resolve-ort.outputs.version }}
+        run: |
+          set -eux
+          NAME="solitito_windows-${GITHUB_REF_NAME#v}"
+          mkdir -p "$NAME"
+
+          cp target/release/solitito.exe "$NAME"/
+
+          curl -fsSL -o ort.zip \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT}/onnxruntime-win-x64-${ORT}.zip"
+          7z x -y ort.zip > /dev/null
+          cp onnxruntime-win-x64-${ORT}/lib/onnxruntime.dll "$NAME"/
+
+          cp dsp_weights.json "$NAME"/
+          curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+
+          7z a -tzip "$NAME.zip" "$NAME"
+          sha256sum "$NAME.zip"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -eux
+          cd "solitito_windows-${GITHUB_REF_NAME#v}"
+          ./solitito.exe --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: solitito_windows-*.zip
+
+  publish:
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - run: |
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec sha256sum {} +
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/linux/*.tar.gz
+            dist/windows/*.zip
+          body: |
+            Unpack and run `solitito.sh` (Linux) or `solitito.exe` (Windows).
+
+            The archive contains the binary, ONNX Runtime, the recognition model
+            and the pseudo-CQT weights. Nothing else is needed.
