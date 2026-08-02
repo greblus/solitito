@@ -318,14 +318,30 @@ My Scale Name
 
 ## Running it
 
-`dsp_weights.json` is in the repository. The model is not — checkpoints are 29 MB
-each and live on Hugging Face:
+Ready packages are attached to each [release](../../releases) — binary, ONNX
+Runtime, the model and the DSP weights, nothing else needed:
 
-```
-https://huggingface.co/greblus/solitito-ai
+```bash
+tar xzf solitito_linux-*.tar.gz && cd solitito_linux-* && ./solitito.sh
 ```
 
-Put `best_model_v2_take6.onnx` next to the binary and run it.
+On Windows, unpack the zip and run `solitito.exe`.
+
+### From source
+
+```bash
+cargo build --release
+```
+
+The binary needs two files in its working directory. `dsp_weights.json` is in
+this repository; the model is not, because it is 29 MB:
+
+```bash
+curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6.onnx
+```
+
+`./solitito --check` loads both and reports whether they are usable, which is
+also what the release workflow runs against every package it builds.
 
 The app refuses to start on an old dense `dsp_weights.json` rather than accepting
 it silently: the previous format also carried a different chroma mapping, which
@@ -337,10 +353,24 @@ cargo build --release
 ./target/release/solitito
 ```
 
+## Project summary
+
+`doc/` holds a long-form write-up of the whole system: architecture, the four
+GuitarSet defects and what fixing each one was worth, the training procedure,
+the measurements behind every design decision, and the hypotheses that
+measurement refuted. Same document in two languages, Markdown and PDF.
+
+| file | |
+|---|---|
+| [`doc/Solitito_project_summary_en.md`](doc/Solitito_project_summary_en.md) | [PDF](doc/Solitito_project_summary_en.pdf) |
+| [`doc/Solitito_project_summary_pl.md`](doc/Solitito_project_summary_pl.md) | [PDF](doc/Solitito_project_summary_pl.pdf) |
+
 ## Repository and dataset
 
-- Model checkpoints and ONNX exports: <https://huggingface.co/greblus/solitito-ai/tree/main>
-- Dataset v2: <https://huggingface.co/datasets/greblus/solitito_dataset_v2>
+- Model and DSP weights: <https://huggingface.co/greblus/solitito-ai>
+- Dataset v2 (renders and annotations): <https://huggingface.co/datasets/greblus/solitito_dataset_v2>
+
+Those two hold binary artifacts only. All code lives here.
 
 The `dist/` directory contains everything used to build the dataset and train the model:
 
