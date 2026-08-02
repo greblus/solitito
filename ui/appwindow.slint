@@ -102,6 +102,13 @@ export component AppWindow inherits Window {
     in-out property <float> boost_gain: 5.0;
     
     in-out property <bool> random_enabled: false;
+    // Trzyma rozpoznaną jakość akordu do następnego szarpnięcia strun.
+    // Septyma wybrzmiewa szybciej niż reszta akordu, więc bez tego trzymany
+    // Gm7 zamienia się w Gm w trakcie wybrzmiewania.
+    in-out property <bool> lock_quality: true;
+    // Tryb, w którym aplikacja ma się uruchamiać (indeks jak w current_mode).
+    in-out property <int> startup_mode: 0;
+    callback startup_mode_changed(int);
     in-out property <string> interval_input_text: "1 3 5";
 
     // --- AUDIO CONTROL ---
@@ -211,6 +218,27 @@ export component AppWindow inherits Window {
                     }
                     if root.boost_enabled : Slider { 
                         minimum: 1.0; maximum: 20.0; value <=> root.boost_gain; 
+                    }
+                }
+
+                HorizontalLayout {
+                    CheckBox { checked <=> root.lock_quality; }
+                    Text {
+                        text: "Lock chord quality until new attack";
+                        color: #aaa; vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: "Startup mode: "; color: #aaa;
+                        vertical-alignment: center; width: 100px;
+                    }
+                    ComboBox {
+                        model: ["Chords", "Intervals", "Scales", "Arpeggios"];
+                        current-index <=> root.startup_mode;
+                        selected(v) => { root.startup_mode_changed(root.startup_mode); }
                     }
                 }
 

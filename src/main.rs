@@ -3,6 +3,8 @@
 mod model;
 mod audio;
 mod brain;
+mod latch;
+mod settings;
 mod state;
 
 use std::sync::{Arc, Mutex};
@@ -14,6 +16,8 @@ use std::thread;
 
 use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
 use brain::{ChordBrain, Prediction};
+use latch::ChordLatch;
+use settings::Settings;
 use state::{MyApp, AppMode, MatchStatus};
 
 use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
@@ -51,6 +55,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // FIX: Poprawna inicjalizacja pola history zamiast raw_input
         input_history: [[0.0; 168]; 48],
         frame_live: [false; 48],
+        onset_id: 0,
+        frames_since_onset: 0,
         spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
         bass_boost_enabled: default_boost_enabled,
@@ -135,7 +141,12 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
+    // Ustawienia trwałe — czytane raz, przed zbudowaniem okna, żeby aplikacja
+    // od pierwszej klatki była w wybranym trybie zamiast przeskakiwać.
+    let cfg = Settings::load();
+
     let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), None)));
+    my_app.lock().unwrap().set_mode(cfg.startup_mode);
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
@@ -150,6 +161,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_boost_enabled(default_boost_enabled);
         ui.set_boost_gain(default_boost_gain);
         ui.set_current_mode(app.app_mode as i32); 
+        ui.set_startup_mode(cfg.startup_mode);
         ui.set_interval_input_text(app.intervals_input.clone().into()); 
     }
 
@@ -161,6 +173,9 @@ fn main() -> Result<(), slint::PlatformError> {
     
     let keys_list: Vec<SharedString> = vec!["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
         .into_iter().map(SharedString::from).collect();
+
+    // Zatrzask jakości akordu — patrz komentarz nad modułem `latch`.
+    let mut chord_latch = ChordLatch::default();
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
@@ -219,12 +234,27 @@ fn main() -> Result<(), slint::PlatformError> {
                 let current_confidence = if !app.chord_history.is_empty() { 
                     *max_v / app.chord_history.len() as f32 
                 } else { 0.0 };
-                
-                ui.set_ai_text(format!("{} ({:.0}%)", best_c, current_confidence * 100.0).into());
-                
+
+                // Zatrzask: akord nie zmienia tożsamości, kiedy wybrzmiewa.
+                // Zakłada się na wysokiej pewności, ale trzyma niezależnie od niej —
+                // w zaniku model raportuje uboższą jakość z pewnością 94-96%, więc
+                // sam próg pewności niczego by tu nie uratował.
+                let (onset_id, since_onset) = {
+                    let s = app.analysis_state.lock().unwrap();
+                    (s.onset_id, s.frames_since_onset)
+                };
+                let shown = chord_latch.update(
+                    ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
+                );
+
+                let held_mark = if chord_latch.held().is_some() { "🔒 " } else { "" };
+                ui.set_ai_text(
+                    format!("{}{} ({:.0}%)", held_mark, shown, current_confidence * 100.0).into()
+                );
+
                 let dt = 0.040; 
                 // FIX: Używamy uśrednionego wyniku (best_c) do logiki gry
-                app.check_progress_with_ai(dt, best_c, current_confidence);
+                app.check_progress_with_ai(dt, &shown, current_confidence);
             }
         }
 
@@ -308,6 +338,12 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui_weak_cb = ui.as_weak();
     let keys_list_clone = keys_list.clone();
     
+    // Zmiana trybu startowego zapisuje się od razu — nie ma przycisku "Zapisz",
+    // więc ustawienie musi przeżyć zamknięcie okna bez dodatkowego kroku.
+    ui.on_startup_mode_changed(move |mode_idx| {
+        Settings { startup_mode: mode_idx }.save();
+    });
+
     ui.on_mode_changed(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
         let ui = ui_weak_cb.unwrap();

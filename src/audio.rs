@@ -60,6 +60,12 @@ pub struct AudioAnalysis {
     pub bass_boost_gain: f32,
     pub input_gain: f32,
     pub noise_gate: f32,
+    /// Rośnie o 1 przy każdym wykrytym ataku (szarpnięciu strun).
+    /// Aplikacja używa tego do zwalniania zatrzasku jakości akordu.
+    pub onset_id: u64,
+    /// Ile klatek minęło od ostatniego ataku. Dopóki nie przekroczy CTX_FRAMES,
+    /// okno kontekstowe wciąż zawiera fragment POPRZEDNIEGO akordu.
+    pub frames_since_onset: u32,
 }
 
 impl AudioAnalysis {
@@ -73,10 +79,17 @@ impl AudioAnalysis {
         self.push(&[0.0; TOTAL_FEATURES], false);
     }
 
+    /// Zgłasza atak: zeruje licznik i podbija identyfikator zdarzenia.
+    pub fn mark_onset(&mut self) {
+        self.onset_id = self.onset_id.wrapping_add(1);
+        self.frames_since_onset = 0;
+    }
+
     fn push(&mut self, data: &[f32], live: bool) {
         if data.len() != TOTAL_FEATURES {
             return;
         }
+        self.frames_since_onset = self.frames_since_onset.saturating_add(1);
         self.input_history.rotate_left(1);
         self.input_history[CTX_FRAMES - 1].copy_from_slice(data);
         self.frame_live.rotate_left(1);
@@ -262,6 +275,13 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
+    // Detekcja ataku: skok energii ponad pełznącą obwiednię.
+    const ATTACK_RATIO: f32 = 1.8;        // ile razy ponad baseline
+    const ATTACK_FLOOR: f32 = 0.01;       // bezwzględne minimum, odcina szum
+    const ATTACK_REFRACTORY: u32 = 12;    // ~0.2 s ciszy detektora po ataku
+    let mut env_baseline: f32 = 0.0;
+    let mut frames_since_attack: u32 = ATTACK_REFRACTORY;
+
     let mut input_acc = Vec::with_capacity(8192 * 2);
     let mut resampled = Vec::with_capacity(FFT_SIZE * 2);
     let mut read_pos: f32 = 0.0;
@@ -294,7 +314,29 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                     };
                     
                     let rms = (chunk.iter().map(|x| x*x).sum::<f32>() / FFT_SIZE as f32).sqrt();
-                    
+
+                    // --- DETEKCJA ATAKU ---
+                    // Szarpnięcie strun to skok energii ponad wolno pełznącą obwiednię.
+                    // Porównujemy z baseline (EMA), a nie z progiem bezwzględnym, bo ten
+                    // zależałby od głośności gry i ustawienia gainu. Refrakcja chroni
+                    // przed wyzwoleniem kilku ataków na jednym uderzeniu.
+                    let level = rms * gain;
+                    if level > env_baseline * ATTACK_RATIO && level > ATTACK_FLOOR
+                        && frames_since_attack >= ATTACK_REFRACTORY
+                    {
+                        if let Ok(mut st) = shared_state.lock() { st.mark_onset(); }
+                        frames_since_attack = 0;
+                    } else {
+                        frames_since_attack = frames_since_attack.saturating_add(1);
+                    }
+                    // Baseline podąża szybko w dół, wolno w górę — inaczej długo
+                    // wybrzmiewający akord podniósłby próg i zjadł kolejny atak.
+                    env_baseline = if level > env_baseline {
+                        env_baseline * 0.90 + level * 0.10
+                    } else {
+                        env_baseline * 0.70 + level * 0.30
+                    };
+
                     if rms * gain > gate {
                         let amplified: Vec<f32> = chunk.iter().map(|&x| x * gain).collect();
                         let (cqt, chroma, bass, visual) = analyzer.compute_cqt_chroma(
@@ -488,6 +530,8 @@ mod fill_tests {
         AudioAnalysis {
             input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
             frame_live: [false; CTX_FRAMES],
+            onset_id: 0,
+            frames_since_onset: 0,
             spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],
             bass_boost_enabled: false,
