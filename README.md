@@ -318,20 +318,19 @@ My Scale Name
 
 ## Running it
 
-The binary needs two files next to it, neither of which is in this repository:
+`dsp_weights.json` is in the repository. The model is not — checkpoints are 29 MB
+each and live on Hugging Face:
 
-| file | where from |
-|---|---|
-| `best_model_v2_take6.onnx` | <https://huggingface.co/greblus/solitito-ai> |
-| `dsp_weights.json` | `python dist/gen_weights.py` (needs librosa; ~2 MB output) |
+```
+https://huggingface.co/greblus/solitito-ai
+```
 
-Both are excluded on purpose. The model is 29 MB per checkpoint, and the weights
-file is deterministic output of a script in this repo — keeping generated
-artifacts in git costs history size and gains nothing.
+Put `best_model_v2_take6.onnx` next to the binary and run it.
 
 The app refuses to start on an old dense `dsp_weights.json` rather than accepting
 it silently: the previous format also carried a different chroma mapping, which
-would feed the model features it was not trained on.
+would feed the model features it was not trained on. Regenerate with
+`python dist/gen_weights.py` (needs librosa).
 
 ```bash
 cargo build --release

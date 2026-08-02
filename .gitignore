@@ -4,19 +4,16 @@
 .venv/
 dist/.venv/
 
-# Audio — rendery i eksporty DI. Setki MB, generowane, nie wersjonujemy.
-# (GitHub odrzuca pliki >100 MB, a w historii zostałyby na zawsze.)
+# Audio - renders and DI exports. Hundreds of MB, generated, not versioned.
+# (GitHub rejects files >100 MB, and history would keep them forever.)
 *.wav
 *.flac
 *.mp3
 
-# Artefakty treningu
+# Training artifacts
 *.pth
 cache_*/
 
 
-# Modele ONNX — artefakty treningu, pobierane z Hugging Face
+# ONNX models - training artifacts, downloaded from Hugging Face
 *.onnx
-
-# Wagi DSP — generowane przez dist/gen_weights.py (wymaga librosy)
-dsp_weights.json
