@@ -10,30 +10,34 @@ use std::rc::Rc;
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
+use std::thread;
 
 use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
-use brain::ChordBrain;
+use brain::{ChordBrain, Prediction};
 use state::{MyApp, AppMode, MatchStatus};
 
 use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
 
 slint::include_modules!();
 
+#[derive(Clone, Default)]
+struct AiResult {
+    pred: Prediction,
+    updated: bool,
+}
+
 fn main() -> Result<(), slint::PlatformError> {
 
     let _keep_awake = keepawake::Builder::new()
-        .display(true) // Trzymaj ekran włączony
-        .idle(true)    // Nie usypiaj przy bezczynności
-        .sleep(true)   // Blokuj stan uśpienia
+        .display(true)
+        .idle(true)
+        .sleep(true)
         .create();
 
     if let Err(e) = &_keep_awake {
         eprintln!("Warning: Could not enable keep-awake: {}", e);
     }
     
-    //#[cfg(target_os = "linux")]
-    //std::env::set_var("SLINT_BACKEND", "winit-x11");
-
     if let Err(e) = ort::init().with_name("Solitito").commit() {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
@@ -44,15 +48,19 @@ fn main() -> Result<(), slint::PlatformError> {
     let default_boost_gain = 5.0;
 
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
-        chroma_sum: [0.0; 12],
+        // FIX: Poprawna inicjalizacja pola history zamiast raw_input
+        input_history: [[0.0; 168]; 48],
+        frame_live: [false; 48],
         spectrum_visual: [0.0; 48],
-        raw_input_for_ai: [0.0; 156], 
+        chroma_sum: [0.0; 12],
         bass_boost_enabled: default_boost_enabled,
         bass_boost_gain: default_boost_gain, 
         input_gain: default_gain,      
         noise_gate: default_gate,    
     }));
     
+    let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
+
     let args: Vec<String> = env::args().collect();
     let mut file_mode = false;
     let mut _mic_stream = None;
@@ -73,27 +81,70 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     
-    let model_filename = "chord_model_v31_16k.onnx"; 
-    let brain: Option<Arc<Mutex<ChordBrain>>> = match ChordBrain::new(model_filename) {
-        Ok(b) => Some(Arc::new(Mutex::new(b))),
-        Err(e) => {
-            eprintln!("WARNING: Could not load AI Model '{}': {}", model_filename, e);
-            None
-        }
-    };
+    // WĄTEK AI
+    let analysis_for_ai = analysis_state.clone();
+    let result_for_ai = ai_result_state.clone();
+    
+    thread::spawn(move || {
+        let model_filename = "best_model_v2_take6.onnx";
+        let mut brain = match ChordBrain::new(model_filename) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("WARNING: Could not load AI Model: {}", e);
+                return;
+            }
+        };
+        
+        // Ile okna kontekstowego musi nieść realny sygnał, żeby w ogóle pytać model.
+        // Trener budował okna wyłącznie WEWNĄTRZ wybrzmiewającego akordu, więc model
+        // nigdy nie widział wejścia "połowa cisza, połowa akord". Po uderzeniu w struny
+        // aplikacja podaje mu dokładnie takie okno przez 0.77 s i dostaje w odpowiedzi
+        // zgadywanie — stąd wrażenie, że akord "dochodzi" dopiero w ogonku.
+        const MIN_FILL: f32 = 0.9;
 
-    let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), brain)));
+        // SOLITITO_DEBUG=1 — wypisuje, CO model słyszy i MIĘDZY CZYM się waha.
+        // Bez tego przy pomyłce widać tylko końcową nazwę, a to za mało, żeby
+        // odróżnić "nie słyszy septymy" od "słyszy, ale jej nie używa".
+        let debug_ai = std::env::var("SOLITITO_DEBUG").is_ok();
+        if debug_ai {
+            println!("🔎 Tryb diagnostyczny: pryma | jakości | interwały względem prymy");
+        }
+
+        loop {
+            // FIX: Pobieramy historię
+            let (history, fill) = {
+                let state = analysis_for_ai.lock().unwrap();
+                (state.input_history, state.history_fill())
+            };
+
+            if fill < MIN_FILL {
+                thread::sleep(Duration::from_millis(40));
+                continue;
+            }
+
+            if let Ok(pred) = brain.predict(&history) {
+                if debug_ai {
+                    print_debug(&pred);
+                }
+                if let Ok(mut res) = result_for_ai.lock() {
+                    res.pred = pred;
+                    res.updated = true;
+                }
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+    });
+
+    let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), None)));
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
     {
         let app = my_app.lock().unwrap();
-        
         let titles: Vec<SharedString> = app.song_library.iter()
             .map(|s| SharedString::from(&s.title))
             .collect();
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-        
         ui.set_input_gain(default_gain);
         ui.set_noise_gate(default_gate);
         ui.set_boost_enabled(default_boost_enabled);
@@ -106,6 +157,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let timer = Timer::default();
     let app_clone = my_app.clone();
+    let result_for_ui = ai_result_state.clone();
     
     let keys_list: Vec<SharedString> = vec!["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
         .into_iter().map(SharedString::from).collect();
@@ -114,16 +166,15 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
 
-        let (spectrum_vis, raw_ai) = {
+        let spectrum_vis = {
             let s = app.analysis_state.lock().unwrap();
-            (s.spectrum_visual, s.raw_input_for_ai)
+            s.spectrum_visual
         };
 
         if !file_mode {
             app.input_gain = ui.get_input_gain();
             app.noise_gate = ui.get_noise_gate();
         }
-        
         app.bass_boost_enabled = ui.get_boost_enabled();
         app.bass_boost_gain = ui.get_boost_gain();
         app.sensitivity = ui.get_threshold();     
@@ -136,39 +187,44 @@ fn main() -> Result<(), slint::PlatformError> {
             app.intervals_input = ui_txt;
             app.reset_logic_state();
         }
-        
         app.sync_audio_settings();
 
-        let brain_arc = app.brain.clone();
-        if let Some(brain_mutex) = brain_arc {
-            if let Ok(mut b) = brain_mutex.lock() {
-                if let Ok((chord, score)) = b.predict(&raw_ai) {
-                    app.chord_history.push_back((chord.clone(), score));
-                    if app.chord_history.len() > 5 { app.chord_history.pop_front(); }
-                    
-                    let mut votes: HashMap<String, f32> = HashMap::new();
-                    for (c, s) in &app.chord_history {
-                        *votes.entry(c.clone()).or_insert(0.0) += *s; 
-                    }
+        if let Ok(mut res) = result_for_ui.lock() {
+            if res.updated {
+                let chord = res.pred.chord.clone();
+                let score = res.pred.confidence;
+                app.last_pitches = res.pred.pitches;
 
-                    let fallback_str = String::from("...");
-                    let fallback_val = 0.0;
-                    let (best_c, max_v) = votes.iter()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                        .unwrap_or((&fallback_str, &fallback_val));
-                    
-                    let current_chord_str = best_c.clone();
-                    let current_confidence = if !app.chord_history.is_empty() { 
-                        *max_v / app.chord_history.len() as f32 
-                    } else { 0.0 };
-                    
-                    // FIX: Aktualizujemy tekst ZAWSZE (Slint decyduje gdzie go wyświetlić)
-                    // Usunąłem "AI: " z formatowania, bo Slint dodaje "AI Prediction: "
-                    ui.set_ai_text(format!("{} ({:.0}%)", current_chord_str, current_confidence * 100.0).into());
+                // FIX: Reset flagi po odczytaniu
+                res.updated = false;
 
-                    let dt = 0.016;
-                    app.check_progress_with_ai(dt, &chord, score);
+                // Głosowanie nad 5 oknami (~0.2 s). Sonda probe_quality zmierzyła,
+                // że głosowanie większościowe wypada lepiej niż uśrednianie
+                // rozkładów — model bywa pewny i błędny, a średnia tę pewność
+                // przenosi dalej, podczas gdy głosowanie ją tłumi.
+                app.chord_history.push_back((chord.clone(), score));
+                if app.chord_history.len() > 5 { app.chord_history.pop_front(); }
+                
+                let mut votes: HashMap<String, f32> = HashMap::new();
+                for (c, s) in &app.chord_history {
+                    *votes.entry(c.clone()).or_insert(0.0) += *s; 
                 }
+
+                let fallback_str = String::from("...");
+                let fallback_val = 0.0;
+                let (best_c, max_v) = votes.iter()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .unwrap_or((&fallback_str, &fallback_val));
+                
+                let current_confidence = if !app.chord_history.is_empty() { 
+                    *max_v / app.chord_history.len() as f32 
+                } else { 0.0 };
+                
+                ui.set_ai_text(format!("{} ({:.0}%)", best_c, current_confidence * 100.0).into());
+                
+                let dt = 0.040; 
+                // FIX: Używamy uśrednionego wyniku (best_c) do logiki gry
+                app.check_progress_with_ai(dt, best_c, current_confidence);
             }
         }
 
@@ -205,15 +261,12 @@ fn main() -> Result<(), slint::PlatformError> {
             if app.app_mode != AppMode::Chords {
                 let all_names = curr_chord.quality.interval_names();
                 let active_indices = app.get_active_indices(curr_chord);
-                
                 let mut ui_names = Vec::new();
                 let mut ui_colors = Vec::new();
-                
                 for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
                     if internal_idx < all_names.len() {
                         let name = &all_names[internal_idx];
                         ui_names.push(SharedString::from(name));
-
                         if step_idx < app.current_note_step {
                             ui_colors.push(Color::from_rgb_u8(50, 255, 50));
                         } else if step_idx == app.current_note_step {
@@ -227,7 +280,6 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     }
                 }
-                
                 ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             }
@@ -259,36 +311,23 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_mode_changed(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
         let ui = ui_weak_cb.unwrap();
-        
         app.set_mode(mode_idx);
         ui.set_current_mode(mode_idx);
         ui.set_interval_input_text(app.intervals_input.clone().into());
-        
         let (label, items, sec_label, sec_items) = match app.app_mode {
             AppMode::Scales => (
-                "Select Scale:", 
-                app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
-                "Key (Root):",
-                keys_list_clone.clone()
+                "Select Scale:", app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
+                "Key (Root):", keys_list_clone.clone()
             ),
             AppMode::Arpeggios => (
-                "Select Song:", 
-                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
-                "Pattern:",
-                app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
+                "Select Song:", app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
+                "Pattern:", app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
             ),
-            _ => (
-                "Select Song:", 
-                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
-                "", 
-                vec![]
-            ),
+            _ => ("Select Song:", app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(), "", vec![]),
         };
-        
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
         ui.set_current_item_index(0);
-        
         ui.set_secondary_label(sec_label.into());
         ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
         ui.set_current_secondary_index(0);
@@ -317,4 +356,39 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.run()
+}
+
+/// Podgląd diagnostyczny (SOLITITO_DEBUG=1).
+///
+/// Interwały wypisujemy WZGLĘDEM ROZPOZNANEJ PRYMY, bo tak myśli się o akordzie:
+/// "Gm zamiast Gm7" znaczy, że pod b7 powinna być wysoka liczba. Jeśli jest niska,
+/// wąskim gardłem jest słyszenie; jeśli wysoka, a jakość i tak wychodzi "m",
+/// to głowica jakości nie korzysta z informacji, którą ma pod ręką.
+fn print_debug(p: &brain::Prediction) {
+    const IV: [&str; 12] = ["R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"];
+    const QN: [&str; 11] = [
+        "maj", "min", "maj7", "dom7", "min7", "m7b5", "dim7", "aug", "sus", "note", "N",
+    ];
+
+    if p.root_idx >= 12 {
+        return;
+    }
+
+    let iv: String = (0..12)
+        .map(|i| {
+            let v = p.pitches[(p.root_idx + i) % 12];
+            let bar = if v > 0.75 { "#" } else if v > 0.5 { "+" } else if v > 0.25 { "." } else { " " };
+            format!("{}{:.0}{} ", IV[i], v * 100.0, bar)
+        })
+        .collect();
+
+    let mut top: Vec<(usize, f32)> = p.qual_probs.iter().copied().enumerate().collect();
+    top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    let quals: String = top
+        .iter()
+        .take(3)
+        .map(|(i, v)| format!("{}={:.0}% ", QN[*i], v * 100.0))
+        .collect();
+
+    println!("{:<10} | {} | {}", p.chord, quals.trim_end(), iv.trim_end());
 }

@@ -67,7 +67,11 @@ pub struct MyApp {
     pub saved_intervals_input: String,
     
     pub random_mode: bool,
-    pub chord_history: VecDeque<(String, f32)>, 
+    pub chord_history: VecDeque<(String, f32)>,
+    /// Prawdopodobieństwa 12 klas wysokości z ostatniego okna.
+    /// Tryby Intervals/Arpeggios/Scales opierają się na tym, a nie na nazwie
+    /// akordu — głowica pitch ma F1 0.90, a nazwa akordu ~80%.
+    pub last_pitches: [f32; 12],
 }
 
 impl MyApp {
@@ -116,6 +120,7 @@ impl MyApp {
             
             random_mode: false,
             chord_history: VecDeque::with_capacity(20),
+            last_pitches: [0.0; 12],
         }
     }
     
@@ -364,20 +369,33 @@ impl MyApp {
             },
             
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
-                if confidence < self.sensitivity { 
-                    self.success_timer = 0.0;
-                    return; 
-                }
-
+                // Te tryby NIE bramkują się pewnością akordu. `confidence` to teraz
+                // iloczyn pewności prymy i jakości, więc niepewna jakość blokowałaby
+                // rozpoznanie dźwięku, który słychać zupełnie wyraźnie. Tu liczy się
+                // wyłącznie głowica pitch — a ta ma F1 0.90 wobec ~80% dla nazwy akordu.
                 if self.current_note_step >= active_indices.len() { return; }
 
                 let internal_idx = active_indices[self.current_note_step];
                 let target_note_idx = all_targets[internal_idx];
                 let target_note_enum = NoteName::from_index(target_note_idx);
 
-                let mut note_match = false;
+                // Klasa wysokości celu (0..11) — kolejność NoteName odpowiada
+                // kolejności wyjścia pitch_logits (C, Db, D, ...).
+                let target_pc = target_note_idx % 12;
+                let p_target = self.last_pitches[target_pc];
+                let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
+
+                // Dźwięk uznajemy za zagrany, gdy głowica pitch jest go pewna
+                // I jest to najgłośniejsza klasa w oknie (albo prawie). Drugi
+                // warunek chroni przed zaliczeniem dźwięku, który tylko wybrzmiewa
+                // z poprzedniego kroku ćwiczenia.
+                let mut note_match =
+                    p_target >= self.sensitivity.max(0.5) && p_target >= p_max * 0.9;
+
+                // Zgoda głowicy root to niezależne potwierdzenie — przy pojedynczym
+                // dźwięku model opisuje go właśnie prymą.
                 if let Some(r) = ai_root {
-                    if r == target_note_enum {
+                    if r == target_note_enum && confidence >= self.sensitivity {
                         note_match = true;
                     }
                 }
