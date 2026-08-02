@@ -1,26 +1,28 @@
-//! Ustawienia trwałe między uruchomieniami.
+//! Settings that survive a restart.
 //!
-//! Świadomie osobny, mały plik zamiast dopisywania do stanu aplikacji: to jedyna
-//! rzecz w programie, która przeżywa zamknięcie okna, i chcemy, żeby awaria
-//! odczytu NIGDY nie blokowała startu. Każdy błąd (brak pliku, uszkodzony JSON,
-//! brak prawa zapisu) kończy się cichym powrotem do wartości domyślnych.
+//! Deliberately a small separate file: this is the only state that outlives the
+//! window, and a read failure must NEVER block startup. Every error - missing
+//! file, corrupt JSON, no write permission - falls back to defaults.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Tryb wybierany przy starcie. Liczby odpowiadają `AppMode` i indeksom
-/// przycisków w UI — zmiana kolejności tam wymaga zmiany tutaj.
+/// Startup mode. The indices match `AppMode` and the UI buttons - reordering
+/// them there requires a change here.
 pub const MODE_NAMES: [&str; 4] = ["Chords", "Intervals", "Scales", "Arpeggios"];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
-    /// Tryb, w którym aplikacja ma się uruchamiać. Domyślnie Chords.
+    /// Which mode the app opens in. Chords by default.
     pub startup_mode: i32,
+    /// UI language: 0 = from the system locale, 1 = Polish, 2 = English.
+    #[serde(default)]
+    pub language: i32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { startup_mode: 0 } // Chords
+        Self { startup_mode: 0, language: 0 } // Chords, language from the system
     }
 }
 
@@ -32,16 +34,19 @@ impl Settings {
         match std::fs::read_to_string(&path) {
             Ok(txt) => match serde_json::from_str::<Settings>(&txt) {
                 Ok(mut s) => {
-                    // Plik mógł powstać w innej wersji albo zostać ręcznie
-                    // poprawiony — indeks spoza zakresu wywaliłby UI.
+                    // The file may come from another version or have been edited
+                    // by hand; an out-of-range index would break the UI.
                     if !(0..MODE_NAMES.len() as i32).contains(&s.startup_mode) {
                         s.startup_mode = 0;
                     }
-                    println!("⚙️  Ustawienia z {}", path.display());
+                    if !(0..3).contains(&s.language) {
+                        s.language = 0;
+                    }
+                    println!("⚙️  Settings from {}", path.display());
                     s
                 }
                 Err(e) => {
-                    eprintln!("⚠️  {} jest uszkodzony ({e}) — wartości domyślne.", path.display());
+                    eprintln!("⚠️  {} is corrupt ({e}) - using defaults.", path.display());
                     Self::default()
                 }
             },
@@ -57,16 +62,16 @@ impl Settings {
         match serde_json::to_string_pretty(self) {
             Ok(txt) => {
                 if let Err(e) = std::fs::write(&path, txt) {
-                    eprintln!("⚠️  Nie zapisano ustawień do {}: {e}", path.display());
+                    eprintln!("⚠️  Could not write settings to {}: {e}", path.display());
                 }
             }
-            Err(e) => eprintln!("⚠️  Nie udało się zserializować ustawień: {e}"),
+            Err(e) => eprintln!("⚠️  Could not serialise settings: {e}"),
         }
     }
 }
 
-/// `$XDG_CONFIG_HOME/solitito/settings.json`, z odwrotem do `$HOME/.config`
-/// i `%APPDATA%` na Windowsie.
+/// `$XDG_CONFIG_HOME/solitito/settings.json`, falling back to `$HOME/.config`
+/// and `%APPDATA%` on Windows.
 fn config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -80,15 +85,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn domyslnie_chords() {
+    fn defaults_to_chords() {
         assert_eq!(Settings::default().startup_mode, 0);
         assert_eq!(MODE_NAMES[0], "Chords");
     }
 
     #[test]
-    fn nazwy_trybow_pokrywaja_sie_z_appmode() {
-        // Kolejność jest kontraktem z `AppMode` w state.rs i z przyciskami w
-        // appwindow.slint. Rozjazd = start w innym trybie, niż wybrany.
+    fn mode_names_match_appmode() {
+        // The order is a contract with `AppMode` in state.rs and the buttons in
+        // appwindow.slint. A mismatch means starting in the wrong mode.
         assert_eq!(MODE_NAMES.len(), 4);
         assert_eq!(MODE_NAMES[1], "Intervals");
         assert_eq!(MODE_NAMES[2], "Scales");
@@ -96,16 +101,16 @@ mod tests {
     }
 
     #[test]
-    fn uszkodzony_json_nie_wywraca_startu() {
-        // Serde ma odrzucić śmieci, a wywołujący dostaje wartości domyślne.
-        assert!(serde_json::from_str::<Settings>("{ to nie jest json").is_err());
-        assert!(serde_json::from_str::<Settings>("{}").is_err(), "brak pola = błąd");
+    fn corrupt_json_does_not_break_startup() {
+        // Serde must reject garbage; the caller then gets defaults.
+        assert!(serde_json::from_str::<Settings>("{ not json at all").is_err());
+        assert!(serde_json::from_str::<Settings>("{}").is_err(), "a missing field is an error");
         let ok: Settings = serde_json::from_str(r#"{"startup_mode":2}"#).unwrap();
         assert_eq!(ok.startup_mode, 2);
     }
 
     #[test]
-    fn indeks_spoza_zakresu_wraca_do_chords() {
+    fn out_of_range_index_falls_back_to_chords() {
         let mut s: Settings = serde_json::from_str(r#"{"startup_mode":99}"#).unwrap();
         if !(0..MODE_NAMES.len() as i32).contains(&s.startup_mode) {
             s.startup_mode = 0;

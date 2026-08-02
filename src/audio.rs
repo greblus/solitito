@@ -9,14 +9,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-// --- STAŁE V100 ---
+// --- CONSTANTS ---
 pub const TOTAL_FEATURES: usize = 168; 
 pub const CQT_BINS: usize = 144;       
 pub const CHROMA_BINS: usize = 12;
 pub const BASS_ENERGY_BINS: usize = 12;
-pub const CTX_FRAMES: usize = 48; // Kontekst modelu
+pub const CTX_FRAMES: usize = 48; // model context
 
-const BASS_BOOST_GAIN: f32 = 5.0;
 const BASS_BOOST_CUTOFF: usize = 36;
 
 const TARGET_SR: u32 = 16000; 
@@ -24,19 +23,24 @@ const FFT_SIZE: usize = 8192;
 const HOP_LENGTH: usize = 256; 
 const MIN_REF_LEVEL: f32 = 0.005; 
 
-/// Wagi pseudo-CQT w formacie rzadkim (CSR po binach CQT).
+/// Input gain. A CONSTANT, not a knob: the CQT is max-normalised per frame, so
+/// gain cancels out in the features. It only mattered where the level is
+/// compared against the noise gate, and one knob is enough there.
+pub const INPUT_GAIN: f32 = 2.0;
+
+/// Sparse pseudo-CQT weights (CSR by CQT bin).
 ///
-/// Jądro ma 4097x144 wag, ale są skupione wokół częstotliwości środkowej każdego
-/// binu — po odcięciu tych poniżej 1e-4 szczytu zostaje 6.9% przy błędzie 0.03%
-/// (zmierzone w gen_weights.py). Plik schodzi z 28 MB do ~2 MB, a pętla robi
-/// ~14x mniej mnożeń na ramkę.
+/// The kernel has 4097x144 weights, concentrated around each bin's centre
+/// frequency. Dropping everything below 1e-4 of peak keeps 6.9% at 0.03% error
+/// (measured in gen_weights.py): 28 MB -> ~2 MB, and ~14x fewer multiplications
+/// per frame.
 #[derive(Deserialize)]
 struct DspConfig {
-    /// Znacznik formatu. Stary plik gęsty go nie ma — i miał przy okazji chromę
-    /// one-hot, która rozkładała model, więc odrzucamy go z komunikatem.
+    /// Format marker. The old dense file lacks it - and also carried a different
+    /// chroma mapping, so it is rejected with a message rather than accepted.
     #[serde(default)]
     pub format: String,
-    /// 145 pozycji: bin i zajmuje zakres [offsets[i], offsets[i+1]).
+    /// 145 entries: bin i spans [offsets[i], offsets[i+1]).
     #[serde(default)]
     pub cqt_offsets: Vec<u32>,
     #[serde(default)]
@@ -49,37 +53,37 @@ struct DspConfig {
 }
 
 pub struct AudioAnalysis {
-    // FIX: Bufor historii [48 x 168] zamiast jednej klatki
     pub input_history: [[f32; TOTAL_FEATURES]; CTX_FRAMES],
-    /// Czy dana klatka historii niesie sygnał (true), czy jest ciszą wepchniętą
-    /// przez bramkę szumu (false). Równoległa do `input_history`.
+    /// Whether each history frame carries signal (true) or is silence pushed in
+    /// by the noise gate (false). Parallel to `input_history`.
     pub frame_live: [bool; CTX_FRAMES],
     pub spectrum_visual: [f32; 48],
     pub chroma_sum: [f32; 12],
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
-    pub input_gain: f32,
     pub noise_gate: f32,
-    /// Rośnie o 1 przy każdym wykrytym ataku (szarpnięciu strun).
-    /// Aplikacja używa tego do zwalniania zatrzasku jakości akordu.
+    /// Smoothed input level in the same units as `noise_gate`, so the UI meter is
+    /// directly comparable with the threshold.
+    pub input_level: f32,
+    /// Increments on every detected attack. The app uses it to release the
+    /// chord quality latch.
     pub onset_id: u64,
-    /// Ile klatek minęło od ostatniego ataku. Dopóki nie przekroczy CTX_FRAMES,
-    /// okno kontekstowe wciąż zawiera fragment POPRZEDNIEGO akordu.
+    /// Frames since the last attack. Below CTX_FRAMES the context window still
+    /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
 }
 
 impl AudioAnalysis {
-    // FIX: Funkcja dodająca nową klatkę do historii
     pub fn push_frame(&mut self, data: &[f32]) {
         self.push(data, true);
     }
 
-    /// Cisza poniżej bramki — historia musi się przesunąć, ale klatka jest pusta.
+    /// Silence below the gate: history still advances, but the frame is empty.
     pub fn push_silence(&mut self) {
         self.push(&[0.0; TOTAL_FEATURES], false);
     }
 
-    /// Zgłasza atak: zeruje licznik i podbija identyfikator zdarzenia.
+    /// Reports an attack: resets the counter and bumps the event id.
     pub fn mark_onset(&mut self) {
         self.onset_id = self.onset_id.wrapping_add(1);
         self.frames_since_onset = 0;
@@ -96,15 +100,13 @@ impl AudioAnalysis {
         self.frame_live[CTX_FRAMES - 1] = live;
     }
 
-    /// Ułamek okna kontekstowego wypełniony realnym sygnałem (0.0 – 1.0).
+    /// Fraction of the context window carrying real signal (0.0 - 1.0).
     ///
-    /// Model widział w treningu WYŁĄCZNIE okna leżące w całości wewnątrz
-    /// wybrzmiewającego akordu — trener budował je jako `range(start, koniec - 48)`,
-    /// więc nigdy nie dostał okna "połowa cisza, połowa akord". Po uderzeniu w struny
-    /// aplikacja karmi go dokładnie takim oknem przez 48 klatek, czyli 0.77 s, i to
-    /// jest wejście spoza rozkładu treningowego. Stąd wrażenie, że akord rozpoznaje
-    /// się dopiero "w ogonku" — ogonek to po prostu pierwszy moment, w którym okno
-    /// jest już w całości wypełnione dźwiękiem.
+    /// In training the model only ever saw windows lying entirely inside a
+    /// sustained chord (`range(start, end - 48)`), never "half silence, half
+    /// chord". After the strings are struck the app feeds it exactly such a
+    /// window for 48 frames (0.77 s) - input outside the training distribution.
+    /// That is why chords appeared to resolve only "in the tail".
     pub fn history_fill(&self) -> f32 {
         let n = self.frame_live.iter().filter(|&&b| b).count();
         n as f32 / CTX_FRAMES as f32
@@ -126,39 +128,38 @@ pub struct CqtAnalyzer {
 
 impl CqtAnalyzer {
     pub fn new(json_path: &str) -> Result<Self> {
-        println!("Wczytywanie wag DSP z {}...", json_path);
-        let file = File::open(json_path).context("Nie znaleziono dsp_weights.json!")?;
+        println!("Loading DSP weights from {}...", json_path);
+        let file = File::open(json_path).context("dsp_weights.json not found")?;
         let reader = BufReader::new(file);
         let config: DspConfig = serde_json::from_reader(reader)?;
 
-        // Stary format jest odrzucany świadomie, a nie z lenistwa: szedł z chromą
-        // one-hot zamiast macierzy cq_to_chroma, co jest rozjazdem względem cech,
-        // na których model się uczył. Cicha akceptacja dałaby aplikację, która się
-        // uruchamia i myli akordy bez śladu w logu.
+        // The old format is rejected deliberately: it shipped a different chroma
+        // mapping than cq_to_chroma, i.e. features the model was not trained on.
+        // Accepting it silently would give an app that runs and gets chords wrong.
         if config.format != "sparse-csr-v1" {
             anyhow::bail!(
-                "dsp_weights.json jest w starym formacie (gęstym, chroma one-hot).\n\
-                 Wygeneruj nowy: python dist/gen_weights.py  (wymaga librosy — Kaggle)."
+                "dsp_weights.json is in the old dense format.\n\
+                 Generate a new one: python dist/gen_weights.py  (needs librosa)."
             );
         }
         if config.cqt_offsets.len() != CQT_BINS + 1 {
             anyhow::bail!(
-                "dsp_weights.json: cqt_offsets ma {} pozycji, oczekiwano {}.",
+                "dsp_weights.json: cqt_offsets has {} entries, expected {}.",
                 config.cqt_offsets.len(), CQT_BINS + 1
             );
         }
         let nnz = config.cqt_fft_idx.len();
         if config.cqt_re.len() != nnz || config.cqt_im.len() != nnz {
-            anyhow::bail!("dsp_weights.json: niespójne długości wag CQT.");
+            anyhow::bail!("dsp_weights.json: inconsistent CQT weight lengths.");
         }
         if config.chroma_weights.len() != CQT_BINS * CHROMA_BINS {
             anyhow::bail!(
-                "dsp_weights.json: chroma ma {} wag, oczekiwano {}.",
+                "dsp_weights.json: chroma has {} weights, expected {}.",
                 config.chroma_weights.len(), CQT_BINS * CHROMA_BINS
             );
         }
         println!(
-            "   CQT rzadkie: {} wag ({:.1}% z {}), chroma {}x{}",
+            "   Sparse CQT: {} weights ({:.1}% of {}), chroma {}x{}",
             nnz,
             100.0 * nnz as f32 / ((FFT_SIZE / 2 + 1) * CQT_BINS) as f32,
             (FFT_SIZE / 2 + 1) * CQT_BINS,
@@ -201,11 +202,10 @@ impl CqtAnalyzer {
         }
         self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
         
-        // 2. CQT — mnożenie rzadkie po binach.
-        // Poprzednia wersja przechodziła wszystkie 4097 binów FFT dla każdego ze 144
-        // binów CQT (590 tys. iteracji na ramkę) i odsiewała zera dopiero w środku
-        // pętli. Teraz iterujemy wprost po niezerowych wagach: ~40 tys. iteracji,
-        // bez gałęzi warunkowej i z lepszą lokalnością pamięci.
+        // 2. CQT - sparse multiply per bin.
+        // The previous version scanned all 4097 FFT bins for each of the 144 CQT
+        // bins (590k iterations per frame) and filtered zeros inside the loop.
+        // Now we iterate the non-zeros directly: ~40k iterations, no branch.
         let mut cqt_mag = sparse_cqt_mag(
             &self.fft_buffer,
             &self.cqt_offsets,
@@ -233,7 +233,7 @@ impl CqtAnalyzer {
             *x = n.clamp(0.0, 1.0);
         }
 
-        // 4. Chroma (macierz cq_to_chroma z dsp_weights.json)
+        // 4. Chroma (cq_to_chroma matrix from dsp_weights.json)
         let mut chroma_vals = vec![0.0; CHROMA_BINS];
         for i in 0..CHROMA_BINS {
             let mut sum = 0.0;
@@ -243,8 +243,7 @@ impl CqtAnalyzer {
             chroma_vals[i] = sum;
         }
 
-        // FIX: per-ramkowa max-normalizacja chromy (jak librosa.chroma_cqt norm=inf).
-        // Bez tego (+ starej one-hot macierzy) model wdrożony spadał z 96% do 37%.
+        // Per-frame max normalisation of chroma, as in librosa.chroma_cqt norm=inf.
         let chroma_max = chroma_vals.iter().cloned().fold(0.0f32, f32::max);
         if chroma_max > 1e-9 {
             for v in &mut chroma_vals { *v /= chroma_max; }
@@ -275,10 +274,10 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
-    // Detekcja ataku: skok energii ponad pełznącą obwiednię.
-    const ATTACK_RATIO: f32 = 1.8;        // ile razy ponad baseline
-    const ATTACK_FLOOR: f32 = 0.01;       // bezwzględne minimum, odcina szum
-    const ATTACK_REFRACTORY: u32 = 12;    // ~0.2 s ciszy detektora po ataku
+    // Attack detection: an energy jump above a slowly creeping envelope.
+    const ATTACK_RATIO: f32 = 1.8;        // multiple of the baseline
+    const ATTACK_FLOOR: f32 = 0.01;       // absolute floor, rejects noise
+    const ATTACK_REFRACTORY: u32 = 12;    // ~0.2 s of detector silence after an attack
     let mut env_baseline: f32 = 0.0;
     let mut frames_since_attack: u32 = ATTACK_REFRACTORY;
 
@@ -308,19 +307,33 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                 if resampled.len() >= FFT_SIZE && resampled.len() % HOP_LENGTH == 0 {
                     let chunk = &resampled[resampled.len() - FFT_SIZE..];
                     
-                    let (gain, gate, boost_enabled, boost_gain) = {
+                    let (gate, boost_enabled, boost_gain) = {
                         let s = shared_state.lock().unwrap();
-                        (s.input_gain, s.noise_gate, s.bass_boost_enabled, s.bass_boost_gain)
+                        (s.noise_gate, s.bass_boost_enabled, s.bass_boost_gain)
                     };
+                    let gain = INPUT_GAIN;
                     
                     let rms = (chunk.iter().map(|x| x*x).sum::<f32>() / FFT_SIZE as f32).sqrt();
 
                     // --- DETEKCJA ATAKU ---
-                    // Szarpnięcie strun to skok energii ponad wolno pełznącą obwiednię.
-                    // Porównujemy z baseline (EMA), a nie z progiem bezwzględnym, bo ten
-                    // zależałby od głośności gry i ustawienia gainu. Refrakcja chroni
-                    // przed wyzwoleniem kilku ataków na jednym uderzeniu.
-                    let level = rms * gain;
+                    // A strum is an energy jump above a slow envelope. Compared
+                    // against an EMA baseline rather than an absolute threshold,
+                    // which would depend on playing volume. The refractory period
+                    // keeps one strum from firing several attacks.
+                    // The gate and meter level come from RAW rms, without
+                    // INPUT_GAIN, so the scale is true input dBFS (0 dB = full
+                    // scale) rather than "dBFS plus 6", which pushed the whole
+                    // useful range to the end of the slider on a loud microphone.
+                    let level = rms;
+                    if let Ok(mut st) = shared_state.lock() {
+                        // Fast attack, slow release: the meter should show the
+                        // strum peak, not the average of the gaps between chords.
+                        st.input_level = if level > st.input_level {
+                            level
+                        } else {
+                            st.input_level * 0.92 + level * 0.08
+                        };
+                    }
                     if level > env_baseline * ATTACK_RATIO && level > ATTACK_FLOOR
                         && frames_since_attack >= ATTACK_REFRACTORY
                     {
@@ -329,15 +342,16 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                     } else {
                         frames_since_attack = frames_since_attack.saturating_add(1);
                     }
-                    // Baseline podąża szybko w dół, wolno w górę — inaczej długo
-                    // wybrzmiewający akord podniósłby próg i zjadł kolejny atak.
+                    // The baseline falls fast and rises slowly; otherwise a long
+                    // sustained chord would raise the threshold and swallow the
+                    // next attack.
                     env_baseline = if level > env_baseline {
                         env_baseline * 0.90 + level * 0.10
                     } else {
                         env_baseline * 0.70 + level * 0.30
                     };
 
-                    if rms * gain > gate {
+                    if level > gate {
                         let amplified: Vec<f32> = chunk.iter().map(|&x| x * gain).collect();
                         let (cqt, chroma, bass, visual) = analyzer.compute_cqt_chroma(
                             &amplified, boost_enabled, boost_gain
@@ -349,7 +363,6 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                             frame.extend_from_slice(&chroma);
                             frame.extend_from_slice(&bass);
                             
-                            // FIX: Używamy push_frame do historii
                             state.push_frame(&frame);
                             
                             for k in 0..48 {
@@ -358,7 +371,7 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                             state.chroma_sum = chroma.try_into().unwrap_or([0.0;12]);
                         }
                     } else if let Ok(mut state) = shared_state.lock() {
-                        // W ciszy dodajemy pustą ramkę, żeby przesunąć historię
+                        // In silence push an empty frame to advance the history
                         state.push_silence();
                         for x in &mut state.spectrum_visual { *x *= 0.7; }
                     }
@@ -416,11 +429,10 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
     Ok(())
 }
 
-/// Moduł CQT z wag w formacie CSR: bin `i` sumuje po `offsets[i]..offsets[i+1]`.
+/// CQT magnitude from CSR weights: bin `i` sums over `offsets[i]..offsets[i+1]`.
 ///
-/// Wydzielone z `compute_cqt_chroma`, żeby dało się to sprawdzić testem —
-/// pomyłka w indeksowaniu CSR nie wywala programu, tylko po cichu przestawia
-/// widmo, a to jest dokładnie ta klasa błędu, która potrafi zjeść cały model.
+/// Split out of `compute_cqt_chroma` so it can be tested - a CSR indexing mistake
+/// does not crash anything, it silently shifts the spectrum.
 fn sparse_cqt_mag(
     fft: &[Complex<f32>],
     offsets: &[u32],
@@ -448,7 +460,7 @@ fn sparse_cqt_mag(
 mod tests {
     use super::*;
 
-    /// Referencja: to samo mnożenie na macierzy GĘSTEJ, jak przed zmianą formatu.
+    /// Reference: the same multiply on a DENSE matrix, as before the format change.
     fn dense_cqt_mag(fft: &[Complex<f32>], re: &[f32], im: &[f32], n_bins: usize) -> Vec<f32> {
         let n_fft = fft.len();
         (0..n_bins)
@@ -466,16 +478,16 @@ mod tests {
     }
 
     #[test]
-    fn csr_daje_ten_sam_wynik_co_macierz_gesta() {
+    fn csr_matches_the_dense_matrix() {
         let (n_fft, n_bins) = (32usize, 5usize);
-        // deterministyczna "losowość" — test ma być powtarzalny
+        // deterministic "randomness" so the test is reproducible
         let pseudo = |s: usize| ((s * 2654435761usize) % 2000) as f32 / 1000.0 - 1.0;
 
         let mut re = vec![0.0f32; n_fft * n_bins];
         let mut im = vec![0.0f32; n_fft * n_bins];
         for k in 0..n_fft {
             for i in 0..n_bins {
-                // rzadkość: waga niezerowa tylko blisko "częstotliwości środkowej"
+                // sparsity: non-zero weights only near the "centre frequency"
                 if (k as i32 - (i as i32 * 6 + 3)).abs() <= 2 {
                     re[k * n_bins + i] = pseudo(k * 7 + i);
                     im[k * n_bins + i] = pseudo(k * 13 + i + 1);
@@ -483,7 +495,7 @@ mod tests {
             }
         }
 
-        // konwersja gęste -> CSR po binach
+        // dense -> CSR per bin
         let (mut offsets, mut idx, mut sre, mut sim) = (vec![0u32], vec![], vec![], vec![]);
         for i in 0..n_bins {
             for k in 0..n_fft {
@@ -496,7 +508,7 @@ mod tests {
             }
             offsets.push(idx.len() as u32);
         }
-        assert!(idx.len() < n_fft * n_bins, "fixture miał być rzadki");
+        assert!(idx.len() < n_fft * n_bins, "the fixture was supposed to be sparse");
 
         let fft: Vec<Complex<f32>> = (0..n_fft)
             .map(|k| Complex { re: pseudo(k * 3), im: pseudo(k * 5 + 2) })
@@ -507,14 +519,14 @@ mod tests {
 
         assert_eq!(dense.len(), sparse.len());
         for (i, (d, s)) in dense.iter().zip(&sparse).enumerate() {
-            assert!((d - s).abs() < 1e-5, "bin {i}: gęsto {d}, rzadko {s}");
+            assert!((d - s).abs() < 1e-5, "bin {i}: dense {d}, sparse {s}");
         }
     }
 
     #[test]
-    fn pusty_bin_daje_zero_a_nie_panike() {
+    fn an_empty_bin_yields_zero_not_a_panic() {
         let fft = vec![Complex { re: 1.0, im: -0.5 }; 8];
-        // bin 0 ma jedną wagę, bin 1 nie ma żadnej
+        // bin 0 has one weight, bin 1 has none
         let out = sparse_cqt_mag(&fft, &[0, 1, 1], &[3], &[2.0], &[0.0]);
         assert_eq!(out.len(), 2);
         assert!((out[0] - (1.0f32 * 2.0).hypot(-0.5 * 2.0)).abs() < 1e-6);
@@ -536,29 +548,29 @@ mod fill_tests {
             chroma_sum: [0.0; 12],
             bass_boost_enabled: false,
             bass_boost_gain: 1.0,
-            input_gain: 1.0,
             noise_gate: 0.0,
+            input_level: 0.0,
         }
     }
 
     #[test]
-    fn okno_zapelnia_sie_dopiero_po_pelnym_kontekscie() {
+    fn the_window_fills_only_after_a_full_context() {
         let mut a = empty();
-        assert_eq!(a.history_fill(), 0.0, "start: same ciszy");
+        assert_eq!(a.history_fill(), 0.0, "start: silence only");
 
         let frame = [0.5f32; TOTAL_FEATURES];
         for i in 1..CTX_FRAMES {
             a.push_frame(&frame);
             let want = i as f32 / CTX_FRAMES as f32;
             assert!((a.history_fill() - want).abs() < 1e-6,
-                    "po {i} klatkach oczekuję {want}, mam {}", a.history_fill());
+                    "after {i} frames expected {want}, got {}", a.history_fill());
         }
         a.push_frame(&frame);
-        assert_eq!(a.history_fill(), 1.0, "po pełnym kontekście okno ma być pełne");
+        assert_eq!(a.history_fill(), 1.0, "a full context must report a full window");
     }
 
     #[test]
-    fn cisza_w_srodku_obniza_wypelnienie() {
+    fn silence_in_the_middle_lowers_the_fill() {
         let mut a = empty();
         let frame = [0.5f32; TOTAL_FEATURES];
         for _ in 0..CTX_FRAMES { a.push_frame(&frame); }
@@ -568,21 +580,21 @@ mod fill_tests {
         let want = (CTX_FRAMES - 1) as f32 / CTX_FRAMES as f32;
         assert!((a.history_fill() - want).abs() < 1e-6);
 
-        // cisza wypycha sygnał z całego okna
+        // silence pushes the signal out of the whole window
         for _ in 0..CTX_FRAMES { a.push_silence(); }
         assert_eq!(a.history_fill(), 0.0);
     }
 
     #[test]
-    fn znacznik_zycia_idzie_w_parze_z_danymi() {
+    fn the_live_flag_tracks_the_data() {
         let mut a = empty();
         let frame = [1.0f32; TOTAL_FEATURES];
         a.push_frame(&frame);
         a.push_silence();
-        // najnowsza klatka to cisza...
+        // the newest frame is silence...
         assert!(!a.frame_live[CTX_FRAMES - 1]);
         assert_eq!(a.input_history[CTX_FRAMES - 1][0], 0.0);
-        // ...a poprzednia niesie sygnał
+        // ...and the previous one carries signal
         assert!(a.frame_live[CTX_FRAMES - 2]);
         assert_eq!(a.input_history[CTX_FRAMES - 2][0], 1.0);
     }

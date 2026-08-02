@@ -56,6 +56,36 @@ component DebugBar inherits Rectangle {
     }
 }
 
+export global Tr {
+    // Filled once at startup from the i18n module. Fields must match `Strings`
+    // in src/i18n.rs.
+    in-out property <string> chords: "Chords";
+    in-out property <string> intervals: "Intervals";
+    in-out property <string> scales: "Scales";
+    in-out property <string> arpeggios: "Arpeggios";
+    in-out property <string> settings: "Settings";
+    in-out property <string> close: "Close";
+    in-out property <string> settings_title: "Settings & Calibration";
+    in-out property <string> audio_calibration: "Audio Calibration";
+    in-out property <string> noise_gate: "Noise gate: ";
+    in-out property <string> gate_hint: "";
+    in-out property <string> bass_boost: "Bass Boost";
+    in-out property <string> lock_quality: "Lock chord quality until new attack";
+    in-out property <string> startup_mode: "Startup mode: ";
+    in-out property <string> chord_confidence: "Chord confidence: ";
+    in-out property <string> note_threshold: "Note threshold: ";
+    in-out property <string> hold_time: "Hold time: ";
+    in-out property <string> show_debug: "Show AI Debug in Main Window";
+    in-out property <string> ai_prediction: "AI Prediction:  ";
+    in-out property <string> intervals_label: "Intervals: ";
+    in-out property <string> intervals_hint: "";
+    in-out property <string> intervals_placeholder: "e.g. 1 3 5";
+    in-out property <string> next: "Next: ";
+    in-out property <string> no_data: "No Data";
+    in-out property <string> language: "Language: ";
+    in-out property <string> lang_auto: "Auto";
+}
+
 export component AppWindow inherits Window {
     title: "Solitito";
     width: 550px;
@@ -64,8 +94,8 @@ export component AppWindow inherits Window {
     
     default-font-family: "Noto Sans"; 
 
-    // --- DANE ---
-    in property <string> song_title: "No Data";
+    // --- DATA ---
+    in property <string> song_title: "";
     in property <string> chord_name: "...";
     in property <brush> chord_text_color: white;
     
@@ -88,32 +118,41 @@ export component AppWindow inherits Window {
     // --- LOGIKA UI ---
     in-out property <int> current_mode: 1; 
     
-    // ZMIANA: Domyślnie FALSE (ukryte w oknie głównym)
+    // hidden in the main window by default
     in-out property <bool> ai_debug_visible: false; 
 
-    // --- USTAWIENIA ---
+    // --- SETTINGS ---
     in-out property <bool> show_settings: false;
     
-    in-out property <float> threshold: 0.15; 
-    in-out property <float> tail: 0.3;       
-    in-out property <float> delay: 0.6;      
+    // Confidence threshold for the chord NAME (Chords mode).
+    in-out property <float> chord_confidence: 0.30;
+    // Probability threshold for a SINGLE NOTE (Intervals/Scales/Arpeggios).
+    in-out property <float> note_threshold: 0.60;
+    in-out property <float> delay: 0.25;
     
     in-out property <bool> boost_enabled: true;
     in-out property <float> boost_gain: 5.0;
     
     in-out property <bool> random_enabled: false;
-    // Trzyma rozpoznaną jakość akordu do następnego szarpnięcia strun.
-    // Septyma wybrzmiewa szybciej niż reszta akordu, więc bez tego trzymany
-    // Gm7 zamienia się w Gm w trakcie wybrzmiewania.
+    // Holds the recognised quality until the strings are struck again. A seventh
+    // decays faster than the rest of the chord, so without this a held Gm7 turns
+    // into Gm as it rings out.
     in-out property <bool> lock_quality: true;
-    // Tryb, w którym aplikacja ma się uruchamiać (indeks jak w current_mode).
+    // Which mode the app opens in (same index as current_mode).
     in-out property <int> startup_mode: 0;
     callback startup_mode_changed(int);
+    // 0 = auto (system locale), 1 = Polish, 2 = English
+    in-out property <int> language_idx: 0;
+    callback language_changed(int);
     in-out property <string> interval_input_text: "1 3 5";
 
     // --- AUDIO CONTROL ---
-    in-out property <float> input_gain: 2.0;    
-    in-out property <float> noise_gate: 0.02;   
+    // Gate in dBFS, not linear RMS. A linear 0-0.1 slider could not reach a laptop
+    // microphone's noise floor (0.05-0.15 RMS), so the gate was useless exactly
+    // where it was needed.
+    in-out property <float> gate_db: -34.0;
+    // Current input level in dBFS (computed in Rust).
+    in-out property <float> input_level_db: -80.0;
     
     callback mode_changed(int); 
     callback item_selected(int);
@@ -123,7 +162,7 @@ export component AppWindow inherits Window {
         padding: 15px;
         spacing: 15px;
 
-        // GÓRA
+        // TOP BAR
         HorizontalLayout {
             alignment: space-between;
             
@@ -131,20 +170,20 @@ export component AppWindow inherits Window {
                 spacing: 5px;
                 width: 320px; 
                 height: 36px;
-                ModeButton { text: "Chords"; selected: root.current_mode == 0; width: 25%; clicked => { root.mode_changed(0); } }
-                ModeButton { text: "Intervals"; selected: root.current_mode == 1; width: 25%; clicked => { root.mode_changed(1); } }
-                ModeButton { text: "Scales"; selected: root.current_mode == 2; width: 25%; clicked => { root.mode_changed(2); } }
-                ModeButton { text: "Arpeggios"; selected: root.current_mode == 3; width: 25%; clicked => { root.mode_changed(3); } }
+                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 25%; clicked => { root.mode_changed(0); } }
+                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 25%; clicked => { root.mode_changed(1); } }
+                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 25%; clicked => { root.mode_changed(2); } }
+                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 25%; clicked => { root.mode_changed(3); } }
             }
 
             Button {
-                text: root.show_settings ? "Close" : "⚙ Settings";
+                text: root.show_settings ? Tr.close : Tr.settings;
                 height: 36px; 
                 clicked => { root.show_settings = !root.show_settings; }
             }
         }
 
-        // PANEL USTAWIEŃ
+        // SETTINGS PANEL
         if root.show_settings : Rectangle {
             background: #222;
             border-radius: 10px;
@@ -155,9 +194,9 @@ export component AppWindow inherits Window {
                 padding: 15px; 
                 spacing: 12px; 
                 
-                Text { text: "Settings & Calibration"; font-size: 20px; color: white; horizontal-alignment: center; }
+                Text { text: Tr.settings_title; font-size: 20px; color: white; horizontal-alignment: center; }
                 
-                // Wybór utworu / skali
+                // Song / scale selection
                 HorizontalLayout {
                     Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                     ComboBox {
@@ -179,14 +218,14 @@ export component AppWindow inherits Window {
                 Rectangle { height: 1px; background: #444; } 
                 
                 HorizontalLayout {
-                    Text { text: "Intervals: "; color: #aaa; vertical-alignment: center; width: 80px; }
+                    Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
                     LineEdit {
                         text <=> root.interval_input_text;
-                        placeholder-text: "e.g. 1 3 5";
+                        placeholder-text: Tr.intervals_placeholder;
                     }
                 }
                 Text { 
-                    text: "(Input specific intervals to practice, e.g. '1 3' for shell chords)"; 
+                    text: Tr.intervals_hint; 
                     color: #666; font-size: 11px; 
                 }
 
@@ -195,26 +234,48 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     spacing: 15px;
                     CheckBox { checked <=> root.ai_debug_visible; }
-                    Text { text: "Show AI Debug in Main Window"; color: #aaa; vertical-alignment: center; }
+                    Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
                 }
 
-                Text { text: "Audio Calibration"; color: #ddd; font-size: 13px; }
+                Text { text: Tr.audio_calibration; color: #ddd; font-size: 13px; }
 
+                // Noise gate with a meter. One knob instead of two: input gain
+                // cancelled out in the features anyway (the CQT is normalised per
+                // frame), so all it really did was shift the same inequality.
                 HorizontalLayout {
-                    Text { text: "In Gain: " + round(root.input_gain*10)/10; color: white; vertical-alignment: center; width: 80px; }
-                    Slider { minimum: 1.0; maximum: 20.0; step: 0.1; value <=> root.input_gain; }
+                    Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; width: 130px; }
+                    Slider { minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
                 }
 
-                HorizontalLayout {
-                    Text { text: "Gate: " + round(root.noise_gate * 10000) / 10000; color: white; vertical-alignment: center; width: 80px; }
-                    Slider { minimum: 0.0; maximum: 0.1; step: 0.0001; value <=> root.noise_gate; }
+                // Decibel scale: a linear one lacked resolution where it is needed
+                // and still did not reach a laptop microphone's noise floor.
+                Rectangle {
+                    height: 14px;
+                    background: #222;
+                    border-radius: 3px;
+                    Rectangle {
+                        x: 0; y: 0; height: parent.height;
+                        width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
+                        background: root.input_level_db > root.gate_db ? #4a9 : #666;
+                        border-radius: 3px;
+                    }
+                    // threshold marker
+                    Rectangle {
+                        x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
+                        y: 0; width: 2px; height: parent.height;
+                        background: #e55;
+                    }
+                }
+                Text {
+                    text: Tr.gate_hint;
+                    color: #666; font-size: 11px; wrap: word-wrap;
                 }
                 
                 HorizontalLayout {
                     spacing: 10px;
                     HorizontalLayout {
                         CheckBox { checked <=> root.boost_enabled; }
-                        Text { text: "Bass Boost"; color: #aaa; vertical-alignment: center; }
+                        Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
                     }
                     if root.boost_enabled : Slider { 
                         minimum: 1.0; maximum: 20.0; value <=> root.boost_gain; 
@@ -224,7 +285,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     CheckBox { checked <=> root.lock_quality; }
                     Text {
-                        text: "Lock chord quality until new attack";
+                        text: Tr.lock_quality;
                         color: #aaa; vertical-alignment: center;
                     }
                 }
@@ -232,31 +293,49 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     spacing: 10px;
                     Text {
-                        text: "Startup mode: "; color: #aaa;
-                        vertical-alignment: center; width: 100px;
+                        text: Tr.startup_mode; color: #aaa;
+                        vertical-alignment: center; width: 140px;
                     }
                     ComboBox {
-                        model: ["Chords", "Intervals", "Scales", "Arpeggios"];
+                        model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios];
                         current-index <=> root.startup_mode;
                         selected(v) => { root.startup_mode_changed(root.startup_mode); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: Tr.language; color: #aaa;
+                        vertical-alignment: center; width: 140px;
+                    }
+                    ComboBox {
+                        model: [Tr.lang_auto, "Polski", "English"];
+                        current-index <=> root.language_idx;
+                        selected(v) => { root.language_changed(root.language_idx); }
                     }
                 }
 
                 Rectangle { height: 1px; background: #444; }
 
                 HorizontalLayout {
-                    Text { text: "Confidence: "; color: #aaa; vertical-alignment: center; width: 80px; }
-                    Slider { minimum: 0.1; maximum: 1.0; value <=> root.threshold; }
-                }
-                
-                HorizontalLayout {
-                    Text { text: "Hold Time: "; color: #aaa; vertical-alignment: center; width: 80px; }
-                    Slider { minimum: 0.1; maximum: 2.0; value <=> root.delay; }
+                    Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 150px; }
+                    Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
                 }
 
-                // AI DEBUG W SETTINGS (Zawsze widoczny, niezależnie od checkboxa)
+                HorizontalLayout {
+                    Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 150px; }
+                    Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
+                }
+
+                HorizontalLayout {
+                    Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 150px; }
+                    Slider { minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
+                }
+
+                // Model preview in settings, always visible
                 Text { 
-                    text: "AI Prediction:  " + root.ai_text; 
+                    text: Tr.ai_prediction + root.ai_text; 
                     font-size: 18px; 
                     font-weight: 700;
                     horizontal-alignment: center; 
@@ -278,7 +357,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        // --- GŁÓWNY WIDOK GRY ---
+        // --- MAIN PRACTICE VIEW ---
         if !root.show_settings : VerticalLayout {
             alignment: center;
             spacing: 25px;
@@ -299,9 +378,9 @@ export component AppWindow inherits Window {
                 horizontal-alignment: center;
             }
             
-            // W OKNIE GŁÓWNYM: Widoczne tylko gdy checkbox zaznaczony
+            // In the main window only when the checkbox is ticked
             if root.ai_debug_visible : Text {
-                text: "AI Prediction:  " + root.ai_text;
+                text: Tr.ai_prediction + root.ai_text;
                 font-size: 24px;
                 horizontal-alignment: center;
                 color: white; 
@@ -323,7 +402,7 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 alignment: center;
                 Text { 
-                    text: root.next_chord != "" ? "Next: " + root.next_chord : " "; 
+                    text: root.next_chord != "" ? Tr.next + root.next_chord : " "; 
                     color: #555; 
                     horizontal-alignment: center; 
                     font-size: 26px; 

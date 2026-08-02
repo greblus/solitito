@@ -3,6 +3,7 @@
 mod model;
 mod audio;
 mod brain;
+mod i18n;
 mod latch;
 mod settings;
 mod state;
@@ -17,6 +18,7 @@ use std::thread;
 use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
 use brain::{ChordBrain, Prediction};
 use latch::ChordLatch;
+use i18n::Lang;
 use settings::Settings;
 use state::{MyApp, AppMode, MatchStatus};
 
@@ -46,8 +48,7 @@ fn main() -> Result<(), slint::PlatformError> {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
 
-    let default_gain = 2.0;
-    let default_gate = 0.02;
+    let default_gate_db: f32 = -34.0;            // ≈ 0.02 w liniowym RMS
     let default_boost_enabled = true;
     let default_boost_gain = 5.0;
 
@@ -61,8 +62,8 @@ fn main() -> Result<(), slint::PlatformError> {
         chroma_sum: [0.0; 12],
         bass_boost_enabled: default_boost_enabled,
         bass_boost_gain: default_boost_gain, 
-        input_gain: default_gain,      
-        noise_gate: default_gate,    
+        noise_gate: db_to_lin(default_gate_db),
+        input_level: 0.0,
     }));
     
     let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
@@ -128,6 +129,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 continue;
             }
 
+            // Odstęp liczony OD POCZĄTKU inferencji, nie po niej. Wcześniej było
+            // "policz, potem śpij 40 ms", więc realny okres wynosił tyle, ile
+            // inferencja PLUS 40 ms, i zmieniał się z obciążeniem maszyny.
+            let started = std::time::Instant::now();
             if let Ok(pred) = brain.predict(&history) {
                 if debug_ai {
                     print_debug(&pred);
@@ -137,13 +142,20 @@ fn main() -> Result<(), slint::PlatformError> {
                     res.updated = true;
                 }
             }
-            thread::sleep(Duration::from_millis(40));
+            let spent = started.elapsed();
+            if let Some(left) = Duration::from_millis(40).checked_sub(spent) {
+                thread::sleep(left);
+            }
         }
     });
 
     // Ustawienia trwałe — czytane raz, przed zbudowaniem okna, żeby aplikacja
     // od pierwszej klatki była w wybranym trybie zamiast przeskakiwać.
     let cfg = Settings::load();
+
+    // Język ustalamy PRZED zbudowaniem okna, żeby nie mignęła angielska wersja.
+    let lang = Lang::from_setting(cfg.language);
+    println!("🌍 Język interfejsu: {:?}", lang);
 
     let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), None)));
     my_app.lock().unwrap().set_mode(cfg.startup_mode);
@@ -156,12 +168,13 @@ fn main() -> Result<(), slint::PlatformError> {
             .map(|s| SharedString::from(&s.title))
             .collect();
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-        ui.set_input_gain(default_gain);
-        ui.set_noise_gate(default_gate);
+        ui.set_gate_db(default_gate_db);
         ui.set_boost_enabled(default_boost_enabled);
         ui.set_boost_gain(default_boost_gain);
         ui.set_current_mode(app.app_mode as i32); 
         ui.set_startup_mode(cfg.startup_mode);
+        ui.set_language_idx(cfg.language);
+        apply_language(&ui, lang);
         ui.set_interval_input_text(app.intervals_input.clone().into()); 
     }
 
@@ -176,25 +189,31 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // Zatrzask jakości akordu — patrz komentarz nad modułem `latch`.
     let mut chord_latch = ChordLatch::default();
+    // Znacznik ostatnio skonsumowanej predykcji. Licznik postępu MUSI dostawać
+    // faktycznie miniony czas: wątek AI robi inferencję ORAZ śpi 40 ms, więc
+    // realny odstęp to 55-90 ms i jest zmienny. Zaszyte na sztywno 0.040
+    // powodowało, że licznik chodził wolniej od zegara i uzbieranie
+    // transition_delay=0.6 s zajmowało w rzeczywistości około sekundy.
+    let mut last_ai_at: Option<std::time::Instant> = None;
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
         let mut app = app_clone.lock().unwrap();
 
-        let spectrum_vis = {
+        let (spectrum_vis, in_level) = {
             let s = app.analysis_state.lock().unwrap();
-            s.spectrum_visual
+            (s.spectrum_visual, s.input_level)
         };
+        ui.set_input_level_db(lin_to_db(in_level));
 
         if !file_mode {
-            app.input_gain = ui.get_input_gain();
-            app.noise_gate = ui.get_noise_gate();
+            app.noise_gate = db_to_lin(ui.get_gate_db());
         }
         app.bass_boost_enabled = ui.get_boost_enabled();
         app.bass_boost_gain = ui.get_boost_gain();
-        app.sensitivity = ui.get_threshold();     
-        app.transition_delay = ui.get_delay();    
-        app.tail_threshold = ui.get_tail();       
+        app.chord_confidence = ui.get_chord_confidence();
+        app.note_threshold = ui.get_note_threshold();
+        app.transition_delay = ui.get_delay();
         app.random_mode = ui.get_random_enabled();
         
         let ui_txt = ui.get_interval_input_text().to_string();
@@ -217,8 +236,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 // że głosowanie większościowe wypada lepiej niż uśrednianie
                 // rozkładów — model bywa pewny i błędny, a średnia tę pewność
                 // przenosi dalej, podczas gdy głosowanie ją tłumi.
+                // Okno głosowania: 3 zamiast 5. Przy zmianie akordu historia musi
+                // się najpierw "przewietrzyć" — przy pięciu oknach nowy akord
+                // potrzebował trzech predykcji, żeby przeważyć stary, co dokładało
+                // ~0.2 s do każdego przejścia.
                 app.chord_history.push_back((chord.clone(), score));
-                if app.chord_history.len() > 5 { app.chord_history.pop_front(); }
+                if app.chord_history.len() > 3 { app.chord_history.pop_front(); }
                 
                 let mut votes: HashMap<String, f32> = HashMap::new();
                 for (c, s) in &app.chord_history {
@@ -247,12 +270,18 @@ fn main() -> Result<(), slint::PlatformError> {
                     ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
                 );
 
-                let held_mark = if chord_latch.held().is_some() { "🔒 " } else { "" };
                 ui.set_ai_text(
-                    format!("{}{} ({:.0}%)", held_mark, shown, current_confidence * 100.0).into()
+                    format!("{} ({:.0}%)", shown, current_confidence * 100.0).into()
                 );
 
-                let dt = 0.040; 
+                // Faktycznie miniony czas, nie założony. Ograniczony z góry, żeby
+                // zacięcie wątku (np. przy starcie) nie przeskoczyło całego progu naraz.
+                let now = std::time::Instant::now();
+                let dt = last_ai_at
+                    .map(|t| now.duration_since(t).as_secs_f32())
+                    .unwrap_or(0.040)
+                    .min(0.25);
+                last_ai_at = Some(now);
                 // FIX: Używamy uśrednionego wyniku (best_c) do logiki gry
                 app.check_progress_with_ai(dt, &shown, current_confidence);
             }
@@ -261,7 +290,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_song_title(app.song_title.clone().into());
         
         if app.chords.is_empty() { 
-            ui.set_chord_name("No Data".into()); 
+            ui.set_chord_name(ui.global::<Tr>().get_no_data()); 
         } else {
             let curr_chord = &app.chords[app.current_chord_index];
             
@@ -340,9 +369,23 @@ fn main() -> Result<(), slint::PlatformError> {
     
     // Zmiana trybu startowego zapisuje się od razu — nie ma przycisku "Zapisz",
     // więc ustawienie musi przeżyć zamknięcie okna bez dodatkowego kroku.
-    ui.on_startup_mode_changed(move |mode_idx| {
-        Settings { startup_mode: mode_idx }.save();
-    });
+    {
+        let cur = cfg.clone();
+        ui.on_startup_mode_changed(move |mode_idx| {
+            Settings { startup_mode: mode_idx, ..cur.clone() }.save();
+        });
+    }
+    {
+        let cur = cfg.clone();
+        let uw = ui.as_weak();
+        ui.on_language_changed(move |idx| {
+            Settings { language: idx, ..cur.clone() }.save();
+            // Podmieniamy napisy od razu — restart nie jest potrzebny.
+            if let Some(ui) = uw.upgrade() {
+                apply_language(&ui, Lang::from_setting(idx));
+            }
+        });
+    }
 
     ui.on_mode_changed(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
@@ -400,6 +443,47 @@ fn main() -> Result<(), slint::PlatformError> {
 /// "Gm zamiast Gm7" znaczy, że pod b7 powinna być wysoka liczba. Jeśli jest niska,
 /// wąskim gardłem jest słyszenie; jeśli wysoka, a jakość i tak wychodzi "m",
 /// to głowica jakości nie korzysta z informacji, którą ma pod ręką.
+/// Wpisuje napisy wybranego języka do globalnego obiektu `Tr` w UI.
+fn apply_language(ui: &AppWindow, lang: Lang) {
+    let t = i18n::strings(lang);
+    let g = ui.global::<Tr>();
+    g.set_chords(t.chords.into());
+    g.set_intervals(t.intervals.into());
+    g.set_scales(t.scales.into());
+    g.set_arpeggios(t.arpeggios.into());
+    g.set_settings(t.settings.into());
+    g.set_close(t.close.into());
+    g.set_settings_title(t.settings_title.into());
+    g.set_audio_calibration(t.audio_calibration.into());
+    g.set_noise_gate(t.noise_gate.into());
+    g.set_gate_hint(t.gate_hint.into());
+    g.set_bass_boost(t.bass_boost.into());
+    g.set_lock_quality(t.lock_quality.into());
+    g.set_startup_mode(t.startup_mode.into());
+    g.set_chord_confidence(t.chord_confidence.into());
+    g.set_note_threshold(t.note_threshold.into());
+    g.set_hold_time(t.hold_time.into());
+    g.set_show_debug(t.show_debug.into());
+    g.set_ai_prediction(t.ai_prediction.into());
+    g.set_intervals_label(t.intervals_label.into());
+    g.set_intervals_hint(t.intervals_hint.into());
+    g.set_intervals_placeholder(t.intervals_placeholder.into());
+    g.set_next(t.next.into());
+    g.set_no_data(t.no_data.into());
+    g.set_language(t.language.into());
+    g.set_lang_auto(t.lang_auto.into());
+}
+
+/// Poziom liniowy (RMS) -> dBFS. Podłoga -72 dB, żeby cisza nie dawała -inf,
+/// sufit 0 dB, bo tam kończy się skala.
+fn lin_to_db(v: f32) -> f32 {
+    if v <= 2.5e-4 { -72.0 } else { (20.0 * v.log10()).clamp(-72.0, 0.0) }
+}
+
+fn db_to_lin(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
 fn print_debug(p: &brain::Prediction) {
     const IV: [&str; 12] = ["R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"];
     const QN: [&str; 11] = [
@@ -427,4 +511,39 @@ fn print_debug(p: &brain::Prediction) {
         .collect();
 
     println!("{:<10} | {} | {}", p.chord, quals.trim_end(), iv.trim_end());
+}
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    #[test]
+    fn konwersja_db_jest_odwracalna() {
+        for db in [-72.0f32, -48.0, -34.0, -20.0, -6.0, 0.0] {
+            let back = lin_to_db(db_to_lin(db));
+            assert!((back - db).abs() < 0.01, "{db} dB -> {back} dB");
+        }
+    }
+
+    #[test]
+    fn stary_domyslny_prog_to_minus_34_db() {
+        // Wcześniejsza domyślna bramka wynosiła 0.02 w liniowym RMS.
+        assert!((db_to_lin(-34.0) - 0.02).abs() < 0.001);
+    }
+
+    #[test]
+    fn zakres_suwaka_siega_szumu_mikrofonu_laptopa() {
+        // Szum mikrofonu laptopa potrafi mieć RMS 0.05-0.15 po wzmocnieniu.
+        // Stary suwak kończył się na 0.1 liniowo, więc bramki NIE DAŁO SIĘ
+        // ustawić powyżej takiego szumu. Nowy zakres sięga -6 dB = 0.5.
+        // Głośny mikrofon laptopa z AGC potrafi mieć szum przy 0.3-0.5 RMS.
+        assert!(db_to_lin(0.0) >= 1.0, "górny kraniec to pełna skala");
+        assert!(db_to_lin(-72.0) < 0.0003, "dolny kraniec ma być praktycznie ciszą");
+    }
+
+    #[test]
+    fn cisza_nie_daje_nieskonczonosci() {
+        assert_eq!(lin_to_db(0.0), -72.0);
+        assert!(lin_to_db(1e-9).is_finite());
+    }
 }

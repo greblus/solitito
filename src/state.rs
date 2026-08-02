@@ -26,10 +26,10 @@ impl From<i32> for AppMode {
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum MatchStatus {
-    None,       // Biały
-    Exact,      // Zielony (Idealny)
-    Partial,    // Żółty (Triada lub Jazz Substitution)
-    Flicker,    // Czerwony (Wykryto, ale słaby sygnał)
+    None,       // white
+    Exact,      // green - exact match
+    Partial,    // yellow - triad or jazz substitution
+    Flicker,    // red - detected but the signal is weak
 }
 
 pub struct MyApp {
@@ -53,14 +53,18 @@ pub struct MyApp {
 
     pub success_timer: f32,
     pub transition_delay: f32,
-    pub sensitivity: f32,
-    pub tail_threshold: f32,
+    /// Confidence threshold for the chord NAME (Chords mode). Confidence is the
+    /// product of root and quality confidence, typically 0.85-0.95 when played well.
+    pub chord_confidence: f32,
+    /// Probability threshold for a SINGLE NOTE (Intervals/Scales/Arpeggios). A
+    /// separate knob because it is a different quantity from chord-name confidence;
+    /// they used to share one slider and half its range was dead.
+    pub note_threshold: f32,
     
     pub match_status: MatchStatus,
     
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
-    pub input_gain: f32,
     pub noise_gate: f32,
     
     pub intervals_input: String,
@@ -68,9 +72,9 @@ pub struct MyApp {
     
     pub random_mode: bool,
     pub chord_history: VecDeque<(String, f32)>,
-    /// Prawdopodobieństwa 12 klas wysokości z ostatniego okna.
-    /// Tryby Intervals/Arpeggios/Scales opierają się na tym, a nie na nazwie
-    /// akordu — głowica pitch ma F1 0.90, a nazwa akordu ~80%.
+    /// Probabilities of the 12 pitch classes from the last window. The note modes
+    /// rely on this rather than on the chord name - the pitch head is at F1 0.90,
+    /// the chord name around 80%.
     pub last_pitches: [f32; 12],
 }
 
@@ -104,15 +108,14 @@ impl MyApp {
             collected_notes: vec![],
             
             success_timer: 0.0,
-            transition_delay: 0.6,
-            sensitivity: 0.3,
-            tail_threshold: 0.3,
+            transition_delay: 0.25,
+            chord_confidence: 0.30,
+            note_threshold: 0.60,
             
             match_status: MatchStatus::None,
             
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
-            input_gain: 2.0,
             noise_gate: 0.02,
             
             intervals_input: "1 3 5".to_string(),
@@ -131,7 +134,6 @@ impl MyApp {
         
         if self.app_mode == AppMode::Arpeggios {
             for token in user_tokens {
-                // FIX: Usunięto * (dereferencję) przed token
                 let target_idx = match token {
                     "1" | "8" => 0,
                     "3" => 1,
@@ -143,7 +145,6 @@ impl MyApp {
                 
                 if target_idx < all_names.len() {
                     indices.push(target_idx);
-                // FIX: Usunięto * przed token
                 } else if token == "9" {
                     if let Some(pos) = all_names.iter().position(|n| n.contains("2") || n.contains("9")) {
                         indices.push(pos);
@@ -153,7 +154,6 @@ impl MyApp {
         } else {
             for token in user_tokens {
                  for (idx, name) in all_names.iter().enumerate() {
-                    // FIX: Usunięto * przed token i name
                     let is_match = if token == name { true } else {
                         match token {
                             "3" => name.contains("3") || name == "#2",
@@ -310,10 +310,10 @@ impl MyApp {
                     return; 
                 }
 
-                let is_weak_signal = confidence < self.sensitivity;
+                let is_weak_signal = confidence < self.chord_confidence;
 
                 if let Some(r) = ai_root {
-                    // Oblicz interwał (półtony) między wykrytym a celem
+                    // Interval in semitones between detected and target root
                     let root_diff = (r as i32 - target_root as i32).rem_euclid(12);
 
                     if r == target_root {
@@ -330,11 +330,11 @@ impl MyApp {
                         }
                     } else {
                         // --- JAZZ LOGIC ---
-                        // m7b5 -> rozpoznane jako m (tercja mała wyżej), np. A m7b5 -> C m
+                        // m7b5 read as m a minor third up, e.g. A m7b5 -> C m
                         if target_qual_str == "m7b5" && ai_qual == "m" && root_diff == 3 {
                             partial_match = true;
                         }
-                        // Maj7 -> rozpoznane jako m/m7 (tercja wielka wyżej), np. C Maj7 -> E m
+                        // Maj7 read as m/m7 a major third up, e.g. C Maj7 -> E m
                         if target_qual_str == "Maj7" && (ai_qual == "m" || ai_qual == "m7") && root_diff == 4 {
                             partial_match = true;
                         }
@@ -369,33 +369,32 @@ impl MyApp {
             },
             
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
-                // Te tryby NIE bramkują się pewnością akordu. `confidence` to teraz
-                // iloczyn pewności prymy i jakości, więc niepewna jakość blokowałaby
-                // rozpoznanie dźwięku, który słychać zupełnie wyraźnie. Tu liczy się
-                // wyłącznie głowica pitch — a ta ma F1 0.90 wobec ~80% dla nazwy akordu.
+                // These modes are NOT gated by chord confidence. `confidence` is now
+                // the product of root and quality confidence, so an uncertain quality
+                // would block a note that is perfectly audible. Only the pitch head
+                // matters here - F1 0.90 against ~80% for the chord name.
                 if self.current_note_step >= active_indices.len() { return; }
 
                 let internal_idx = active_indices[self.current_note_step];
                 let target_note_idx = all_targets[internal_idx];
                 let target_note_enum = NoteName::from_index(target_note_idx);
 
-                // Klasa wysokości celu (0..11) — kolejność NoteName odpowiada
-                // kolejności wyjścia pitch_logits (C, Db, D, ...).
+                // Target pitch class (0..11); NoteName ordering matches the
+                // pitch_logits output (C, Db, D, ...).
                 let target_pc = target_note_idx % 12;
                 let p_target = self.last_pitches[target_pc];
                 let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
 
-                // Dźwięk uznajemy za zagrany, gdy głowica pitch jest go pewna
-                // I jest to najgłośniejsza klasa w oknie (albo prawie). Drugi
-                // warunek chroni przed zaliczeniem dźwięku, który tylko wybrzmiewa
-                // z poprzedniego kroku ćwiczenia.
+                // A note counts as played when the pitch head is confident AND it
+                // is the loudest class in the window. The second condition prevents
+                // crediting a note still ringing from the previous step.
                 let mut note_match =
-                    p_target >= self.sensitivity.max(0.5) && p_target >= p_max * 0.9;
+                    p_target >= self.note_threshold && p_target >= p_max * 0.9;
 
-                // Zgoda głowicy root to niezależne potwierdzenie — przy pojedynczym
-                // dźwięku model opisuje go właśnie prymą.
+                // Agreement from the root head is independent confirmation - for a
+                // single note the model describes it as the root.
                 if let Some(r) = ai_root {
-                    if r == target_note_enum && confidence >= self.sensitivity {
+                    if r == target_note_enum && confidence >= self.chord_confidence {
                         note_match = true;
                     }
                 }
@@ -428,7 +427,6 @@ impl MyApp {
 
     pub fn sync_audio_settings(&self) {
         if let Ok(mut state) = self.analysis_state.lock() {
-            state.input_gain = self.input_gain;
             state.noise_gate = self.noise_gate;
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;

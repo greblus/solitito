@@ -1,38 +1,30 @@
-//! Zatrzask jakości akordu ("lock chord qualities until new attack").
+//! Chord quality latch ("lock chord quality until new attack").
 //!
-//! # Po co
-//!
-//! Septyma wybrzmiewa szybciej niż pryma, tercja i kwinta. Widać to wprost
-//! w podglądzie diagnostycznym trzymanego `Gm7`:
+//! A seventh decays faster than the root, third and fifth. Holding a `Gm7`:
 //!
 //! ```text
-//! G m7 | min7=96% | b7=96      <- zaraz po uderzeniu
-//! G m7 | min7=82% | b7=76
+//! G m7 | min7=96% | b7=96      <- right after the attack
 //! G m7 | min7=52% | b7=52
-//! G m  | min=49%  | b7=45      <- septyma ucichła, model zmienia zdanie
+//! G m  | min=49%  | b7=45      <- the seventh died, the model changes its mind
 //! ```
 //!
-//! Model ma rację: w oknie 0.77 s septymy naprawdę już nie ma. Ale akord
-//! **nie zmienia tożsamości, kiedy wybrzmiewa** — dopóki trzymasz chwyt i nie
-//! szarpnąłeś ponownie, to nadal `Gm7`. Tej wiedzy model mieć nie może, bo widzi
-//! wyłącznie bieżące okno. Aplikacja może.
+//! The model is right about the current window, but a chord does not change
+//! identity while it rings out. The app knows that; the model cannot.
 //!
-//! # Zasada
+//! The latch ENGAGES at high confidence but HOLDS regardless of it - during the
+//! decay the model reports the poorer quality at 94-96%, so a confidence
+//! threshold alone would save nothing. Only a new attack or a root change
+//! releases it.
 //!
-//! Zatrzask **zakłada się** na wysokiej pewności, ale **trzyma niezależnie od
-//! niej**. To rozróżnienie jest istotne: w zaniku model raportuje `min` z pewnością
-//! 94–96%, więc próg pewności sam z siebie niczego by nie uratował. Zwolnić
-//! zatrzask może tylko nowy atak albo zmiana prymy.
-//!
-//! Zakładamy go dopiero, gdy okno kontekstowe zdążyło się wypełnić dźwiękiem po
-//! ataku (`CTX_FRAMES` klatek). Wcześniej okno zawiera jeszcze ogon POPRZEDNIEGO
-//! akordu i zatrzask złapałby cudzą nazwę.
+//! It engages only once the context window has filled with sound after the
+//! attack (`CTX_FRAMES` frames); earlier the window still holds the tail of the
+//! PREVIOUS chord and the latch would capture the wrong name.
 
-/// Minimalna pewność potrzebna do ZAŁOŻENIA zatrzasku.
+/// Minimum confidence required to ENGAGE the latch.
 pub const LOCK_MIN_CONF: f32 = 0.60;
 
-/// Ile klatek po ataku trzeba odczekać, zanim okno kontekstowe jest w całości
-/// wypełnione nowym akordem. Równe `audio::CTX_FRAMES`.
+/// Frames to wait after an attack before the context window is entirely filled
+/// with the new chord. Equal to `audio::CTX_FRAMES`.
 pub const SETTLE_FRAMES: u32 = 48;
 
 #[derive(Default)]
@@ -42,12 +34,12 @@ pub struct ChordLatch {
 }
 
 impl ChordLatch {
-    /// Zwraca akord do pokazania i użycia w logice ćwiczenia.
+    /// The chord to display and feed to the exercise logic.
     ///
-    /// * `enabled` — przełącznik z UI; przy `false` działa jak przezroczysta rura
-    /// * `onset_id` — licznik ataków z `AudioAnalysis`; zmiana zwalnia zatrzask
-    /// * `frames_since_onset` — ile klatek od ataku
-    /// * `chord` / `conf` — bieżąca predykcja (już po głosowaniu)
+    /// * `enabled` - UI switch; when `false` this is a pass-through
+    /// * `onset_id` - attack counter from `AudioAnalysis`; a change releases it
+    /// * `frames_since_onset` - frames elapsed since the attack
+    /// * `chord` / `conf` - current prediction, already voted on
     pub fn update(
         &mut self,
         enabled: bool,
@@ -62,16 +54,16 @@ impl ChordLatch {
             return chord.to_string();
         }
 
-        // Nowy atak = nowy akord. Zwalniamy bezwarunkowo.
+        // New attack = new chord. Release unconditionally.
         if onset_id != self.last_onset {
             self.last_onset = onset_id;
             self.locked = None;
         }
 
         if let Some(held) = &self.locked {
-            // Zmiana prymy bez wykrytego ataku (np. przejście legato albo atak
-            // zbyt cichy dla detektora) też musi zwalniać — inaczej apka
-            // pokazywałaby poprzedni akord w nieskończoność.
+            // A root change without a detected attack (legato, or an attack too
+            // quiet for the detector) must release too, otherwise the app would
+            // show the previous chord forever.
             if root_of(chord) != root_of(held) && conf >= LOCK_MIN_CONF {
                 self.locked = Some(chord.to_string());
                 return chord.to_string();
@@ -79,20 +71,22 @@ impl ChordLatch {
             return held.clone();
         }
 
-        // Zakładamy dopiero, gdy okno jest w całości po ataku.
+        // Engage only once the window lies entirely after the attack.
         if frames_since_onset >= SETTLE_FRAMES && conf >= LOCK_MIN_CONF && is_real(chord) {
             self.locked = Some(chord.to_string());
         }
         chord.to_string()
     }
 
-    /// Co jest aktualnie trzymane (do podglądu / testów).
+    /// What is currently held. Used by the tests; the UI no longer shows a latch
+    /// marker - it carried nothing useful while playing.
+    #[allow(dead_code)]
     pub fn held(&self) -> Option<&str> {
         self.locked.as_deref()
     }
 }
 
-/// Pryma z napisu predykcji ("G m7" -> "G", "Note F" -> "F").
+/// Root from a prediction string ("G m7" -> "G", "Note F" -> "F").
 fn root_of(chord: &str) -> &str {
     let mut it = chord.split_whitespace();
     match it.next() {
@@ -102,7 +96,7 @@ fn root_of(chord: &str) -> &str {
     }
 }
 
-/// Czy to w ogóle akord, na który warto zakładać zatrzask.
+/// Is this a chord worth latching onto at all.
 fn is_real(chord: &str) -> bool {
     !chord.is_empty() && chord != "Noise" && chord != "..." && !chord.starts_with("Note")
 }
@@ -114,43 +108,43 @@ mod tests {
     const AFTER: u32 = SETTLE_FRAMES;
 
     #[test]
-    fn trzyma_septyme_gdy_wybrzmiewa() {
-        // Odtworzony przebieg z podglądu diagnostycznego: model traci septymę,
-        // ale zachowuje wysoką pewność dla ubozszej jakości.
+    fn holds_the_seventh_through_decay() {
+        // Replayed from the diagnostic output: the model loses the seventh but
+        // stays highly confident about the poorer quality.
         let mut l = ChordLatch::default();
         assert_eq!(l.update(true, 1, AFTER, "G m7", 0.95), "G m7");
         for conf in [0.94, 0.95, 0.96] {
             assert_eq!(
                 l.update(true, 1, AFTER + 10, "G m", conf), "G m7",
-                "zatrzask ma trzymać mimo wysokiej pewności ubozszej jakości"
+                "the latch must hold despite high confidence in the poorer quality"
             );
         }
     }
 
     #[test]
-    fn nowy_atak_zwalnia() {
+    fn new_attack_releases() {
         let mut l = ChordLatch::default();
         l.update(true, 1, AFTER, "G m7", 0.95);
         assert_eq!(l.update(true, 1, AFTER + 5, "G m", 0.95), "G m7");
-        // szarpnięcie strun -> onset_id rośnie
+        // strings struck -> onset_id increments
         assert_eq!(l.update(true, 2, AFTER, "G m", 0.95), "G m");
         assert_eq!(l.held(), Some("G m"));
     }
 
     #[test]
-    fn nie_lapie_ogona_poprzedniego_akordu() {
-        // Tuż po ataku okno wciąż zawiera poprzedni akord — nie wolno zatrzasnąć.
+    fn does_not_catch_the_previous_chord_tail() {
+        // Just after the attack the window still holds the previous chord.
         let mut l = ChordLatch::default();
         for f in [0u32, 10, 30, 47] {
             l.update(true, 1, f, "C m7", 0.97);
-            assert_eq!(l.held(), None, "przy {f} klatkach okno nie jest jeszcze pełne");
+            assert_eq!(l.held(), None, "at {f} frames the window is not full yet");
         }
         l.update(true, 1, AFTER, "G m7", 0.97);
         assert_eq!(l.held(), Some("G m7"));
     }
 
     #[test]
-    fn niska_pewnosc_nie_zaklada() {
+    fn low_confidence_does_not_engage() {
         let mut l = ChordLatch::default();
         l.update(true, 1, AFTER, "G m7", 0.30);
         assert_eq!(l.held(), None);
@@ -159,16 +153,16 @@ mod tests {
     }
 
     #[test]
-    fn zmiana_prymy_bez_ataku_tez_zwalnia() {
+    fn root_change_without_attack_also_releases() {
         let mut l = ChordLatch::default();
         l.update(true, 1, AFTER, "G m7", 0.95);
-        // przejście na inny akord, detektor ataku go nie złapał
+        // moving to another chord; the attack detector missed it
         assert_eq!(l.update(true, 1, AFTER + 20, "C m7", 0.95), "C m7");
         assert_eq!(l.held(), Some("C m7"));
     }
 
     #[test]
-    fn wylaczony_jest_przezroczysty() {
+    fn disabled_is_a_pass_through() {
         let mut l = ChordLatch::default();
         assert_eq!(l.update(false, 1, AFTER, "G m7", 0.95), "G m7");
         assert_eq!(l.update(false, 1, AFTER + 5, "G m", 0.95), "G m");
@@ -176,16 +170,16 @@ mod tests {
     }
 
     #[test]
-    fn szum_i_pojedyncze_dzwieki_nie_zatrzaskuja() {
+    fn noise_and_single_notes_do_not_latch() {
         let mut l = ChordLatch::default();
         l.update(true, 1, AFTER, "Noise", 0.95);
         assert_eq!(l.held(), None);
         l.update(true, 1, AFTER, "Note F", 0.95);
-        assert_eq!(l.held(), None, "pojedynczy dźwięk to nie akord do trzymania");
+        assert_eq!(l.held(), None, "a single note is not a chord to hold");
     }
 
     #[test]
-    fn root_of_radzi_sobie_z_formatami() {
+    fn root_of_handles_the_formats() {
         assert_eq!(root_of("G m7"), "G");
         assert_eq!(root_of("C"), "C");
         assert_eq!(root_of("Note F#"), "F#");
