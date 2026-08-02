@@ -1,0 +1,789 @@
+file,start,end,label
+synth_dataset_clean.wav,0.050,3.250,C
+synth_dataset_eob.wav,0.050,3.250,C
+synth_dataset_clean.wav,6.050,9.250,C#
+synth_dataset_eob.wav,6.050,9.250,C#
+synth_dataset_clean.wav,12.050,15.250,D
+synth_dataset_eob.wav,12.050,15.250,D
+synth_dataset_clean.wav,18.050,21.250,D#
+synth_dataset_eob.wav,18.050,21.250,D#
+synth_dataset_clean.wav,24.050,27.250,E
+synth_dataset_eob.wav,24.050,27.250,E
+synth_dataset_clean.wav,30.050,33.250,E
+synth_dataset_eob.wav,30.050,33.250,E
+synth_dataset_clean.wav,36.050,39.250,F
+synth_dataset_eob.wav,36.050,39.250,F
+synth_dataset_clean.wav,42.050,45.250,F
+synth_dataset_eob.wav,42.050,45.250,F
+synth_dataset_clean.wav,48.050,51.250,F#
+synth_dataset_eob.wav,48.050,51.250,F#
+synth_dataset_clean.wav,54.050,57.250,G
+synth_dataset_eob.wav,54.050,57.250,G
+synth_dataset_clean.wav,60.050,63.250,G#
+synth_dataset_eob.wav,60.050,63.250,G#
+synth_dataset_clean.wav,66.050,69.250,A
+synth_dataset_eob.wav,66.050,69.250,A
+synth_dataset_clean.wav,72.050,75.250,A#
+synth_dataset_eob.wav,72.050,75.250,A#
+synth_dataset_clean.wav,78.050,81.250,B
+synth_dataset_eob.wav,78.050,81.250,B
+synth_dataset_clean.wav,84.050,87.250,C
+synth_dataset_eob.wav,84.050,87.250,C
+synth_dataset_clean.wav,90.050,93.250,C#
+synth_dataset_eob.wav,90.050,93.250,C#
+synth_dataset_clean.wav,96.050,99.250,D
+synth_dataset_eob.wav,96.050,99.250,D
+synth_dataset_clean.wav,102.050,105.250,D#
+synth_dataset_eob.wav,102.050,105.250,D#
+synth_dataset_clean.wav,108.050,111.250,E
+synth_dataset_eob.wav,108.050,111.250,E
+synth_dataset_clean.wav,114.050,117.250,F
+synth_dataset_eob.wav,114.050,117.250,F
+synth_dataset_clean.wav,120.050,123.250,F#
+synth_dataset_eob.wav,120.050,123.250,F#
+synth_dataset_clean.wav,126.050,129.250,G
+synth_dataset_eob.wav,126.050,129.250,G
+synth_dataset_clean.wav,132.050,135.250,G#
+synth_dataset_eob.wav,132.050,135.250,G#
+synth_dataset_clean.wav,138.050,141.250,A
+synth_dataset_eob.wav,138.050,141.250,A
+synth_dataset_clean.wav,144.050,147.250,A
+synth_dataset_eob.wav,144.050,147.250,A
+synth_dataset_clean.wav,150.050,153.250,A#
+synth_dataset_eob.wav,150.050,153.250,A#
+synth_dataset_clean.wav,156.050,159.250,A#
+synth_dataset_eob.wav,156.050,159.250,A#
+synth_dataset_clean.wav,162.050,165.250,B
+synth_dataset_eob.wav,162.050,165.250,B
+synth_dataset_clean.wav,168.050,171.250,Cm
+synth_dataset_eob.wav,168.050,171.250,Cm
+synth_dataset_clean.wav,174.050,177.250,C#m
+synth_dataset_eob.wav,174.050,177.250,C#m
+synth_dataset_clean.wav,180.050,183.250,Dm
+synth_dataset_eob.wav,180.050,183.250,Dm
+synth_dataset_clean.wav,186.050,189.250,D#m
+synth_dataset_eob.wav,186.050,189.250,D#m
+synth_dataset_clean.wav,192.050,195.250,Em
+synth_dataset_eob.wav,192.050,195.250,Em
+synth_dataset_clean.wav,198.050,201.250,Em
+synth_dataset_eob.wav,198.050,201.250,Em
+synth_dataset_clean.wav,204.050,207.250,Fm
+synth_dataset_eob.wav,204.050,207.250,Fm
+synth_dataset_clean.wav,210.050,213.250,Fm
+synth_dataset_eob.wav,210.050,213.250,Fm
+synth_dataset_clean.wav,216.050,219.250,F#m
+synth_dataset_eob.wav,216.050,219.250,F#m
+synth_dataset_clean.wav,222.050,225.250,Gm
+synth_dataset_eob.wav,222.050,225.250,Gm
+synth_dataset_clean.wav,228.050,231.250,G#m
+synth_dataset_eob.wav,228.050,231.250,G#m
+synth_dataset_clean.wav,234.050,237.250,Am
+synth_dataset_eob.wav,234.050,237.250,Am
+synth_dataset_clean.wav,240.050,243.250,A#m
+synth_dataset_eob.wav,240.050,243.250,A#m
+synth_dataset_clean.wav,246.050,249.250,Bm
+synth_dataset_eob.wav,246.050,249.250,Bm
+synth_dataset_clean.wav,252.050,255.250,Cm
+synth_dataset_eob.wav,252.050,255.250,Cm
+synth_dataset_clean.wav,258.050,261.250,C#m
+synth_dataset_eob.wav,258.050,261.250,C#m
+synth_dataset_clean.wav,264.050,267.250,Dm
+synth_dataset_eob.wav,264.050,267.250,Dm
+synth_dataset_clean.wav,270.050,273.250,D#m
+synth_dataset_eob.wav,270.050,273.250,D#m
+synth_dataset_clean.wav,276.050,279.250,Em
+synth_dataset_eob.wav,276.050,279.250,Em
+synth_dataset_clean.wav,282.050,285.250,Fm
+synth_dataset_eob.wav,282.050,285.250,Fm
+synth_dataset_clean.wav,288.050,291.250,F#m
+synth_dataset_eob.wav,288.050,291.250,F#m
+synth_dataset_clean.wav,294.050,297.250,Gm
+synth_dataset_eob.wav,294.050,297.250,Gm
+synth_dataset_clean.wav,300.050,303.250,G#m
+synth_dataset_eob.wav,300.050,303.250,G#m
+synth_dataset_clean.wav,306.050,309.250,Am
+synth_dataset_eob.wav,306.050,309.250,Am
+synth_dataset_clean.wav,312.050,315.250,Am
+synth_dataset_eob.wav,312.050,315.250,Am
+synth_dataset_clean.wav,318.050,321.250,A#m
+synth_dataset_eob.wav,318.050,321.250,A#m
+synth_dataset_clean.wav,324.050,327.250,A#m
+synth_dataset_eob.wav,324.050,327.250,A#m
+synth_dataset_clean.wav,330.050,333.250,Bm
+synth_dataset_eob.wav,330.050,333.250,Bm
+synth_dataset_clean.wav,336.050,339.250,C Maj7
+synth_dataset_eob.wav,336.050,339.250,C Maj7
+synth_dataset_clean.wav,342.050,345.250,C# Maj7
+synth_dataset_eob.wav,342.050,345.250,C# Maj7
+synth_dataset_clean.wav,348.050,351.250,D Maj7
+synth_dataset_eob.wav,348.050,351.250,D Maj7
+synth_dataset_clean.wav,354.050,357.250,D# Maj7
+synth_dataset_eob.wav,354.050,357.250,D# Maj7
+synth_dataset_clean.wav,360.050,363.250,E Maj7
+synth_dataset_eob.wav,360.050,363.250,E Maj7
+synth_dataset_clean.wav,366.050,369.250,E Maj7
+synth_dataset_eob.wav,366.050,369.250,E Maj7
+synth_dataset_clean.wav,372.050,375.250,F Maj7
+synth_dataset_eob.wav,372.050,375.250,F Maj7
+synth_dataset_clean.wav,378.050,381.250,F Maj7
+synth_dataset_eob.wav,378.050,381.250,F Maj7
+synth_dataset_clean.wav,384.050,387.250,F# Maj7
+synth_dataset_eob.wav,384.050,387.250,F# Maj7
+synth_dataset_clean.wav,390.050,393.250,F# Maj7
+synth_dataset_eob.wav,390.050,393.250,F# Maj7
+synth_dataset_clean.wav,396.050,399.250,G Maj7
+synth_dataset_eob.wav,396.050,399.250,G Maj7
+synth_dataset_clean.wav,402.050,405.250,G# Maj7
+synth_dataset_eob.wav,402.050,405.250,G# Maj7
+synth_dataset_clean.wav,408.050,411.250,A Maj7
+synth_dataset_eob.wav,408.050,411.250,A Maj7
+synth_dataset_clean.wav,414.050,417.250,A# Maj7
+synth_dataset_eob.wav,414.050,417.250,A# Maj7
+synth_dataset_clean.wav,420.050,423.250,B Maj7
+synth_dataset_eob.wav,420.050,423.250,B Maj7
+synth_dataset_clean.wav,426.050,429.250,C Maj7
+synth_dataset_eob.wav,426.050,429.250,C Maj7
+synth_dataset_clean.wav,432.050,435.250,C# Maj7
+synth_dataset_eob.wav,432.050,435.250,C# Maj7
+synth_dataset_clean.wav,438.050,441.250,D Maj7
+synth_dataset_eob.wav,438.050,441.250,D Maj7
+synth_dataset_clean.wav,444.050,447.250,D# Maj7
+synth_dataset_eob.wav,444.050,447.250,D# Maj7
+synth_dataset_clean.wav,450.050,453.250,E Maj7
+synth_dataset_eob.wav,450.050,453.250,E Maj7
+synth_dataset_clean.wav,456.050,459.250,F Maj7
+synth_dataset_eob.wav,456.050,459.250,F Maj7
+synth_dataset_clean.wav,462.050,465.250,F# Maj7
+synth_dataset_eob.wav,462.050,465.250,F# Maj7
+synth_dataset_clean.wav,468.050,471.250,G Maj7
+synth_dataset_eob.wav,468.050,471.250,G Maj7
+synth_dataset_clean.wav,474.050,477.250,G# Maj7
+synth_dataset_eob.wav,474.050,477.250,G# Maj7
+synth_dataset_clean.wav,480.050,483.250,A Maj7
+synth_dataset_eob.wav,480.050,483.250,A Maj7
+synth_dataset_clean.wav,486.050,489.250,A Maj7
+synth_dataset_eob.wav,486.050,489.250,A Maj7
+synth_dataset_clean.wav,492.050,495.250,A# Maj7
+synth_dataset_eob.wav,492.050,495.250,A# Maj7
+synth_dataset_clean.wav,498.050,501.250,A# Maj7
+synth_dataset_eob.wav,498.050,501.250,A# Maj7
+synth_dataset_clean.wav,504.050,507.250,B Maj7
+synth_dataset_eob.wav,504.050,507.250,B Maj7
+synth_dataset_clean.wav,510.050,513.250,C 7
+synth_dataset_eob.wav,510.050,513.250,C 7
+synth_dataset_clean.wav,516.050,519.250,C# 7
+synth_dataset_eob.wav,516.050,519.250,C# 7
+synth_dataset_clean.wav,522.050,525.250,D 7
+synth_dataset_eob.wav,522.050,525.250,D 7
+synth_dataset_clean.wav,528.050,531.250,D# 7
+synth_dataset_eob.wav,528.050,531.250,D# 7
+synth_dataset_clean.wav,534.050,537.250,E 7
+synth_dataset_eob.wav,534.050,537.250,E 7
+synth_dataset_clean.wav,540.050,543.250,E 7
+synth_dataset_eob.wav,540.050,543.250,E 7
+synth_dataset_clean.wav,546.050,549.250,F 7
+synth_dataset_eob.wav,546.050,549.250,F 7
+synth_dataset_clean.wav,552.050,555.250,F 7
+synth_dataset_eob.wav,552.050,555.250,F 7
+synth_dataset_clean.wav,558.050,561.250,F# 7
+synth_dataset_eob.wav,558.050,561.250,F# 7
+synth_dataset_clean.wav,564.050,567.250,F# 7
+synth_dataset_eob.wav,564.050,567.250,F# 7
+synth_dataset_clean.wav,570.050,573.250,G 7
+synth_dataset_eob.wav,570.050,573.250,G 7
+synth_dataset_clean.wav,576.050,579.250,G# 7
+synth_dataset_eob.wav,576.050,579.250,G# 7
+synth_dataset_clean.wav,582.050,585.250,A 7
+synth_dataset_eob.wav,582.050,585.250,A 7
+synth_dataset_clean.wav,588.050,591.250,A# 7
+synth_dataset_eob.wav,588.050,591.250,A# 7
+synth_dataset_clean.wav,594.050,597.250,B 7
+synth_dataset_eob.wav,594.050,597.250,B 7
+synth_dataset_clean.wav,600.050,603.250,C 7
+synth_dataset_eob.wav,600.050,603.250,C 7
+synth_dataset_clean.wav,606.050,609.250,C# 7
+synth_dataset_eob.wav,606.050,609.250,C# 7
+synth_dataset_clean.wav,612.050,615.250,D 7
+synth_dataset_eob.wav,612.050,615.250,D 7
+synth_dataset_clean.wav,618.050,621.250,D# 7
+synth_dataset_eob.wav,618.050,621.250,D# 7
+synth_dataset_clean.wav,624.050,627.250,E 7
+synth_dataset_eob.wav,624.050,627.250,E 7
+synth_dataset_clean.wav,630.050,633.250,F 7
+synth_dataset_eob.wav,630.050,633.250,F 7
+synth_dataset_clean.wav,636.050,639.250,F# 7
+synth_dataset_eob.wav,636.050,639.250,F# 7
+synth_dataset_clean.wav,642.050,645.250,G 7
+synth_dataset_eob.wav,642.050,645.250,G 7
+synth_dataset_clean.wav,648.050,651.250,G# 7
+synth_dataset_eob.wav,648.050,651.250,G# 7
+synth_dataset_clean.wav,654.050,657.250,A 7
+synth_dataset_eob.wav,654.050,657.250,A 7
+synth_dataset_clean.wav,660.050,663.250,A 7
+synth_dataset_eob.wav,660.050,663.250,A 7
+synth_dataset_clean.wav,666.050,669.250,A# 7
+synth_dataset_eob.wav,666.050,669.250,A# 7
+synth_dataset_clean.wav,672.050,675.250,A# 7
+synth_dataset_eob.wav,672.050,675.250,A# 7
+synth_dataset_clean.wav,678.050,681.250,B 7
+synth_dataset_eob.wav,678.050,681.250,B 7
+synth_dataset_clean.wav,684.050,687.250,C m7
+synth_dataset_eob.wav,684.050,687.250,C m7
+synth_dataset_clean.wav,690.050,693.250,C# m7
+synth_dataset_eob.wav,690.050,693.250,C# m7
+synth_dataset_clean.wav,696.050,699.250,D m7
+synth_dataset_eob.wav,696.050,699.250,D m7
+synth_dataset_clean.wav,702.050,705.250,D# m7
+synth_dataset_eob.wav,702.050,705.250,D# m7
+synth_dataset_clean.wav,708.050,711.250,E m7
+synth_dataset_eob.wav,708.050,711.250,E m7
+synth_dataset_clean.wav,714.050,717.250,E m7
+synth_dataset_eob.wav,714.050,717.250,E m7
+synth_dataset_clean.wav,720.050,723.250,F m7
+synth_dataset_eob.wav,720.050,723.250,F m7
+synth_dataset_clean.wav,726.050,729.250,F m7
+synth_dataset_eob.wav,726.050,729.250,F m7
+synth_dataset_clean.wav,732.050,735.250,F# m7
+synth_dataset_eob.wav,732.050,735.250,F# m7
+synth_dataset_clean.wav,738.050,741.250,F# m7
+synth_dataset_eob.wav,738.050,741.250,F# m7
+synth_dataset_clean.wav,744.050,747.250,G m7
+synth_dataset_eob.wav,744.050,747.250,G m7
+synth_dataset_clean.wav,750.050,753.250,G m7
+synth_dataset_eob.wav,750.050,753.250,G m7
+synth_dataset_clean.wav,756.050,759.250,G# m7
+synth_dataset_eob.wav,756.050,759.250,G# m7
+synth_dataset_clean.wav,762.050,765.250,A m7
+synth_dataset_eob.wav,762.050,765.250,A m7
+synth_dataset_clean.wav,768.050,771.250,A# m7
+synth_dataset_eob.wav,768.050,771.250,A# m7
+synth_dataset_clean.wav,774.050,777.250,B m7
+synth_dataset_eob.wav,774.050,777.250,B m7
+synth_dataset_clean.wav,780.050,783.250,C m7
+synth_dataset_eob.wav,780.050,783.250,C m7
+synth_dataset_clean.wav,786.050,789.250,C# m7
+synth_dataset_eob.wav,786.050,789.250,C# m7
+synth_dataset_clean.wav,792.050,795.250,D m7
+synth_dataset_eob.wav,792.050,795.250,D m7
+synth_dataset_clean.wav,798.050,801.250,D# m7
+synth_dataset_eob.wav,798.050,801.250,D# m7
+synth_dataset_clean.wav,804.050,807.250,E m7
+synth_dataset_eob.wav,804.050,807.250,E m7
+synth_dataset_clean.wav,810.050,813.250,F m7
+synth_dataset_eob.wav,810.050,813.250,F m7
+synth_dataset_clean.wav,816.050,819.250,F# m7
+synth_dataset_eob.wav,816.050,819.250,F# m7
+synth_dataset_clean.wav,822.050,825.250,G m7
+synth_dataset_eob.wav,822.050,825.250,G m7
+synth_dataset_clean.wav,828.050,831.250,G# m7
+synth_dataset_eob.wav,828.050,831.250,G# m7
+synth_dataset_clean.wav,834.050,837.250,A m7
+synth_dataset_eob.wav,834.050,837.250,A m7
+synth_dataset_clean.wav,840.050,843.250,A m7
+synth_dataset_eob.wav,840.050,843.250,A m7
+synth_dataset_clean.wav,846.050,849.250,A# m7
+synth_dataset_eob.wav,846.050,849.250,A# m7
+synth_dataset_clean.wav,852.050,855.250,A# m7
+synth_dataset_eob.wav,852.050,855.250,A# m7
+synth_dataset_clean.wav,858.050,861.250,B m7
+synth_dataset_eob.wav,858.050,861.250,B m7
+synth_dataset_clean.wav,864.050,867.250,C m7b5
+synth_dataset_eob.wav,864.050,867.250,C m7b5
+synth_dataset_clean.wav,870.050,873.250,C# m7b5
+synth_dataset_eob.wav,870.050,873.250,C# m7b5
+synth_dataset_clean.wav,876.050,879.250,D m7b5
+synth_dataset_eob.wav,876.050,879.250,D m7b5
+synth_dataset_clean.wav,882.050,885.250,D# m7b5
+synth_dataset_eob.wav,882.050,885.250,D# m7b5
+synth_dataset_clean.wav,888.050,891.250,E m7b5
+synth_dataset_eob.wav,888.050,891.250,E m7b5
+synth_dataset_clean.wav,894.050,897.250,F m7b5
+synth_dataset_eob.wav,894.050,897.250,F m7b5
+synth_dataset_clean.wav,900.050,903.250,F m7b5
+synth_dataset_eob.wav,900.050,903.250,F m7b5
+synth_dataset_clean.wav,906.050,909.250,F# m7b5
+synth_dataset_eob.wav,906.050,909.250,F# m7b5
+synth_dataset_clean.wav,912.050,915.250,F# m7b5
+synth_dataset_eob.wav,912.050,915.250,F# m7b5
+synth_dataset_clean.wav,918.050,921.250,G m7b5
+synth_dataset_eob.wav,918.050,921.250,G m7b5
+synth_dataset_clean.wav,924.050,927.250,G m7b5
+synth_dataset_eob.wav,924.050,927.250,G m7b5
+synth_dataset_clean.wav,930.050,933.250,G# m7b5
+synth_dataset_eob.wav,930.050,933.250,G# m7b5
+synth_dataset_clean.wav,936.050,939.250,A m7b5
+synth_dataset_eob.wav,936.050,939.250,A m7b5
+synth_dataset_clean.wav,942.050,945.250,A# m7b5
+synth_dataset_eob.wav,942.050,945.250,A# m7b5
+synth_dataset_clean.wav,948.050,951.250,B m7b5
+synth_dataset_eob.wav,948.050,951.250,B m7b5
+synth_dataset_clean.wav,954.050,957.250,C m7b5
+synth_dataset_eob.wav,954.050,957.250,C m7b5
+synth_dataset_clean.wav,960.050,963.250,C# m7b5
+synth_dataset_eob.wav,960.050,963.250,C# m7b5
+synth_dataset_clean.wav,966.050,969.250,D m7b5
+synth_dataset_eob.wav,966.050,969.250,D m7b5
+synth_dataset_clean.wav,972.050,975.250,D# m7b5
+synth_dataset_eob.wav,972.050,975.250,D# m7b5
+synth_dataset_clean.wav,978.050,981.250,E m7b5
+synth_dataset_eob.wav,978.050,981.250,E m7b5
+synth_dataset_clean.wav,984.050,987.250,F m7b5
+synth_dataset_eob.wav,984.050,987.250,F m7b5
+synth_dataset_clean.wav,990.050,993.250,F# m7b5
+synth_dataset_eob.wav,990.050,993.250,F# m7b5
+synth_dataset_clean.wav,996.050,999.250,G m7b5
+synth_dataset_eob.wav,996.050,999.250,G m7b5
+synth_dataset_clean.wav,1002.050,1005.250,G# m7b5
+synth_dataset_eob.wav,1002.050,1005.250,G# m7b5
+synth_dataset_clean.wav,1008.050,1011.250,A m7b5
+synth_dataset_eob.wav,1008.050,1011.250,A m7b5
+synth_dataset_clean.wav,1014.050,1017.250,A m7b5
+synth_dataset_eob.wav,1014.050,1017.250,A m7b5
+synth_dataset_clean.wav,1020.050,1023.250,A# m7b5
+synth_dataset_eob.wav,1020.050,1023.250,A# m7b5
+synth_dataset_clean.wav,1026.050,1029.250,A# m7b5
+synth_dataset_eob.wav,1026.050,1029.250,A# m7b5
+synth_dataset_clean.wav,1032.050,1035.250,B m7b5
+synth_dataset_eob.wav,1032.050,1035.250,B m7b5
+synth_dataset_clean.wav,1038.050,1041.250,B m7b5
+synth_dataset_eob.wav,1038.050,1041.250,B m7b5
+synth_dataset_clean.wav,1044.050,1047.250,C dim7
+synth_dataset_eob.wav,1044.050,1047.250,C dim7
+synth_dataset_clean.wav,1050.050,1053.250,C# dim7
+synth_dataset_eob.wav,1050.050,1053.250,C# dim7
+synth_dataset_clean.wav,1056.050,1059.250,D dim7
+synth_dataset_eob.wav,1056.050,1059.250,D dim7
+synth_dataset_clean.wav,1062.050,1065.250,D# dim7
+synth_dataset_eob.wav,1062.050,1065.250,D# dim7
+synth_dataset_clean.wav,1068.050,1071.250,E dim7
+synth_dataset_eob.wav,1068.050,1071.250,E dim7
+synth_dataset_clean.wav,1074.050,1077.250,F dim7
+synth_dataset_eob.wav,1074.050,1077.250,F dim7
+synth_dataset_clean.wav,1080.050,1083.250,F dim7
+synth_dataset_eob.wav,1080.050,1083.250,F dim7
+synth_dataset_clean.wav,1086.050,1089.250,F# dim7
+synth_dataset_eob.wav,1086.050,1089.250,F# dim7
+synth_dataset_clean.wav,1092.050,1095.250,F# dim7
+synth_dataset_eob.wav,1092.050,1095.250,F# dim7
+synth_dataset_clean.wav,1098.050,1101.250,G dim7
+synth_dataset_eob.wav,1098.050,1101.250,G dim7
+synth_dataset_clean.wav,1104.050,1107.250,G dim7
+synth_dataset_eob.wav,1104.050,1107.250,G dim7
+synth_dataset_clean.wav,1110.050,1113.250,G# dim7
+synth_dataset_eob.wav,1110.050,1113.250,G# dim7
+synth_dataset_clean.wav,1116.050,1119.250,A dim7
+synth_dataset_eob.wav,1116.050,1119.250,A dim7
+synth_dataset_clean.wav,1122.050,1125.250,A# dim7
+synth_dataset_eob.wav,1122.050,1125.250,A# dim7
+synth_dataset_clean.wav,1128.050,1131.250,B dim7
+synth_dataset_eob.wav,1128.050,1131.250,B dim7
+synth_dataset_clean.wav,1134.050,1137.250,C dim7
+synth_dataset_eob.wav,1134.050,1137.250,C dim7
+synth_dataset_clean.wav,1140.050,1143.250,C# dim7
+synth_dataset_eob.wav,1140.050,1143.250,C# dim7
+synth_dataset_clean.wav,1146.050,1149.250,D dim7
+synth_dataset_eob.wav,1146.050,1149.250,D dim7
+synth_dataset_clean.wav,1152.050,1155.250,D# dim7
+synth_dataset_eob.wav,1152.050,1155.250,D# dim7
+synth_dataset_clean.wav,1158.050,1161.250,E dim7
+synth_dataset_eob.wav,1158.050,1161.250,E dim7
+synth_dataset_clean.wav,1164.050,1167.250,F dim7
+synth_dataset_eob.wav,1164.050,1167.250,F dim7
+synth_dataset_clean.wav,1170.050,1173.250,F# dim7
+synth_dataset_eob.wav,1170.050,1173.250,F# dim7
+synth_dataset_clean.wav,1176.050,1179.250,G dim7
+synth_dataset_eob.wav,1176.050,1179.250,G dim7
+synth_dataset_clean.wav,1182.050,1185.250,G# dim7
+synth_dataset_eob.wav,1182.050,1185.250,G# dim7
+synth_dataset_clean.wav,1188.050,1191.250,A dim7
+synth_dataset_eob.wav,1188.050,1191.250,A dim7
+synth_dataset_clean.wav,1194.050,1197.250,A# dim7
+synth_dataset_eob.wav,1194.050,1197.250,A# dim7
+synth_dataset_clean.wav,1200.050,1203.250,A# dim7
+synth_dataset_eob.wav,1200.050,1203.250,A# dim7
+synth_dataset_clean.wav,1206.050,1209.250,B dim7
+synth_dataset_eob.wav,1206.050,1209.250,B dim7
+synth_dataset_clean.wav,1212.050,1215.250,B dim7
+synth_dataset_eob.wav,1212.050,1215.250,B dim7
+synth_dataset_clean.wav,1218.050,1221.250,C
+synth_dataset_eob.wav,1218.050,1221.250,C
+synth_dataset_clean.wav,1224.050,1227.250,C#
+synth_dataset_eob.wav,1224.050,1227.250,C#
+synth_dataset_clean.wav,1230.050,1233.250,D
+synth_dataset_eob.wav,1230.050,1233.250,D
+synth_dataset_clean.wav,1236.050,1239.250,D
+synth_dataset_eob.wav,1236.050,1239.250,D
+synth_dataset_clean.wav,1242.050,1245.250,D#
+synth_dataset_eob.wav,1242.050,1245.250,D#
+synth_dataset_clean.wav,1248.050,1251.250,E
+synth_dataset_eob.wav,1248.050,1251.250,E
+synth_dataset_clean.wav,1254.050,1257.250,F
+synth_dataset_eob.wav,1254.050,1257.250,F
+synth_dataset_clean.wav,1260.050,1263.250,F#
+synth_dataset_eob.wav,1260.050,1263.250,F#
+synth_dataset_clean.wav,1266.050,1269.250,G
+synth_dataset_eob.wav,1266.050,1269.250,G
+synth_dataset_clean.wav,1272.050,1275.250,G#
+synth_dataset_eob.wav,1272.050,1275.250,G#
+synth_dataset_clean.wav,1278.050,1281.250,A
+synth_dataset_eob.wav,1278.050,1281.250,A
+synth_dataset_clean.wav,1284.050,1287.250,A#
+synth_dataset_eob.wav,1284.050,1287.250,A#
+synth_dataset_clean.wav,1290.050,1293.250,B
+synth_dataset_eob.wav,1290.050,1293.250,B
+synth_dataset_clean.wav,1296.050,1299.250,Cm
+synth_dataset_eob.wav,1296.050,1299.250,Cm
+synth_dataset_clean.wav,1302.050,1305.250,C#m
+synth_dataset_eob.wav,1302.050,1305.250,C#m
+synth_dataset_clean.wav,1308.050,1311.250,Dm
+synth_dataset_eob.wav,1308.050,1311.250,Dm
+synth_dataset_clean.wav,1314.050,1317.250,Dm
+synth_dataset_eob.wav,1314.050,1317.250,Dm
+synth_dataset_clean.wav,1320.050,1323.250,D#m
+synth_dataset_eob.wav,1320.050,1323.250,D#m
+synth_dataset_clean.wav,1326.050,1329.250,Em
+synth_dataset_eob.wav,1326.050,1329.250,Em
+synth_dataset_clean.wav,1332.050,1335.250,Fm
+synth_dataset_eob.wav,1332.050,1335.250,Fm
+synth_dataset_clean.wav,1338.050,1341.250,F#m
+synth_dataset_eob.wav,1338.050,1341.250,F#m
+synth_dataset_clean.wav,1344.050,1347.250,Gm
+synth_dataset_eob.wav,1344.050,1347.250,Gm
+synth_dataset_clean.wav,1350.050,1353.250,G#m
+synth_dataset_eob.wav,1350.050,1353.250,G#m
+synth_dataset_clean.wav,1356.050,1359.250,Am
+synth_dataset_eob.wav,1356.050,1359.250,Am
+synth_dataset_clean.wav,1362.050,1365.250,A#m
+synth_dataset_eob.wav,1362.050,1365.250,A#m
+synth_dataset_clean.wav,1368.050,1371.250,Bm
+synth_dataset_eob.wav,1368.050,1371.250,Bm
+synth_dataset_clean.wav,1374.050,1377.250,C Maj7
+synth_dataset_eob.wav,1374.050,1377.250,C Maj7
+synth_dataset_clean.wav,1380.050,1383.250,C# Maj7
+synth_dataset_eob.wav,1380.050,1383.250,C# Maj7
+synth_dataset_clean.wav,1386.050,1389.250,D Maj7
+synth_dataset_eob.wav,1386.050,1389.250,D Maj7
+synth_dataset_clean.wav,1392.050,1395.250,D Maj7
+synth_dataset_eob.wav,1392.050,1395.250,D Maj7
+synth_dataset_clean.wav,1398.050,1401.250,D# Maj7
+synth_dataset_eob.wav,1398.050,1401.250,D# Maj7
+synth_dataset_clean.wav,1404.050,1407.250,D# Maj7
+synth_dataset_eob.wav,1404.050,1407.250,D# Maj7
+synth_dataset_clean.wav,1410.050,1413.250,E Maj7
+synth_dataset_eob.wav,1410.050,1413.250,E Maj7
+synth_dataset_clean.wav,1416.050,1419.250,F Maj7
+synth_dataset_eob.wav,1416.050,1419.250,F Maj7
+synth_dataset_clean.wav,1422.050,1425.250,F# Maj7
+synth_dataset_eob.wav,1422.050,1425.250,F# Maj7
+synth_dataset_clean.wav,1428.050,1431.250,G Maj7
+synth_dataset_eob.wav,1428.050,1431.250,G Maj7
+synth_dataset_clean.wav,1434.050,1437.250,G# Maj7
+synth_dataset_eob.wav,1434.050,1437.250,G# Maj7
+synth_dataset_clean.wav,1440.050,1443.250,A Maj7
+synth_dataset_eob.wav,1440.050,1443.250,A Maj7
+synth_dataset_clean.wav,1446.050,1449.250,A# Maj7
+synth_dataset_eob.wav,1446.050,1449.250,A# Maj7
+synth_dataset_clean.wav,1452.050,1455.250,B Maj7
+synth_dataset_eob.wav,1452.050,1455.250,B Maj7
+synth_dataset_clean.wav,1458.050,1461.250,C 7
+synth_dataset_eob.wav,1458.050,1461.250,C 7
+synth_dataset_clean.wav,1464.050,1467.250,C# 7
+synth_dataset_eob.wav,1464.050,1467.250,C# 7
+synth_dataset_clean.wav,1470.050,1473.250,D 7
+synth_dataset_eob.wav,1470.050,1473.250,D 7
+synth_dataset_clean.wav,1476.050,1479.250,D 7
+synth_dataset_eob.wav,1476.050,1479.250,D 7
+synth_dataset_clean.wav,1482.050,1485.250,D# 7
+synth_dataset_eob.wav,1482.050,1485.250,D# 7
+synth_dataset_clean.wav,1488.050,1491.250,D# 7
+synth_dataset_eob.wav,1488.050,1491.250,D# 7
+synth_dataset_clean.wav,1494.050,1497.250,E 7
+synth_dataset_eob.wav,1494.050,1497.250,E 7
+synth_dataset_clean.wav,1500.050,1503.250,F 7
+synth_dataset_eob.wav,1500.050,1503.250,F 7
+synth_dataset_clean.wav,1506.050,1509.250,F# 7
+synth_dataset_eob.wav,1506.050,1509.250,F# 7
+synth_dataset_clean.wav,1512.050,1515.250,G 7
+synth_dataset_eob.wav,1512.050,1515.250,G 7
+synth_dataset_clean.wav,1518.050,1521.250,G# 7
+synth_dataset_eob.wav,1518.050,1521.250,G# 7
+synth_dataset_clean.wav,1524.050,1527.250,A 7
+synth_dataset_eob.wav,1524.050,1527.250,A 7
+synth_dataset_clean.wav,1530.050,1533.250,A# 7
+synth_dataset_eob.wav,1530.050,1533.250,A# 7
+synth_dataset_clean.wav,1536.050,1539.250,B 7
+synth_dataset_eob.wav,1536.050,1539.250,B 7
+synth_dataset_clean.wav,1542.050,1545.250,C m7
+synth_dataset_eob.wav,1542.050,1545.250,C m7
+synth_dataset_clean.wav,1548.050,1551.250,C# m7
+synth_dataset_eob.wav,1548.050,1551.250,C# m7
+synth_dataset_clean.wav,1554.050,1557.250,D m7
+synth_dataset_eob.wav,1554.050,1557.250,D m7
+synth_dataset_clean.wav,1560.050,1563.250,D m7
+synth_dataset_eob.wav,1560.050,1563.250,D m7
+synth_dataset_clean.wav,1566.050,1569.250,D# m7
+synth_dataset_eob.wav,1566.050,1569.250,D# m7
+synth_dataset_clean.wav,1572.050,1575.250,D# m7
+synth_dataset_eob.wav,1572.050,1575.250,D# m7
+synth_dataset_clean.wav,1578.050,1581.250,E m7
+synth_dataset_eob.wav,1578.050,1581.250,E m7
+synth_dataset_clean.wav,1584.050,1587.250,F m7
+synth_dataset_eob.wav,1584.050,1587.250,F m7
+synth_dataset_clean.wav,1590.050,1593.250,F# m7
+synth_dataset_eob.wav,1590.050,1593.250,F# m7
+synth_dataset_clean.wav,1596.050,1599.250,G m7
+synth_dataset_eob.wav,1596.050,1599.250,G m7
+synth_dataset_clean.wav,1602.050,1605.250,G# m7
+synth_dataset_eob.wav,1602.050,1605.250,G# m7
+synth_dataset_clean.wav,1608.050,1611.250,A m7
+synth_dataset_eob.wav,1608.050,1611.250,A m7
+synth_dataset_clean.wav,1614.050,1617.250,A# m7
+synth_dataset_eob.wav,1614.050,1617.250,A# m7
+synth_dataset_clean.wav,1620.050,1623.250,B m7
+synth_dataset_eob.wav,1620.050,1623.250,B m7
+synth_dataset_clean.wav,1626.050,1629.250,C sus4
+synth_dataset_eob.wav,1626.050,1629.250,C sus4
+synth_dataset_clean.wav,1632.050,1635.250,C# sus4
+synth_dataset_eob.wav,1632.050,1635.250,C# sus4
+synth_dataset_clean.wav,1638.050,1641.250,D sus4
+synth_dataset_eob.wav,1638.050,1641.250,D sus4
+synth_dataset_clean.wav,1644.050,1647.250,D# sus4
+synth_dataset_eob.wav,1644.050,1647.250,D# sus4
+synth_dataset_clean.wav,1650.050,1653.250,E sus4
+synth_dataset_eob.wav,1650.050,1653.250,E sus4
+synth_dataset_clean.wav,1656.050,1659.250,E sus4
+synth_dataset_eob.wav,1656.050,1659.250,E sus4
+synth_dataset_clean.wav,1662.050,1665.250,F sus4
+synth_dataset_eob.wav,1662.050,1665.250,F sus4
+synth_dataset_clean.wav,1668.050,1671.250,F sus4
+synth_dataset_eob.wav,1668.050,1671.250,F sus4
+synth_dataset_clean.wav,1674.050,1677.250,F# sus4
+synth_dataset_eob.wav,1674.050,1677.250,F# sus4
+synth_dataset_clean.wav,1680.050,1683.250,G sus4
+synth_dataset_eob.wav,1680.050,1683.250,G sus4
+synth_dataset_clean.wav,1686.050,1689.250,G# sus4
+synth_dataset_eob.wav,1686.050,1689.250,G# sus4
+synth_dataset_clean.wav,1692.050,1695.250,A sus4
+synth_dataset_eob.wav,1692.050,1695.250,A sus4
+synth_dataset_clean.wav,1698.050,1701.250,A# sus4
+synth_dataset_eob.wav,1698.050,1701.250,A# sus4
+synth_dataset_clean.wav,1704.050,1707.250,B sus4
+synth_dataset_eob.wav,1704.050,1707.250,B sus4
+synth_dataset_clean.wav,1710.050,1713.250,C aug
+synth_dataset_eob.wav,1710.050,1713.250,C aug
+synth_dataset_clean.wav,1716.050,1719.250,C# aug
+synth_dataset_eob.wav,1716.050,1719.250,C# aug
+synth_dataset_clean.wav,1722.050,1725.250,D aug
+synth_dataset_eob.wav,1722.050,1725.250,D aug
+synth_dataset_clean.wav,1728.050,1731.250,D# aug
+synth_dataset_eob.wav,1728.050,1731.250,D# aug
+synth_dataset_clean.wav,1734.050,1737.250,E aug
+synth_dataset_eob.wav,1734.050,1737.250,E aug
+synth_dataset_clean.wav,1740.050,1743.250,E aug
+synth_dataset_eob.wav,1740.050,1743.250,E aug
+synth_dataset_clean.wav,1746.050,1749.250,F aug
+synth_dataset_eob.wav,1746.050,1749.250,F aug
+synth_dataset_clean.wav,1752.050,1755.250,F# aug
+synth_dataset_eob.wav,1752.050,1755.250,F# aug
+synth_dataset_clean.wav,1758.050,1761.250,G aug
+synth_dataset_eob.wav,1758.050,1761.250,G aug
+synth_dataset_clean.wav,1764.050,1767.250,G# aug
+synth_dataset_eob.wav,1764.050,1767.250,G# aug
+synth_dataset_clean.wav,1770.050,1773.250,A aug
+synth_dataset_eob.wav,1770.050,1773.250,A aug
+synth_dataset_clean.wav,1776.050,1779.250,A# aug
+synth_dataset_eob.wav,1776.050,1779.250,A# aug
+synth_dataset_clean.wav,1782.050,1785.250,B aug
+synth_dataset_eob.wav,1782.050,1785.250,B aug
+synth_dataset_clean.wav,1788.050,1791.250,Note E
+synth_dataset_eob.wav,1788.050,1791.250,Note E
+synth_dataset_clean.wav,1794.050,1797.250,Note F
+synth_dataset_eob.wav,1794.050,1797.250,Note F
+synth_dataset_clean.wav,1800.050,1803.250,Note F#
+synth_dataset_eob.wav,1800.050,1803.250,Note F#
+synth_dataset_clean.wav,1806.050,1809.250,Note G
+synth_dataset_eob.wav,1806.050,1809.250,Note G
+synth_dataset_clean.wav,1812.050,1815.250,Note G#
+synth_dataset_eob.wav,1812.050,1815.250,Note G#
+synth_dataset_clean.wav,1818.050,1821.250,Note A
+synth_dataset_eob.wav,1818.050,1821.250,Note A
+synth_dataset_clean.wav,1824.050,1827.250,Note A#
+synth_dataset_eob.wav,1824.050,1827.250,Note A#
+synth_dataset_clean.wav,1830.050,1833.250,Note B
+synth_dataset_eob.wav,1830.050,1833.250,Note B
+synth_dataset_clean.wav,1836.050,1839.250,Note C
+synth_dataset_eob.wav,1836.050,1839.250,Note C
+synth_dataset_clean.wav,1842.050,1845.250,Note C#
+synth_dataset_eob.wav,1842.050,1845.250,Note C#
+synth_dataset_clean.wav,1848.050,1851.250,Note D
+synth_dataset_eob.wav,1848.050,1851.250,Note D
+synth_dataset_clean.wav,1854.050,1857.250,Note D#
+synth_dataset_eob.wav,1854.050,1857.250,Note D#
+synth_dataset_clean.wav,1860.050,1863.250,Note E
+synth_dataset_eob.wav,1860.050,1863.250,Note E
+synth_dataset_clean.wav,1866.050,1869.250,Note F
+synth_dataset_eob.wav,1866.050,1869.250,Note F
+synth_dataset_clean.wav,1872.050,1875.250,Note F#
+synth_dataset_eob.wav,1872.050,1875.250,Note F#
+synth_dataset_clean.wav,1878.050,1881.250,Note G
+synth_dataset_eob.wav,1878.050,1881.250,Note G
+synth_dataset_clean.wav,1884.050,1887.250,Note B
+synth_dataset_eob.wav,1884.050,1887.250,Note B
+synth_dataset_clean.wav,1890.050,1893.250,Note C
+synth_dataset_eob.wav,1890.050,1893.250,Note C
+synth_dataset_clean.wav,1896.050,1899.250,Note C#
+synth_dataset_eob.wav,1896.050,1899.250,Note C#
+synth_dataset_clean.wav,1902.050,1905.250,Note D
+synth_dataset_eob.wav,1902.050,1905.250,Note D
+synth_dataset_clean.wav,1908.050,1911.250,Note D#
+synth_dataset_eob.wav,1908.050,1911.250,Note D#
+synth_dataset_clean.wav,1914.050,1917.250,Note E
+synth_dataset_eob.wav,1914.050,1917.250,Note E
+synth_dataset_clean.wav,1920.050,1923.250,Note F
+synth_dataset_eob.wav,1920.050,1923.250,Note F
+synth_dataset_clean.wav,1926.050,1929.250,Note F#
+synth_dataset_eob.wav,1926.050,1929.250,Note F#
+synth_dataset_clean.wav,1932.050,1935.250,Note G
+synth_dataset_eob.wav,1932.050,1935.250,Note G
+synth_dataset_clean.wav,1938.050,1941.250,Note G#
+synth_dataset_eob.wav,1938.050,1941.250,Note G#
+synth_dataset_clean.wav,1944.050,1947.250,Note A
+synth_dataset_eob.wav,1944.050,1947.250,Note A
+synth_dataset_clean.wav,1950.050,1953.250,Note A#
+synth_dataset_eob.wav,1950.050,1953.250,Note A#
+synth_dataset_clean.wav,1956.050,1959.250,Note B
+synth_dataset_eob.wav,1956.050,1959.250,Note B
+synth_dataset_clean.wav,1962.050,1965.250,Note C
+synth_dataset_eob.wav,1962.050,1965.250,Note C
+synth_dataset_clean.wav,1968.050,1971.250,Note C#
+synth_dataset_eob.wav,1968.050,1971.250,Note C#
+synth_dataset_clean.wav,1974.050,1977.250,Note D
+synth_dataset_eob.wav,1974.050,1977.250,Note D
+synth_dataset_clean.wav,1980.050,1983.250,Note G
+synth_dataset_eob.wav,1980.050,1983.250,Note G
+synth_dataset_clean.wav,1986.050,1989.250,Note G#
+synth_dataset_eob.wav,1986.050,1989.250,Note G#
+synth_dataset_clean.wav,1992.050,1995.250,Note A
+synth_dataset_eob.wav,1992.050,1995.250,Note A
+synth_dataset_clean.wav,1998.050,2001.250,Note A#
+synth_dataset_eob.wav,1998.050,2001.250,Note A#
+synth_dataset_clean.wav,2004.050,2007.250,Note B
+synth_dataset_eob.wav,2004.050,2007.250,Note B
+synth_dataset_clean.wav,2010.050,2013.250,Note C
+synth_dataset_eob.wav,2010.050,2013.250,Note C
+synth_dataset_clean.wav,2016.050,2019.250,Note C#
+synth_dataset_eob.wav,2016.050,2019.250,Note C#
+synth_dataset_clean.wav,2022.050,2025.250,Note D
+synth_dataset_eob.wav,2022.050,2025.250,Note D
+synth_dataset_clean.wav,2028.050,2031.250,Note D#
+synth_dataset_eob.wav,2028.050,2031.250,Note D#
+synth_dataset_clean.wav,2034.050,2037.250,Note E
+synth_dataset_eob.wav,2034.050,2037.250,Note E
+synth_dataset_clean.wav,2040.050,2043.250,Note F
+synth_dataset_eob.wav,2040.050,2043.250,Note F
+synth_dataset_clean.wav,2046.050,2049.250,Note F#
+synth_dataset_eob.wav,2046.050,2049.250,Note F#
+synth_dataset_clean.wav,2052.050,2055.250,Note G
+synth_dataset_eob.wav,2052.050,2055.250,Note G
+synth_dataset_clean.wav,2058.050,2061.250,Note G#
+synth_dataset_eob.wav,2058.050,2061.250,Note G#
+synth_dataset_clean.wav,2064.050,2067.250,Note A
+synth_dataset_eob.wav,2064.050,2067.250,Note A
+synth_dataset_clean.wav,2070.050,2073.250,Note A#
+synth_dataset_eob.wav,2070.050,2073.250,Note A#
+synth_dataset_clean.wav,2076.050,2079.250,Note D
+synth_dataset_eob.wav,2076.050,2079.250,Note D
+synth_dataset_clean.wav,2082.050,2085.250,Note D#
+synth_dataset_eob.wav,2082.050,2085.250,Note D#
+synth_dataset_clean.wav,2088.050,2091.250,Note E
+synth_dataset_eob.wav,2088.050,2091.250,Note E
+synth_dataset_clean.wav,2094.050,2097.250,Note F
+synth_dataset_eob.wav,2094.050,2097.250,Note F
+synth_dataset_clean.wav,2100.050,2103.250,Note F#
+synth_dataset_eob.wav,2100.050,2103.250,Note F#
+synth_dataset_clean.wav,2106.050,2109.250,Note G
+synth_dataset_eob.wav,2106.050,2109.250,Note G
+synth_dataset_clean.wav,2112.050,2115.250,Note G#
+synth_dataset_eob.wav,2112.050,2115.250,Note G#
+synth_dataset_clean.wav,2118.050,2121.250,Note A
+synth_dataset_eob.wav,2118.050,2121.250,Note A
+synth_dataset_clean.wav,2124.050,2127.250,Note A#
+synth_dataset_eob.wav,2124.050,2127.250,Note A#
+synth_dataset_clean.wav,2130.050,2133.250,Note B
+synth_dataset_eob.wav,2130.050,2133.250,Note B
+synth_dataset_clean.wav,2136.050,2139.250,Note C
+synth_dataset_eob.wav,2136.050,2139.250,Note C
+synth_dataset_clean.wav,2142.050,2145.250,Note C#
+synth_dataset_eob.wav,2142.050,2145.250,Note C#
+synth_dataset_clean.wav,2148.050,2151.250,Note D
+synth_dataset_eob.wav,2148.050,2151.250,Note D
+synth_dataset_clean.wav,2154.050,2157.250,Note D#
+synth_dataset_eob.wav,2154.050,2157.250,Note D#
+synth_dataset_clean.wav,2160.050,2163.250,Note E
+synth_dataset_eob.wav,2160.050,2163.250,Note E
+synth_dataset_clean.wav,2166.050,2169.250,Note F
+synth_dataset_eob.wav,2166.050,2169.250,Note F
+synth_dataset_clean.wav,2172.050,2175.250,Note A
+synth_dataset_eob.wav,2172.050,2175.250,Note A
+synth_dataset_clean.wav,2178.050,2181.250,Note A#
+synth_dataset_eob.wav,2178.050,2181.250,Note A#
+synth_dataset_clean.wav,2184.050,2187.250,Note B
+synth_dataset_eob.wav,2184.050,2187.250,Note B
+synth_dataset_clean.wav,2190.050,2193.250,Note C
+synth_dataset_eob.wav,2190.050,2193.250,Note C
+synth_dataset_clean.wav,2196.050,2199.250,Note C#
+synth_dataset_eob.wav,2196.050,2199.250,Note C#
+synth_dataset_clean.wav,2202.050,2205.250,Note D
+synth_dataset_eob.wav,2202.050,2205.250,Note D
+synth_dataset_clean.wav,2208.050,2211.250,Note D#
+synth_dataset_eob.wav,2208.050,2211.250,Note D#
+synth_dataset_clean.wav,2214.050,2217.250,Note E
+synth_dataset_eob.wav,2214.050,2217.250,Note E
+synth_dataset_clean.wav,2220.050,2223.250,Note F
+synth_dataset_eob.wav,2220.050,2223.250,Note F
+synth_dataset_clean.wav,2226.050,2229.250,Note F#
+synth_dataset_eob.wav,2226.050,2229.250,Note F#
+synth_dataset_clean.wav,2232.050,2235.250,Note G
+synth_dataset_eob.wav,2232.050,2235.250,Note G
+synth_dataset_clean.wav,2238.050,2241.250,Note G#
+synth_dataset_eob.wav,2238.050,2241.250,Note G#
+synth_dataset_clean.wav,2244.050,2247.250,Note A
+synth_dataset_eob.wav,2244.050,2247.250,Note A
+synth_dataset_clean.wav,2250.050,2253.250,Note A#
+synth_dataset_eob.wav,2250.050,2253.250,Note A#
+synth_dataset_clean.wav,2256.050,2259.250,Note B
+synth_dataset_eob.wav,2256.050,2259.250,Note B
+synth_dataset_clean.wav,2262.050,2265.250,Note C
+synth_dataset_eob.wav,2262.050,2265.250,Note C
+synth_dataset_clean.wav,2268.050,2271.250,Note E
+synth_dataset_eob.wav,2268.050,2271.250,Note E
+synth_dataset_clean.wav,2274.050,2277.250,Note F
+synth_dataset_eob.wav,2274.050,2277.250,Note F
+synth_dataset_clean.wav,2280.050,2283.250,Note F#
+synth_dataset_eob.wav,2280.050,2283.250,Note F#
+synth_dataset_clean.wav,2286.050,2289.250,Note G
+synth_dataset_eob.wav,2286.050,2289.250,Note G
+synth_dataset_clean.wav,2292.050,2295.250,Note G#
+synth_dataset_eob.wav,2292.050,2295.250,Note G#
+synth_dataset_clean.wav,2298.050,2301.250,Note A
+synth_dataset_eob.wav,2298.050,2301.250,Note A
+synth_dataset_clean.wav,2304.050,2307.250,Note A#
+synth_dataset_eob.wav,2304.050,2307.250,Note A#
+synth_dataset_clean.wav,2310.050,2313.250,Note B
+synth_dataset_eob.wav,2310.050,2313.250,Note B
+synth_dataset_clean.wav,2316.050,2319.250,Note C
+synth_dataset_eob.wav,2316.050,2319.250,Note C
+synth_dataset_clean.wav,2322.050,2325.250,Note C#
+synth_dataset_eob.wav,2322.050,2325.250,Note C#
+synth_dataset_clean.wav,2328.050,2331.250,Note D
+synth_dataset_eob.wav,2328.050,2331.250,Note D
+synth_dataset_clean.wav,2334.050,2337.250,Note D#
+synth_dataset_eob.wav,2334.050,2337.250,Note D#
+synth_dataset_clean.wav,2340.050,2343.250,Note E
+synth_dataset_eob.wav,2340.050,2343.250,Note E
+synth_dataset_clean.wav,2346.050,2349.250,Note F
+synth_dataset_eob.wav,2346.050,2349.250,Note F
+synth_dataset_clean.wav,2352.050,2355.250,Note F#
+synth_dataset_eob.wav,2352.050,2355.250,Note F#
+synth_dataset_clean.wav,2358.050,2361.250,Note G
+synth_dataset_eob.wav,2358.050,2361.250,Note G
