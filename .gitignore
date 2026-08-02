@@ -1,2 +1,22 @@
 /target
 /chord_model*
+.claude
+.venv/
+dist/.venv/
+
+# Audio — rendery i eksporty DI. Setki MB, generowane, nie wersjonujemy.
+# (GitHub odrzuca pliki >100 MB, a w historii zostałyby na zawsze.)
+*.wav
+*.flac
+*.mp3
+
+# Artefakty treningu
+*.pth
+cache_*/
+
+
+# Modele ONNX — artefakty treningu, pobierane z Hugging Face
+*.onnx
+
+# Wagi DSP — generowane przez dist/gen_weights.py (wymaga librosy)
+dsp_weights.json

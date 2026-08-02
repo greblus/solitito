@@ -1,73 +1,363 @@
-# Solitito – Real-Time Polyphonic Guitar Trainer
+# Solitito — Real-Time Polyphonic Guitar Trainer
 
-**Solitito** (no pun intended) is an experimental, real-time, polyphonic guitar trainer built in **Rust** during a 5-hour vibe-coding session with *Gemini 3 Pro Preview*. It's small neural model detects notes and chords in real-time during your playing.
+**Solitito** is a real-time guitar trainer written in **Rust**. It listens to your guitar
+through a microphone or an audio interface, recognises what you are playing, and walks you
+through jazz standards, intervals, scales and arpeggios.
 
-It's a proof-of-concept **experiment** - heavily inspired by another, amazing Android/iOS app - Solo. I just want to experiment a little bit with FFT and some neural networks architectures for chords detection, so as many of my experiments, this little project might just be left as is at some point. I don't intent to create alternative to Solo ;) which I use daily.  
+Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
+DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
+
 <div align="center">
-<img width="284" height="500" alt="solitito_main" src="https://github.com/user-attachments/assets/f35c7778-30e2-424c-b3d0-6708f8b705ae" />
-</div>
- 
- # How the model was trained?
-
-In **dist** directory I included all scripts which were used for dataset preparation, model training, testing and pseudo-CQT weights generation to be able to use it in Rust.  
-
-- **dataset_dual_generator.py** generates dataset_dual.gp - dual because it has 
-two tracks: first with triads, jazz shapes and single notes, second with binary representation 
-of chord index in dataset_reference beeped with a synth saw sound.
-- **decode_annotations.py** takes beeps_render.wav file, exported from 2nd track of dataset_dual.gp 
-and dataset_reference.csv with proper names of sound samples and creates dataset_annotations.csv.
-- The first track from gp file is exported as "DI" guitar signal raw_render.wav which is then rendered in DAW through NAM plugin into dataset_clean.wav (Fender Deluxe Reverb clean sound) and dataset_eob.wav (Fender Deluxe Reverb edge of breakup tone). 
-- **model_trainer.py** takes dataset_clean.wav, dataset_eob.wav and dataset_annotations.csv, 
-adds GuitarSet[1] with it's own annotations and splits the datasets accordingly for training.
-
-All datasets are available here: https://huggingface.co/greblus/datasets
-
-**A short description of the current model architecture:**  
-- Hybrid  CNN with Squeeze-and-Excitation (SE) blocks.    
-- Transformer Encoder for temporal context.   
-- Log-scale Constant-Q Transform (CQT) and Chroma features for precise harmonic analysis.  
-- Jazz-Optimized: Multi-Head output (Root/Quality) trained with Focal Loss to master complex extended chords (9, 13, m7b5).  
-
-Currently Focal Loss results with higher accuracy for jazzy chords, let's leave it like that for now and treat it like an achievement ;) 
-<div align="center">
-<img width="400" height="390" alt="confusion_matrix" src="https://github.com/user-attachments/assets/fc17d099-1e7e-443d-869a-e693a18a492d" />
+<img width="340" alt="Solitito main window" src="docs/solitito_main.png" />
 </div>
 
-Basic Benchmarks (full benchmark in model_benchmark.txt):  
-🏆 GLOBAL ACCURACY:      98.95%  
-🔹 BASIC:       98.56%  
-🎷 JAZZ:        99.75%  
-🎵 NOTES:       100.00%  
-
-## Key Features
-- Play **Chords**, **Intervals** and **Arpeggios** with popular jazz standards. While in chords mode - green confirms an exact match, yellow accepts triads and jazz substitutions (e.g., rootless voicings). Red signals that the correct chord was detected, but the signal is too weak or unstable to lock.
-- **Scales** — sequential practice.  
-- Load your own **songs** and **scales** from simple text files  
-
-## ⚙️ Settings
-<div align="center">
-<img width="284" height="500" alt="solitito_settings" src="https://github.com/user-attachments/assets/42ddc4b1-5711-41d4-aec0-45812739af57" />
-</div>
-<br> 
-
-| Setting        | Description |
-|----------------|-------------|
-| **Input Gain**      | Increase or reduce if necessary |
-| **Gate**   | Set input gain and noise gate so that no bars are visible for regular noise |
-| **Bass Boost**     | Digital amplification for low strings (useful for laptop mics) |
-| **Intervals**      | What intervals to practice (e.g. `1 3 5` for triads, `1 3 5 7` for sevenths, 3 or 5 shows both 3 and b3, or 5 and b5 according to the chord quality) |
-
-## 📄 Custom Files Format
-
-`user_songs.txt`  
-My Song Title  
-Cm7 F7 BbMaj7
-
-`user_scales_def.txt`  
-My Scale Name  
-1 b2 3 4 5 b6 7
+Development started in December 2025. The data pipeline was rewritten from scratch more than
+once before it worked. Most of what follows is a record of what turned out to matter.
 
 ---
-[1] This project uses the GuitarSet dataset by Qingyang Xi, Rachel M. Bittner, Johan Pauwels, Xuzhou Ye, & Juan P. Bello
-available at https://guitarset.weebly.com/ licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
 
+## What it does
+
+Pick a song, and the app shows one chord at a time. Play it. When the model hears the right
+chord, the app moves on to the next one.
+
+- **Chords** — full jazz standards. Green confirms an exact match, yellow accepts a triad or
+  a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
+  detected but the signal is too weak to lock.
+- **Intervals** — play the chord tones one at a time. You choose which degrees to practise
+  (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings).
+- **Scales** — sequential note practice from a scale definition.
+- **Arpeggios** — chord tones in sequence over a progression.
+
+Songs and scales are plain text files, so you can add your own.
+
+---
+
+## How it works
+
+### Signal path
+
+```
+audio in → resample to 16 kHz → FFT (8192) → sparse pseudo-CQT → features → ONNX model
+```
+
+1. **Resampling.** Input is resampled to 16 kHz. The CQT spans 6 octaves from C1, so the
+   highest bin sits around 2 kHz — far below the 8 kHz Nyquist limit.
+2. **Pseudo-CQT.** Instead of a real constant-Q transform, the app multiplies the FFT
+   spectrum by a precomputed kernel (144 bins, 24 per octave — quarter-tone resolution).
+   The kernel comes from `librosa.filters.constant_q`, so the app and the trainer produce
+   the same features.
+3. **Features.** 168 values per frame: 144 CQT bins + 12 chroma + 12 bass-energy bins.
+   The model sees 48 frames of history (0.77 s at a 256-sample hop).
+4. **Inference.** One forward pass every 40 ms.
+
+The CQT kernel is stored in a **sparse CSR format**. The full kernel has 4097×144 = 589,968
+weights, but they concentrate around each bin's centre frequency. Dropping everything below
+1e-4 of the peak keeps 6.9% of the weights and changes the output by 0.03% of peak
+(measured on white noise, pink noise and a guitar-like harmonic series). The weights file
+shrinks from 28 MB to 2 MB, and the audio thread does about 14× fewer multiplications per
+frame.
+
+### Model
+
+A hybrid CNN + Transformer with three output heads:
+
+| Stage | Detail |
+|---|---|
+| Input | `[48 frames, 168 features]` |
+| CNN | Convolutional blocks with Squeeze-and-Excitation, InstanceNorm |
+| Encoder | Transformer encoder with a CLS token, 384-dim |
+| `root_logits` | 13 classes — 12 pitch classes + "Noise" |
+| `quality_logits` | 11 classes — maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
+| `pitch_logits` | 12 sigmoid outputs — which pitch classes are sounding |
+
+The three heads answer different questions and are **not** interchangeable:
+
+- `pitch_logits` is the strongest output (F1 0.909). It answers "which notes are sounding
+  right now", which is exactly what the Intervals / Scales / Arpeggios modes need.
+- `root_logits` names the tonal centre. 98.1%.
+- `quality_logits` names the chord family. This is the hard one.
+
+An early version of the app derived chord quality from `pitch_logits` using hand-written
+threshold rules. Measuring that against the quality head on the same checkpoint:
+
+| method | accuracy |
+|---|---|
+| `quality_logits` head | **80.5%** |
+| template matching on predicted pitch | 66.0% |
+| template matching on the *true* pitch vector | 59.2% |
+
+The head beats template matching on a *perfect* pitch vector by 21 points. It extracts
+something the note set alone does not contain — timbre, voicing register, attack shape. If
+you build something similar, do not throw the quality head away.
+
+---
+
+## Training data
+
+Two sources, solving different problems.
+
+### 1. Synthetic set — exact labels
+
+Generated by `dist/dataset_generator_v2.py`. One Guitar Pro file plus the annotations,
+written directly:
+
+1. The generator lays out 394 blocks of 6 s each (3 measures at 120 BPM) covering 12 roots ×
+   {maj, min, maj7, dom7, min7, m7b5, dim7, sus4, aug} in several fretboard positions, plus
+   all 96 single notes (6 strings × 16 frets).
+2. Before generating, it **self-tests every movable shape at every fret** and checks that it
+   actually produces the declared intervals. A typo in the shape table stops generation
+   instead of silently poisoning the dataset.
+3. It writes `synth_annotations.csv` at the same time as the GP5. The generator knows which
+   measure each block occupies, so nothing has to be recovered from audio later.
+4. The guitar track is exported as a DI signal and rendered in a DAW through
+   [NAM](https://www.neuralampmodeler.com/) twice: `synth_dataset_clean.wav` (Fender Deluxe
+   Reverb clean) and `synth_dataset_eob.wav` (edge of breakup).
+5. `dataset_generator_v2.py --calibrate <wav>` measures where the first attack lands, in case
+   the DAW added silence at the start.
+6. `verify_annotations.py` compares each label against the actual audio content before
+   training.
+
+**Why steps 5 and 6 exist.** The first version of this pipeline encoded sample IDs as audible
+"barcode" beeps and decoded them back from the render. The generator ran at 60 BPM, the
+decoder assumed 120 — the bits were read twice too densely, every ID decoded to 0, and about
+85% of the dataset ended up labelled with a chord unrelated to its audio. Nothing in the logs
+looked wrong. Any accuracy figure from that period is meaningless.
+
+The lesson is built into the pipeline now: **the generator emits labels directly, and a
+separate script verifies that the labels describe the audio.** Full procedure in
+[dist/HOW_TO_PREPARE_DATASET.md](dist/HOW_TO_PREPARE_DATASET.md).
+
+### 2. GuitarSet — real guitar
+
+[GuitarSet](https://guitarset.weebly.com/) is 360 recordings with JAMS annotations, captured
+with a hexaphonic pickup. It is the only real-guitar source here, and using it correctly took
+four training runs.
+
+If you are training on GuitarSet, these four points will cost you accuracy if you miss them.
+
+#### Half of it is not chords
+
+GuitarSet records each excerpt twice: `_comp` (accompaniment) and `_solo` (single-note
+improvisation). **The chord annotation is identical in both** — it describes the progression
+the guitarist played over.
+
+Training the chord heads on solo files teaches the model that a single note is a full jazz
+chord. 180 of the 360 files are solos. Our trainer did exactly this for four runs.
+
+Excluding them moved exact-match accuracy from **44.8% to 82.3%** in a single run.
+
+The pitch targets from solo files remain perfectly valid — that is real monophonic playing
+with exact per-note annotations, which is precisely the material a single-note detector
+needs. So the trainer keeps the pitch loss on solo windows and masks only root and quality
+(`GUITARSET_SOLO_MODE = "mask_chord"`).
+
+#### There are two chord annotations, and the obvious one is wrong
+
+Each file carries `instructed` (the chord from the chart) and `performed` (transcribed from
+what was actually played). Same number of segments, different labels:
+
+| quality | instructed | performed | |
+|---|---|---|---|
+| maj | 2640 | 2106 | −534 |
+| min | 960 | 460 | **−500** |
+| min7 | **0** | **360** | **+360** |
+| maj7 | **0** | **430** | **+430** |
+| dom7 | 480 | 694 | +214 |
+| m7b5 | 240 | 134 | −106 |
+| sus | 0 | 132 | +132 |
+
+Read the `min` and `min7` rows together: **500 segments the chart calls `m` were actually
+played as `m7`.** Training on `instructed` teaches the model to call a voicing containing a
+minor seventh a plain minor chord — and that is precisely the error that showed up in the
+app, with `Gm7` recognised as `Gm`.
+
+Worse: `instructed` contains **zero** `maj7` and `min7` labels. Until we switched, both
+classes came only from the two synthetic renders — one guitar, one amplifier. That produced a
+flattering 100% on validation (the same instrument on both sides of the split) and collapsed
+on a real guitar.
+
+Switching to `performed` moved exact-match from **82.3% to 92.4%**. Root accuracy did not
+change at all: the two annotations disagree about the root in **0 of 43,056** comparisons, so
+the switch affects quality only.
+
+#### Split by file, not by segment
+
+Shuffling the list of chord segments and cutting at 94% puts adjacent bars of the *same
+recording* on both sides — same guitar, same room, same microphone, same take, often the same
+chord one bar later. For the synthetic set it is worse: the `clean` and `eob` renders of one
+block are the same performance through a different amplifier, and they were landing in train
+and validation separately.
+
+Group by source instead: whole file for GuitarSet, whole block (both renders) for the
+synthetic set. **Every validation number drops** when you do this. That is not a regression —
+it is the removal of an inflation that had been invalidating every conclusion about
+generalisation.
+
+#### Use `note_midi` for pitch targets
+
+The chord annotation describes the *intended* harmony over multi-second spans. A 0.77 s
+window frequently does not contain the labelled seventh at all, so the model was being
+punished for not predicting a note that is not there — seventh recall on GuitarSet was 32%.
+
+GuitarSet's hexaphonic pickup provides `note_midi` annotations: what actually sounded, per
+string. Building pitch targets from those lifted seventh recall from **32% to 96%**.
+
+---
+
+## Results
+
+Model `v2_take6`, measured on a source-grouped validation split with solo windows excluded:
+
+| metric | value |
+|---|---|
+| Root accuracy | **98.1%** |
+| Pitch F1 | **0.909** |
+| Exact match (root **and** quality) | **92.4%** |
+
+Per-quality accuracy at the best checkpoint: `dom7` 97%, `min7` 93%, `min` 92%, `sus` 91%,
+`maj` 89%, `maj7` 89%; `m7b5`, `dim7` and `aug` above 97%.
+
+The train–validation gap on quality is 6.5 points, so the model sits close to the ceiling its
+data allows. More epochs will not help; more varied real-guitar recordings would.
+
+The same pipeline, measured honestly at each stage:
+
+| run | change | exact match |
+|---|---|---|
+| take4 | source-grouped split — honest baseline | 44.8% |
+| take5 | solo recordings masked | 82.3% |
+| take6 | `performed` chord annotations | **92.4%** |
+
+---
+
+## Real-time behaviour
+
+Recognition accuracy is not the same thing as a usable trainer. Three details mattered as
+much as the model itself.
+
+**The context window has to be full.** The trainer only ever built windows that sat entirely
+inside a sustained chord. After you strike the strings, the app's rolling buffer is part
+silence for 0.77 s — an input the model has never seen. The app now waits until the window is
+90% filled with signal instead of displaying a guess and correcting it a second later.
+
+**A seventh decays faster than the rest of the chord.** Hold a `Gm7` and watch the debug
+output: `b7` falls from 96% to 45% while the root, third and fifth stay put. The model is
+right — the seventh really is gone. But a chord does not change identity while it rings out.
+The app latches the quality at the attack and holds it until the next attack or a root
+change. The latch *engages* on high confidence but *holds* regardless of it, because during
+the decay the model reports the poorer quality at 94–96% confidence.
+
+**Measure elapsed time, do not assume it.** The progress timer was credited a fixed 40 ms per
+update while the AI thread actually took 55–90 ms per cycle (inference *plus* a 40 ms sleep).
+A 0.6 s hold threshold therefore took about a second of wall clock, and varied with machine
+load. Measuring the real interval and shortening the vote window cut the delay between a
+correct chord and advancing from ~1.2 s to ~0.3 s.
+
+---
+
+## ⚙️ Settings
+
+<div align="center">
+<img width="340" alt="Solitito settings window" src="docs/solitito_settings.png" />
+</div>
+
+| Setting | Description |
+|---|---|
+| **Select Song** | Chooses the progression, scale or arpeggio pattern for the current mode |
+| **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
+| **Show AI Debug in Main Window** | Shows the raw prediction and the spectrum on the main screen |
+| **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
+| **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
+| **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
+| **Startup mode** | Which mode the app opens in |
+| **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
+| **Chord confidence** | How sure the model must be of the chord *name* before it counts (Chords mode) |
+| **Note threshold** | How sure the model must be that a *single note* is sounding (Intervals / Scales / Arpeggios) |
+| **Hold time** | How long a correct chord must be held before advancing |
+
+Settings live in `$XDG_CONFIG_HOME/solitito/settings.json` (falling back to `~/.config` or
+`%APPDATA%`). A missing or corrupted file falls back to defaults rather than blocking
+startup.
+
+There is also a diagnostic mode:
+
+```bash
+SOLITITO_DEBUG=1 ./solitito
+```
+
+For every prediction it prints the top three qualities and the full pitch vector expressed as
+**intervals relative to the detected root**:
+
+```
+G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 74
+```
+
+This is what separates "the model cannot hear the seventh" from "it hears it and ignores it"
+— two problems that look identical from the chord name alone and lead in opposite directions.
+
+---
+
+## 📄 Custom file formats
+
+`user_songs.txt`
+
+```
+My Song Title
+Cm7 F7 BbMaj7 EbMaj7
+```
+
+`user_scales_def.txt`
+
+```
+My Scale Name
+1 b2 3 4 5 b6 7
+```
+
+---
+
+## Running it
+
+The binary needs two files next to it, neither of which is in this repository:
+
+| file | where from |
+|---|---|
+| `best_model_v2_take6.onnx` | <https://huggingface.co/greblus/solitito-ai> |
+| `dsp_weights.json` | `python dist/gen_weights.py` (needs librosa; ~2 MB output) |
+
+Both are excluded on purpose. The model is 29 MB per checkpoint, and the weights
+file is deterministic output of a script in this repo — keeping generated
+artifacts in git costs history size and gains nothing.
+
+The app refuses to start on an old dense `dsp_weights.json` rather than accepting
+it silently: the previous format also carried a different chroma mapping, which
+would feed the model features it was not trained on.
+
+```bash
+cargo build --release
+./target/release/solitito
+```
+
+## Repository and dataset
+
+- Model checkpoints and ONNX exports: <https://huggingface.co/greblus/solitito-ai/tree/main>
+- Dataset v2: <https://huggingface.co/datasets/greblus/solitito_dataset_v2>
+
+The `dist/` directory contains everything used to build the dataset and train the model:
+
+| file | role |
+|---|---|
+| `dataset_generator_v2.py` | generates the GP5 **and** the annotations; self-tests all shapes |
+| `verify_annotations.py` | checks that labels describe the audio (numpy only, no librosa) |
+| `model_trainer.py` | training; runs on Kaggle, checkpoints to Hugging Face |
+| `gen_weights.py` | sparse pseudo-CQT weights for the Rust side |
+| `probe_root.py` | how often the labelled root is actually audible |
+| `probe_quality.py` | where chord quality should come from: the head or the pitch vector |
+| `probe_sources.py` | which GuitarSet chord annotation to use |
+| `inspect_jams.py` | what is actually inside the JAMS files |
+
+---
+
+[1] This project uses the GuitarSet dataset by Qingyang Xi, Rachel M. Bittner, Johan Pauwels,
+Xuzhou Ye & Juan P. Bello, available at <https://guitarset.weebly.com/>, licensed under
+Creative Commons Attribution 4.0 International (CC BY 4.0).
