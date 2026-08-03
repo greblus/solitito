@@ -1,8 +1,12 @@
 # Solitito — Real-Time Polyphonic Guitar Trainer
 
 **Solitito** is a real-time guitar trainer written in **Rust**. It listens to your guitar
-through a microphone or an audio interface, recognises what you are playing, and walks you
-through jazz standards, intervals, scales and arpeggios.
+through an audio interface (recommended) or a microphone, recognises what you are playing,
+and walks you through jazz standards, intervals, scales and arpeggios.
+
+A microphone works, but an audio interface is the better input. A DI signal carries no room
+tone, no bleed and no laptop fan, so the noise gate has a clear floor to sit on and the
+model gets the harmonic content it was trained on rather than the room's.
 
 Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
 DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
@@ -355,15 +359,15 @@ cargo build --release
 
 ## Project summary
 
-`doc/` holds a long-form write-up of the whole system: architecture, the four
+`docs/` holds a long-form write-up of the whole system: architecture, the four
 GuitarSet defects and what fixing each one was worth, the training procedure,
 the measurements behind every design decision, and the hypotheses that
 measurement refuted. Same document in two languages, Markdown and PDF.
 
 | file | |
 |---|---|
-| [`doc/Solitito_project_summary_en.md`](doc/Solitito_project_summary_en.md) | [PDF](doc/Solitito_project_summary_en.pdf) |
-| [`doc/Solitito_project_summary_pl.md`](doc/Solitito_project_summary_pl.md) | [PDF](doc/Solitito_project_summary_pl.pdf) |
+| [`docs/Solitito_project_summary_en.md`](docs/Solitito_project_summary_en.md) | [PDF](docs/Solitito_project_summary_en.pdf) |
+| [`docs/Solitito_project_summary_pl.md`](docs/Solitito_project_summary_pl.md) | [PDF](docs/Solitito_project_summary_pl.pdf) |
 
 ## Repository and dataset
 
