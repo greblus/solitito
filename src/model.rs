@@ -127,67 +127,10 @@ pub struct Song {
 }
 
 // --- ARPEGGIO PATTERNS ---
+// Two octaves, not one. A single-octave four-note arpeggio is a finger
+// exercise; jazz practice runs the shape through the range and turns it over.
+// Degrees carry an octave marker - see `split_octave`.
 pub const ARPEGGIOS_PATTERNS_DEF: &str = r#"
-Up from Root (1 3 5 7)
-1 3 5 7
-
-Down from Root (1 7 5 3)
-1 7 5 3
-
-Down from 7th (7 5 3 1)
-7 5 3 1
-
-Up from 3rd (3 5 7 1)
-3 5 7 1
-
-Up from 5th (5 7 1 3)
-5 7 1 3
-
-Up from 7th (7 1 3 5)
-7 1 3 5
-
-Down from 3rd (3 1 7 5)
-3 1 7 5
-
-Down from 5th (5 3 1 7)
-5 3 1 7
-
-Up & Down (1 3 5 7 5 3)
-1 3 5 7 5 3
-
-Down & Up (7 5 3 1 3 5)
-7 5 3 1 3 5
-
-Broken Thirds Up (1 5 3 7)
-1 5 3 7
-
-Broken Thirds Down (7 3 5 1)
-7 3 5 1
-
-Zig Zag 1 (1 7 3 5)
-1 7 3 5
-
-Zig Zag 2 (3 1 5 7)
-3 1 5 7
-
-Pivot Arpeggio (7 1 3 5)
-7 1 3 5
-
-Rootless / From 3rd (3 5 7 9)
-3 5 7 9
-
-From 5th Extended (5 7 9 11)
-5 7 9 4
-
-Triad + 9 (1 3 5 9)
-1 3 5 9
-
-Shell Voicing (1 7 3)
-1 7 3
-
-1-5-1-3 (Spread)
-1 5 1 3
-
 Two Octaves Up-Down
 1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1
 

@@ -414,8 +414,11 @@ export component AppWindow inherits Window {
 
             if root.start_hint != "" : Text {
                 text: root.start_hint;
-                font-size: 20px;
-                color: #888;
+                // In the fretboard trainer this line IS the exercise - it says
+                // where to play. Elsewhere it is a side suggestion, so it stays
+                // quiet. Same size as the interval labels the other modes show.
+                font-size: root.current_mode == 4 ? 32px : 20px;
+                color: root.current_mode == 4 ? #bbb : #888;
                 horizontal-alignment: center;
             }
             

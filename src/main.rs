@@ -218,10 +218,6 @@ fn main() -> Result<(), slint::PlatformError> {
     // swaps the whole strip, and that is a restart too - without this the first
     // slide into place would crawl at the page-turn speed.
     let mut last_interval_len: i32 = 0;
-    // Where the interval strip stood last frame. A step BACKWARDS means the
-    // exercise restarted - new chord, new key - and the strip has to snap to the
-    // front instead of gliding back across the whole pattern.
-    let mut last_interval_step: i32 = 0;
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
