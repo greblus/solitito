@@ -3,6 +3,7 @@
 mod model;
 mod audio;
 mod brain;
+mod fretboard;
 mod i18n;
 mod latch;
 mod rng;
@@ -299,7 +300,29 @@ fn main() -> Result<(), slint::PlatformError> {
 
         ui.set_song_title(app.song_title.clone().into());
         
-        if app.chords.is_empty() { 
+        // Scales in random mode redraw the key on their own; push it to the
+        // combo, but only on a real change so it does not fight the user
+        // mid-selection (the binding is two-way).
+        if app.app_mode == AppMode::Scales
+            && ui.get_current_secondary_index() != app.secondary_index as i32
+        {
+            ui.set_current_secondary_index(app.secondary_index as i32);
+        }
+
+        if app.app_mode == AppMode::Fretboard {
+            // Minimal by design: the note, and under it where to play it.
+            let name = match app.fret_target {
+                Some(pc) => model::NoteName::from_index(pc).to_string().to_string(),
+                None => "...".to_string(),
+            };
+            ui.set_chord_name(name.into());
+            ui.set_start_hint(app.region.describe().into());
+            ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
+                MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
+                _ => Color::from_rgb_u8(255, 255, 255),
+            }));
+            ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
+        } else if app.chords.is_empty() { 
             ui.set_chord_name(ui.global::<Tr>().get_no_data()); 
         } else {
             let curr_chord = &app.chords[app.current_chord_index];
@@ -481,6 +504,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_lock_quality(t.lock_quality.into());
     g.set_random_order(t.random_order.into());
     g.set_random_hint(t.random_hint.into());
+    g.set_fretboard(t.fretboard.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());

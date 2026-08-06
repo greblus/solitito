@@ -15,6 +15,13 @@ DSP, inference, UI — happens locally on the CPU. No network, no cloud, no acco
 <img width="340" alt="Solitito main window" src="docs/solitito_main.png" />
 </div>
 
+Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
+trainer I use daily. Solo does far more, and does it well. This started as a question about
+whether chord recognition could run locally on a CPU with no network, and grew from there.
+
+Solitito is a desktop application and will stay one — Linux and Windows. There are no plans
+for mobile versions.
+
 Development started in December 2025. The data pipeline was rewritten from scratch more than
 once before it worked. Most of what follows is a record of what turned out to matter.
 

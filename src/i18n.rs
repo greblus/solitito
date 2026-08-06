@@ -78,6 +78,8 @@ pub struct Strings {
     pub random_hint: &'static str,
     /// `{}` is replaced with the string name (E/A/D/G).
     pub start_from: &'static str,
+    // --- fretboard trainer ---
+    pub fretboard: &'static str,
     pub startup_mode: &'static str,
     pub chord_confidence: &'static str,
     pub note_threshold: &'static str,
@@ -109,6 +111,7 @@ pub const EN: Strings = Strings {
     random_order: "Random order",
     random_hint: "Also shuffles the tones inside each chord.",
     start_from: "start from the {} string",
+    fretboard: "Fretboard",
     startup_mode: "Startup mode: ",
     chord_confidence: "Chord confidence: ",
     note_threshold: "Note threshold: ",
@@ -140,6 +143,7 @@ pub const PL: Strings = Strings {
     random_order: "Losowa kolejność",
     random_hint: "W trybach dźwiękowych miesza też składniki akordu.",
     start_from: "zagraj od struny {}",
+    fretboard: "Gryf",
     startup_mode: "Tryb po uruchomieniu: ",
     chord_confidence: "Pewność akordu: ",
     note_threshold: "Próg dźwięku: ",
@@ -202,6 +206,7 @@ mod tests {
             ("random_order", EN.random_order, PL.random_order),
             ("random_hint", EN.random_hint, PL.random_hint),
             ("start_from", EN.start_from, PL.start_from),
+            ("fretboard", EN.fretboard, PL.fretboard),
             ("intervals_hint", EN.intervals_hint, PL.intervals_hint),
             ("no_data", EN.no_data, PL.no_data),
         ] {

@@ -9,11 +9,15 @@ use std::path::PathBuf;
 
 /// Startup mode. The indices match `AppMode` and the UI buttons - reordering
 /// them there requires a change here.
-pub const MODE_NAMES: [&str; 4] = ["Chords", "Intervals", "Scales", "Arpeggios"];
+/// Index = the `AppMode` discriminant, NOT the on-screen button order (Fretboard
+/// sits first in the UI but keeps index 4, so a saved setting keeps its meaning).
+/// The range check below depends on this being complete - a missing entry would
+/// silently reset the user's choice to Chords.
+pub const MODE_NAMES: [&str; 5] = ["Chords", "Intervals", "Scales", "Arpeggios", "Fretboard"];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
-    /// Which mode the app opens in. Chords by default.
+    /// Which mode the app opens in. Fretboard by default.
     pub startup_mode: i32,
     /// UI language: 0 = from the system locale, 1 = Polish, 2 = English.
     #[serde(default)]
@@ -22,7 +26,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { startup_mode: 0, language: 0 } // Chords, language from the system
+        Self { startup_mode: 4, language: 0 } // Fretboard, language from the system
     }
 }
 
@@ -86,7 +90,7 @@ mod tests {
 
     #[test]
     fn defaults_to_chords() {
-        assert_eq!(Settings::default().startup_mode, 0);
+        assert_eq!(Settings::default().startup_mode, 4, "Fretboard is the default mode");
         assert_eq!(MODE_NAMES[0], "Chords");
     }
 
@@ -94,10 +98,11 @@ mod tests {
     fn mode_names_match_appmode() {
         // The order is a contract with `AppMode` in state.rs and the buttons in
         // appwindow.slint. A mismatch means starting in the wrong mode.
-        assert_eq!(MODE_NAMES.len(), 4);
+        assert_eq!(MODE_NAMES.len(), 5, "every AppMode needs an entry or its setting is dropped");
         assert_eq!(MODE_NAMES[1], "Intervals");
         assert_eq!(MODE_NAMES[2], "Scales");
         assert_eq!(MODE_NAMES[3], "Arpeggios");
+        assert_eq!(MODE_NAMES[4], "Fretboard");
     }
 
     #[test]

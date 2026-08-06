@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
 use crate::rng::Rng;
+use crate::fretboard::Region;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -10,12 +11,16 @@ pub enum AppMode {
     Chords = 0, 
     Intervals = 1, 
     Scales = 2,
-    Arpeggios = 3 
+    Arpeggios = 3,
+    /// Fretboard trainer: one fixed region of the neck, random notes inside it.
+    /// Has no song and no chords - see `fretboard`.
+    Fretboard = 4,
 }
 
 impl From<i32> for AppMode {
     fn from(val: i32) -> Self {
         match val {
+            4 => AppMode::Fretboard,
             0 => AppMode::Chords,
             1 => AppMode::Intervals,
             2 => AppMode::Scales,
@@ -90,6 +95,11 @@ pub struct MyApp {
     /// classes with no position or octave - so this is a suggestion the player
     /// checks themselves.
     pub start_hint: Option<usize>,
+    /// Fretboard trainer: the region stays fixed for the whole session, only
+    /// the note changes. Settling into one hand position is the point.
+    pub region: Region,
+    /// Pitch class currently asked for, or None before the first draw.
+    pub fret_target: Option<usize>,
     rng: Rng,
     pub chord_history: VecDeque<(String, f32)>,
     /// Probabilities of the 12 pitch classes from the last window. The note modes
@@ -116,7 +126,7 @@ impl MyApp {
             song_library,
             scale_definitions,
             arpeggio_patterns,
-            app_mode: AppMode::Intervals,
+            app_mode: AppMode::Fretboard,
             selected_library_idx: 0,
             secondary_index: 0,
             
@@ -144,6 +154,8 @@ impl MyApp {
             random_mode: false,
             step_order: vec![],
             start_hint: None,
+            region: Region::default(),
+            fret_target: None,
             rng: Rng::default(),
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
@@ -300,6 +312,13 @@ impl MyApp {
                     self.chords = vec![Chord { root: root, quality: ChordQuality::CustomScale(def.clone()) }];
                 }
             }
+            AppMode::Fretboard => {
+                // No song, no chords - the exercise is the region itself, drawn
+                // fresh on every entry into the mode.
+                self.chords = vec![];
+                self.song_title = String::new();
+                self.randomize_region();
+            }
         }
         self.reset_logic_state();
     }
@@ -352,7 +371,75 @@ impl MyApp {
         }
     }
 
+    /// Is the requested pitch class sounding right now?
+    ///
+    /// Shared by the note modes and the fretboard trainer so the two cannot
+    /// drift apart. Gated on the pitch head rather than the chord name: F1 0.90
+    /// against roughly 80% for the name.
+    fn note_is_sounding(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> bool {
+        let p_target = self.last_pitches[pc % 12];
+        let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
+        // Loudest class in the window as well as confident: without the second
+        // condition a note still ringing from the previous step would score.
+        if p_target >= self.note_threshold && p_target >= p_max * 0.9 {
+            return true;
+        }
+        // The root head is independent confirmation - a single note is reported
+        // by the model as the root.
+        matches!(ai_root, Some(r) if r == NoteName::from_index(pc % 12))
+            && confidence >= self.chord_confidence
+    }
+
+    /// Draws a fresh practice region: a set of strings and a fret window.
+    ///
+    /// Called on entering the mode, then left alone - the region is meant to
+    /// hold while you settle into one hand position. Only the note changes.
+    /// A four-fret span is one finger per fret, index to little finger.
+    pub fn randomize_region(&mut self) {
+        const SPAN: u8 = 4;
+        let strings = match self.rng.below(3) {
+            0 => crate::fretboard::StringSet::All,
+            1 => crate::fretboard::StringSet::LowThree,
+            _ => crate::fretboard::StringSet::HighThree,
+        };
+        // Keep the whole window on the neck: last usable start is MAX_FRET-SPAN+1.
+        let highest_start = crate::fretboard::MAX_FRET - SPAN + 1;
+        self.region = Region {
+            strings,
+            fret_from: self.rng.below(highest_start as usize + 1) as u8,
+            fret_span: SPAN,
+        };
+        self.fret_target = None;
+        self.next_fret_target();
+    }
+
+    /// Draws the next fretboard target. The region is untouched - it is fixed
+    /// for the session and only changes when the player changes the settings.
+    pub fn next_fret_target(&mut self) {
+        let prev = self.fret_target;
+        self.fret_target = self.region.draw(&mut self.rng, prev);
+        self.success_timer = 0.0;
+        self.match_status = MatchStatus::None;
+    }
+
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
+        // The fretboard trainer has no song, so it runs before the chord guard.
+        if self.app_mode == AppMode::Fretboard {
+            let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
+            let Some(target) = self.fret_target else { self.next_fret_target(); return; };
+            if self.note_is_sounding(target, ai_root, confidence) {
+                self.success_timer += dt;
+                self.match_status = MatchStatus::Exact;
+            } else {
+                self.success_timer = 0.0;
+                self.match_status = MatchStatus::None;
+            }
+            if self.success_timer > self.transition_delay {
+                self.next_fret_target();
+            }
+            return;
+        }
+
         if self.chords.is_empty() { return; }
         
         let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
@@ -363,6 +450,8 @@ impl MyApp {
         let all_targets = target_chord.get_target_indices(); 
 
         match self.app_mode {
+            // Returned above, before the chord guard - it has no chords to check.
+            AppMode::Fretboard => {}
             AppMode::Chords => {
                 let target_qual_str = target_chord.quality.to_string();
                 let mut exact_match = false;
@@ -441,27 +530,10 @@ impl MyApp {
 
                 let internal_idx = active_indices[self.current_note_step];
                 let target_note_idx = all_targets[internal_idx];
-                let target_note_enum = NoteName::from_index(target_note_idx);
 
                 // Target pitch class (0..11); NoteName ordering matches the
                 // pitch_logits output (C, Db, D, ...).
-                let target_pc = target_note_idx % 12;
-                let p_target = self.last_pitches[target_pc];
-                let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
-
-                // A note counts as played when the pitch head is confident AND it
-                // is the loudest class in the window. The second condition prevents
-                // crediting a note still ringing from the previous step.
-                let mut note_match =
-                    p_target >= self.note_threshold && p_target >= p_max * 0.9;
-
-                // Agreement from the root head is independent confirmation - for a
-                // single note the model describes it as the root.
-                if let Some(r) = ai_root {
-                    if r == target_note_enum && confidence >= self.chord_confidence {
-                        note_match = true;
-                    }
-                }
+                let note_match = self.note_is_sounding(target_note_idx, ai_root, confidence);
 
                 if note_match { self.success_timer += dt; } else { self.success_timer = 0.0; }
 
@@ -485,7 +557,6 @@ impl MyApp {
         self.success_timer = 0.0;
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
-
         // Scales hold a single "chord" - the whole scale - so the list has one
         // entry and the index never moves. Advancing there means a new KEY:
         // finish the scale, get another one somewhere else on the neck.
@@ -519,12 +590,12 @@ impl MyApp {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
 
     /// MyApp needs the shared audio state; nothing here touches it.
-    fn app() -> MyApp {
+    pub(crate) fn app() -> MyApp {
         let analysis = Arc::new(Mutex::new(AudioAnalysis {
             input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
             frame_live: [false; CTX_FRAMES],
@@ -685,5 +756,88 @@ mod tests {
         a.set_random_mode(true);
         assert!(a.start_hint.is_some());
         assert!(a.start_hint.unwrap() < START_STRINGS.len());
+    }
+}
+
+#[cfg(test)]
+mod fretboard_mode_tests {
+    use super::tests::*;
+    use super::*;
+
+    /// The region is drawn once per entry into the mode, not per note - the
+    /// whole point is to stay in one hand position.
+    #[test]
+    fn region_holds_while_notes_change() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        let region = a.region;
+        let mut notes = std::collections::HashSet::new();
+        for _ in 0..40 {
+            notes.insert(a.fret_target.expect("a target must be drawn"));
+            a.next_fret_target();
+            assert_eq!(a.region.strings, region.strings, "the region moved mid-exercise");
+            assert_eq!(a.region.fret_from, region.fret_from, "the region moved mid-exercise");
+        }
+        assert!(notes.len() > 1, "the note never changed");
+    }
+
+    #[test]
+    fn every_target_is_playable_in_the_region() {
+        let mut a = app();
+        for _ in 0..30 {
+            a.set_mode(AppMode::Fretboard as i32);
+            for _ in 0..30 {
+                let pc = a.fret_target.expect("a target must be drawn");
+                assert!(
+                    !a.region.positions_of(pc).is_empty(),
+                    "{:?}: asked for {pc}, not reachable there", a.region
+                );
+                a.next_fret_target();
+            }
+        }
+    }
+
+    /// A window running off the end of the neck would ask for notes that cannot
+    /// be played on a 15-fret range.
+    #[test]
+    fn random_region_stays_on_the_neck() {
+        let mut a = app();
+        for _ in 0..300 {
+            a.randomize_region();
+            assert!(
+                a.region.fret_to() <= crate::fretboard::MAX_FRET,
+                "region {:?} runs past fret {}", a.region, crate::fretboard::MAX_FRET
+            );
+            assert_eq!(a.region.fret_span, 4, "span should be one finger per fret");
+        }
+    }
+
+    /// Entering the mode repeatedly must give different regions, otherwise the
+    /// randomisation is decorative.
+    #[test]
+    fn re_entering_the_mode_gives_a_new_region() {
+        let mut a = app();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..40 {
+            a.set_mode(AppMode::Fretboard as i32);
+            seen.insert((a.region.strings as i32, a.region.fret_from));
+        }
+        assert!(seen.len() > 3, "regions barely varied: {seen:?}");
+    }
+
+    /// The fretboard branch runs before the chord guard; with no chords loaded
+    /// the old code path would have returned early and the mode would be dead.
+    #[test]
+    fn progress_runs_without_any_chords() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        assert!(a.chords.is_empty(), "the trainer should not load a song");
+        let target = a.fret_target.unwrap();
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[target] = 1.0;
+        a.note_threshold = 0.5;
+        a.transition_delay = 0.05;
+        a.check_progress_with_ai(0.1, "Noise", 0.0);
+        assert_ne!(a.fret_target, Some(target), "a played note did not advance");
     }
 }
