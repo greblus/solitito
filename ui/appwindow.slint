@@ -112,6 +112,12 @@ export component AppWindow inherits Window {
     in property <string> next_chord: "";
     
     in property <[string]> interval_names;
+    /// Which step is being asked for; the strip scrolls to keep it centred.
+    in property <int> interval_step: 0;
+    /// Set for the frame the exercise restarts. Walking one step forward wants a
+    /// visible glide; snapping back to the first interval of a new key is not a
+    /// move through the pattern and must not be animated as one.
+    in property <bool> interval_jump: false;
     in property <[color]> interval_colors;
     in property <[float]> spectrum_data;
     in property <[color]> spectrum_colors; 
@@ -421,12 +427,38 @@ export component AppWindow inherits Window {
                 color: white; 
             }
             
-            if root.current_mode != 0 : HorizontalLayout {
-                alignment: center;
-                spacing: 10px;
-                for i in root.interval_names.length : NoteBar {
-                    label: root.interval_names[i];
-                    bar_color: root.interval_colors[i];
+            // The strip scrolls under a fixed centre rather than the highlight
+            // jumping along a static row: a two-octave arpeggio is fifteen steps,
+            // about 1050px, and the window is 550px.
+            if root.current_mode != 0 : Rectangle {
+                height: 65px;
+                clip: true;
+
+                property <length> step_w: 70px;   // NoteBar 60px + spacing 10px
+                property <int> per_page: 6;       // 6 x 70px = 420px, fits the window
+                property <length> content_w: root.interval_names.length * self.step_w;
+                // Page, not continuous scroll: the notes stay put while they are
+                // being played and the strip turns over once every six.
+                property <int> page: floor(root.interval_step / self.per_page);
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    width: parent.content_w;
+                    // Anything up to one page sits centred; longer patterns page.
+                    x: parent.content_w <= parent.width
+                        ? (parent.width - parent.content_w) / 2
+                        : -parent.page * parent.per_page * parent.step_w;
+                    // ease-out, not ease-in-out: the slow start of ease-in reads
+                    // as lag when the strip turns between two notes being played.
+                    animate x {
+                        duration: root.interval_jump ? 40ms : 90ms;
+                        easing: ease-out;
+                    }
+
+                    for i in root.interval_names.length : NoteBar {
+                        label: root.interval_names[i];
+                        bar_color: root.interval_colors[i];
+                    }
                 }
             }
         }

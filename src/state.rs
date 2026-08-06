@@ -4,7 +4,7 @@ use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
 use crate::rng::Rng;
 use crate::fretboard::Region;
-use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
+use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum AppMode { 
@@ -162,13 +162,14 @@ impl MyApp {
         }
     }
     
-    pub fn get_active_indices(&self, chord: &Chord) -> Vec<usize> {
+    pub fn get_active_indices(&self, chord: &Chord) -> Vec<Step> {
         let all_names = chord.quality.interval_names(); 
         let user_tokens: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
         
         if self.app_mode == AppMode::Arpeggios {
             for token in user_tokens {
+                let (token, octave) = split_octave(token);
                 let target_idx = match token {
                     "1" | "8" => 0,
                     "3" => 1,
@@ -179,15 +180,16 @@ impl MyApp {
                 };
                 
                 if target_idx < all_names.len() {
-                    indices.push(target_idx);
+                    indices.push(Step { degree: target_idx, octave });
                 } else if token == "9" {
                     if let Some(pos) = all_names.iter().position(|n| n.contains("2") || n.contains("9")) {
-                        indices.push(pos);
+                        indices.push(Step { degree: pos, octave });
                     }
                 }
             }
         } else {
             for token in user_tokens {
+                 let (token, octave) = split_octave(token);
                  for (idx, name) in all_names.iter().enumerate() {
                     let is_match = if token == name { true } else {
                         match token {
@@ -201,13 +203,13 @@ impl MyApp {
                             _ => false
                         }
                     };
-                    if is_match { indices.push(idx); break; } 
+                    if is_match { indices.push(Step { degree: idx, octave }); break; } 
                  }
             }
         }
         
         if indices.is_empty() {
-             if !all_names.is_empty() { vec![0] } else { vec![] }
+             if !all_names.is_empty() { vec![Step { degree: 0, octave: 0 }] } else { vec![] }
         } else {
             indices
         }
@@ -216,7 +218,7 @@ impl MyApp {
     /// `get_active_indices` in play order. Without randomisation this is the
     /// identity; with it, the stored permutation. The UI renders the same order,
     /// so the highlight still runs left to right instead of jumping around.
-    pub fn ordered_active_indices(&self, chord: &Chord) -> Vec<usize> {
+    pub fn ordered_active_indices(&self, chord: &Chord) -> Vec<Step> {
         let active = self.get_active_indices(chord);
         // The permutation goes stale when the user edits the interval list; the
         // length check catches that and falls back to the plain order.
@@ -528,7 +530,7 @@ impl MyApp {
                 // matters here - F1 0.90 against ~80% for the chord name.
                 if self.current_note_step >= active_indices.len() { return; }
 
-                let internal_idx = active_indices[self.current_note_step];
+                let internal_idx = active_indices[self.current_note_step].degree;
                 let target_note_idx = all_targets[internal_idx];
 
                 // Target pitch class (0..11); NoteName ordering matches the

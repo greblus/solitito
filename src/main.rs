@@ -210,6 +210,18 @@ fn main() -> Result<(), slint::PlatformError> {
     // real interval is 55-90 ms and varies. A hard-coded 0.040 made the counter
     // run slower than the clock, turning a 0.6 s threshold into about a second.
     let mut last_ai_at: Option<std::time::Instant> = None;
+    // Where the interval strip stood last frame. A step BACKWARDS means the
+    // exercise restarted - new chord, new key - so the strip snaps back to the
+    // first page instead of turning over at the normal pace.
+    let mut last_interval_step: i32 = 0;
+    // Pattern length as well as position: entering a mode or changing chord
+    // swaps the whole strip, and that is a restart too - without this the first
+    // slide into place would crawl at the page-turn speed.
+    let mut last_interval_len: i32 = 0;
+    // Where the interval strip stood last frame. A step BACKWARDS means the
+    // exercise restarted - new chord, new key - and the strip has to snap to the
+    // front instead of gliding back across the whole pattern.
+    let mut last_interval_step: i32 = 0;
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
@@ -365,9 +377,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 let active_indices = app.ordered_active_indices(curr_chord);
                 let mut ui_names = Vec::new();
                 let mut ui_colors = Vec::new();
-                for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
-                    if internal_idx < all_names.len() {
-                        let name = &all_names[internal_idx];
+                for (step_idx, step) in active_indices.iter().enumerate() {
+                    if step.degree < all_names.len() {
+                        // The octave marker is display only - the model has no
+                        // octave, so 1 and 1' are checked identically.
+                        let name = model::with_octave(&all_names[step.degree], step.octave);
                         ui_names.push(SharedString::from(name));
                         if step_idx < app.current_note_step {
                             ui_colors.push(Color::from_rgb_u8(50, 255, 50));
@@ -382,6 +396,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     }
                 }
+                // Order matters: the duration binding reads interval_jump when x
+                // is recomputed, so the flag has to be in place first.
+                let step = app.current_note_step as i32;
+                let len = ui_names.len() as i32;
+                let restarted = step < last_interval_step || len != last_interval_len;
+                ui.set_interval_jump(restarted);
+                last_interval_step = step;
+                last_interval_len = len;
+                ui.set_interval_step(step);
                 ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             }

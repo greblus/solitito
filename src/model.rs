@@ -25,6 +25,41 @@ impl NoteName {
     }
 }
 
+/// One step of an exercise: which chord degree, and in which octave.
+///
+/// The octave is DISPLAY ONLY. The model reports 12 pitch classes with no
+/// octave (`brain::Prediction::pitches`), so `1` and `1'` are verified
+/// identically - the marker tells the player where to go, nothing more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Step {
+    /// Index into the chord's `interval_names()`.
+    pub degree: usize,
+    /// 0 = base octave, 1 = one up (`'`), -1 = one down (`,`).
+    pub octave: i8,
+}
+
+/// Splits an octave marker off a degree token.
+///
+/// `"b3''"` -> `("b3", 2)`, `"5,"` -> `("5", -1)`, `"7"` -> `("7", 0)`.
+/// Mixing `'` and `,` in one token is nonsense and yields their sum, which is
+/// as good an answer as any for input nobody should write.
+pub fn split_octave(token: &str) -> (&str, i8) {
+    let base = token.trim_end_matches(['\'', ',']);
+    let marks = &token[base.len()..];
+    let up = marks.matches('\'').count() as i8;
+    let down = marks.matches(',').count() as i8;
+    (base, up - down)
+}
+
+/// Appends the octave marker back onto a name for display: `("b3", 1)` -> `"b3'"`.
+pub fn with_octave(name: &str, octave: i8) -> String {
+    match octave {
+        0 => name.to_string(),
+        n if n > 0 => format!("{name}{}", "'".repeat(n as usize)),
+        n => format!("{name}{}", ",".repeat((-n) as usize)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScaleDefinition {
     pub name: String,
@@ -152,6 +187,15 @@ Shell Voicing (1 7 3)
 
 1-5-1-3 (Spread)
 1 5 1 3
+
+Two Octaves Up-Down
+1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1
+
+Two Octaves Up
+1 3 5 7 1' 3' 5' 7'
+
+Two Octaves Down
+7' 5' 3' 1' 7 5 3 1
 "#;
 
 const BUILTIN_SCALES_DEF: &str = r#"
@@ -396,7 +440,12 @@ fn parse_intervals_string(s: &str) -> (Vec<u8>, Vec<String>) {
     let mut semitones = Vec::new();
     let mut names = Vec::new();
     for part in s.split_whitespace() {
-        let semitone = match part {
+        // The marker is not part of the interval name for pitch purposes, but it
+        // MUST survive into `names`: that list is joined back into
+        // `intervals_input`, so stripping it here would lose the octave on the
+        // round trip.
+        let (base, _oct) = split_octave(part);
+        let semitone = match base {
             "1" | "8" => 0, 
             "b2" => 1, 
             "2" | "9" => 2, 
@@ -458,5 +507,101 @@ fn map_chord_quality(s: &str) -> ChordQuality {
         "7" | "dom7" | "7b9" | "7#9" | "7alt" | "7b13" => ChordQuality::Dominant7,
         "m7b5" | "hdim" | "ø" => ChordQuality::HalfDiminished,
         _ => ChordQuality::Dominant7,
+    }
+}
+
+#[cfg(test)]
+mod octave_tests {
+    use super::*;
+
+    #[test]
+    fn plain_token_has_no_marker() {
+        assert_eq!(split_octave("7"), ("7", 0));
+        assert_eq!(split_octave("b3"), ("b3", 0));
+    }
+
+    #[test]
+    fn apostrophes_go_up_commas_go_down() {
+        assert_eq!(split_octave("1'"), ("1", 1));
+        assert_eq!(split_octave("1''"), ("1", 2));
+        assert_eq!(split_octave("5,"), ("5", -1));
+    }
+
+    /// The marker must not be mistaken for part of the interval name, or "b7'"
+    /// would fall through to the catch-all and silently become the root.
+    #[test]
+    fn accidentals_survive_the_split() {
+        assert_eq!(split_octave("b7'"), ("b7", 1));
+        assert_eq!(split_octave("#11''"), ("#11", 2));
+    }
+
+    #[test]
+    fn display_puts_the_marker_back() {
+        assert_eq!(with_octave("b3", 0), "b3");
+        assert_eq!(with_octave("b3", 1), "b3'");
+        assert_eq!(with_octave("1", 2), "1''");
+        assert_eq!(with_octave("5", -1), "5,");
+    }
+
+    #[test]
+    fn split_and_rejoin_round_trip() {
+        for t in ["1", "b3'", "5''", "b7,", "#9'"] {
+            let (name, oct) = split_octave(t);
+            assert_eq!(with_octave(name, oct), t);
+        }
+    }
+
+    /// A pattern written with octave markers must still yield the right
+    /// semitones - the marker is display, not pitch.
+    #[test]
+    fn markers_do_not_change_the_semitones() {
+        let (plain, _) = parse_intervals_string("1 b3 5 b7");
+        let (marked, _) = parse_intervals_string("1' b3' 5' b7'");
+        assert_eq!(plain, marked);
+        assert_eq!(plain, vec![0, 3, 7, 10]);
+    }
+}
+
+#[cfg(test)]
+mod arpeggio_pattern_tests {
+    use super::*;
+
+    fn pattern(name: &str) -> ScaleDefinition {
+        load_arpeggio_patterns()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("pattern {name:?} not found"))
+    }
+
+    /// The two-octave shape from the reference tab: up through both octaves,
+    /// turn, come back down. Fifteen steps - the case the scrolling exists for.
+    #[test]
+    fn two_octave_pattern_parses_whole() {
+        let d = pattern("Two Octaves Up-Down");
+        assert_eq!(d.names.len(), 15, "got {:?}", d.names);
+        assert_eq!(d.names[0], "1");
+        assert_eq!(d.names[4], "1'", "the fifth step should start the upper octave");
+        assert_eq!(d.names[14], "1", "it should land back on the root");
+    }
+
+    /// Semitones must ignore the markers - the octave is display only.
+    #[test]
+    fn octave_markers_do_not_leak_into_semitones() {
+        let d = pattern("Two Octaves Up-Down");
+        assert_eq!(d.intervals[0], d.intervals[4], "1 and 1' are the same pitch class");
+        assert!(d.intervals.iter().all(|&s| s < 12), "a marker escaped into the semitones");
+    }
+
+    /// Two identical degrees in a row would both complete at once: the pitch
+    /// class is already sounding when the second one is asked for.
+    #[test]
+    fn no_pattern_repeats_a_degree_back_to_back() {
+        for d in load_arpeggio_patterns() {
+            for w in d.names.windows(2) {
+                let (a, _) = split_octave(&w[0]);
+                let (b, _) = split_octave(&w[1]);
+                assert_ne!(a, b, "pattern {:?} repeats {a} back to back", d.name);
+            }
+        }
     }
 }
