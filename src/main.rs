@@ -5,6 +5,7 @@ mod audio;
 mod brain;
 mod i18n;
 mod latch;
+mod rng;
 mod settings;
 mod state;
 
@@ -227,7 +228,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.chord_confidence = ui.get_chord_confidence();
         app.note_threshold = ui.get_note_threshold();
         app.transition_delay = ui.get_delay();
-        app.random_mode = ui.get_random_enabled();
+        app.set_random_mode(ui.get_random_enabled());
         
         let ui_txt = ui.get_interval_input_text().to_string();
         if ui_txt != app.intervals_input {
@@ -311,6 +312,16 @@ fn main() -> Result<(), slint::PlatformError> {
                  ui.set_chord_name(format!("{} {}", curr_chord.root.to_string(), quality_display).into());
             }
             
+            // Suggestion only: the model gives pitch classes with no position,
+            // so nothing here is verified. Empty string hides the line.
+            let hint = match app.start_hint {
+                Some(i) if i < state::START_STRINGS.len() => {
+                    i18n::strings(lang).start_from.replace("{}", state::START_STRINGS[i])
+                }
+                _ => String::new(),
+            };
+            ui.set_start_hint(hint.into());
+
             if app.app_mode == AppMode::Chords {
                 match app.match_status {
                     MatchStatus::Exact => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(50, 255, 50))), 
@@ -328,7 +339,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
             if app.app_mode != AppMode::Chords {
                 let all_names = curr_chord.quality.interval_names();
-                let active_indices = app.get_active_indices(curr_chord);
+                let active_indices = app.ordered_active_indices(curr_chord);
                 let mut ui_names = Vec::new();
                 let mut ui_colors = Vec::new();
                 for (step_idx, &internal_idx) in active_indices.iter().enumerate() {
@@ -468,6 +479,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_gate_hint(t.gate_hint.into());
     g.set_bass_boost(t.bass_boost.into());
     g.set_lock_quality(t.lock_quality.into());
+    g.set_random_order(t.random_order.into());
+    g.set_random_hint(t.random_hint.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());

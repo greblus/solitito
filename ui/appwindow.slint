@@ -71,6 +71,8 @@ export global Tr {
     in-out property <string> gate_hint: "";
     in-out property <string> bass_boost: "Bass Boost";
     in-out property <string> lock_quality: "Lock chord quality until new attack";
+    in-out property <string> random_order: "Random order";
+    in-out property <string> random_hint: "";
     in-out property <string> startup_mode: "Startup mode: ";
     in-out property <string> chord_confidence: "Chord confidence: ";
     in-out property <string> note_threshold: "Note threshold: ";
@@ -97,6 +99,9 @@ export component AppWindow inherits Window {
     // --- DATA ---
     in property <string> song_title: "";
     in property <string> chord_name: "...";
+    // Suggestion only - the model reports pitch classes with no position, so
+    // the app cannot verify which string was used. Empty = no hint.
+    in property <string> start_hint: "";
     in property <brush> chord_text_color: white;
     
     in property <string> ai_text: "";
@@ -291,6 +296,18 @@ export component AppWindow inherits Window {
                 }
 
                 HorizontalLayout {
+                    CheckBox { checked <=> root.random_enabled; }
+                    Text {
+                        text: Tr.random_order;
+                        color: #aaa; vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: Tr.random_hint;
+                    font-size: 12px; color: #777; wrap: word-wrap;
+                }
+
+                HorizontalLayout {
                     spacing: 10px;
                     Text {
                         text: Tr.startup_mode; color: #aaa;
@@ -375,6 +392,13 @@ export component AppWindow inherits Window {
                 font-size: 60px; 
                 font-weight: 400; 
                 color: root.chord_text_color; 
+                horizontal-alignment: center;
+            }
+
+            if root.start_hint != "" : Text {
+                text: root.start_hint;
+                font-size: 20px;
+                color: #888;
                 horizontal-alignment: center;
             }
             

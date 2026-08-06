@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
+use crate::rng::Rng;
 use crate::model::{Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -31,6 +32,11 @@ pub enum MatchStatus {
     Partial,    // yellow - triad or jazz substitution
     Flicker,    // red - detected but the signal is weak
 }
+
+/// Strings to suggest starting from, low to high. Only a hint: the model
+/// reports 12 pitch classes with no position, so the app cannot check which
+/// string was actually used.
+pub const START_STRINGS: [&str; 4] = ["E", "A", "D", "G"];
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
@@ -70,7 +76,21 @@ pub struct MyApp {
     pub intervals_input: String,
     pub saved_intervals_input: String,
     
+    /// Randomise the exercise order. What it means depends on the mode: in
+    /// Chords it picks the next chord at random, in the note modes it also
+    /// shuffles the order of the tones within the chord - which is where the
+    /// melodies come from.
     pub random_mode: bool,
+    /// Permutation of `active_indices`, regenerated whenever the chord changes.
+    /// Reshuffling every frame would make the target jump around; the order has
+    /// to stay fixed for as long as the chord is being played.
+    step_order: Vec<usize>,
+    /// Which string to suggest starting from (index into `START_STRINGS`), or
+    /// None for no hint. The app CANNOT verify it - the model outputs 12 pitch
+    /// classes with no position or octave - so this is a suggestion the player
+    /// checks themselves.
+    pub start_hint: Option<usize>,
+    rng: Rng,
     pub chord_history: VecDeque<(String, f32)>,
     /// Probabilities of the 12 pitch classes from the last window. The note modes
     /// rely on this rather than on the chord name - the pitch head is at F1 0.90,
@@ -122,6 +142,9 @@ impl MyApp {
             saved_intervals_input: "1 3 5".to_string(),
             
             random_mode: false,
+            step_order: vec![],
+            start_hint: None,
+            rng: Rng::default(),
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
         }
@@ -175,6 +198,46 @@ impl MyApp {
              if !all_names.is_empty() { vec![0] } else { vec![] }
         } else {
             indices
+        }
+    }
+
+    /// `get_active_indices` in play order. Without randomisation this is the
+    /// identity; with it, the stored permutation. The UI renders the same order,
+    /// so the highlight still runs left to right instead of jumping around.
+    pub fn ordered_active_indices(&self, chord: &Chord) -> Vec<usize> {
+        let active = self.get_active_indices(chord);
+        // The permutation goes stale when the user edits the interval list; the
+        // length check catches that and falls back to the plain order.
+        if !self.random_mode || self.step_order.len() != active.len() {
+            return active;
+        }
+        self.step_order.iter().map(|&i| active[i]).collect()
+    }
+
+    /// Toggling the switch takes effect at once instead of waiting for the next
+    /// chord: without the reroll the shuffle and the hint would appear only after
+    /// the current exercise is finished, which reads as the switch being broken.
+    pub fn set_random_mode(&mut self, on: bool) {
+        if self.random_mode != on {
+            self.random_mode = on;
+            self.reroll();
+        }
+    }
+
+    /// Draws a new order of tones and a new string hint. Called on every chord
+    /// change - never per frame, or the target would move while playing.
+    fn reroll(&mut self) {
+        let n = if self.chords.is_empty() {
+            0
+        } else {
+            self.get_active_indices(&self.chords[self.current_chord_index]).len()
+        };
+        self.step_order = (0..n).collect();
+        if self.random_mode {
+            self.rng.shuffle(&mut self.step_order);
+            self.start_hint = Some(self.rng.below(START_STRINGS.len()));
+        } else {
+            self.start_hint = None;
         }
     }
 
@@ -247,6 +310,7 @@ impl MyApp {
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
         self.chord_history.clear();
+        self.reroll();
         self.update_collected_notes_size();
     }
 
@@ -295,7 +359,7 @@ impl MyApp {
         let target_chord = &self.chords[self.current_chord_index];
         let target_root = target_chord.root;
 
-        let active_indices = self.get_active_indices(target_chord);
+        let active_indices = self.ordered_active_indices(target_chord);
         let all_targets = target_chord.get_target_indices(); 
 
         match self.app_mode {
@@ -421,7 +485,27 @@ impl MyApp {
         self.success_timer = 0.0;
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
-        self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
+
+        // Scales hold a single "chord" - the whole scale - so the list has one
+        // entry and the index never moves. Advancing there means a new KEY:
+        // finish the scale, get another one somewhere else on the neck.
+        if self.random_mode && self.app_mode == AppMode::Scales && !self.chords.is_empty() {
+            let current = self.chords[0].root as usize;
+            let next = self.rng.below_excluding(12, current);
+            self.chords[0].root = NoteName::from_index(next);
+            // Keep the key combo honest; otherwise it would show the key the
+            // player picked while the app asks for a different one.
+            self.secondary_index = next;
+        }
+
+        self.current_chord_index = if self.random_mode {
+            // Never the same chord twice in a row - repeating it reads as the app
+            // having failed to notice the previous one.
+            self.rng.below_excluding(self.chords.len(), self.current_chord_index)
+        } else {
+            (self.current_chord_index + 1) % self.chords.len()
+        };
+        self.reroll();
         self.update_collected_notes_size();
     }
 
@@ -431,5 +515,175 @@ impl MyApp {
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
+
+    /// MyApp needs the shared audio state; nothing here touches it.
+    fn app() -> MyApp {
+        let analysis = Arc::new(Mutex::new(AudioAnalysis {
+            input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
+            frame_live: [false; CTX_FRAMES],
+            spectrum_visual: [0.0; 48],
+            chroma_sum: [0.0; 12],
+            bass_boost_enabled: false,
+            bass_boost_gain: 1.0,
+            noise_gate: 0.0,
+            input_level: 0.0,
+            onset_id: 0,
+            frames_since_onset: 0,
+        }));
+        let mut a = MyApp::new(analysis, None);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::D, quality: ChordQuality::Minor7 },
+            Chord { root: NoteName::G, quality: ChordQuality::Dominant7 },
+            Chord { root: NoteName::A, quality: ChordQuality::Minor7 },
+        ];
+        a.reset_logic_state();
+        a
+    }
+
+    #[test]
+    fn sequential_order_without_randomisation() {
+        let mut a = app();
+        a.set_random_mode(false);
+        let seen: Vec<usize> = (0..4).map(|_| { a.advance_chord(); a.current_chord_index }).collect();
+        assert_eq!(seen, vec![1, 2, 3, 0]);
+    }
+
+    /// The same chord twice in a row reads as the app having missed the first one.
+    #[test]
+    fn randomised_order_never_repeats_immediately() {
+        let mut a = app();
+        a.set_random_mode(true);
+        let mut prev = a.current_chord_index;
+        for _ in 0..300 {
+            a.advance_chord();
+            assert_ne!(a.current_chord_index, prev, "the same chord came up twice in a row");
+            prev = a.current_chord_index;
+        }
+    }
+
+    /// A single-chord list has no alternative - it must not loop forever or panic.
+    #[test]
+    fn randomisation_survives_a_one_chord_list() {
+        let mut a = app();
+        a.chords.truncate(1);
+        a.reset_logic_state();
+        a.set_random_mode(true);
+        a.advance_chord();
+        assert_eq!(a.current_chord_index, 0);
+    }
+
+    #[test]
+    fn order_is_untouched_when_randomisation_is_off() {
+        let mut a = app();
+        a.set_random_mode(false);
+        let chord = a.chords[a.current_chord_index].clone();
+        assert_eq!(a.ordered_active_indices(&chord), a.get_active_indices(&chord));
+    }
+
+    /// Shuffling must not drop or duplicate a tone - every step still gets played.
+    #[test]
+    fn shuffled_steps_are_a_permutation() {
+        let mut a = app();
+        a.intervals_input = "1 3 5 7".to_string();
+        a.set_random_mode(true);
+        for _ in 0..50 {
+            let chord = a.chords[a.current_chord_index].clone();
+            let plain = a.get_active_indices(&chord);
+            let mut ordered = a.ordered_active_indices(&chord);
+            let mut expect = plain.clone();
+            ordered.sort();
+            expect.sort();
+            assert_eq!(ordered, expect, "the shuffle changed the set of tones");
+            a.advance_chord();
+        }
+    }
+
+    /// Editing the interval list leaves a stale permutation behind; the length
+    /// check must fall back to the plain order instead of indexing out of bounds.
+    #[test]
+    fn stale_permutation_falls_back_instead_of_panicking() {
+        let mut a = app();
+        a.intervals_input = "1 3 5 7".to_string();
+        a.set_random_mode(true);
+        a.intervals_input = "1 3".to_string();      // shorter, no reroll yet
+        let chord = a.chords[a.current_chord_index].clone();
+        assert_eq!(a.ordered_active_indices(&chord), a.get_active_indices(&chord));
+    }
+
+    /// Builds a Scales-mode app the way reload_library_content does.
+    fn scales_app() -> MyApp {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        a
+    }
+
+    /// A scale is one "chord", so finishing it must move the KEY, not the index.
+    #[test]
+    fn scales_draw_a_new_key_on_every_pass() {
+        let mut a = scales_app();
+        assert!(!a.chords.is_empty(), "no scale loaded - the test would pass vacuously");
+        a.set_random_mode(true);
+        let mut keys = std::collections::HashSet::new();
+        let mut prev = a.chords[0].root as usize;
+        for _ in 0..200 {
+            a.advance_chord();
+            let now = a.chords[0].root as usize;
+            assert_ne!(now, prev, "the same key came up twice in a row");
+            keys.insert(now);
+            prev = now;
+        }
+        assert!(keys.len() >= 10, "keys barely varied: {} of 12", keys.len());
+    }
+
+    /// The combo has to follow, or it would name a key the app is not asking for.
+    #[test]
+    fn key_combo_index_tracks_the_drawn_key() {
+        let mut a = scales_app();
+        assert!(!a.chords.is_empty(), "no scale loaded - the test would pass vacuously");
+        a.set_random_mode(true);
+        for _ in 0..50 {
+            a.advance_chord();
+            assert_eq!(a.secondary_index, a.chords[0].root as usize);
+        }
+    }
+
+    #[test]
+    fn scales_keep_their_key_without_randomisation() {
+        let mut a = scales_app();
+        assert!(!a.chords.is_empty(), "no scale loaded - the test would pass vacuously");
+        a.set_random_mode(false);
+        let key = a.chords[0].root as usize;
+        for _ in 0..20 { a.advance_chord(); }
+        assert_eq!(a.chords[0].root as usize, key, "the key moved with randomisation off");
+    }
+
+    /// Only Scales redraw the key - in Arpeggios secondary_index selects the
+    /// PATTERN, and moving it would silently switch the exercise.
+    #[test]
+    fn arpeggios_do_not_have_their_secondary_index_hijacked() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.set_random_mode(true);
+        let sec = a.secondary_index;
+        for _ in 0..20 { a.advance_chord(); }
+        assert_eq!(a.secondary_index, sec, "the arpeggio pattern was changed behind our back");
+    }
+
+    #[test]
+    fn hint_appears_only_with_randomisation() {
+        let mut a = app();
+        a.set_random_mode(false);
+        assert!(a.start_hint.is_none());
+        a.set_random_mode(true);
+        assert!(a.start_hint.is_some());
+        assert!(a.start_hint.unwrap() < START_STRINGS.len());
     }
 }
