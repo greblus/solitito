@@ -58,6 +58,52 @@ Songs and scales are plain text files, so you can add your own.
 
 ---
 
+## ⚙️ Settings
+
+<div align="center">
+<img width="340" alt="Solitito settings window" src="docs/solitito_settings.png" />
+</div>
+
+| Setting | Description |
+|---|---|
+| **Song / Scale** | Chooses the progression or scale for the current mode |
+| **Pattern** | Arpeggios only: which phrase to walk. The last entry is a generator that builds a fresh one after every pass |
+| **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
+| **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
+| **Show AI Debug in Main Window** | Shows the raw prediction and the spectrum on the main screen |
+| **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
+| **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
+| **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
+| **Random order** | Chords come up shuffled instead of in sequence; in the note modes the tones inside each chord are shuffled too, and in Scales the key changes after every pass. Also on the toolbar as the shuffle icon |
+| **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
+| **Startup mode** | Which mode the app opens in |
+| **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
+| **Chord confidence** | How sure the model must be of the chord *name* before it counts (Chords mode) |
+| **Note threshold** | How sure the model must be that a *single note* is sounding (Intervals / Scales / Arpeggios) |
+| **Hold time** | How long a correct chord must be held before advancing |
+
+Settings live in `$XDG_CONFIG_HOME/solitito/settings.json` (falling back to `~/.config` or
+`%APPDATA%`). A missing or corrupted file falls back to defaults rather than blocking
+startup.
+
+There is also a diagnostic mode:
+
+```bash
+SOLITITO_DEBUG=1 ./solitito
+```
+
+For every prediction it prints the top three qualities and the full pitch vector expressed as
+**intervals relative to the detected root**:
+
+```
+G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 74
+```
+
+This is what separates "the model cannot hear the seventh" from "it hears it and ignores it"
+— two problems that look identical from the chord name alone and lead in opposite directions.
+
+---
+
 ## How it works
 
 ### Signal path
@@ -278,48 +324,6 @@ update while the AI thread actually took 55–90 ms per cycle (inference *plus* 
 A 0.6 s hold threshold therefore took about a second of wall clock, and varied with machine
 load. Measuring the real interval and shortening the vote window cut the delay between a
 correct chord and advancing from ~1.2 s to ~0.3 s.
-
----
-
-## ⚙️ Settings
-
-<div align="center">
-<img width="340" alt="Solitito settings window" src="docs/solitito_settings.png" />
-</div>
-
-| Setting | Description |
-|---|---|
-| **Select Song** | Chooses the progression, scale or arpeggio pattern for the current mode |
-| **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
-| **Show AI Debug in Main Window** | Shows the raw prediction and the spectrum on the main screen |
-| **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
-| **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
-| **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
-| **Startup mode** | Which mode the app opens in |
-| **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
-| **Chord confidence** | How sure the model must be of the chord *name* before it counts (Chords mode) |
-| **Note threshold** | How sure the model must be that a *single note* is sounding (Intervals / Scales / Arpeggios) |
-| **Hold time** | How long a correct chord must be held before advancing |
-
-Settings live in `$XDG_CONFIG_HOME/solitito/settings.json` (falling back to `~/.config` or
-`%APPDATA%`). A missing or corrupted file falls back to defaults rather than blocking
-startup.
-
-There is also a diagnostic mode:
-
-```bash
-SOLITITO_DEBUG=1 ./solitito
-```
-
-For every prediction it prints the top three qualities and the full pitch vector expressed as
-**intervals relative to the detected root**:
-
-```
-G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 74
-```
-
-This is what separates "the model cannot hear the seventh" from "it hears it and ignores it"
-— two problems that look identical from the chord name alone and lead in opposite directions.
 
 ---
 
