@@ -10,7 +10,7 @@ anyhow = "1.0"
 log = "0.4"
 ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"] }
 ndarray = "0.15"
-slint = "1.8" 
+slint = "1.17" 
 hound = "3.5"
 keepawake = "0.4"
 
@@ -19,5 +19,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = "0.4"
 
+
 [build-dependencies]
-slint-build = "1.8"
+slint-build = "1.17"
+
+# zune-jpeg 0.5.15 does not compile: mcu_prog.rs calls warn!(..) in expression
+# position, which only works when zune-core's `log` feature makes the macro real.
+# Cargo reports that feature as enabled but never passes it to rustc, and the
+# crate arrives transitively through Slint's image support, which hard-codes
+# image/jpeg. The vendored copy differs from the published one by one semicolon.
+# Needed for Slint 1.17, which is the first release that renders text inside SVG.
+# Delete this section and vendor/zune-jpeg once upstream ships a fix.
+[patch.crates-io]
+zune-jpeg = { path = "vendor/zune-jpeg" }
