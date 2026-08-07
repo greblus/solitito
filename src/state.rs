@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
 use crate::brain::ChordBrain;
+use crate::arpeggio;
 use crate::rng::Rng;
 use crate::fretboard::Region;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
@@ -54,6 +55,9 @@ pub struct MyApp {
     pub app_mode: AppMode,
     pub selected_library_idx: usize,
     pub secondary_index: usize, 
+    /// Which arpeggio pattern was chosen, kept across mode switches. Leaving the
+    /// mode used to throw the choice away and drop you back on the first pattern.
+    saved_arpeggio_index: usize,
     
     pub song_title: String,
     pub chords: Vec<Chord>,
@@ -85,6 +89,11 @@ pub struct MyApp {
     /// Chords it picks the next chord at random, in the note modes it also
     /// shuffles the order of the tones within the chord - which is where the
     /// melodies come from.
+    /// Freezes progression. Colours keep reporting whether the chord is right,
+    /// the app just stops moving on - for sitting on one shape and working it
+    /// out. Deliberately not persisted: a paused app on next launch would look
+    /// broken.
+    pub paused: bool,
     pub random_mode: bool,
     /// Permutation of `active_indices`, regenerated whenever the chord changes.
     /// Reshuffling every frame would make the target jump around; the order has
@@ -129,6 +138,7 @@ impl MyApp {
             app_mode: AppMode::Fretboard,
             selected_library_idx: 0,
             secondary_index: 0,
+            saved_arpeggio_index: 0,
             
             song_title: start_song.title,
             chords: start_song.chords,
@@ -151,6 +161,7 @@ impl MyApp {
             intervals_input: "1 3 5".to_string(),
             saved_intervals_input: "1 3 5".to_string(),
             
+            paused: false,
             random_mode: false,
             step_order: vec![],
             start_hint: None,
@@ -238,6 +249,22 @@ impl MyApp {
         }
     }
 
+    /// Swaps in a freshly built phrase when the generator entry is selected.
+    ///
+    /// Nothing happens for the hand-written patterns, so the two kinds live in
+    /// the same list without a second code path.
+    fn regenerate_arpeggio(&mut self) {
+        if self.app_mode != AppMode::Arpeggios {
+            return;
+        }
+        let is_generator = self.arpeggio_patterns.get(self.secondary_index)
+            .map(|p| p.name == crate::model::GENERATOR_NAME)
+            .unwrap_or(false);
+        if is_generator {
+            self.intervals_input = arpeggio::random(&mut self.rng).join(" ");
+        }
+    }
+
     /// Draws a new order of tones and a new string hint. Called on every chord
     /// change - never per frame, or the target would move while playing.
     fn reroll(&mut self) {
@@ -265,9 +292,20 @@ impl MyApp {
             self.intervals_input = self.saved_intervals_input.clone();
         }
 
+        if self.app_mode == AppMode::Arpeggios {
+            self.saved_arpeggio_index = self.secondary_index;
+        }
+
         self.app_mode = new_mode;
         self.selected_library_idx = 0;
-        self.secondary_index = 0; 
+        // Scales use this for the key and start from C; Arpeggios use it for the
+        // pattern, and coming back should land on the one you picked - which for
+        // the generator means a freshly built phrase, not the first fixed one.
+        self.secondary_index = if new_mode == AppMode::Arpeggios {
+            self.saved_arpeggio_index
+        } else {
+            0
+        };
         self.reload_library_content();
     }
 
@@ -322,6 +360,7 @@ impl MyApp {
                 self.randomize_region();
             }
         }
+        self.regenerate_arpeggio();
         self.reset_logic_state();
     }
 
@@ -437,7 +476,11 @@ impl MyApp {
                 self.match_status = MatchStatus::None;
             }
             if self.success_timer > self.transition_delay {
-                self.next_fret_target();
+                if self.paused {
+                    self.success_timer = self.transition_delay;
+                } else {
+                    self.next_fret_target();
+                }
             }
             return;
         }
@@ -518,8 +561,15 @@ impl MyApp {
                     self.success_timer = (self.success_timer - dt * 4.0).max(0.0);
                 }
                 
-                if self.success_timer > self.transition_delay { 
-                    self.advance_chord(); 
+                if self.success_timer > self.transition_delay {
+                    if self.paused {
+                        // Hold the timer at the threshold: it would otherwise
+                        // grow for as long as the pause lasts and the next chord
+                        // would jump the moment play resumes.
+                        self.success_timer = self.transition_delay;
+                    } else {
+                        self.advance_chord();
+                    }
                 }
             },
             
@@ -539,8 +589,11 @@ impl MyApp {
 
                 if note_match { self.success_timer += dt; } else { self.success_timer = 0.0; }
 
-                let note_delay = 0.12; 
-                if self.success_timer > note_delay {
+                let note_delay = 0.12;
+                if self.paused && self.success_timer > note_delay {
+                    self.success_timer = note_delay;
+                }
+                if !self.paused && self.success_timer > note_delay {
                     if self.current_note_step < self.collected_notes.len() {
                         self.collected_notes[self.current_note_step] = true;
                     }
@@ -578,6 +631,8 @@ impl MyApp {
         } else {
             (self.current_chord_index + 1) % self.chords.len()
         };
+        // A finished pass earns a new phrase when the generator is selected.
+        self.regenerate_arpeggio();
         self.reroll();
         self.update_collected_notes_size();
     }
@@ -750,6 +805,113 @@ pub(crate) mod tests {
         assert_eq!(a.secondary_index, sec, "the arpeggio pattern was changed behind our back");
     }
 
+    /// Pause must stop progression WITHOUT stopping the feedback - the whole
+    /// point is to sit on one chord and keep seeing whether it is right.
+    #[test]
+    fn pause_holds_the_chord_but_keeps_scoring() {
+        let mut a = app();
+        // Straight to the field: set_mode would reload the library and replace
+        // the test chords. The default mode is Fretboard, which never reaches
+        // the chord branch at all.
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.paused = true;
+        a.transition_delay = 0.05;
+        let start = a.current_chord_index;
+        for _ in 0..40 {
+            a.check_progress_with_ai(0.1, "C Maj7", 0.99);
+        }
+        assert_eq!(a.current_chord_index, start, "paused, yet it moved on");
+        assert_eq!(a.match_status, MatchStatus::Exact, "paused stopped the colours too");
+    }
+
+    /// The timer must not keep running while paused, or the next chord would
+    /// jump the instant play resumes.
+    #[test]
+    fn pause_does_not_bank_up_progress() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.transition_delay = 0.05;
+        a.paused = true;
+        for _ in 0..100 { a.check_progress_with_ai(0.1, "C Maj7", 0.99); }
+        assert!(a.success_timer <= a.transition_delay + 1e-6,
+                "timer ran up to {} while paused", a.success_timer);
+        let start = a.current_chord_index;
+        a.paused = false;
+        a.check_progress_with_ai(0.1, "C Maj7", 0.99);
+        assert_ne!(a.current_chord_index, start, "did not resume after unpausing");
+    }
+
+    #[test]
+    fn pause_freezes_the_fretboard_target() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        a.paused = true;
+        a.transition_delay = 0.05;
+        a.note_threshold = 0.5;
+        let target = a.fret_target.unwrap();
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[target] = 1.0;
+        for _ in 0..40 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        assert_eq!(a.fret_target, Some(target), "paused, yet it drew a new note");
+    }
+
+    /// Feeds the note the exercise is currently asking for, once.
+    fn play_current_note(a: &mut MyApp, dt: f32) {
+        let chord = a.chords[a.current_chord_index].clone();
+        let steps = a.ordered_active_indices(&chord);
+        let targets = chord.get_target_indices();
+        if let Some(step) = steps.get(a.current_note_step) {
+            let pc = targets[step.degree] % 12;
+            a.last_pitches = [0.0; 12];
+            a.last_pitches[pc] = 1.0;
+        }
+        a.check_progress_with_ai(dt, "Noise", 0.0);
+    }
+
+    /// Scales: the key is drawn afresh once the whole scale has been played.
+    #[test]
+    fn scales_change_key_after_the_scale_is_finished() {
+        let mut a = scales_app();
+        a.set_random_mode(true);
+        a.note_threshold = 0.5;
+        let first = a.chords[0].root as usize;
+        let steps = a.ordered_active_indices(&a.chords[0].clone()).len();
+        for _ in 0..steps { play_current_note(&mut a, 0.5); }
+        assert_ne!(a.chords[0].root as usize, first, "the key did not move after a full pass");
+    }
+
+    /// Paused, the step never completes, so the scale never finishes and the key
+    /// stays put. This is the chain the pause button relies on.
+    #[test]
+    fn paused_scales_keep_their_key_and_their_step() {
+        let mut a = scales_app();
+        a.set_random_mode(true);
+        a.note_threshold = 0.5;
+        a.paused = true;
+        let key = a.chords[0].root as usize;
+        let step = a.current_note_step;
+        for _ in 0..200 { play_current_note(&mut a, 0.5); }
+        assert_eq!(a.current_note_step, step, "paused, yet it stepped through the scale");
+        assert_eq!(a.chords[0].root as usize, key, "paused, yet the key changed");
+    }
+
+    /// ...and unpausing lets it run again.
+    #[test]
+    fn unpausing_lets_the_scale_finish() {
+        let mut a = scales_app();
+        a.set_random_mode(true);
+        a.note_threshold = 0.5;
+        a.paused = true;
+        for _ in 0..50 { play_current_note(&mut a, 0.5); }
+        let key = a.chords[0].root as usize;
+        a.paused = false;
+        let steps = a.ordered_active_indices(&a.chords[0].clone()).len();
+        for _ in 0..steps { play_current_note(&mut a, 0.5); }
+        assert_ne!(a.chords[0].root as usize, key, "still stuck after unpausing");
+    }
+
     #[test]
     fn hint_appears_only_with_randomisation() {
         let mut a = app();
@@ -841,5 +1003,112 @@ mod fretboard_mode_tests {
         a.transition_delay = 0.05;
         a.check_progress_with_ai(0.1, "Noise", 0.0);
         assert_ne!(a.fret_target, Some(target), "a played note did not advance");
+    }
+}
+
+#[cfg(test)]
+mod generator_tests {
+    use super::tests::*;
+    use super::*;
+
+    fn pick_generator(a: &mut MyApp) {
+        a.set_mode(AppMode::Arpeggios as i32);
+        let idx = a.arpeggio_patterns.iter()
+            .position(|p| p.name == crate::model::GENERATOR_NAME)
+            .expect("generator entry missing from the arpeggio list");
+        a.secondary_item_selected(idx as i32);
+    }
+
+    /// The generator sits last, after the hand-written phrases.
+    #[test]
+    fn generator_is_the_last_entry() {
+        let a = app();
+        let last = a.arpeggio_patterns.last().expect("no arpeggio patterns");
+        assert_eq!(last.name, crate::model::GENERATOR_NAME);
+    }
+
+    /// Selecting it must replace the placeholder with a real phrase.
+    #[test]
+    fn selecting_the_generator_builds_a_phrase() {
+        let mut a = app();
+        pick_generator(&mut a);
+        let n = a.intervals_input.split_whitespace().count();
+        assert!(n >= 8, "phrase of only {n} steps: {:?}", a.intervals_input);
+    }
+
+    /// A new phrase after every pass - that is the whole point of the entry.
+    #[test]
+    fn each_pass_brings_a_different_phrase() {
+        let mut a = app();
+        pick_generator(&mut a);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..30 {
+            seen.insert(a.intervals_input.clone());
+            a.advance_chord();
+        }
+        assert!(seen.len() > 3, "only {} distinct phrases in 30 passes", seen.len());
+    }
+
+    /// The fixed patterns must be left alone.
+    #[test]
+    fn hand_written_patterns_are_not_regenerated() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.secondary_item_selected(0);
+        let first = a.intervals_input.clone();
+        for _ in 0..10 { a.advance_chord(); }
+        assert_eq!(a.intervals_input, first, "a fixed pattern was overwritten");
+    }
+
+    /// Leaving the mode and coming back keeps the generator selected AND brings
+    /// a new phrase - both halves matter, and the selection half was broken:
+    /// set_mode zeroed the pattern index.
+    #[test]
+    fn leaving_and_returning_regenerates() {
+        let mut a = app();
+        pick_generator(&mut a);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..30 {
+            seen.insert(a.intervals_input.clone());
+            a.set_mode(AppMode::Chords as i32);
+            a.set_mode(AppMode::Arpeggios as i32);
+            assert_eq!(
+                a.arpeggio_patterns[a.secondary_index].name,
+                crate::model::GENERATOR_NAME,
+                "the generator selection was lost on the way back"
+            );
+        }
+        assert!(seen.len() > 3, "only {} distinct phrases across 30 round trips", seen.len());
+    }
+
+    /// A fixed pattern must survive the round trip too, unchanged.
+    #[test]
+    fn a_fixed_pattern_survives_the_round_trip() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.secondary_item_selected(1);
+        let name = a.arpeggio_patterns[1].name.clone();
+        let phrase = a.intervals_input.clone();
+        a.set_mode(AppMode::Scales as i32);
+        a.set_mode(AppMode::Arpeggios as i32);
+        assert_eq!(a.arpeggio_patterns[a.secondary_index].name, name);
+        assert_eq!(a.intervals_input, phrase, "a fixed pattern changed on the way back");
+    }
+
+    /// Whatever it builds has to be playable by the exercise logic.
+    #[test]
+    fn generated_phrases_drive_the_exercise() {
+        let mut a = app();
+        pick_generator(&mut a);
+        for _ in 0..20 {
+            let chord = a.chords[a.current_chord_index].clone();
+            let steps = a.ordered_active_indices(&chord);
+            assert!(!steps.is_empty(), "phrase {:?} yielded no steps", a.intervals_input);
+            let names = chord.quality.interval_names();
+            for s in &steps {
+                assert!(s.degree < names.len(), "step points past the chord");
+            }
+            a.advance_chord();
+        }
     }
 }

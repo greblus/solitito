@@ -13,7 +13,12 @@ DSP, inference, UI — happens locally on the CPU. No network, no cloud, no acco
 
 <div align="center">
 <img width="340" alt="Solitito main window" src="docs/solitito_main.png" />
+<img width="340" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
 </div>
+
+Chord shapes are labelled with **degrees, not fingerings**, so one diagram covers
+all twelve keys: the red dot is the root, and the shape moves. Thumbnails sit
+under the chord name; clicking one enlarges it.
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
 trainer I use daily. Solo does far more, and does it well. This started as a question about
@@ -38,7 +43,16 @@ chord, the app moves on to the next one.
 - **Intervals** — play the chord tones one at a time. You choose which degrees to practise
   (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings).
 - **Scales** — sequential note practice from a scale definition.
-- **Arpeggios** — chord tones in sequence over a progression.
+- **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
+  pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
+  builds a fresh one after every pass.
+- **Fretboard** — a region of the neck is drawn at random (a set of strings, four frets) and
+  held; you are asked for notes that live inside it. For learning where the notes are in one
+  hand position.
+
+A shuffle toggle randomises the order — chords in a standard, the tones inside each chord,
+and in Scales the key as well. A pause button freezes progression while the colours keep
+reporting whether the chord is right, so you can sit on one shape and work it out.
 
 Songs and scales are plain text files, so you can add your own.
 

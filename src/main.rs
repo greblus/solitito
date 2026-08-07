@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod model;
+mod arpeggio;
 mod audio;
 mod brain;
+mod diagrams;
 mod fretboard;
 mod i18n;
 mod latch;
@@ -27,6 +29,58 @@ use state::{MyApp, AppMode, MatchStatus};
 use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
 
 slint::include_modules!();
+
+// Compiled in for the same reason as the chord shapes: no loose asset files to
+// lose in a release package. Black on transparent, recoloured by Slint.
+const ICON_SHUFFLE: &str = include_str!("icons/shuffle.svg");
+const ICON_GEAR: &str = include_str!("icons/gear.svg");
+const ICON_PAUSE: &str = include_str!("icons/pause.svg");
+const ICON_PLAY: &str = include_str!("icons/play.svg");
+
+fn svg_icon(src: &str) -> slint::Image {
+    slint::Image::load_from_svg_data(src.as_bytes()).unwrap_or_default()
+}
+
+/// Everything the settings panel can change, for telling "touched" from
+/// "untouched". The gear lights up only when the current values differ from the
+/// ones the app started with - lighting it merely because the panel is open said
+/// nothing the open panel did not already say.
+#[derive(Clone, PartialEq)]
+struct SettingsSnapshot {
+    gate_db: f32,
+    chord_confidence: f32,
+    note_threshold: f32,
+    delay: f32,
+    boost_gain: f32,
+    boost_enabled: bool,
+    lock_quality: bool,
+    random_enabled: bool,
+    show_diagrams: bool,
+    ai_debug: bool,
+    startup_mode: i32,
+    language: i32,
+    intervals: String,
+}
+
+impl SettingsSnapshot {
+    fn read(ui: &AppWindow) -> Self {
+        Self {
+            gate_db: ui.get_gate_db(),
+            chord_confidence: ui.get_chord_confidence(),
+            note_threshold: ui.get_note_threshold(),
+            delay: ui.get_delay(),
+            boost_gain: ui.get_boost_gain(),
+            boost_enabled: ui.get_boost_enabled(),
+            lock_quality: ui.get_lock_quality(),
+            random_enabled: ui.get_random_enabled(),
+            show_diagrams: ui.get_show_diagrams(),
+            ai_debug: ui.get_ai_debug_visible(),
+            startup_mode: ui.get_startup_mode(),
+            language: ui.get_language_idx(),
+            intervals: ui.get_interval_input_text().to_string(),
+        }
+    }
+}
 
 #[derive(Clone, Default)]
 struct AiResult {
@@ -190,11 +244,21 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_current_mode(app.app_mode as i32); 
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
+        ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
+        ui.set_icon_gear(svg_icon(ICON_GEAR));
+        ui.set_icon_pause(svg_icon(ICON_PAUSE));
+        ui.set_icon_play(svg_icon(ICON_PLAY));
         apply_language(&ui, lang);
         ui.set_interval_input_text(app.intervals_input.clone().into()); 
     }
 
     ui.window().set_position(PhysicalPosition::new(450, 10));
+
+    // Taken after the initial set_* calls, so persisted settings count as the
+    // baseline rather than as a change. Retaken when the panel closes: the mark
+    // is feedback that an edit registered, not a permanent badge.
+    let mut baseline = SettingsSnapshot::read(&ui);
+    let mut settings_were_open = false;
 
     let timer = Timer::default();
     let app_clone = my_app.clone();
@@ -218,6 +282,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // swaps the whole strip, and that is a restart too - without this the first
     // slide into place would crawl at the page-turn speed.
     let mut last_interval_len: i32 = 0;
+    // Rasterising the SVGs is not free and the shapes only change when the chord
+    // QUALITY does, which is far less often than every frame.
+    let mut last_diagram_key = String::new();
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
@@ -238,6 +305,18 @@ fn main() -> Result<(), slint::PlatformError> {
         app.note_threshold = ui.get_note_threshold();
         app.transition_delay = ui.get_delay();
         app.set_random_mode(ui.get_random_enabled());
+        // The fretboard trainer hides the pause button, so a pause carried over
+        // from another mode would freeze it with nothing on screen to explain why.
+        if app.app_mode == AppMode::Fretboard && ui.get_paused() {
+            ui.set_paused(false);
+        }
+        app.paused = ui.get_paused();
+        let settings_open = ui.get_show_settings();
+        if settings_were_open && !settings_open {
+            baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark
+        }
+        settings_were_open = settings_open;
+        ui.set_settings_touched(settings_open && SettingsSnapshot::read(&ui) != baseline);
         
         let ui_txt = ui.get_interval_input_text().to_string();
         if ui_txt != app.intervals_input {
@@ -353,6 +432,20 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             ui.set_start_hint(hint.into());
 
+            // Shapes depend on the quality alone - the diagram is movable, the
+            // root only decides which fret to put it on.
+            let q_key = curr_chord.quality.to_string();
+            if q_key != last_diagram_key {
+                last_diagram_key = q_key;
+                let imgs: Vec<slint::Image> = diagrams::for_quality(&curr_chord.quality)
+                    .iter()
+                    .filter_map(|d| slint::Image::load_from_svg_data(d.svg.as_bytes()).ok())
+                    .collect();
+                ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(imgs))));
+                // A shape left open would belong to the previous chord.
+                ui.set_diagram_zoom(-1);
+            }
+
             if app.app_mode == AppMode::Chords {
                 match app.match_status {
                     MatchStatus::Exact => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(50, 255, 50))), 
@@ -405,24 +498,33 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             }
             
-            let spec_vec: Vec<f32> = spectrum_vis.to_vec();
-            let mut spec_colors = Vec::new();
-            
-            let targets = curr_chord.get_target_indices();
-            for i in 0..48 {
-                let note_idx = (i + 40) % 12; 
-                let val = spectrum_vis[i];
-                let is_target = targets.contains(&note_idx);
-                let color = if val > 0.05 { 
-                    if is_target { Color::from_rgb_u8(50, 255, 100) } else { Color::from_rgb_u8(255, 50, 50) }
-                } else {
-                    if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } else { Color::from_rgb_u8(30, 30, 30) }
-                };
-                spec_colors.push(color);
-            }
-            ui.set_spectrum_data(ModelRc::from(Rc::new(VecModel::from(spec_vec))));
-            ui.set_spectrum_colors(ModelRc::from(Rc::new(VecModel::from(spec_colors))));
         }
+
+        // Outside the branch above on purpose. It used to sit inside the "chord
+        // mode with a song loaded" arm, so the fretboard trainer - which carries
+        // no chords at all - never pushed a frame and the spectrum froze while
+        // the model kept predicting. That was the "sometimes it does not draw".
+        let targets: Vec<usize> = match app.app_mode {
+            AppMode::Fretboard => app.fret_target.into_iter().collect(),
+            _ => app.chords.get(app.current_chord_index)
+                    .map(|c| c.get_target_indices())
+                    .unwrap_or_default(),
+        };
+        let spec_vec: Vec<f32> = spectrum_vis.to_vec();
+        let mut spec_colors = Vec::new();
+        for i in 0..48 {
+            let note_idx = (i + 40) % 12;
+            let val = spectrum_vis[i];
+            let is_target = targets.contains(&note_idx);
+            let color = if val > 0.05 {
+                if is_target { Color::from_rgb_u8(50, 255, 100) } else { Color::from_rgb_u8(255, 50, 50) }
+            } else {
+                if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } else { Color::from_rgb_u8(30, 30, 30) }
+            };
+            spec_colors.push(color);
+        }
+        ui.set_spectrum_data(ModelRc::from(Rc::new(VecModel::from(spec_vec))));
+        ui.set_spectrum_colors(ModelRc::from(Rc::new(VecModel::from(spec_colors))));
     });
 
     let app_weak = my_app.clone();
@@ -455,23 +557,26 @@ fn main() -> Result<(), slint::PlatformError> {
         app.set_mode(mode_idx);
         ui.set_current_mode(mode_idx);
         ui.set_interval_input_text(app.intervals_input.clone().into());
+        let t = i18n::strings(lang);
         let (label, items, sec_label, sec_items) = match app.app_mode {
             AppMode::Scales => (
-                "Select Scale:", app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
-                "Key (Root):", keys_list_clone.clone()
+                t.select_scale, app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
+                t.key_root, keys_list_clone.clone()
             ),
             AppMode::Arpeggios => (
-                "Select Song:", app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
-                "Pattern:", app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
+                t.select_song, app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
+                t.pattern, app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
             ),
-            _ => ("Select Song:", app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(), "", vec![]),
+            _ => (t.select_song, app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(), "", vec![]),
         };
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
         ui.set_current_item_index(0);
         ui.set_secondary_label(sec_label.into());
         ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
-        ui.set_current_secondary_index(0);
+        // Not a hard 0: returning to Arpeggios restores the pattern that was
+        // chosen, and the combo has to say so.
+        ui.set_current_secondary_index(app.secondary_index as i32);
     });
 
     let app_weak_2 = my_app.clone();
@@ -522,6 +627,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_bass_boost(t.bass_boost.into());
     g.set_lock_quality(t.lock_quality.into());
     g.set_random_order(t.random_order.into());
+    g.set_show_diagrams(t.show_diagrams.into());
     g.set_random_hint(t.random_hint.into());
     g.set_fretboard(t.fretboard.into());
     g.set_startup_mode(t.startup_mode.into());
@@ -610,3 +716,6 @@ mod db_tests {
         assert!(lin_to_db(1e-9).is_finite());
     }
 }
+
+
+

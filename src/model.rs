@@ -69,7 +69,7 @@ pub struct ScaleDefinition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChordQuality {
-    Major7, Minor7, Dominant7, HalfDiminished,
+    Major7, Minor7, Dominant7, HalfDiminished, Diminished,
     CustomScale(ScaleDefinition),
 }
 
@@ -80,6 +80,9 @@ impl ChordQuality {
             ChordQuality::Minor7 => "m7".to_string(),
             ChordQuality::Dominant7 => "7".to_string(),
             ChordQuality::HalfDiminished => "m7b5".to_string(),
+            // "dim" is what brain.rs::quality_suffix emits, and state.rs matches
+            // the two as strings - they have to agree.
+            ChordQuality::Diminished => "dim".to_string(),
             ChordQuality::CustomScale(def) => def.name.clone(),
         }
     }
@@ -90,6 +93,8 @@ impl ChordQuality {
             ChordQuality::Minor7 => vec![0, 3, 7, 10],
             ChordQuality::Dominant7 => vec![0, 4, 7, 10],
             ChordQuality::HalfDiminished => vec![0, 3, 6, 10],
+            // bb7 is 9 semitones, not 10 - that is the whole difference from m7b5.
+            ChordQuality::Diminished => vec![0, 3, 6, 9],
             ChordQuality::CustomScale(def) => def.intervals.clone(),
         }
     }
@@ -100,6 +105,7 @@ impl ChordQuality {
             ChordQuality::Minor7 => vec!["1", "b3", "5", "b7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::Dominant7 => vec!["1", "3", "5", "b7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::HalfDiminished => vec!["1", "b3", "b5", "b7"].iter().map(|s| s.to_string()).collect(),
+            ChordQuality::Diminished => vec!["1", "b3", "b5", "bb7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::CustomScale(def) => def.names.clone(),
         }
     }
@@ -139,6 +145,18 @@ Two Octaves Up
 
 Two Octaves Down
 7' 5' 3' 1' 7 5 3 1
+
+Broken Thirds Up-Down
+1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1
+
+Up-Down, Approach from Below
+1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1
+
+Full Two Octaves, Leading Tone
+1 3 5 7 1' 3' 5' 7' 1'' 7' 5' 3' 1' 7 5 3 1 7, 1
+
+Triplet Sequence Up-Down
+1 3 5 3 5 7 5 7 1' 7 1' 3' 1' 3' 5' 3' 5' 3' 5' 7' 5' 7' 1'' 3'' 1'' 7' 5' 7' 5' 3' 5' 3' 1' 3' 1' 7 1' 7 5 7 5 7 5 3 5 3 1
 "#;
 
 const BUILTIN_SCALES_DEF: &str = r#"
@@ -351,8 +369,20 @@ pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
 }
 
 pub fn load_arpeggio_patterns() -> Vec<ScaleDefinition> {
-    parse_scale_definitions(ARPEGGIOS_PATTERNS_DEF)
+    let mut out = parse_scale_definitions(ARPEGGIOS_PATTERNS_DEF);
+    // Last in the list: not a fixed phrase but a fresh one every pass, built from
+    // the same vocabulary as the ones above it. The degrees here are only a
+    // placeholder - state.rs swaps them out on selection and after each pass.
+    out.push(ScaleDefinition {
+        name: GENERATOR_NAME.to_string(),
+        intervals: vec![0, 4, 7, 11],
+        names: vec!["1".into(), "3".into(), "5".into(), "7".into()],
+    });
+    out
 }
+
+/// Marks the generated entry in the arpeggio list.
+pub const GENERATOR_NAME: &str = "Generator (new phrase each pass)";
 
 pub fn load_songs() -> Vec<Song> {
     let mut all = Vec::new();
@@ -449,6 +479,9 @@ fn map_chord_quality(s: &str) -> ChordQuality {
         "m7" | "min7" | "-" | "-7" => ChordQuality::Minor7,
         "7" | "dom7" | "7b9" | "7#9" | "7alt" | "7b13" => ChordQuality::Dominant7,
         "m7b5" | "hdim" | "ø" => ChordQuality::HalfDiminished,
+        // Without this the diminished chords in the standards fell through to the
+        // catch-all and were taught as dominant sevenths.
+        "dim" | "dim7" | "o" | "o7" | "°" => ChordQuality::Diminished,
         _ => ChordQuality::Dominant7,
     }
 }

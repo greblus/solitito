@@ -34,10 +34,45 @@ component ModeButton inherits Rectangle {
     
     Text {
         text: root.text;
+        font-size: 12px;
         color: root.selected ? white : #aaa;
         font-weight: root.selected ? 700 : 400;
         vertical-alignment: center;
         horizontal-alignment: center;
+    }
+}
+
+/// Icon toggle. On = inverted: light plate, dark glyph. Off = outline only.
+/// The icons are monochrome black on transparent, so `colorize` recolours them.
+component IconToggle inherits Rectangle {
+    in property <image> icon;
+    in property <bool> active;
+    in property <bool> dim;          // translucent until pointed at
+    /// Light plate + dark glyph when active. Switch off where the icon itself
+    /// already carries the state, as pause/play does.
+    in property <bool> invert: true;
+    callback toggled();
+
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    border-width: 1px;
+    background: root.active && root.invert ? #e8e8e8 : transparent;
+    border-color: root.active && root.invert ? transparent : (touch.has-hover ? #666 : #3a3a3a);
+    opacity: root.dim && !root.active && !touch.has-hover ? 0.45 : 1.0;
+    animate opacity, background { duration: 120ms; }
+
+    Image {
+        source: root.icon;
+        colorize: root.active && root.invert ? #101010 : (touch.has-hover ? #ddd : #999);
+        width: 62%;
+        height: 62%;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    touch := TouchArea {
+        clicked => { root.toggled(); }
     }
 }
 
@@ -75,6 +110,7 @@ export global Tr {
     in-out property <string> bass_boost: "Bass Boost";
     in-out property <string> lock_quality: "Lock chord quality until new attack";
     in-out property <string> random_order: "Random order";
+    in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> fretboard: "Fretboard";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
     in-out property <string> startup_mode: "Startup mode: ";
@@ -111,6 +147,12 @@ export component AppWindow inherits Window {
     in property <string> ai_text: "";
     in property <string> next_chord: "";
     
+    // Chord shapes for the current quality, plus the root string each sits on.
+    in property <[image]> chord_diagrams;
+    in-out property <bool> show_diagrams: true;
+    /// Index of the shape shown enlarged, -1 for none.
+    in-out property <int> diagram_zoom: -1;
+
     in property <[string]> interval_names;
     /// Which step is being asked for; the strip scrolls to keep it centred.
     in property <int> interval_step: 0;
@@ -149,6 +191,17 @@ export component AppWindow inherits Window {
     in-out property <float> boost_gain: 5.0;
     
     in-out property <bool> random_enabled: false;
+    // Icons come from Rust so they can be compiled into the binary alongside the
+    // chord shapes rather than shipped as loose files.
+    in property <image> icon_shuffle;
+    in property <image> icon_gear;
+    /// True once any setting differs from what the app started with.
+    in property <bool> settings_touched: false;
+    in property <image> icon_pause;
+    in property <image> icon_play;
+    /// Freezes progression: colours still report the chord, the app just stops
+    /// moving on. For sitting on one shape and working it out.
+    in-out property <bool> paused: false;
     // Holds the recognised quality until the strings are struck again. A seventh
     // decays faster than the rest of the chord, so without this a held Gm7 turns
     // into Gm as it rings out.
@@ -183,8 +236,10 @@ export component AppWindow inherits Window {
             
             HorizontalLayout {
                 spacing: 5px;
-                width: 320px; 
-                height: 36px;
+                // 350px over five buttons is 65px each - enough for "Interwały"
+                // at 12px. At the old 320px the longer labels were clipped.
+                width: 350px;
+                height: 34px;
                 ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 20%; clicked => { root.mode_changed(4); } }
                 ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 20%; clicked => { root.mode_changed(0); } }
                 ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 20%; clicked => { root.mode_changed(1); } }
@@ -192,10 +247,26 @@ export component AppWindow inherits Window {
                 ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 20%; clicked => { root.mode_changed(3); } }
             }
 
-            Button {
-                text: root.show_settings ? Tr.close : Tr.settings;
-                height: 36px; 
-                clicked => { root.show_settings = !root.show_settings; }
+            // Same height as the mode row so the three line up on one axis.
+            // Hidden in the fretboard trainer, which draws its own region at
+            // random and has no order to shuffle.
+            IconToggle {
+                visible: root.current_mode != 4;
+                icon: root.icon_shuffle;
+                active: root.random_enabled;
+                width: 34px;
+                height: 34px;
+                toggled => { root.random_enabled = !root.random_enabled; }
+            }
+
+            // Icon only, same size as the shuffle toggle. Inverted while the
+            // panel is open, which is what the shuffle does for its own state.
+            IconToggle {
+                icon: root.icon_gear;
+                active: root.settings_touched;
+                width: 34px;
+                height: 34px;
+                toggled => { root.show_settings = !root.show_settings; }
             }
         }
 
@@ -259,20 +330,26 @@ export component AppWindow inherits Window {
                     }
 
                     Rectangle { height: 1px; background: #444; }
-                
-                    HorizontalLayout {
-                        Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
-                        LineEdit {
-                            text <=> root.interval_input_text;
-                            placeholder-text: Tr.intervals_placeholder;
-                        }
-                    }
-                    Text {
-                        text: Tr.intervals_hint;
-                        color: #666; font-size: 11px;
-                    }
 
-                    Rectangle { height: 1px; background: #444; }
+                    // Only the note modes walk the chord one degree at a time.
+                    // Chords checks the whole voicing and the fretboard trainer
+                    // has no chord at all, so the field steers nothing there.
+                    if root.current_mode == 1 || root.current_mode == 2
+                       || root.current_mode == 3 : VerticalLayout {
+                        spacing: 8px;
+                        HorizontalLayout {
+                            Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
+                            LineEdit {
+                                text <=> root.interval_input_text;
+                                placeholder-text: Tr.intervals_placeholder;
+                            }
+                        }
+                        Text {
+                            text: Tr.intervals_hint;
+                            color: #666; font-size: 11px;
+                        }
+                        Rectangle { height: 1px; background: #444; }
+                    }
 
                     HorizontalLayout {
                         spacing: 15px;
@@ -317,6 +394,7 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         spacing: 10px;
                         HorizontalLayout {
+                            spacing: 15px;
                             CheckBox { checked <=> root.boost_enabled; }
                             Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
                         }
@@ -326,6 +404,7 @@ export component AppWindow inherits Window {
                     }
 
                     HorizontalLayout {
+                        spacing: 15px;
                         CheckBox { checked <=> root.lock_quality; }
                         Text {
                             text: Tr.lock_quality;
@@ -334,9 +413,19 @@ export component AppWindow inherits Window {
                     }
 
                     HorizontalLayout {
+                        spacing: 15px;
                         CheckBox { checked <=> root.random_enabled; }
                         Text {
                             text: Tr.random_order;
+                            color: #aaa; vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 15px;
+                        CheckBox { checked <=> root.show_diagrams; }
+                        Text {
+                            text: Tr.show_diagrams;
                             color: #aaa; vertical-alignment: center;
                         }
                     }
@@ -412,6 +501,28 @@ export component AppWindow inherits Window {
                 horizontal-alignment: center;
             }
 
+            // Chords only: the note modes already carry an interval strip here,
+            // and two rows of information would fight for the same space.
+            if root.current_mode == 0 && root.show_diagrams
+               && root.chord_diagrams.length > 0 : HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+                for i in root.chord_diagrams.length : TouchArea {
+                    width: 112px;
+                    height: 104px;
+                    clicked => { root.diagram_zoom = i; }
+                    plate := Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        Image {
+                            source: root.chord_diagrams[i];
+                            image-fit: contain;
+                            width: 100%;
+                            height: 100%;
+                        }                    }
+                }
+            }
+
             if root.start_hint != "" : Text {
                 text: root.start_hint;
                 // In the fretboard trainer this line IS the exercise - it says
@@ -464,6 +575,26 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            // Last in the column so it sits below whatever the mode shows -
+            // under the interval strip in the note modes, under the shapes in
+            // Chords, under the position line in the fretboard trainer.
+            // The fretboard trainer has nothing to hold: the note is drawn at
+            // random and the region already stays put.
+            if root.current_mode != 4 : HorizontalLayout {
+                alignment: center;
+                IconToggle {
+                    icon: root.paused ? root.icon_play : root.icon_pause;
+                    active: root.paused;
+                    dim: true;
+                    // The glyph already says which state it is in; inverting the
+                    // plate as well made it read like a pressed toggle.
+                    invert: false;
+                    width: 68px;
+                    height: 68px;
+                    toggled => { root.paused = !root.paused; }
+                }
+            }
         }
         
         // STOPKA
@@ -480,4 +611,52 @@ export component AppWindow inherits Window {
             }
         }
     }
+
+    // Enlarged shape. Last sibling in the root, so it draws over everything.
+    // Clicking anywhere dismisses it - a shape is glanced at, not operated.
+    if root.diagram_zoom >= 0 && root.diagram_zoom < root.chord_diagrams.length : Rectangle {
+        // Explicit full-window size: this sits outside any layout, so without it
+        // the overlay would shrink to its content and stop being centred.
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #000000e0;
+        // Without the focus the FocusScope never sees a key press.
+        init => { zoom_keys.focus(); }
+
+        // Escape as well as a click - a shape is glanced at, not operated.
+        zoom_keys := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.diagram_zoom = -1;
+                    return accept;
+                }
+                reject
+            }
+        }
+
+        // Covers the window so a click anywhere dismisses the shape.
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.diagram_zoom = -1; }
+        }
+
+        // Placed by hand rather than through a layout: a VerticalLayout centres
+        // vertically only, so the shape sat left-aligned.
+        Rectangle {
+            width: min(parent.width * 0.86, parent.height * 0.62 * 429.10953 / 400);
+            height: self.width * 400 / 429.10953;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            Image {
+                source: root.chord_diagrams[root.diagram_zoom];
+                image-fit: contain;
+                width: 100%;
+                height: 100%;
+            }
+        }
+    }
+
 }
