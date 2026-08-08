@@ -61,10 +61,21 @@ impl ChordLatch {
         }
 
         if let Some(held) = &self.locked {
-            // A root change without a detected attack (legato, or an attack too
-            // quiet for the detector) must release too, otherwise the app would
-            // show the previous chord forever.
-            if root_of(chord) != root_of(held) && conf >= LOCK_MIN_CONF {
+            // The one thing the latch is for: the top note has died and the
+            // four-note chord now reads as its triad. Hold, however sure the
+            // model is - during the decay it reports the poorer quality at 94-96%.
+            if is_decay_of(held, chord) {
+                return held.clone();
+            }
+            // Anything else is a genuine change, not decay: a different root, or
+            // a different four-note chord on the same root. Take it once the
+            // model is sure.
+            //
+            // Only checking the root here was the bug: m7b5 differs from m7 by
+            // one note, so an early misread on the same root could never be
+            // corrected and the chord stayed stuck until the strings were struck
+            // again.
+            if conf >= LOCK_MIN_CONF && is_real(chord) {
                 self.locked = Some(chord.to_string());
                 return chord.to_string();
             }
@@ -96,6 +107,32 @@ fn root_of(chord: &str) -> &str {
     }
 }
 
+/// Quality part of a prediction: "A m7b5" -> "m7b5", a bare "A" -> "" (major).
+fn quality_of(chord: &str) -> &str {
+    let mut it = chord.split_whitespace();
+    match it.next() {
+        Some("Note") | None => "",
+        Some(_) => it.next().unwrap_or(""),
+    }
+}
+
+/// Four-note qualities, spelled as `brain::quality_suffix` writes them.
+fn is_four_note(q: &str) -> bool {
+    matches!(q, "Maj7" | "7" | "m7" | "m7b5" | "dim")
+}
+
+/// Is `now` simply what `held` sounds like once its top note has gone?
+///
+/// That is the only thing worth holding through. A four-note chord thinning to
+/// its triad on the same root is decay; a DIFFERENT four-note chord on that root
+/// is the model correcting itself, and blocking it leaves the player strumming
+/// at an app that will not budge.
+fn is_decay_of(held: &str, now: &str) -> bool {
+    root_of(held) == root_of(now)
+        && is_four_note(quality_of(held))
+        && !is_four_note(quality_of(now))
+}
+
 /// Is this a chord worth latching onto at all.
 fn is_real(chord: &str) -> bool {
     !chord.is_empty() && chord != "Noise" && chord != "..." && !chord.starts_with("Note")
@@ -119,6 +156,75 @@ mod tests {
                 "the latch must hold despite high confidence in the poorer quality"
             );
         }
+    }
+
+    /// Reported from play: an Am7b5 that the model recognises well refuses to
+    /// show up, and only the latch causes it.
+    ///
+    /// m7b5 differs from m7 by one note, so early in the ring the model can read
+    /// the poorer m7 and the latch takes it. From then on the root never changes,
+    /// so the ONLY release left is a fresh attack - and the correct reading,
+    /// however confident, cannot get through.
+    #[test]
+    fn a_confident_correction_on_the_same_root_gets_through() {
+        let mut l = ChordLatch::default();
+        // The model briefly reads the neighbouring quality and the latch takes it.
+        assert_eq!(l.update(true, 1, AFTER, "A m7", 0.72), "A m7");
+        // Now it settles on the right one, and stays sure of it.
+        for _ in 0..30 {
+            let shown = l.update(true, 1, AFTER + 20, "A m7b5", 0.93);
+            assert_eq!(
+                shown, "A m7b5",
+                "a different seventh on the same root is a correction, not decay"
+            );
+        }
+    }
+
+    /// The correction has to be CONVINCING. Letting any reading through would
+    /// be the same as switching the latch off.
+    #[test]
+    fn an_unconvincing_reading_does_not_dislodge_the_latch() {
+        let mut l = ChordLatch::default();
+        l.update(true, 1, AFTER, "A m7", 0.85);
+        for conf in [0.10, 0.35, 0.59] {
+            assert_eq!(l.update(true, 1, AFTER + 5, "A m7b5", conf), "A m7");
+        }
+    }
+
+    /// Decay stays held no matter how sure the model is - that is the whole
+    /// point, and it is what the diagnostic output showed at 94-96%.
+    #[test]
+    fn decay_is_held_even_at_full_confidence() {
+        for (rich, thin) in [("G m7", "G m"), ("C Maj7", "C"), ("D 7", "D"),
+                             ("B m7b5", "B m"), ("F dim", "F m")] {
+            let mut l = ChordLatch::default();
+            l.update(true, 1, AFTER, rich, 0.90);
+            assert_eq!(
+                l.update(true, 1, AFTER + 10, thin, 0.99), rich,
+                "{rich} thinning to {thin} is decay and must be held"
+            );
+        }
+    }
+
+    /// ...but a different four-note chord on the same root is a correction.
+    #[test]
+    fn a_different_seventh_is_a_correction_not_decay() {
+        for (held, corrected) in [("A m7", "A m7b5"), ("A m7b5", "A m7"),
+                                  ("C Maj7", "C 7"), ("G 7", "G m7")] {
+            let mut l = ChordLatch::default();
+            l.update(true, 1, AFTER, held, 0.80);
+            assert_eq!(
+                l.update(true, 1, AFTER + 10, corrected, 0.90), corrected,
+                "{held} -> {corrected} is a correction and must get through"
+            );
+        }
+    }
+
+    #[test]
+    fn quality_is_read_off_the_prediction() {
+        assert_eq!(quality_of("A m7b5"), "m7b5");
+        assert_eq!(quality_of("C"), "", "a bare root is the major triad");
+        assert_eq!(quality_of("Note F"), "");
     }
 
     #[test]
