@@ -22,11 +22,26 @@ pub struct Settings {
     /// UI language: 0 = from the system locale, 1 = Polish, 2 = English.
     #[serde(default)]
     pub language: i32,
+    /// Window size in PHYSICAL pixels, saved when the window closes. Physical
+    /// rather than logical because the logical size depends on the scale factor
+    /// the app itself sets from this - storing logical would make the size drift
+    /// a little on every restart. `None` means never saved: open at the design
+    /// size and let the window manager place it.
+    #[serde(default)]
+    pub window_w: Option<u32>,
+    #[serde(default)]
+    pub window_h: Option<u32>,
 }
+
+/// Anything outside this is a mistake, not a window: a saved size of 0 would
+/// open an invisible window with no way to grab it, and a huge one could land
+/// entirely off-screen. Both are unrecoverable without editing the file by hand.
+const SANE_WINDOW_PX: std::ops::RangeInclusive<u32> = 200..=20_000;
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { startup_mode: 4, language: 0 } // Fretboard, language from the system
+        // Fretboard, language from the system, window at its design size
+        Self { startup_mode: 4, language: 0, window_w: None, window_h: None }
     }
 }
 
@@ -46,6 +61,7 @@ impl Settings {
                     if !(0..3).contains(&s.language) {
                         s.language = 0;
                     }
+                    s.clamp_window();
                     println!("⚙️  Settings from {}", path.display());
                     s
                 }
@@ -55,6 +71,17 @@ impl Settings {
                 }
             },
             Err(_) => Self::default(),
+        }
+    }
+
+    /// Drops a saved window size that could not be honoured. Both axes go
+    /// together: half a size is not a size, and keeping one would open a window
+    /// with the saved height and a default width, which looks like a bug.
+    fn clamp_window(&mut self) {
+        let ok = |v: Option<u32>| v.is_some_and(|v| SANE_WINDOW_PX.contains(&v));
+        if !(ok(self.window_w) && ok(self.window_h)) {
+            self.window_w = None;
+            self.window_h = None;
         }
     }
 
@@ -112,6 +139,36 @@ mod tests {
         assert!(serde_json::from_str::<Settings>("{}").is_err(), "a missing field is an error");
         let ok: Settings = serde_json::from_str(r#"{"startup_mode":2}"#).unwrap();
         assert_eq!(ok.startup_mode, 2);
+    }
+
+    #[test]
+    fn window_size_survives_a_round_trip() {
+        let s = Settings { window_w: Some(900), window_h: Some(1200), ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!((back.window_w, back.window_h), (Some(900), Some(1200)));
+    }
+
+    #[test]
+    fn settings_from_before_this_feature_still_load() {
+        // Files written by 0.3.0 have no window keys at all. They must open at
+        // the design size, not fail to parse and drop the user's mode as well.
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert_eq!(old.startup_mode, 4);
+        assert_eq!((old.window_w, old.window_h), (None, None));
+    }
+
+    #[test]
+    fn an_unusable_window_size_is_dropped_whole() {
+        // A zero width would open a window with nothing to grab. Half a saved
+        // size is no better than none, so both axes go together.
+        for (w, h) in [(Some(0), Some(800)), (Some(900), None), (Some(90_000), Some(800))] {
+            let mut s = Settings { window_w: w, window_h: h, ..Settings::default() };
+            s.clamp_window();
+            assert_eq!((s.window_w, s.window_h), (None, None), "{w:?}x{h:?} should be dropped");
+        }
+        let mut ok = Settings { window_w: Some(900), window_h: Some(1200), ..Settings::default() };
+        ok.clamp_window();
+        assert_eq!((ok.window_w, ok.window_h), (Some(900), Some(1200)), "a sane size is kept");
     }
 
     #[test]

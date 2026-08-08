@@ -130,9 +130,31 @@ export global Tr {
 
 export component AppWindow inherits Window {
     title: "Solitito";
-    width: 550px;
-    height: 800px; 
+    /// The size the UI is laid out at, whatever the window size. Resizing sets
+    /// the window's scale factor to fit this box, so the UI zooms instead of
+    /// reflowing and the proportions are the ones it was designed with. Rust
+    /// reads these to compute that factor, so the numbers live only here.
+    out property <length> design_w: 550px;
+    out property <length> design_h: 800px;
+
+    // preferred-*, not width/height: a fixed width and height makes the window
+    // non-resizable.
+    preferred-width: root.design_w;
+    preferred-height: root.design_h;
+    // Always satisfied, because `design` is scaled to fit rather than reflowed:
+    // the logical size can never fall below the design size. It is here so the
+    // backend derives a physical minimum from the current scale factor, which
+    // is what actually stops the window shrinking into unreadability.
+    min-width: root.design_w;
+    min-height: root.design_h;
     background: #000000;
+
+    /// Emitted when the window changes size, so Rust can recompute the scale
+    /// factor. Reading the size back from Rust rather than passing it keeps the
+    /// physical/logical distinction in one place.
+    callback window_resized();
+    changed width => { root.window_resized(); }
+    changed height => { root.window_resized(); }
     
     default-font-family: "Noto Sans"; 
 
@@ -227,6 +249,15 @@ export component AppWindow inherits Window {
     callback secondary_item_selected(int); 
 
     VerticalLayout {
+        // Explicit design-sized geometry rather than filling the window. The
+        // scale factor already makes this box as large as the window allows;
+        // when the window's aspect ratio differs from the design's, the slack
+        // is left over on one axis and the box is centred in it. Against a
+        // black background that reads as the window simply having margins.
+        width: root.design_w;
+        height: root.design_h;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
         padding: 15px;
         spacing: 15px;
 

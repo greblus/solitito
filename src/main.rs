@@ -14,6 +14,7 @@ mod state;
 
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
@@ -26,7 +27,7 @@ use i18n::Lang;
 use settings::Settings;
 use state::{MyApp, AppMode, MatchStatus};
 
-use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition};
+use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition, PhysicalSize};
 
 slint::include_modules!();
 
@@ -36,6 +37,49 @@ const ICON_SHUFFLE: &str = include_str!("icons/shuffle.svg");
 const ICON_GEAR: &str = include_str!("icons/gear.svg");
 const ICON_PAUSE: &str = include_str!("icons/pause.svg");
 const ICON_PLAY: &str = include_str!("icons/play.svg");
+
+/// How far the UI may be scaled from its design size. The floor is where the
+/// smallest labels stop being readable, and below it the window stops shrinking
+/// too, because `min-width`/`min-height` in the .slint file are in logical
+/// pixels and the backend turns them into a physical minimum using this factor.
+/// The ceiling only guards against a nonsense window size; nothing needs it.
+const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
+
+/// Sets the window's scale factor so the fixed-size UI fills as much of the
+/// window as it can without distortion.
+///
+/// This is the whole of the resizing behaviour. Nothing in the UI is written in
+/// relative units: the layout is drawn at `design_w` x `design_h` and the scale
+/// factor - the same knob a HiDPI screen turns - zooms it. So the proportions
+/// are fixed by construction, text and the SVG shapes are re-rendered sharp at
+/// the new size rather than stretched, and the leftover slack on one axis
+/// becomes a black margin.
+///
+/// The factor is derived from the PHYSICAL size, which the scale factor does not
+/// affect, so setting it cannot feed back into another resize.
+fn fit_ui_to_window(ui: &AppWindow) {
+    let size = ui.window().size();
+    // Before the window is mapped, and when minimised on some platforms.
+    if size.width == 0 || size.height == 0 {
+        return;
+    }
+    // `design_*` are lengths in logical pixels, which at this point means the
+    // design units themselves - that is what makes them the right divisor.
+    let scale = (size.width as f32 / ui.get_design_w())
+        .min(size.height as f32 / ui.get_design_h())
+        .clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end());
+    ui.window()
+        .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: scale });
+    // Required, and not obvious: changing the scale factor does not restate the
+    // window's LOGICAL size, so the root item keeps the size it had under the
+    // old factor. Slint says as much - `event_loop.rs` carries a TODO to send
+    // this event itself. Without it `root.width` is stale, the centring below
+    // the layout is computed from the wrong number, and the UI sits offset in
+    // the window at the wrong size.
+    ui.window().dispatch_event(slint::platform::WindowEvent::Resized {
+        size: slint::LogicalSize::new(size.width as f32 / scale, size.height as f32 / scale),
+    });
+}
 
 fn svg_icon(src: &str) -> slint::Image {
     slint::Image::load_from_svg_data(src.as_bytes()).unwrap_or_default()
@@ -253,6 +297,72 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     ui.window().set_position(PhysicalPosition::new(450, 10));
+
+    // The single live copy of the settings. Each closure below used to write a
+    // clone taken at startup, so saving one setting rewrote the others with
+    // their values from launch time - changing the mode and then the language
+    // silently reverted the mode. They now all edit this.
+    let live_cfg = Rc::new(RefCell::new(cfg.clone()));
+
+    // Restoring the size has to wait for the event loop. The window does not
+    // exist until then - `show()` only queues its creation - and a size set
+    // before it exists is dropped, leaving the window at its preferred size.
+    // Verified on this machine: setting it any earlier had no effect at all.
+    // Held for as long as the window lives, or the timer is dropped and never
+    // fires. The closure only gets a weak handle, so it can stop itself.
+    let _restore_size = Rc::new(Timer::default());
+    if let (Some(w), Some(h)) = (cfg.window_w, cfg.window_h) {
+        let uw = ui.as_weak();
+        let timer = Rc::downgrade(&_restore_size);
+        let give_up_at = std::time::Instant::now() + Duration::from_secs(3);
+        // Asking once is not enough. Slint sizes the window from the layout's
+        // preferred size during its first pass, which lands after the event loop
+        // has already started and overwrites anything set before it - measured
+        // here at somewhere between 300ms and 600ms after launch. So ask
+        // repeatedly and stop as soon as it holds, rather than sleeping for a
+        // guessed interval that a slower machine would miss.
+        _restore_size.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let now = ui.window().size();
+            // Two ways out, because a window manager is entitled to refuse: the
+            // size took, or it has had long enough that it never will. Without
+            // the deadline a tiling WM would leave this firing forever.
+            if (now.width, now.height) == (w, h) || std::time::Instant::now() > give_up_at {
+                if let Some(timer) = timer.upgrade() {
+                    timer.stop();
+                }
+                return;
+            }
+            ui.window().set_size(PhysicalSize::new(w, h));
+            fit_ui_to_window(&ui);
+        });
+    }
+    fit_ui_to_window(&ui);
+    {
+        let uw = ui.as_weak();
+        ui.on_window_resized(move || {
+            if let Some(ui) = uw.upgrade() {
+                fit_ui_to_window(&ui);
+            }
+        });
+    }
+
+    // On close rather than on every resize: dragging an edge produces a stream
+    // of sizes, and only the last one is the answer.
+    {
+        let uw = ui.as_weak();
+        let cfg = live_cfg.clone();
+        ui.window().on_close_requested(move || {
+            if let Some(ui) = uw.upgrade() {
+                let size = ui.window().size();
+                let mut cfg = cfg.borrow_mut();
+                cfg.window_w = Some(size.width);
+                cfg.window_h = Some(size.height);
+                cfg.save();
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+    }
 
     // Taken after the initial set_* calls, so persisted settings count as the
     // baseline rather than as a change. Retaken when the panel closes: the mark
@@ -534,16 +644,22 @@ fn main() -> Result<(), slint::PlatformError> {
     // Saved immediately - there is no "Save" button, so the setting has to survive
     // closing the window without an extra step.
     {
-        let cur = cfg.clone();
+        let cur = live_cfg.clone();
         ui.on_startup_mode_changed(move |mode_idx| {
-            Settings { startup_mode: mode_idx, ..cur.clone() }.save();
+            let mut cur = cur.borrow_mut();
+            cur.startup_mode = mode_idx;
+            cur.save();
         });
     }
     {
-        let cur = cfg.clone();
+        let cur = live_cfg.clone();
         let uw = ui.as_weak();
         ui.on_language_changed(move |idx| {
-            Settings { language: idx, ..cur.clone() }.save();
+            {
+                let mut cur = cur.borrow_mut();
+                cur.language = idx;
+                cur.save();
+            }
             // Strings are swapped immediately; no restart needed.
             if let Some(ui) = uw.upgrade() {
                 apply_language(&ui, Lang::from_setting(idx));
