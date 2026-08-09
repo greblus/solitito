@@ -77,6 +77,29 @@ pub struct MyApp {
     pub note_threshold: f32,
     
     pub match_status: MatchStatus,
+    /// Judge a strum on its best reading instead of on how long it is held.
+    ///
+    /// A chord struck and released - a chick - is right or wrong within a few
+    /// frames of the attack, and then it simply stops ringing. The hold timer
+    /// cannot tell that from a wrong chord: both stop feeding it, and it drains.
+    /// With this on, one reading of the target above the confidence threshold
+    /// between two attacks is enough, and no later frame in the same strum can
+    /// take it back. Wrong chords still fail, because their best reading after
+    /// the attack is a different chord.
+    pub short_verdict: bool,
+    /// The chord shown before this one, so the strip along the bottom can show
+    /// what was just played. `None` until something has been.
+    pub prev_chord_index: Option<usize>,
+    /// HOW that previous chord was passed, or `None` if it was stepped over.
+    ///
+    /// Feedback for a pass cannot go on the current chord: passing changes which
+    /// chord that is, so lighting it marks the one not played yet - which is
+    /// what it did, confusingly. It belongs on the chord that earned it, and it
+    /// can stay there: the next pass moves it along, so there is nothing to time
+    /// out. The status and not just a flag, because a chord passed on a triad or
+    /// a substitution went yellow on the way through and saying green afterwards
+    /// would be a nicer report than what happened.
+    prev_status: MatchStatus,
     
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
@@ -153,6 +176,9 @@ impl MyApp {
             note_threshold: 0.60,
             
             match_status: MatchStatus::None,
+            short_verdict: false,
+            prev_chord_index: None,
+            prev_status: MatchStatus::None,
             
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
@@ -464,6 +490,7 @@ impl MyApp {
     }
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
+
         // The fretboard trainer has no song, so it runs before the chord guard.
         if self.app_mode == AppMode::Fretboard {
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
@@ -539,6 +566,20 @@ impl MyApp {
                     }
                 }
                 
+                // Green means the target chord was heard, clearly enough to be
+                // trusted - the same condition the bucket paints green on. With
+                // this on, that is the whole test: no waiting for it to be held,
+                // and no decay afterwards to undo it. Nothing runs away, because
+                // advancing changes the target and the chord still ringing stops
+                // matching it.
+                if self.short_verdict && exact_match && !is_weak_signal {
+                    self.match_status = MatchStatus::Exact;
+                    if !self.paused {
+                        self.advance_chord();
+                    }
+                    return;
+                }
+
                 // LEAKY BUCKET LOGIC
                 if exact_match {
                     if is_weak_signal {
@@ -608,7 +649,43 @@ impl MyApp {
         }
     }
 
+    /// Name of the chord at `index`, as the strip along the bottom shows it.
+    pub fn chord_label(&self, index: usize) -> String {
+        self.chords
+            .get(index)
+            .map(|c| format!("{} {}", c.root.to_string(), c.quality.to_string()))
+            .unwrap_or_default()
+    }
+
+    /// How the previous chord was passed - `None` means it was stepped over.
+    pub fn prev_status(&self) -> MatchStatus {
+        self.prev_status
+    }
+
+    /// Steps through the progression by hand, to go back to a chord that has
+    /// already gone by. Only useful while paused - playing would move it on
+    /// again at once - so the caller decides when to offer it.
+    pub fn step_chord(&mut self, delta: i32) {
+        if self.chords.is_empty() {
+            return;
+        }
+        let len = self.chords.len() as i32;
+        let now = self.current_chord_index as i32;
+        self.prev_chord_index = Some(self.current_chord_index);
+        self.current_chord_index = (now + delta).rem_euclid(len) as usize;
+        // Stepping is not passing: nothing is lit, and nothing is banked
+        // towards the chord stepped onto.
+        self.success_timer = 0.0;
+        self.current_note_step = 0;
+        self.match_status = MatchStatus::None;
+        self.prev_status = MatchStatus::None;
+        self.update_collected_notes_size();
+    }
+
     fn advance_chord(&mut self) {
+        // Captured before the reset below wipes it: this is how the chord being
+        // left behind was actually matched, and the strip reports that.
+        let earned = self.match_status;
         self.success_timer = 0.0;
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
@@ -624,6 +701,8 @@ impl MyApp {
             self.secondary_index = next;
         }
 
+        self.prev_chord_index = Some(self.current_chord_index);
+        self.prev_status = earned;
         self.current_chord_index = if self.random_mode {
             // Never the same chord twice in a row - repeating it reads as the app
             // having failed to notice the previous one.
@@ -823,6 +902,193 @@ pub(crate) mod tests {
         }
         assert_eq!(a.current_chord_index, start, "paused, yet it moved on");
         assert_eq!(a.match_status, MatchStatus::Exact, "paused stopped the colours too");
+    }
+
+    /// A chord struck and released is right or wrong within a few frames of the
+    /// attack. The hold timer cannot see that: the decay stops feeding it and it
+    /// drains, so a correct chick never reaches the threshold.
+    #[test]
+    fn short_verdict_passes_a_chord_that_stops_ringing() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;          // far longer than the strum lasts
+        let start = a.current_chord_index;
+        // One frame of a clean reading, then the sound dies away.
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_ne!(a.current_chord_index, start, "a clean strum did not count");
+    }
+
+    /// Nothing runs away when green advances at once: moving on changes the
+    /// target, and the chord still ringing no longer matches it. So a chord held
+    /// down does not walk through the whole song.
+    #[test]
+    fn a_ringing_chord_does_not_walk_through_the_song() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        let start = a.current_chord_index;
+        for _ in 0..40 {
+            a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        }
+        assert_eq!(a.current_chord_index, (start + 1) % a.chords.len(),
+                   "one chord ringing moved the song on more than once");
+    }
+
+    /// Passing has to be visible, and on the right chord. Advancing changes
+    /// which chord is current, so the green belongs on the previous one - the
+    /// one that earned it. Lighting the current chord marked the one that had
+    /// not been played yet.
+    #[test]
+    fn a_pass_lights_the_chord_that_earned_it() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        let played = a.current_chord_index;
+
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+
+        assert_eq!(a.prev_status(), MatchStatus::Exact, "the pass was not shown at all");
+        assert_eq!(a.prev_chord_index, Some(played), "the wrong chord was lit");
+        assert_ne!(a.current_chord_index, played, "it did not move on");
+    }
+
+    /// The green stays put. It marked a pass for a fifth of a second before,
+    /// which was too brief to catch; there is nothing to time out, because the
+    /// next pass moves the mark along by itself.
+    #[test]
+    fn the_green_stays_until_the_next_pass_moves_it() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+
+        let first = a.current_chord_index;
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_eq!(a.prev_chord_index, Some(first));
+
+        // Whatever comes next - silence, a wrong chord, a long wait - the mark
+        // stays on the chord that earned it.
+        for _ in 0..40 {
+            a.check_progress_with_ai(0.05, "F# m", 0.10);
+        }
+        assert_eq!(a.prev_status(), MatchStatus::Exact, "the mark disappeared on its own");
+        assert_eq!(a.prev_chord_index, Some(first), "the mark wandered off");
+
+        // Passing the chord now current moves it along, and only then.
+        let second = a.current_chord_index;
+        let name = a.chord_label(second);
+        let (root, qual) = name.split_at(name.find(' ').unwrap_or(name.len()));
+        a.check_progress_with_ai(0.02, &format!("{root}{qual}"), 0.99);
+        assert_eq!(a.prev_chord_index, Some(second), "the next pass did not move the mark");
+        assert_eq!(a.prev_status(), MatchStatus::Exact);
+    }
+
+    /// A chord passed on a triad or a substitution went yellow on the way
+    /// through. Reporting it green afterwards would be a kinder account than
+    /// what actually happened.
+    #[test]
+    fn the_mark_says_how_the_chord_was_passed() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = false;          // the hold timer, so a partial can pass
+        a.transition_delay = 0.05;
+        let played = a.current_chord_index;
+
+        // A plain triad against a Maj7 target: yellow, and enough to pass.
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.02, "C", 0.99);
+        }
+
+        assert_ne!(a.current_chord_index, played, "the triad never passed");
+        assert_eq!(a.prev_chord_index, Some(played));
+        assert_eq!(a.prev_status(), MatchStatus::Partial,
+                   "a chord passed on a triad was reported as an exact match");
+    }
+
+    /// Stepping back to a chord that has gone by is for practising it again -
+    /// it must not look or count as though it had just been played.
+    #[test]
+    fn stepping_back_is_not_a_pass() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        let after_pass = a.current_chord_index;
+
+        a.step_chord(-1);
+
+        assert_ne!(a.current_chord_index, after_pass, "stepping back did nothing");
+        assert_eq!(a.prev_status(), MatchStatus::None, "stepping back lit a chord as passed");
+        assert_eq!(a.match_status, MatchStatus::None);
+        assert_eq!(a.success_timer, 0.0, "stepping banked progress");
+    }
+
+    /// And it wraps, so the strip can be walked round a short progression.
+    #[test]
+    fn stepping_wraps_both_ways() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        let len = a.chords.len();
+        a.current_chord_index = 0;
+        a.step_chord(-1);
+        assert_eq!(a.current_chord_index, len - 1, "stepping back off the start did not wrap");
+        a.step_chord(1);
+        assert_eq!(a.current_chord_index, 0, "stepping forward did not wrap back");
+    }
+
+    /// The point of the option: it must not turn a wrong chord into a pass.
+    #[test]
+    fn short_verdict_still_rejects_the_wrong_chord() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        let start = a.current_chord_index;
+        for _ in 0..20 {
+            a.check_progress_with_ai(0.02, "F# m", 0.99);
+        }
+        assert_eq!(a.current_chord_index, start, "a wrong chord was accepted");
+    }
+
+    /// A correct chord read too quietly to be trusted is not a verdict either -
+    /// that is what the confidence threshold is for.
+    #[test]
+    fn short_verdict_needs_the_confidence_threshold() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.chord_confidence = 0.80;
+        a.transition_delay = 0.25;
+        let start = a.current_chord_index;
+        for _ in 0..20 {
+            a.check_progress_with_ai(0.02, "C Maj7", 0.50);
+        }
+        assert_eq!(a.current_chord_index, start, "an unsure reading counted");
+    }
+
+    /// With the option off nothing changes: holding is still what advances.
+    #[test]
+    fn without_the_option_a_single_frame_is_not_enough() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = false;
+        a.transition_delay = 0.25;
+        let start = a.current_chord_index;
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_eq!(a.current_chord_index, start, "one frame advanced without the option");
     }
 
     /// The timer must not keep running while paused, or the next chord would

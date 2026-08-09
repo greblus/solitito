@@ -109,6 +109,8 @@ export global Tr {
     in-out property <string> gate_hint: "";
     in-out property <string> bass_boost: "Bass Boost";
     in-out property <string> lock_quality: "Lock chord quality until new attack";
+    in-out property <string> short_verdict: "Judge short strums on the attack";
+    in-out property <string> short_verdict_hint: "";
     in-out property <string> random_order: "Random order";
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> fretboard: "Fretboard";
@@ -122,7 +124,8 @@ export global Tr {
     in-out property <string> intervals_label: "Intervals: ";
     in-out property <string> intervals_hint: "";
     in-out property <string> intervals_placeholder: "e.g. 1 3 5";
-    in-out property <string> next: "Next: ";
+    in-out property <string> next: "Next";
+    in-out property <string> previous: "Previous";
     in-out property <string> no_data: "No Data";
     in-out property <string> language: "Language: ";
     in-out property <string> lang_auto: "Auto";
@@ -168,6 +171,16 @@ export component AppWindow inherits Window {
     
     in property <string> ai_text: "";
     in property <string> next_chord: "";
+    /// The chord just left behind, and the colour it earned on the way out -
+    /// green for an exact match, yellow for a triad or a substitution, dim for
+    /// one merely stepped over. The strip along the bottom shows it: a pass
+    /// changes which chord is current, so the only honest place to mark one is
+    /// the chord that earned it.
+    in property <string> prev_chord: "";
+    in property <brush> prev_color: #444;
+    /// Stepping through the progression by hand, offered while paused so a
+    /// chord that has gone by can be played again. -1 back, +1 forward.
+    callback step_chord(int);
     
     // Chord shapes for the current quality, plus the root string each sits on.
     in property <[image]> chord_diagrams;
@@ -228,6 +241,9 @@ export component AppWindow inherits Window {
     // decays faster than the rest of the chord, so without this a held Gm7 turns
     // into Gm as it rings out.
     in-out property <bool> lock_quality: true;
+    /// Judge a strum on its best reading rather than on how long it is held.
+    in-out property <bool> short_verdict: false;
+    callback short_verdict_changed(bool);
     // Which mode the app opens in (same index as current_mode).
     in-out property <int> startup_mode: 4;
     callback startup_mode_changed(int);
@@ -377,6 +393,10 @@ export component AppWindow inherits Window {
                         }
                         Text {
                             text: Tr.intervals_hint;
+                            // Without this the line runs off to the right rather
+                            // than breaking - it fitted before only because the
+                            // old hint was short.
+                            wrap: word-wrap;
                             color: #666; font-size: 11px;
                         }
                         Rectangle { height: 1px; background: #444; }
@@ -443,12 +463,43 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    HorizontalLayout {
-                        spacing: 15px;
-                        CheckBox { checked <=> root.random_enabled; }
+                    // Each explanation is grouped with the option it explains,
+                    // tighter than the gap between options. Left as siblings in
+                    // one list they read as belonging to whatever they happened
+                    // to follow - the note about random order sat under the
+                    // chord shapes checkbox.
+                    VerticalLayout {
+                        spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 15px;
+                            CheckBox {
+                                checked <=> root.short_verdict;
+                                toggled => { root.short_verdict_changed(self.checked); }
+                            }
+                            Text {
+                                text: Tr.short_verdict;
+                                color: #aaa; vertical-alignment: center;
+                            }
+                        }
                         Text {
-                            text: Tr.random_order;
-                            color: #aaa; vertical-alignment: center;
+                            text: Tr.short_verdict_hint;
+                            font-size: 12px; color: #777; wrap: word-wrap;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 15px;
+                            CheckBox { checked <=> root.random_enabled; }
+                            Text {
+                                text: Tr.random_order;
+                                color: #aaa; vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            text: Tr.random_hint;
+                            font-size: 12px; color: #777; wrap: word-wrap;
                         }
                     }
 
@@ -459,10 +510,6 @@ export component AppWindow inherits Window {
                             text: Tr.show_diagrams;
                             color: #aaa; vertical-alignment: center;
                         }
-                    }
-                    Text {
-                        text: Tr.random_hint;
-                        font-size: 12px; color: #777; wrap: word-wrap;
                     }
 
                     HorizontalLayout {
@@ -494,17 +541,17 @@ export component AppWindow inherits Window {
                     Rectangle { height: 1px; background: #444; }
 
                     HorizontalLayout {
-                        Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 150px; }
+                        Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
                         Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
                     }
 
                     HorizontalLayout {
-                        Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 150px; }
+                        Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
                         Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
                     }
 
                     HorizontalLayout {
-                        Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 150px; }
+                        Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
                         Slider { minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
                     }
                 }
@@ -628,16 +675,67 @@ export component AppWindow inherits Window {
             }
         }
         
-        // STOPKA
+        // STOPKA - poprzedni i nastepny akord
         if !root.show_settings : Rectangle {
             height: 60px;
-            VerticalLayout {
+            // The fretboard trainer has no progression to walk along.
+            if root.current_mode != 4 : HorizontalLayout {
                 alignment: center;
-                Text { 
-                    text: (root.current_mode != 4 && root.next_chord != "") ? Tr.next + root.next_chord : " "; 
-                    color: #555; 
-                    horizontal-alignment: center; 
-                    font-size: 26px; 
+                spacing: 26px;
+
+                // Only while paused: playing would move the chord on again
+                // before the hand got back to the guitar.
+                if root.paused : Text {
+                    text: "‹";
+                    font-size: 34px;
+                    color: back_touch.has-hover ? #fff : #ddd;
+                    vertical-alignment: center;
+                    back_touch := TouchArea { clicked => { root.step_chord(-1); } }
+                }
+
+                // Fixed widths, so neither column moves when a name changes
+                // length. The chord being asked for is not repeated here - it
+                // is already the largest thing on the screen.
+                VerticalLayout {
+                    width: 150px;
+                    Text {
+                        text: Tr.previous;
+                        font-size: 12px;
+                        color: #666;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: root.prev_chord;
+                        // The colour it was passed on, not just "passed": a
+                        // chord that only ever went yellow should not be
+                        // reported green.
+                        color: root.prev_color;
+                        font-size: 22px;
+                        horizontal-alignment: center;
+                    }
+                }
+                VerticalLayout {
+                    width: 150px;
+                    Text {
+                        text: Tr.next;
+                        font-size: 12px;
+                        color: #666;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: root.next_chord;
+                        color: white;
+                        font-size: 22px;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                if root.paused : Text {
+                    text: "›";
+                    font-size: 34px;
+                    color: fwd_touch.has-hover ? #fff : #ddd;
+                    vertical-alignment: center;
+                    fwd_touch := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
         }

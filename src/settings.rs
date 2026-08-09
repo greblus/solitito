@@ -22,6 +22,11 @@ pub struct Settings {
     /// UI language: 0 = from the system locale, 1 = Polish, 2 = English.
     #[serde(default)]
     pub language: i32,
+    /// Advance on the first clear reading of the target instead of waiting for
+    /// it to be held. Saved because it describes how someone plays, which does
+    /// not change between sessions the way a noise gate might.
+    #[serde(default)]
+    pub short_verdict: bool,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -41,7 +46,13 @@ const SANE_WINDOW_PX: std::ops::RangeInclusive<u32> = 200..=20_000;
 impl Default for Settings {
     fn default() -> Self {
         // Fretboard, language from the system, window at its design size
-        Self { startup_mode: 4, language: 0, window_w: None, window_h: None }
+        Self {
+            startup_mode: 4,
+            language: 0,
+            short_verdict: false,
+            window_w: None,
+            window_h: None,
+        }
     }
 }
 
@@ -139,6 +150,16 @@ mod tests {
         assert!(serde_json::from_str::<Settings>("{}").is_err(), "a missing field is an error");
         let ok: Settings = serde_json::from_str(r#"{"startup_mode":2}"#).unwrap();
         assert_eq!(ok.startup_mode, 2);
+    }
+
+    #[test]
+    fn short_verdict_survives_a_round_trip() {
+        let s = Settings { short_verdict: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.short_verdict, "the option did not survive being saved");
+        // And a file written before it existed must still load, with it off.
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert!(!old.short_verdict);
     }
 
     #[test]

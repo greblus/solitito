@@ -4,9 +4,8 @@
 through an audio interface (recommended) or a microphone, recognises what you are playing,
 and walks you through jazz standards, intervals, scales and arpeggios.
 
-A microphone works, but an audio interface is the better input. A DI signal carries no room
-tone, no bleed and no laptop fan, so the noise gate has a clear floor to sit on and the
-model gets the harmonic content it was trained on rather than the room's.
+It is recommended to use audio interface for your quitar signal - model gets the harmonic
+content it was trained on rather than the room's noise and laptop's fan.
 
 Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
 DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
@@ -16,7 +15,7 @@ DSP, inference, UI — happens locally on the CPU. No network, no cloud, no acco
 <img width="340" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
 </div>
 
-Chord shapes are labelled with **degrees, not fingerings**, so one diagram covers
+Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
 all twelve keys: the red dot is the root, and the shape moves. Thumbnails sit
 under the chord name; clicking one enlarges it.
 
@@ -24,8 +23,7 @@ Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android
 trainer I use daily. Solo does far more, and does it well. This started as a question about
 whether chord recognition could run locally on a CPU with no network, and grew from there.
 
-Solitito is a desktop application and will stay one — Linux and Windows. There are no plans
-for mobile versions.
+Solitito is a desktop application for Linux and Windows. There are no plans for mobile versions.
 
 Development started in December 2025. The data pipeline was rewritten from scratch more than
 once before it worked. Most of what follows is a record of what turned out to matter.
@@ -41,7 +39,8 @@ chord, the app moves on to the next one.
   a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
   detected but the signal is too weak to lock.
 - **Intervals** — play the chord tones one at a time. You choose which degrees to practise
-  (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings).
+  (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings). '3' matches both
+  3 and b3.
 - **Scales** — sequential note practice from a scale definition.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
@@ -50,9 +49,21 @@ chord, the app moves on to the next one.
   held; you are asked for notes that live inside it. For learning where the notes are in one
   hand position.
 
+Along the bottom sits the strip: the chord just played and the one after it. The chord left
+behind keeps the colour it earned — green for an exact match, yellow if a triad or a
+substitution got it through — so a pass stays readable after the app has
+moved on. Colouring the *current* chord could not do that: passing changes which chord that
+is, so the mark would land on the one not played yet.
+
 A shuffle toggle randomises the order — chords in a standard, the tones inside each chord,
 and in Scales the key as well. A pause button freezes progression while the colours keep
-reporting whether the chord is right, so you can sit on one shape and work it out.
+reporting whether the chord is right, so you can sit on one shape and work it out; while
+paused, arrows either side of the strip step back and forth through the progression, for
+going back to a chord that has already gone by.
+
+The window can be resized and remembers its size. The layout does not reflow: it is drawn at
+a fixed size and scaled to fit, so the proportions stay as designed and the text and chord
+diagrams are re-rendered sharp rather than stretched.
 
 Songs and scales are plain text files, so you can add your own.
 
@@ -74,6 +85,7 @@ Songs and scales are plain text files, so you can add your own.
 | **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
+| **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it — see [Short strums](#short-strums) below. A wrong chord still fails |
 | **Random order** | Chords come up shuffled instead of in sequence; in the note modes the tones inside each chord are shuffled too, and in Scales the key changes after every pass. Also on the toolbar as the shuffle icon |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
@@ -149,19 +161,6 @@ The three heads answer different questions and are **not** interchangeable:
 - `root_logits` names the tonal centre. 98.1%.
 - `quality_logits` names the chord family. This is the hard one.
 
-An early version of the app derived chord quality from `pitch_logits` using hand-written
-threshold rules. Measuring that against the quality head on the same checkpoint:
-
-| method | accuracy |
-|---|---|
-| `quality_logits` head | **80.5%** |
-| template matching on predicted pitch | 66.0% |
-| template matching on the *true* pitch vector | 59.2% |
-
-The head beats template matching on a *perfect* pitch vector by 21 points. It extracts
-something the note set alone does not contain — timbre, voicing register, attack shape. If
-you build something similar, do not throw the quality head away.
-
 ---
 
 ## Training data
@@ -189,92 +188,15 @@ written directly:
 6. `verify_annotations.py` compares each label against the actual audio content before
    training.
 
-**Why steps 5 and 6 exist.** The first version of this pipeline encoded sample IDs as audible
-"barcode" beeps and decoded them back from the render. The generator ran at 60 BPM, the
-decoder assumed 120 — the bits were read twice too densely, every ID decoded to 0, and about
-85% of the dataset ended up labelled with a chord unrelated to its audio. Nothing in the logs
-looked wrong. Any accuracy figure from that period is meaningless.
 
-The lesson is built into the pipeline now: **the generator emits labels directly, and a
-separate script verifies that the labels describe the audio.** Full procedure in
+**The generator emits labels directly, and a
+ separate script verifies that the labels describe the audio.** Full procedure in
 [dist/HOW_TO_PREPARE_DATASET.md](dist/HOW_TO_PREPARE_DATASET.md).
 
 ### 2. GuitarSet — real guitar
 
 [GuitarSet](https://guitarset.weebly.com/) is 360 recordings with JAMS annotations, captured
-with a hexaphonic pickup. It is the only real-guitar source here, and using it correctly took
-four training runs.
-
-If you are training on GuitarSet, these four points will cost you accuracy if you miss them.
-
-#### Half of it is not chords
-
-GuitarSet records each excerpt twice: `_comp` (accompaniment) and `_solo` (single-note
-improvisation). **The chord annotation is identical in both** — it describes the progression
-the guitarist played over.
-
-Training the chord heads on solo files teaches the model that a single note is a full jazz
-chord. 180 of the 360 files are solos. Our trainer did exactly this for four runs.
-
-Excluding them moved exact-match accuracy from **44.8% to 82.3%** in a single run.
-
-The pitch targets from solo files remain perfectly valid — that is real monophonic playing
-with exact per-note annotations, which is precisely the material a single-note detector
-needs. So the trainer keeps the pitch loss on solo windows and masks only root and quality
-(`GUITARSET_SOLO_MODE = "mask_chord"`).
-
-#### There are two chord annotations, and the obvious one is wrong
-
-Each file carries `instructed` (the chord from the chart) and `performed` (transcribed from
-what was actually played). Same number of segments, different labels:
-
-| quality | instructed | performed | |
-|---|---|---|---|
-| maj | 2640 | 2106 | −534 |
-| min | 960 | 460 | **−500** |
-| min7 | **0** | **360** | **+360** |
-| maj7 | **0** | **430** | **+430** |
-| dom7 | 480 | 694 | +214 |
-| m7b5 | 240 | 134 | −106 |
-| sus | 0 | 132 | +132 |
-
-Read the `min` and `min7` rows together: **500 segments the chart calls `m` were actually
-played as `m7`.** Training on `instructed` teaches the model to call a voicing containing a
-minor seventh a plain minor chord — and that is precisely the error that showed up in the
-app, with `Gm7` recognised as `Gm`.
-
-Worse: `instructed` contains **zero** `maj7` and `min7` labels. Until we switched, both
-classes came only from the two synthetic renders — one guitar, one amplifier. That produced a
-flattering 100% on validation (the same instrument on both sides of the split) and collapsed
-on a real guitar.
-
-Switching to `performed` moved exact-match from **82.3% to 92.4%**. Root accuracy did not
-change at all: the two annotations disagree about the root in **0 of 43,056** comparisons, so
-the switch affects quality only.
-
-#### Split by file, not by segment
-
-Shuffling the list of chord segments and cutting at 94% puts adjacent bars of the *same
-recording* on both sides — same guitar, same room, same microphone, same take, often the same
-chord one bar later. For the synthetic set it is worse: the `clean` and `eob` renders of one
-block are the same performance through a different amplifier, and they were landing in train
-and validation separately.
-
-Group by source instead: whole file for GuitarSet, whole block (both renders) for the
-synthetic set. **Every validation number drops** when you do this. That is not a regression —
-it is the removal of an inflation that had been invalidating every conclusion about
-generalisation.
-
-#### Use `note_midi` for pitch targets
-
-The chord annotation describes the *intended* harmony over multi-second spans. A 0.77 s
-window frequently does not contain the labelled seventh at all, so the model was being
-punished for not predicting a note that is not there — seventh recall on GuitarSet was 32%.
-
-GuitarSet's hexaphonic pickup provides `note_midi` annotations: what actually sounded, per
-string. Building pitch targets from those lifted seventh recall from **32% to 96%**.
-
----
+with a hexaphonic pickup. 
 
 ## Results
 
@@ -324,6 +246,17 @@ update while the AI thread actually took 55–90 ms per cycle (inference *plus* 
 A 0.6 s hold threshold therefore took about a second of wall clock, and varied with machine
 load. Measuring the real interval and shortening the vote window cut the delay between a
 correct chord and advancing from ~1.2 s to ~0.3 s.
+
+### Short strums
+
+A chord struck and released — a chuck, a stab — is right or wrong within a few frames of the
+attack, and then it simply stops sounding. The hold timer cannot tell that from a wrong
+chord: both stop feeding it, and it drains. The chord went green and the app sat there.
+
+**Judge short strums on the attack** replaces the waiting with a verdict. Green already means
+the target chord was heard clearly enough to be trusted, so green advances, and the decay
+that follows cannot take it back. Nothing runs away without a gate on it, because advancing
+changes the target and the chord still ringing stops matching.
 
 ---
 
@@ -382,7 +315,7 @@ cargo build --release
 ./target/release/solitito
 ```
 
-## Project summary
+## Detailed Project summary
 
 `docs/` holds a long-form write-up of the whole system: architecture, the four
 GuitarSet defects and what fixing each one was worth, the training procedure,

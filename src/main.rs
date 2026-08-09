@@ -98,6 +98,7 @@ struct SettingsSnapshot {
     boost_gain: f32,
     boost_enabled: bool,
     lock_quality: bool,
+    short_verdict: bool,
     random_enabled: bool,
     show_diagrams: bool,
     ai_debug: bool,
@@ -116,6 +117,7 @@ impl SettingsSnapshot {
             boost_gain: ui.get_boost_gain(),
             boost_enabled: ui.get_boost_enabled(),
             lock_quality: ui.get_lock_quality(),
+            short_verdict: ui.get_short_verdict(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -288,6 +290,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_current_mode(app.app_mode as i32); 
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
+        ui.set_short_verdict(cfg.short_verdict);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
         ui.set_icon_pause(svg_icon(ICON_PAUSE));
@@ -415,6 +418,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.note_threshold = ui.get_note_threshold();
         app.transition_delay = ui.get_delay();
         app.set_random_mode(ui.get_random_enabled());
+        app.short_verdict = ui.get_short_verdict();
         // The fretboard trainer hides the pause button, so a pause carried over
         // from another mode would freeze it with nothing on screen to explain why.
         if app.app_mode == AppMode::Fretboard && ui.get_paused() {
@@ -491,7 +495,23 @@ fn main() -> Result<(), slint::PlatformError> {
                     .unwrap_or(0.040)
                     .min(0.25);
                 last_ai_at = Some(now);
+                let before = app.current_chord_index;
                 app.check_progress_with_ai(dt, &shown, current_confidence);
+                // SOLITITO_STRUM=1: one line per AI frame, to see whether attacks
+                // are being detected at all during real playing. The per-strum
+                // verdict can only re-arm on a new onset id.
+                if std::env::var("SOLITITO_STRUM").is_ok() {
+                    println!(
+                        "atak#{onset_id} klatek_od_ataku={since_onset:<3} slyszy={shown:<8}                          pewnosc={:.2} cel={:<8} licznik={:.2}/{:.2} {}",
+                        current_confidence,
+                        app.chords.get(app.current_chord_index)
+                            .map(|c| format!("{}{}", c.root.to_string(), c.quality.to_string()))
+                            .unwrap_or_default(),
+                        app.success_timer,
+                        app.transition_delay,
+                        if app.current_chord_index != before { "-> PRZESZLO" } else { "" },
+                    );
+                }
             }
         }
 
@@ -568,8 +588,20 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             
             let next_idx = (app.current_chord_index + 1) % app.chords.len();
-            let next_c = &app.chords[next_idx];
-            ui.set_next_chord(format!("{} {}", next_c.root.to_string(), next_c.quality.to_string()).into());
+            ui.set_next_chord(app.chord_label(next_idx).into());
+            ui.set_prev_chord(
+                app.prev_chord_index.map(|i| app.chord_label(i)).unwrap_or_default().into(),
+            );
+            // Same palette as the big name, so one colour means one thing
+            // wherever it appears. Dim grey for a chord stepped over rather
+            // than played.
+            ui.set_prev_color(slint::Brush::SolidColor(match app.prev_status() {
+                MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
+                MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
+                MatchStatus::Flicker => Color::from_rgb_u8(255, 50, 50),
+                // Stepped over, not played: as quiet as the chord ahead.
+                MatchStatus::None => Color::from_rgb_u8(138, 138, 138),
+            }));
 
             if app.app_mode != AppMode::Chords {
                 let all_names = curr_chord.quality.interval_names();
@@ -645,6 +677,14 @@ fn main() -> Result<(), slint::PlatformError> {
     // closing the window without an extra step.
     {
         let cur = live_cfg.clone();
+        ui.on_short_verdict_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.short_verdict = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_startup_mode_changed(move |mode_idx| {
             let mut cur = cur.borrow_mut();
             cur.startup_mode = mode_idx;
@@ -695,6 +735,13 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_current_secondary_index(app.secondary_index as i32);
     });
 
+    {
+        let app_weak = my_app.clone();
+        ui.on_step_chord(move |delta| {
+            app_weak.lock().unwrap().step_chord(delta);
+        });
+    }
+
     let app_weak_2 = my_app.clone();
     let ui_weak_2 = ui.as_weak();
     ui.on_item_selected(move |index| {
@@ -742,6 +789,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_gate_hint(t.gate_hint.into());
     g.set_bass_boost(t.bass_boost.into());
     g.set_lock_quality(t.lock_quality.into());
+    g.set_short_verdict(t.short_verdict.into());
+    g.set_short_verdict_hint(t.short_verdict_hint.into());
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
     g.set_random_hint(t.random_hint.into());
@@ -756,6 +805,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_intervals_hint(t.intervals_hint.into());
     g.set_intervals_placeholder(t.intervals_placeholder.into());
     g.set_next(t.next.into());
+    g.set_previous(t.previous.into());
     g.set_no_data(t.no_data.into());
     g.set_language(t.language.into());
     g.set_lang_auto(t.lang_auto.into());
