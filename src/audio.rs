@@ -266,7 +266,7 @@ impl CqtAnalyzer {
 
 pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpal::Stream> {
     let host = cpal::default_host();
-    let device = host.default_input_device().context("Brak mikrofonu")?;
+    let device = host.default_input_device().context("No audio input device")?;
     let config: cpal::StreamConfig = device.default_input_config()?.into();
     let mic_sr = config.sample_rate.0;
     let channels = config.channels as usize;

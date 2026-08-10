@@ -42,7 +42,12 @@ pub enum MatchStatus {
 /// Strings to suggest starting from, low to high. Only a hint: the model
 /// reports 12 pitch classes with no position, so the app cannot check which
 /// string was actually used.
-pub const START_STRINGS: [&str; 4] = ["E", "A", "D", "G"];
+///
+/// Limited to the strings the chord shapes are drawn from. Suggesting the G
+/// string sent the player looking for a shape the app does not have, which
+/// reads as the diagrams being wrong rather than the hint. `diagrams.rs` has a
+/// test tying the two together.
+pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
@@ -127,6 +132,16 @@ pub struct MyApp {
     /// classes with no position or octave - so this is a suggestion the player
     /// checks themselves.
     pub start_hint: Option<usize>,
+    /// The order the chords are played in: straight through in sequence, a
+    /// shuffled permutation while random order is on.
+    ///
+    /// Shuffled once when the toggle goes on rather than drawn afresh at every
+    /// step, because the strip along the bottom shows what is coming - and with
+    /// a coin toss at each step there is nothing to show. Also means stepping
+    /// back while paused lands on the chord actually played before.
+    play_order: Vec<usize>,
+    /// Position within `play_order`; `current_chord_index` is what it points at.
+    play_pos: usize,
     /// Fretboard trainer: the region stays fixed for the whole session, only
     /// the note changes. Settling into one hand position is the point.
     pub region: Region,
@@ -191,6 +206,8 @@ impl MyApp {
             random_mode: false,
             step_order: vec![],
             start_hint: None,
+            play_order: Vec::new(),
+            play_pos: 0,
             region: Region::default(),
             fret_target: None,
             rng: Rng::default(),
@@ -271,8 +288,34 @@ impl MyApp {
     pub fn set_random_mode(&mut self, on: bool) {
         if self.random_mode != on {
             self.random_mode = on;
+            // Both ways round this starts the song again: switching on shuffles
+            // it up front, switching off returns to the written order from the
+            // top. Carrying on mid-order would leave the strip showing
+            // neighbours from an order no longer in force.
+            self.rebuild_play_order();
+            self.prev_chord_index = None;
+            self.prev_status = MatchStatus::None;
             self.reroll();
         }
+    }
+
+    /// Rebuilds the playing order and starts it from the beginning.
+    fn rebuild_play_order(&mut self) {
+        self.play_order = (0..self.chords.len()).collect();
+        if self.random_mode {
+            self.rng.shuffle(&mut self.play_order);
+        }
+        self.play_pos = 0;
+        self.current_chord_index = self.play_order.first().copied().unwrap_or(0);
+    }
+
+    /// What the strip shows as coming next - the real next entry in the order,
+    /// not the chord one further along the song.
+    pub fn next_chord_index(&self) -> usize {
+        if self.play_order.is_empty() {
+            return 0;
+        }
+        self.play_order[(self.play_pos + 1) % self.play_order.len()]
     }
 
     /// Swaps in a freshly built phrase when the generator entry is selected.
@@ -391,7 +434,7 @@ impl MyApp {
     }
 
     pub fn reset_logic_state(&mut self) {
-        self.current_chord_index = 0;
+        self.rebuild_play_order();
         self.current_note_step = 0;
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
@@ -669,16 +712,25 @@ impl MyApp {
         if self.chords.is_empty() {
             return;
         }
-        let len = self.chords.len() as i32;
-        let now = self.current_chord_index as i32;
+        if self.play_order.len() != self.chords.len() {
+            self.rebuild_play_order();
+        }
+        let len = self.play_order.len() as i32;
         self.prev_chord_index = Some(self.current_chord_index);
-        self.current_chord_index = (now + delta).rem_euclid(len) as usize;
+        // Along the order in force, so stepping back lands on the chord that was
+        // actually played before - not the one written before it in the song.
+        self.play_pos = (self.play_pos as i32 + delta).rem_euclid(len) as usize;
+        self.current_chord_index = self.play_order[self.play_pos];
         // Stepping is not passing: nothing is lit, and nothing is banked
         // towards the chord stepped onto.
         self.success_timer = 0.0;
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
         self.prev_status = MatchStatus::None;
+        // Landing on a chord draws it a string to start from and an order for
+        // its notes, exactly as arriving there by playing would. Without this
+        // the suggestion stayed on whatever it was when the arrows started.
+        self.reroll();
         self.update_collected_notes_size();
     }
 
@@ -703,13 +755,18 @@ impl MyApp {
 
         self.prev_chord_index = Some(self.current_chord_index);
         self.prev_status = earned;
-        self.current_chord_index = if self.random_mode {
-            // Never the same chord twice in a row - repeating it reads as the app
-            // having failed to notice the previous one.
-            self.rng.below_excluding(self.chords.len(), self.current_chord_index)
-        } else {
-            (self.current_chord_index + 1) % self.chords.len()
-        };
+        if self.play_order.len() != self.chords.len() {
+            self.rebuild_play_order();
+        }
+        // The order is not redrawn at the end of a lap. The strip promises the
+        // next chord, and a reshuffle here would break that promise on the very
+        // last one - it announced a chord from the order about to be replaced.
+        // Toggling shuffle off and on deals a new one.
+        self.play_pos += 1;
+        if self.play_pos >= self.play_order.len() {
+            self.play_pos = 0;
+        }
+        self.current_chord_index = self.play_order[self.play_pos];
         // A finished pass earns a new phrase when the generator is selected.
         self.regenerate_arpeggio();
         self.reroll();
@@ -1013,6 +1070,75 @@ pub(crate) mod tests {
                    "a chord passed on a triad was reported as an exact match");
     }
 
+    /// Shuffle used to draw a chord at each step, so there was no "next" to
+    /// show and stepping back landed anywhere. The order is now laid out when
+    /// the toggle goes on, and a lap visits every chord exactly once.
+    #[test]
+    fn shuffle_lays_out_the_whole_song_up_front() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(true);
+        let len = a.chords.len();
+
+        let mut seen = vec![a.current_chord_index];
+        for _ in 1..len {
+            a.advance_chord();
+            seen.push(a.current_chord_index);
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), len, "a lap did not cover every chord exactly once");
+    }
+
+    /// Turning it off goes back to the written order, from the top.
+    #[test]
+    fn turning_shuffle_off_restarts_the_song() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(true);
+        a.advance_chord();
+        a.advance_chord();
+
+        a.set_random_mode(false);
+
+        assert_eq!(a.current_chord_index, 0, "it did not start the song again");
+        a.advance_chord();
+        assert_eq!(a.current_chord_index, 1, "it is not walking the written order");
+    }
+
+    /// What the strip promises is what actually arrives - in shuffled order the
+    /// chord after this one is not the next one in the song.
+    #[test]
+    fn the_strip_promises_the_chord_that_arrives() {
+        for random in [false, true] {
+            let mut a = app();
+            a.app_mode = AppMode::Chords;
+            a.set_random_mode(random);
+            for _ in 0..(a.chords.len() + 2) {
+                let promised = a.next_chord_index();
+                a.advance_chord();
+                assert_eq!(a.current_chord_index, promised,
+                           "random={random}: the strip showed a chord that did not come");
+            }
+        }
+    }
+
+    /// And stepping back while paused returns to the chord actually played
+    /// before, not the one written before it in the song.
+    #[test]
+    fn stepping_back_follows_the_order_in_force() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(true);
+        let first = a.current_chord_index;
+        a.advance_chord();
+        assert_ne!(a.current_chord_index, first);
+
+        a.step_chord(-1);
+
+        assert_eq!(a.current_chord_index, first, "stepping back left the shuffled order");
+    }
+
     /// Stepping back to a chord that has gone by is for practising it again -
     /// it must not look or count as though it had just been played.
     #[test]
@@ -1030,6 +1156,24 @@ pub(crate) mod tests {
         assert_eq!(a.prev_status(), MatchStatus::None, "stepping back lit a chord as passed");
         assert_eq!(a.match_status, MatchStatus::None);
         assert_eq!(a.success_timer, 0.0, "stepping banked progress");
+    }
+
+    /// Stepping by hand has to draw a new string to start from, like arriving
+    /// by playing does. It did not, so shuffle plus pause plus the arrows left
+    /// the suggestion frozen on whichever string it happened to be.
+    #[test]
+    fn stepping_draws_a_new_string_hint() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(true);
+
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..12 {
+            a.step_chord(1);
+            seen.insert(a.start_hint);
+        }
+        assert!(a.start_hint.is_some(), "stepping left no suggestion at all");
+        assert!(seen.len() > 1, "the suggestion never changed while stepping: {seen:?}");
     }
 
     /// And it wraps, so the strip can be walked round a short progression.

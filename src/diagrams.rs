@@ -136,6 +136,27 @@ mod tests {
         assert!(for_quality(&scale).is_empty());
     }
 
+    /// The random-order hint names a string to start from, and every string it
+    /// can name has to have a shape behind it. It offered the G string while the
+    /// shapes only cover E, A and D, which read as the diagrams being wrong.
+    #[test]
+    fn every_suggested_string_has_shapes() {
+        let labels: Vec<&str> = [
+            ChordQuality::Major7,
+            ChordQuality::Minor7,
+            ChordQuality::Dominant7,
+            ChordQuality::HalfDiminished,
+            ChordQuality::Diminished,
+        ]
+        .iter()
+        .flat_map(|q| for_quality(q).iter().map(|d| d.label))
+        .collect();
+
+        for s in crate::state::START_STRINGS {
+            assert!(labels.contains(&s), "the hint can suggest {s}, which has no shape");
+        }
+    }
+
     /// Labels drive nothing but the caption, yet a wrong one would send the
     /// player to the wrong string.
     #[test]

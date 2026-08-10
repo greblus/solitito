@@ -199,10 +199,10 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         file_mode = true;
     } else {
-        println!("Starting LIVE mode (Microphone)...");
+        println!("Starting LIVE mode...");
         match start_audio_stream(analysis_state.clone()) {
             Ok(s) => _mic_stream = Some(s),
-            Err(e) => eprintln!("ERR MIC: {}", e),
+            Err(e) => eprintln!("ERR AUDIO IN: {}", e),
         }
     }
     
@@ -502,11 +502,15 @@ fn main() -> Result<(), slint::PlatformError> {
                 // verdict can only re-arm on a new onset id.
                 if std::env::var("SOLITITO_STRUM").is_ok() {
                     println!(
-                        "atak#{onset_id} klatek_od_ataku={since_onset:<3} slyszy={shown:<8}                          pewnosc={:.2} cel={:<8} licznik={:.2}/{:.2} {}",
+                        "atak#{onset_id} klatek_od_ataku={since_onset:<3} slyszy={shown:<8}                          pewnosc={:.2} cel={:<8} struna={:<3} licznik={:.2}/{:.2} {}",
                         current_confidence,
                         app.chords.get(app.current_chord_index)
                             .map(|c| format!("{}{}", c.root.to_string(), c.quality.to_string()))
                             .unwrap_or_default(),
+                        app.start_hint
+                            .and_then(|i| state::START_STRINGS.get(i))
+                            .copied()
+                            .unwrap_or("-"),
                         app.success_timer,
                         app.transition_delay,
                         if app.current_chord_index != before { "-> PRZESZLO" } else { "" },
@@ -587,7 +591,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 255, 255)));
             }
             
-            let next_idx = (app.current_chord_index + 1) % app.chords.len();
+            let next_idx = app.next_chord_index();
             ui.set_next_chord(app.chord_label(next_idx).into());
             ui.set_prev_chord(
                 app.prev_chord_index.map(|i| app.chord_label(i)).unwrap_or_default().into(),
