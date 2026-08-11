@@ -463,11 +463,15 @@ export component AppWindow inherits Window {
                     // cancelled out in the features anyway (the CQT is normalised per
                     // frame), so all it really did was shift the same inequality.
                     HorizontalLayout {
-                        // Same 185px as the slider rows below: "Bramka szumu:
-                        // -34 dB" did not fit the 130px the English text was
-                        // measured for, and the value fell off the end.
-                        Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; width: 185px; }
-                        Slider { minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
+                        // No fixed width: it was set to 130px, then 185px, and
+                        // the value still ran off the end under Linux. A label
+                        // measured in pixels cannot fit every language on every
+                        // platform - the bundled Noto Sans is used only where the
+                        // system has none, and fontconfig resolves the name to a
+                        // face with different metrics. Sized by its own text, it
+                        // fits by construction; the slider takes what is left.
+                        Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
+                        Slider { horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
                     }
 
                     // Decibel scale: a linear one lacked resolution where it is needed

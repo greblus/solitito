@@ -82,6 +82,8 @@ Songs and scales are plain text files, so you can add your own.
 | **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
 | **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
 | **Show AI Debug in Main Window** | Shows the raw prediction and the spectrum on the main screen |
+| **Input** | Which capture device to open. *System default* follows whatever the OS is set to. Saved, and falls back to the default if that device is gone |
+| **Channel** | Which input of that device to listen on — a guitar in socket 2 of an interface is channel 2. Shown only when the device has more than one, and there is no mixing option: averaging the inputs pulls in whatever is on the other socket and costs 6 dB |
 | **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
@@ -93,6 +95,28 @@ Songs and scales are plain text files, so you can add your own.
 | **Chord confidence** | How sure the model must be of the chord *name* before it counts (Chords mode) |
 | **Note threshold** | How sure the model must be that a *single note* is sounding (Intervals / Scales / Arpeggios) |
 | **Hold time** | How long a correct chord must be held before advancing |
+
+The line under the two pickers says what actually opened — device, sample rate, channel count
+and sample format — or why nothing did. On Windows there is no console to print to, so this is
+the only way to tell a stream that failed to start from one that started and heard nothing; the
+interface's own meters look the same either way. `./solitito --devices` prints the same
+information for every device the backend can see.
+
+### What the names mean on Linux
+
+`default`, `pulse`, `pipewire` and `jack` are not devices. They are paths to a sound server, and
+under PipeWire they all arrive at whatever the desktop has set as the default source. That source
+is often a single socket exported as mono, which the ALSA compatibility layer then hands over as
+two identical channels — so the channel picker has nothing to choose between and appears to do
+nothing. Which socket you get is decided in the desktop's own sound settings.
+
+Names like `sysdefault:CARD=U192k` are ALSA cards. The card name comes from the chipset rather
+than the model — a Behringer UMC202HD reports as `U192k`, an onboard codec usually as `Generic`.
+Picking the card gives its sockets as real separate channels, but only if the card is free:
+PipeWire normally claims it, and then every name still ends at the server.
+
+None of this applies to Windows, where an interface appears as one stereo device and the channel
+picker means what it says.
 
 Settings live in `$XDG_CONFIG_HOME/solitito/settings.json` (falling back to `~/.config` or
 `%APPDATA%`). A missing or corrupted file falls back to defaults rather than blocking
