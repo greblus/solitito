@@ -105,6 +105,10 @@ export global Tr {
     in-out property <string> close: "Close";
     in-out property <string> settings_title: "Settings & Calibration";
     in-out property <string> audio_calibration: "Audio Calibration";
+    in-out property <string> audio_device: "Input: ";
+    in-out property <string> audio_channel: "Channel: ";
+    in-out property <string> audio_default: "System default";
+    in-out property <string> audio_one: "Channel";
     in-out property <string> noise_gate: "Noise gate: ";
     in-out property <string> gate_hint: "";
     in-out property <string> bass_boost: "Bass Boost";
@@ -244,6 +248,20 @@ export component AppWindow inherits Window {
     /// Judge a strum on its best reading rather than on how long it is held.
     in-out property <bool> short_verdict: false;
     callback short_verdict_changed(bool);
+
+    // --- AUDIO INPUT ---
+    /// What the stream actually opened with, or why it did not. The only
+    /// feedback there is on Windows, where the console is hidden.
+    in property <string> audio_info: "";
+    /// "System default" followed by the devices the host can see.
+    in property <[string]> audio_devices;
+    in-out property <int> audio_device_index: 0;
+    callback audio_device_changed(int);
+    /// "Mix all" followed by one entry per channel of the open device.
+    in property <[string]> audio_channels;
+    in-out property <int> audio_channel_index: 0;
+    callback audio_channel_changed(int);
+    in property <int> audio_channel_count: 0;
     // Which mode the app opens in (same index as current_mode).
     in-out property <int> startup_mode: 4;
     callback startup_mode_changed(int);
@@ -409,6 +427,37 @@ export component AppWindow inherits Window {
                     }
 
                     Text { text: Tr.audio_calibration; color: #ddd; font-size: 13px; }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: Tr.audio_device; color: #aaa;
+                            vertical-alignment: center; width: 100px;
+                        }
+                        ComboBox {
+                            model: root.audio_devices;
+                            current-index <=> root.audio_device_index;
+                            selected => { root.audio_device_changed(self.current-index); }
+                        }
+                    }
+                    // Only worth offering when there is more than one channel to
+                    // choose between.
+                    if root.audio_channel_count > 1 : HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: Tr.audio_channel; color: #aaa;
+                            vertical-alignment: center; width: 100px;
+                        }
+                        ComboBox {
+                            model: root.audio_channels;
+                            current-index <=> root.audio_channel_index;
+                            selected => { root.audio_channel_changed(self.current-index); }
+                        }
+                    }
+                    Text {
+                        text: root.audio_info;
+                        font-size: 11px; color: #777; wrap: word-wrap;
+                    }
 
                     // Noise gate with a meter. One knob instead of two: input gain
                     // cancelled out in the features anyway (the CQT is normalised per

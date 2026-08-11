@@ -20,7 +20,7 @@ use std::env;
 use std::time::Duration;
 use std::thread;
 
-use audio::{AudioAnalysis, start_audio_stream, start_file_playback};
+use audio::{AudioAnalysis, InputInfo, start_audio_stream, start_file_playback};
 use brain::{ChordBrain, Prediction};
 use latch::ChordLatch;
 use i18n::Lang;
@@ -79,6 +79,118 @@ fn fit_ui_to_window(ui: &AppWindow) {
     ui.window().dispatch_event(slint::platform::WindowEvent::Resized {
         size: slint::LogicalSize::new(size.width as f32 / scale, size.height as f32 / scale),
     });
+}
+
+/// Opens the input and reports what actually came up.
+///
+/// The report matters as much as the stream: on Windows the console is hidden,
+/// so a stream that failed to open was indistinguishable from one that opened
+/// and heard nothing - the interface's own meters kept showing signal either
+/// way. Now the settings panel says which device, rate, channel count and
+/// sample format are in use, or why there is none.
+fn open_input(
+    state: &Arc<Mutex<AudioAnalysis>>,
+    holder: &Rc<RefCell<Option<cpal::Stream>>>,
+    opened: &Rc<RefCell<InputInfo>>,
+    ui: &AppWindow,
+    device: Option<&str>,
+    channel: usize,
+) {
+    // Dropped before opening the next: some backends refuse a second stream on
+    // a device that already has one.
+    holder.borrow_mut().take();
+    match start_audio_stream(state.clone(), device, channel) {
+        Ok((stream, info)) => {
+            let line = format!(
+                "{} · {} Hz · {} ch · {}",
+                info.name, info.sample_rate, info.channels, info.format
+            );
+            println!("🎧 {line}");
+            ui.set_audio_info(line.into());
+            ui.set_audio_channel_count(info.channels as i32);
+            *opened.borrow_mut() = info;
+            *holder.borrow_mut() = Some(stream);
+        }
+        Err(e) => {
+            eprintln!("ERR AUDIO IN: {e}");
+            ui.set_audio_info(format!("✖ {e}").into());
+            ui.set_audio_channel_count(0);
+            *opened.borrow_mut() = InputInfo::default();
+        }
+    }
+}
+
+/// Puts "system default" at the head of the device list, so index 0 always
+/// means "whatever the OS picks" whether or not any devices were found.
+fn fill_device_list(ui: &AppWindow, names: &[String], default_label: &str) {
+    let mut items: Vec<SharedString> = vec![SharedString::from(default_label)];
+    // Shortened for display only. The full names stay in `device_names`, which
+    // is what gets matched and saved - a truncated one would find nothing on
+    // the next launch.
+    items.extend(names.iter().map(|n| SharedString::from(short_device_name(n))));
+    ui.set_audio_devices(ModelRc::from(Rc::new(VecModel::from(items))));
+}
+
+/// The channel picker's entries for a device with `count` inputs, numbered from
+/// one so they match what is printed on the box.
+fn channel_choices(count: i32, one_label: &str) -> Vec<SharedString> {
+    (1..=count.max(1))
+        .map(|c| SharedString::from(format!("{one_label} {c}")))
+        .collect()
+}
+
+/// A device name short enough for the picker, without losing what tells two of
+/// them apart.
+///
+/// Backend names are not written for people - ALSA reports the likes of
+/// `alsa_input.usb-BEHRINGER_UMC204HD_192k-00.analog-stereo`. The prefix says
+/// nothing, and what separates two sockets of the same interface sits at the
+/// END, so the middle is what goes.
+fn short_device_name(name: &str) -> String {
+    const MAX: usize = 36;
+    let n = name
+        .trim_start_matches("alsa_input.")
+        .trim_start_matches("alsa_output.");
+    let chars: Vec<char> = n.chars().collect();
+    if chars.len() <= MAX {
+        return n.to_string();
+    }
+    let head: String = chars[..MAX / 2 - 1].iter().collect();
+    let tail: String = chars[chars.len() - (MAX / 2 - 1)..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use super::*;
+
+    /// A name has to stay recognisable and, more to the point, has to stay
+    /// DIFFERENT from the other sockets on the same interface - which is what a
+    /// plain truncation would destroy, since they differ only at the end.
+    #[test]
+    fn shortening_keeps_devices_apart() {
+        let a = "alsa_input.usb-BEHRINGER_UMC204HD_192k-00.analog-stereo-input-1";
+        let b = "alsa_input.usb-BEHRINGER_UMC204HD_192k-00.analog-stereo-input-2";
+        let (sa, sb) = (short_device_name(a), short_device_name(b));
+        assert_ne!(sa, sb, "two inputs of one interface collapsed to the same label");
+        assert!(sa.chars().count() <= 36, "still too long: {sa}");
+        assert!(!sa.starts_with("alsa_input."), "the prefix that says nothing survived");
+    }
+
+    /// Short names are left exactly as they are - Windows reports readable ones.
+    #[test]
+    fn a_short_name_is_left_alone() {
+        let n = "Line In (BEHRINGER UMC204HD)";
+        assert_eq!(short_device_name(n), n);
+    }
+
+    /// One entry per input, numbered from one, and never an empty picker.
+    #[test]
+    fn channels_are_numbered_from_one() {
+        let c = channel_choices(2, "Channel");
+        assert_eq!(c, vec!["Channel 1", "Channel 2"]);
+        assert_eq!(channel_choices(0, "Channel").len(), 1, "a picker with nothing in it");
+    }
 }
 
 fn svg_icon(src: &str) -> slint::Image {
@@ -146,6 +258,8 @@ fn main() -> Result<(), slint::PlatformError> {
         eprintln!("Warning: Could not enable keep-awake: {}", e);
     }
     
+    audio::hush_alsa();
+
     if let Err(e) = ort::init().with_name("Solitito").commit() {
         eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
     }
@@ -174,6 +288,21 @@ fn main() -> Result<(), slint::PlatformError> {
     // --check: load the DSP weights and the model, report, exit. Without it a
     // package cannot be verified on a machine with no sound card and no display:
     // the weights are only read when the audio stream opens.
+    // --devices: what the backend can see, and what each one reports. On a
+    // machine with a sound server, `default`, `pulse` and `pipewire` are three
+    // names for the same path - the server's mix, not the interface's sockets -
+    // which is why picking a channel on them changes nothing.
+    if args.iter().any(|a| a == "--devices") {
+        audio::hush_alsa();
+        for name in audio::list_input_devices() {
+            match audio::probe_input(&name) {
+                Ok(i) => println!("  {name}\n      {} Hz · {} ch · {}", i.sample_rate, i.channels, i.format),
+                Err(e) => println!("  {name}\n      unavailable: {e}"),
+            }
+        }
+        std::process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--check") {
         let mut ok = true;
         match audio::CqtAnalyzer::new("dsp_weights.json") {
@@ -188,7 +317,11 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let mut file_mode = false;
-    let mut _mic_stream = None;
+    // Held so it can be swapped when the device or channel changes. Dropping the
+    // old stream first is deliberate: some backends refuse a second stream on a
+    // device that already has one open.
+    let audio_in: Rc<RefCell<Option<cpal::Stream>>> = Rc::new(RefCell::new(None));
+    let opened: Rc<RefCell<InputInfo>> = Rc::new(RefCell::new(InputInfo::default()));
 
     if args.len() > 2 && args[1] == "--file" {
         let path = args[2].clone();
@@ -200,10 +333,6 @@ fn main() -> Result<(), slint::PlatformError> {
         file_mode = true;
     } else {
         println!("Starting LIVE mode...");
-        match start_audio_stream(analysis_state.clone()) {
-            Ok(s) => _mic_stream = Some(s),
-            Err(e) => eprintln!("ERR AUDIO IN: {}", e),
-        }
     }
     
     // AI THREAD
@@ -301,6 +430,45 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.window().set_position(PhysicalPosition::new(450, 10));
 
+    // --- AUDIO INPUT ---
+    // The device list is NOT built here unless a saved device has to be found in
+    // it. Enumerating makes ALSA probe every plugin it knows - OSS emulation,
+    // dsnoop, route - and each failure prints to stderr, so a list nobody asked
+    // for buries the app's own output. It is filled when the settings panel is
+    // first opened instead; see `devices_listed` below.
+    let device_names: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let devices_listed = Rc::new(std::cell::Cell::new(false));
+    if !file_mode {
+        let t = i18n::strings(lang);
+        let mut chosen = 0;
+        if cfg.audio_device.is_some() {
+            let names = audio::list_input_devices();
+            chosen = cfg
+                .audio_device
+                .as_deref()
+                .and_then(|want| names.iter().position(|n| n == want))
+                .map(|i| i as i32 + 1)
+                .unwrap_or(0);
+            fill_device_list(&ui, &names, t.audio_default);
+            *device_names.borrow_mut() = names;
+            devices_listed.set(true);
+        } else {
+            fill_device_list(&ui, &[], t.audio_default);
+        }
+        ui.set_audio_device_index(chosen);
+        ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
+
+        // A saved device that is no longer plugged in falls back to the default
+        // rather than refusing to open anything.
+        let want = (chosen > 0)
+            .then(|| device_names.borrow()[chosen as usize - 1].clone());
+        open_input(&analysis_state, &audio_in, &opened, &ui, want.as_deref(), cfg.audio_channel);
+        ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
+            ui.get_audio_channel_count(),
+            t.audio_one,
+        )))));
+    }
+
     // The single live copy of the settings. Each closure below used to write a
     // clone taken at startup, so saving one setting rewrote the others with
     // their values from launch time - changing the mode and then the language
@@ -372,6 +540,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // is feedback that an edit registered, not a permanent badge.
     let mut baseline = SettingsSnapshot::read(&ui);
     let mut settings_were_open = false;
+    let cfg_tick = live_cfg.clone();
+    let names_tick = device_names.clone();
+    let listed_tick = devices_listed.clone();
 
     let timer = Timer::default();
     let app_clone = my_app.clone();
@@ -426,6 +597,24 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         app.paused = ui.get_paused();
         let settings_open = ui.get_show_settings();
+        // The list is built the first time the panel is opened, not at startup:
+        // enumerating sets ALSA probing every plugin it knows and printing a
+        // failure for each, which is a poor greeting for someone who never
+        // changes the input.
+        if settings_open && !listed_tick.get() && !file_mode {
+            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+            let names = audio::list_input_devices();
+            fill_device_list(&ui, &names, t.audio_default);
+            let saved = cfg_tick.borrow().audio_device.clone();
+            ui.set_audio_device_index(
+                saved
+                    .and_then(|want| names.iter().position(|n| *n == want))
+                    .map(|i| i as i32 + 1)
+                    .unwrap_or(0),
+            );
+            *names_tick.borrow_mut() = names;
+            listed_tick.set(true);
+        }
         if settings_were_open && !settings_open {
             baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark
         }
@@ -681,6 +870,62 @@ fn main() -> Result<(), slint::PlatformError> {
     // closing the window without an extra step.
     {
         let cur = live_cfg.clone();
+        let state = analysis_state.clone();
+        let holder = audio_in.clone();
+        let info = opened.clone();
+        let names_cb = device_names.clone();
+        let uw = ui.as_weak();
+        ui.on_audio_device_changed(move |idx| {
+            let Some(ui) = uw.upgrade() else { return };
+            // From the list already on screen: enumerating again would set ALSA
+            // probing every plugin a second time, for names the user is looking
+            // at right now.
+            let name = if idx > 0 { names_cb.borrow().get(idx as usize - 1).cloned() } else { None };
+            let channel = {
+                let mut c = cur.borrow_mut();
+                c.audio_device = name.clone();
+                c.save();
+                c.audio_channel
+            };
+            open_input(&state, &holder, &info, &ui, name.as_deref(), channel);
+
+            // A different device may have a different number of channels, and a
+            // choice that no longer exists has to fall back to mixing.
+            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+            let count = ui.get_audio_channel_count();
+            ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
+                count, t.audio_one,
+            )))));
+            // A device with fewer inputs cannot honour a channel picked on a
+            // bigger one; fall back to the first rather than to silence.
+            if ui.get_audio_channel_index() >= count.max(1) {
+                ui.set_audio_channel_index(0);
+                let mut c = cur.borrow_mut();
+                c.audio_channel = 1;
+                c.save();
+            }
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        let state = analysis_state.clone();
+        let holder = audio_in.clone();
+        let info = opened.clone();
+        let uw = ui.as_weak();
+        ui.on_audio_channel_changed(move |idx| {
+            let Some(ui) = uw.upgrade() else { return };
+            let channel = idx.max(0) as usize + 1;
+            let device = {
+                let mut c = cur.borrow_mut();
+                c.audio_channel = channel;
+                c.save();
+                c.audio_device.clone()
+            };
+            open_input(&state, &holder, &info, &ui, device.as_deref(), channel);
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_short_verdict_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.short_verdict = on;
@@ -789,6 +1034,10 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
     g.set_audio_calibration(t.audio_calibration.into());
+    g.set_audio_device(t.audio_device.into());
+    g.set_audio_channel(t.audio_channel.into());
+    g.set_audio_default(t.audio_default.into());
+    g.set_audio_one(t.audio_one.into());
     g.set_noise_gate(t.noise_gate.into());
     g.set_gate_hint(t.gate_hint.into());
     g.set_bass_boost(t.bass_boost.into());

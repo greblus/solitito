@@ -264,12 +264,125 @@ impl CqtAnalyzer {
     }
 }
 
-pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpal::Stream> {
+/// What the input stream actually opened with.
+///
+/// Reported back to the settings panel because on Windows the console is hidden
+/// (`windows_subsystem = "windows"`), so a stream that failed to start looked
+/// exactly like one that started and heard nothing.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct InputInfo {
+    pub name: String,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub format: String,
+}
+
+/// Silences ALSA's own error printing.
+///
+/// Opening a device or listing them makes libasound try every plugin it knows -
+/// OSS emulation, dsnoop, route - and print a line to stderr for each one that
+/// is not there. Ten lines of "Cannot open device /dev/dsp" before the app has
+/// said anything is not a failure, but it reads as one, and it buries the line
+/// that matters.
+///
+/// The handler is variadic, which Rust cannot express in a definition on
+/// stable, so a fixed-arity no-op is cast to the right type. It is sound here
+/// because the function never looks at its arguments: nothing reads the
+/// variadic part, so there is nothing to get wrong about how it was passed.
+#[cfg(target_os = "linux")]
+pub fn hush_alsa() {
+    use std::os::raw::{c_char, c_int};
+
+    type Handler = unsafe extern "C" fn(*const c_char, c_int, *const c_char, c_int, *const c_char);
+    unsafe extern "C" {
+        fn snd_lib_error_set_handler(handler: Option<Handler>) -> c_int;
+    }
+    unsafe extern "C" fn silence(
+        _file: *const c_char,
+        _line: c_int,
+        _function: *const c_char,
+        _err: c_int,
+        _fmt: *const c_char,
+    ) {
+    }
+    unsafe {
+        snd_lib_error_set_handler(Some(silence));
+    }
+}
+
+/// Nothing to quieten anywhere else.
+#[cfg(not(target_os = "linux"))]
+pub fn hush_alsa() {}
+
+/// Input devices the host can see, for the chooser in the settings panel.
+///
+/// On Linux one entry is usually enough - PipeWire routes whatever is plugged in
+/// to the default device. Windows has no such layer, so the choice has to be
+/// made here.
+pub fn list_input_devices() -> Vec<String> {
+    let Ok(devices) = cpal::default_host().input_devices() else {
+        return Vec::new();
+    };
+    devices.filter_map(|d| d.name().ok()).collect()
+}
+
+/// Reports what a device says about itself, without opening a stream.
+///
+/// For `--devices`: a name alone does not say whether it is the interface or a
+/// sound server standing in front of it.
+pub fn probe_input(name: &str) -> Result<InputInfo> {
     let host = cpal::default_host();
-    let device = host.default_input_device().context("No audio input device")?;
-    let config: cpal::StreamConfig = device.default_input_config()?.into();
+    let device = host
+        .input_devices()?
+        .find(|d| d.name().map(|n| n == name).unwrap_or(false))
+        .context("device is gone")?;
+    let supported = device.default_input_config()?;
+    Ok(InputInfo {
+        name: name.to_string(),
+        sample_rate: supported.sample_rate().0,
+        channels: supported.channels(),
+        format: format!("{:?}", supported.sample_format()),
+    })
+}
+
+/// Opens an input stream.
+///
+/// * `preferred` - device name to look for; falls back to the system default
+///   when it is absent or no longer plugged in.
+/// * `channel` - 1-based input to listen on, clamped to what the device has.
+///   There is no mixing option: averaging the inputs of whatever interface
+///   happens to be plugged in pulls in the other socket as well - hum from an
+///   empty one, or a second instrument - and costs 6 dB besides.
+pub fn start_audio_stream(
+    shared_state: Arc<Mutex<AudioAnalysis>>,
+    preferred: Option<&str>,
+    channel: usize,
+) -> Result<(cpal::Stream, InputInfo)> {
+    let host = cpal::default_host();
+    let device = preferred
+        .and_then(|want| {
+            host.input_devices()
+                .ok()?
+                .find(|d| d.name().map(|n| n == want).unwrap_or(false))
+        })
+        .or_else(|| host.default_input_device())
+        .context("No audio input device")?;
+
+    // The sample FORMAT matters as much as the rate. Discarding it and building
+    // an f32 stream on a device that reports i16 fails outright, and the app
+    // then runs with no input at all - which looks like the interface being at
+    // fault, because its own meters still show signal.
+    let supported = device.default_input_config()?;
+    let sample_format = supported.sample_format();
+    let config: cpal::StreamConfig = supported.into();
     let mic_sr = config.sample_rate.0;
     let channels = config.channels as usize;
+    let info = InputInfo {
+        name: device.name().unwrap_or_else(|_| "?".into()),
+        sample_rate: mic_sr,
+        channels: config.channels,
+        format: format!("{sample_format:?}"),
+    };
     
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     let ratio = mic_sr as f32 / TARGET_SR as f32;
@@ -285,12 +398,13 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
     let mut resampled = Vec::with_capacity(FFT_SIZE * 2);
     let mut read_pos: f32 = 0.0;
 
-    let stream = device.build_input_stream(
-        &config,
-        move |data: &[f32], _: &_| {
+    // Clamped here rather than per frame: a saved channel from a device with
+    // more inputs than this one must not silently read past the end.
+    let pick = channel.clamp(1, channels.max(1)) - 1;
+    let mut process = move |data: &[f32]| {
             let mut mono = Vec::with_capacity(data.len() / channels);
             for f in data.chunks(channels) {
-                mono.push(f.iter().sum::<f32>() / channels as f32);
+                mono.push(f.get(pick).copied().unwrap_or(0.0));
             }
             input_acc.extend_from_slice(&mono);
 
@@ -389,11 +503,37 @@ pub fn start_audio_stream(shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<cpa
                 let drain_cnt = resampled.len().saturating_sub(keep);
                 resampled.drain(0..drain_cnt);
             }
-        },
-        |_| {}, None
-    )?;
+    };
+
+    // One arm runs, so moving `process` into each is fine. Anything other than
+    // these three is rare enough that saying so beats guessing at a conversion.
+    let err = |e| eprintln!("audio input error: {e}");
+    let stream = match sample_format {
+        cpal::SampleFormat::F32 => {
+            device.build_input_stream(&config, move |d: &[f32], _: &_| process(d), err, None)?
+        }
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config,
+            move |d: &[i16], _: &_| {
+                let v: Vec<f32> = d.iter().map(|&s| s as f32 / 32768.0).collect();
+                process(&v);
+            },
+            err,
+            None,
+        )?,
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &config,
+            move |d: &[u16], _: &_| {
+                let v: Vec<f32> = d.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
+                process(&v);
+            },
+            err,
+            None,
+        )?,
+        other => anyhow::bail!("unsupported sample format: {other:?}"),
+    };
     stream.play()?;
-    Ok(stream)
+    Ok((stream, info))
 }
 
 pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<()> {
