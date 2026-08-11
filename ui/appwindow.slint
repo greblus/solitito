@@ -124,6 +124,7 @@ export global Tr {
     in-out property <string> note_threshold: "Note threshold: ";
     in-out property <string> hold_time: "Hold time: ";
     in-out property <string> show_debug: "Show AI Debug in Main Window";
+    in-out property <string> show_spectrum: "Show spectrum";
     in-out property <string> ai_prediction: "AI Prediction:  ";
     in-out property <string> intervals_label: "Intervals: ";
     in-out property <string> intervals_hint: "";
@@ -216,6 +217,11 @@ export component AppWindow inherits Window {
     
     // hidden in the main window by default
     in-out property <bool> ai_debug_visible: false; 
+    /// The spectrum in the settings panel. Off by default: it is a calibration
+    /// aid, and drawing 48 bars sixty times a second is the most expensive thing
+    /// in the panel by a wide margin.
+    in-out property <bool> show_spectrum: false;
+    callback show_spectrum_changed(bool);
 
     // --- SETTINGS ---
     in-out property <bool> show_settings: false;
@@ -359,7 +365,7 @@ export component AppWindow inherits Window {
                         color: white;
                     }
 
-                    Rectangle {
+                    if root.show_spectrum : Rectangle {
                         height: 60px;
                         background: black;
                         border-radius: 4px;
@@ -424,6 +430,15 @@ export component AppWindow inherits Window {
                         spacing: 15px;
                         CheckBox { checked <=> root.ai_debug_visible; }
                         Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 15px;
+                        CheckBox {
+                            checked <=> root.show_spectrum;
+                            toggled => { root.show_spectrum_changed(self.checked); }
+                        }
+                        Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
                     }
 
                     Text { text: Tr.audio_calibration; color: #ddd; font-size: 13px; }

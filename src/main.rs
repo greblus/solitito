@@ -27,7 +27,7 @@ use i18n::Lang;
 use settings::Settings;
 use state::{MyApp, AppMode, MatchStatus};
 
-use slint::{Timer, TimerMode, ModelRc, VecModel, Color, SharedString, PhysicalPosition, PhysicalSize};
+use slint::{Timer, TimerMode, Model, ModelRc, VecModel, Color, SharedString, PhysicalPosition, PhysicalSize};
 
 slint::include_modules!();
 
@@ -193,6 +193,19 @@ mod ui_tests {
     }
 }
 
+/// Assigns a property only when the value actually differs.
+///
+/// Slint marks the scene dirty on every assignment, changed or not, and the tick
+/// runs sixty times a second - so pushing unchanged values kept the window
+/// redrawing continuously with nothing happening. Confirmed with
+/// SLINT_DEBUG_PERFORMANCE=refresh_lazy: a steady 60 fps at rest, in the mode
+/// where Slint is supposed to draw only on demand.
+fn set_if_changed<T: PartialEq>(current: T, new: T, set: impl FnOnce(T)) {
+    if current != new {
+        set(new);
+    }
+}
+
 fn svg_icon(src: &str) -> slint::Image {
     slint::Image::load_from_svg_data(src.as_bytes()).unwrap_or_default()
 }
@@ -339,7 +352,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let analysis_for_ai = analysis_state.clone();
     let result_for_ai = ai_result_state.clone();
     
-    thread::spawn(move || {
+    // Named so `top -H` can tell inference apart from the UI thread - both were
+    // just "solitito", which made "is it the model or the drawing?" unanswerable
+    // without a debugger.
+    let _ai_thread = thread::Builder::new().name("solitito-ai".into()).spawn(move || {
         let model_filename = "best_model_v2_take6.onnx";
         let mut brain = match ChordBrain::new(model_filename) {
             Ok(b) => b,
@@ -420,6 +436,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
+        ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
         ui.set_icon_pause(svg_icon(ICON_PAUSE));
@@ -544,6 +561,16 @@ fn main() -> Result<(), slint::PlatformError> {
     let names_tick = device_names.clone();
     let listed_tick = devices_listed.clone();
 
+    // Built once and then written into, NOT replaced every frame. Assigning a
+    // fresh model makes Slint throw away all 48 bars and build them again, and
+    // at 60 frames a second that was most of a core - visible only with the
+    // settings panel open, because the spectrum lives inside it.
+    let spectrum_data: Rc<VecModel<f32>> = Rc::new(VecModel::from(vec![0.0_f32; 48]));
+    let spectrum_colors: Rc<VecModel<Color>> =
+        Rc::new(VecModel::from(vec![Color::from_rgb_u8(30, 30, 30); 48]));
+    ui.set_spectrum_data(ModelRc::from(spectrum_data.clone()));
+    ui.set_spectrum_colors(ModelRc::from(spectrum_colors.clone()));
+
     let timer = Timer::default();
     let app_clone = my_app.clone();
     let result_for_ui = ai_result_state.clone();
@@ -569,6 +596,16 @@ fn main() -> Result<(), slint::PlatformError> {
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
+    // Live readouts are what drive the redraw rate, and the panel is expensive to
+    // redraw. Neither of these carries information at sixty frames a second: the
+    // confidence figure jitters by a point between frames, and the meter is
+    // smoothed so it never settles exactly. Both are therefore held back unless
+    // they have something new to say.
+    let mut last_ai_text = String::new();
+    let mut last_ai_name = String::new();
+    let mut last_ai_push = std::time::Instant::now();
+    let mut last_level_db = f32::NEG_INFINITY;
+    let mut last_spectrum_push = std::time::Instant::now();
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         let ui = ui_weak.unwrap();
@@ -578,7 +615,12 @@ fn main() -> Result<(), slint::PlatformError> {
             let s = app.analysis_state.lock().unwrap();
             (s.spectrum_visual, s.input_level)
         };
-        ui.set_input_level_db(lin_to_db(in_level));
+        // Half a decibel is below what the bar can show anyway.
+        let level_db = lin_to_db(in_level);
+        if (level_db - last_level_db).abs() > 0.5 {
+            last_level_db = level_db;
+            ui.set_input_level_db(level_db);
+        }
 
         if !file_mode {
             app.noise_gate = db_to_lin(ui.get_gate_db());
@@ -619,7 +661,11 @@ fn main() -> Result<(), slint::PlatformError> {
             baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark
         }
         settings_were_open = settings_open;
-        ui.set_settings_touched(settings_open && SettingsSnapshot::read(&ui) != baseline);
+        set_if_changed(
+            ui.get_settings_touched(),
+            settings_open && SettingsSnapshot::read(&ui) != baseline,
+            |v| ui.set_settings_touched(v),
+        );
         
         let ui_txt = ui.get_interval_input_text().to_string();
         if ui_txt != app.intervals_input {
@@ -672,9 +718,19 @@ fn main() -> Result<(), slint::PlatformError> {
                     ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
                 );
 
-                ui.set_ai_text(
-                    format!("{} ({:.0}%)", shown, current_confidence * 100.0).into()
-                );
+                // The chord name appears at once - that is what is being read.
+                // A changed percentage on the same chord waits its turn, at five
+                // updates a second rather than sixty.
+                let text = format!("{} ({:.0}%)", shown, current_confidence * 100.0);
+                let name_changed = shown != last_ai_name;
+                if (name_changed || last_ai_push.elapsed() >= Duration::from_millis(200))
+                    && text != last_ai_text
+                {
+                    ui.set_ai_text(text.clone().into());
+                    last_ai_text = text;
+                    last_ai_name = shown.clone();
+                    last_ai_push = std::time::Instant::now();
+                }
 
                 // Real elapsed time, not assumed. Capped so a thread stall does not
                 // jump the whole threshold at once.
@@ -708,7 +764,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
 
-        ui.set_song_title(app.song_title.clone().into());
+        set_if_changed(ui.get_song_title(), app.song_title.clone().into(), |v| ui.set_song_title(v));
         
         // Scales in random mode redraw the key on their own; push it to the
         // combo, but only on a real change so it does not fight the user
@@ -716,7 +772,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if app.app_mode == AppMode::Scales
             && ui.get_current_secondary_index() != app.secondary_index as i32
         {
-            ui.set_current_secondary_index(app.secondary_index as i32);
+            set_if_changed(ui.get_current_secondary_index(), app.secondary_index as i32, |v| ui.set_current_secondary_index(v));
         }
 
         if app.app_mode == AppMode::Fretboard {
@@ -725,8 +781,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 Some(pc) => model::NoteName::from_index(pc).to_string().to_string(),
                 None => "...".to_string(),
             };
-            ui.set_chord_name(name.into());
-            ui.set_start_hint(app.region.describe().into());
+            set_if_changed(ui.get_chord_name(), name.into(), |v| ui.set_chord_name(v));
+            set_if_changed(ui.get_start_hint(), app.region.describe().into(), |v| ui.set_start_hint(v));
             ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
                 MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
                 _ => Color::from_rgb_u8(255, 255, 255),
@@ -753,7 +809,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 _ => String::new(),
             };
-            ui.set_start_hint(hint.into());
+            set_if_changed(ui.get_start_hint(), hint.into(), |v| ui.set_start_hint(v));
 
             // Shapes depend on the quality alone - the diagram is movable, the
             // root only decides which fret to put it on.
@@ -781,20 +837,23 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             
             let next_idx = app.next_chord_index();
-            ui.set_next_chord(app.chord_label(next_idx).into());
-            ui.set_prev_chord(
+            set_if_changed(ui.get_next_chord(), app.chord_label(next_idx).into(), |v| ui.set_next_chord(v));
+            set_if_changed(
+                ui.get_prev_chord(),
                 app.prev_chord_index.map(|i| app.chord_label(i)).unwrap_or_default().into(),
+                |v| ui.set_prev_chord(v),
             );
             // Same palette as the big name, so one colour means one thing
             // wherever it appears. Dim grey for a chord stepped over rather
             // than played.
-            ui.set_prev_color(slint::Brush::SolidColor(match app.prev_status() {
+            let prev_col = slint::Brush::SolidColor(match app.prev_status() {
                 MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
                 MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
                 MatchStatus::Flicker => Color::from_rgb_u8(255, 50, 50),
                 // Stepped over, not played: as quiet as the chord ahead.
                 MatchStatus::None => Color::from_rgb_u8(138, 138, 138),
-            }));
+            });
+            set_if_changed(ui.get_prev_color(), prev_col, |v| ui.set_prev_color(v));
 
             if app.app_mode != AppMode::Chords {
                 let all_names = curr_chord.quality.interval_names();
@@ -825,10 +884,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 let step = app.current_note_step as i32;
                 let len = ui_names.len() as i32;
                 let restarted = step < last_interval_step || len != last_interval_len;
-                ui.set_interval_jump(restarted);
+                set_if_changed(ui.get_interval_jump(), restarted, |v| ui.set_interval_jump(v));
                 last_interval_step = step;
                 last_interval_len = len;
-                ui.set_interval_step(step);
+                set_if_changed(ui.get_interval_step(), step, |v| ui.set_interval_step(v));
                 ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
             }
@@ -858,8 +917,31 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             spec_colors.push(color);
         }
-        ui.set_spectrum_data(ModelRc::from(Rc::new(VecModel::from(spec_vec))));
-        ui.set_spectrum_colors(ModelRc::from(Rc::new(VecModel::from(spec_colors))));
+        // Skipped entirely when nothing shows it: the bars are the panel's most
+        // expensive content, and off by default.
+        if !ui.get_show_spectrum() && !ui.get_ai_debug_visible() {
+            return;
+        }
+        // And rationed even when shown. With signal every one of the 48 bars
+        // moves on every frame, so this alone would keep the whole panel
+        // redrawing at sixty frames a second; twenty is more than the eye reads
+        // off a level display.
+        if last_spectrum_push.elapsed() < Duration::from_millis(50) {
+            return;
+        }
+        last_spectrum_push = std::time::Instant::now();
+        // Only rows that actually moved: setting a row notifies whether or not
+        // the value changed, and in silence most of them do not.
+        for (i, v) in spec_vec.iter().enumerate() {
+            if spectrum_data.row_data(i) != Some(*v) {
+                spectrum_data.set_row_data(i, *v);
+            }
+        }
+        for (i, c) in spec_colors.iter().enumerate() {
+            if spectrum_colors.row_data(i) != Some(*c) {
+                spectrum_colors.set_row_data(i, *c);
+            }
+        }
     });
 
     let app_weak = my_app.clone();
@@ -922,6 +1004,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 c.audio_device.clone()
             };
             open_input(&state, &holder, &info, &ui, device.as_deref(), channel);
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_show_spectrum_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.show_spectrum = on;
+            cur.save();
         });
     }
     {
@@ -1053,6 +1143,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_note_threshold(t.note_threshold.into());
     g.set_hold_time(t.hold_time.into());
     g.set_show_debug(t.show_debug.into());
+    g.set_show_spectrum(t.show_spectrum.into());
     g.set_ai_prediction(t.ai_prediction.into());
     g.set_intervals_label(t.intervals_label.into());
     g.set_intervals_hint(t.intervals_hint.into());

@@ -27,6 +27,11 @@ pub struct Settings {
     /// not change between sessions the way a noise gate might.
     #[serde(default)]
     pub short_verdict: bool,
+    /// The spectrum in the settings panel. Off by default - it is a calibration
+    /// aid, and 48 bars redrawn with every frame are what the panel spends most
+    /// of its time on.
+    #[serde(default)]
+    pub show_spectrum: bool,
     /// Input device to open, by name. `None` means the system default. Saved
     /// because on Windows the right interface is not always the default one,
     /// and picking it again on every launch is the sort of thing that makes an
@@ -36,7 +41,7 @@ pub struct Settings {
     /// Which input of that device to listen on, 1-based. Saved alongside the
     /// device because the right socket is a property of the setup, not of the
     /// session.
-    #[serde(default = "one")]
+    #[serde(default = "first_channel")]
     pub audio_channel: usize,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
@@ -60,12 +65,6 @@ fn first_channel() -> usize {
     1
 }
 
-/// Serde default for the channel. Files written while there was still a "mix
-/// all" option hold 0, which is no longer a channel at all.
-fn one() -> usize {
-    1
-}
-
 impl Default for Settings {
     fn default() -> Self {
         // Fretboard, language from the system, window at its design size
@@ -73,6 +72,7 @@ impl Default for Settings {
             startup_mode: 4,
             language: 0,
             short_verdict: false,
+            show_spectrum: false,
             audio_device: None,
             audio_channel: 1,
             window_w: None,
@@ -98,10 +98,6 @@ impl Settings {
                         s.language = 0;
                     }
                     s.clamp_window();
-                    // 0 meant "mix all" before that option was dropped.
-                    if s.audio_channel == 0 {
-                        s.audio_channel = 1;
-                    }
                     // 0 meant "mix all" before that option was dropped.
                     if s.audio_channel == 0 {
                         s.audio_channel = 1;
