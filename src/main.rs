@@ -274,6 +274,105 @@ fn set_if_changed<T: PartialEq>(current: T, new: T, set: impl FnOnce(T)) {
     }
 }
 
+/// Gives the diagnostic flags somewhere to print on Windows.
+///
+/// A release build declares `windows_subsystem = "windows"`, so it starts with
+/// no console and no standard handles - `println!` goes nowhere. That is right
+/// for the app and wrong for `--devices`, `--check` and `--bench`, which exist
+/// to answer questions about a Windows machine and had nothing to answer with.
+///
+/// Attaches to the console that launched it; failing that (a double-click) it
+/// opens one of its own. Standard handles are only replaced when they are not
+/// already valid, so `solitito.exe --bench > out.txt` still redirects.
+#[cfg(windows)]
+fn attach_console() -> bool {
+    use std::os::raw::c_void;
+
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+    const STD_INPUT_HANDLE: u32 = 0xFFFF_FFF6;   // -10
+    const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5;  // -11
+    const STD_ERROR_HANDLE: u32 = 0xFFFF_FFF4;   // -12
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const OPEN_EXISTING: u32 = 3;
+
+    #[allow(non_snake_case)]
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+        fn AllocConsole() -> i32;
+        fn GetStdHandle(which: u32) -> *mut c_void;
+        fn SetStdHandle(which: u32, handle: *mut c_void) -> i32;
+        fn CreateFileA(
+            name: *const u8,
+            access: u32,
+            share: u32,
+            security: *mut c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    let invalid = |h: *mut c_void| h.is_null() || h as isize == -1;
+
+    unsafe {
+        // Its own window only when there is no console to borrow.
+        let allocated = if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+            false
+        } else {
+            AllocConsole() != 0
+        };
+
+        // CONOUT$/CONIN$ name the attached console whatever it is called.
+        let wanted: [(&[u8], u32); 3] = [
+            (b"CONOUT$\0", STD_OUTPUT_HANDLE),
+            (b"CONOUT$\0", STD_ERROR_HANDLE),
+            (b"CONIN$\0", STD_INPUT_HANDLE),
+        ];
+        for (device, which) in wanted {
+            // A valid handle here means the shell redirected it, which is not
+            // ours to undo.
+            if !invalid(GetStdHandle(which)) {
+                continue;
+            }
+            let h = CreateFileA(
+                device.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null_mut(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            );
+            if !invalid(h) {
+                SetStdHandle(which, h);
+            }
+        }
+
+        allocated
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_console() -> bool {
+    false
+}
+
+/// Holds a console that this app opened itself open long enough to be read -
+/// otherwise a double-clicked `--bench` reports into a window that closes with
+/// it. A borrowed console needs none of this; the shell prompt comes back.
+fn keep_console_open(allocated: bool) {
+    if !allocated {
+        return;
+    }
+    println!("\n[Enter]");
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+}
+
 fn svg_icon(src: &str) -> slint::Image {
     slint::Image::load_from_svg_data(src.as_bytes()).unwrap_or_default()
 }
@@ -373,6 +472,15 @@ fn main() -> Result<(), slint::PlatformError> {
     // machine with a sound server, `default`, `pulse` and `pipewire` are three
     // names for the same path - the server's mix, not the interface's sockets -
     // which is why picking a channel on them changes nothing.
+    // One of the reporting flags: borrow (or open) a console first, or the
+    // report goes nowhere on a Windows release build.
+    let flagged = |f: &str| args.iter().any(|a| a == f);
+    let console = if flagged("--devices") || flagged("--bench") || flagged("--check") {
+        attach_console()
+    } else {
+        false
+    };
+
     if args.iter().any(|a| a == "--devices") {
         audio::hush_alsa();
         for name in audio::list_input_devices() {
@@ -381,6 +489,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 Err(e) => println!("  {name}\n      unavailable: {e}"),
             }
         }
+        keep_console_open(console);
         std::process::exit(0);
     }
 
@@ -392,7 +501,11 @@ fn main() -> Result<(), slint::PlatformError> {
     if args.iter().any(|a| a == "--bench") {
         let mut brain = match ChordBrain::new("best_model_v2_take6.onnx") {
             Ok(b) => b,
-            Err(e) => { eprintln!("❌ model: {e}"); std::process::exit(1); }
+            Err(e) => {
+                eprintln!("❌ model: {e}");
+                keep_console_open(console);
+                std::process::exit(1);
+            }
         };
         let frames = [[0.05f32; audio::TOTAL_FEATURES]; audio::CTX_FRAMES];
         for _ in 0..5 {
@@ -411,6 +524,7 @@ fn main() -> Result<(), slint::PlatformError> {
             times[0], times[times.len() / 2], mean, times[times.len() - 1]
         );
         println!("   at one every 40 ms that is {:.0}% of a core", mean / 40.0 * 100.0);
+        keep_console_open(console);
         std::process::exit(0);
     }
 
@@ -424,6 +538,7 @@ fn main() -> Result<(), slint::PlatformError> {
             Ok(_) => println!("✅ best_model_v2_take6.onnx"),
             Err(e) => { eprintln!("❌ model: {e}"); ok = false; }
         }
+        keep_console_open(console);
         std::process::exit(if ok { 0 } else { 1 });
     }
 
