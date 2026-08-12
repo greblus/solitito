@@ -58,8 +58,13 @@ going back to a chord that has already gone by.
 
 ## ⚙️ Settings
 
+Three tabs: **Audio** for the input and the noise gate, **Practice** for what to play and how
+strictly it is judged, **App** for what the window shows.
+
 <div align="center">
-<img width="340" alt="Solitito settings window" src="docs/solitito_settings.png" />
+<img width="245" alt="Settings, Audio tab" src="docs/solitito_settings1.png" />
+<img width="245" alt="Settings, Practice tab" src="docs/solitito_settings.png" />
+<img width="245" alt="Settings, App tab" src="docs/solitito_settings2.png" />
 </div>
 
 | Setting | Description |
