@@ -384,6 +384,36 @@ fn main() -> Result<(), slint::PlatformError> {
         std::process::exit(0);
     }
 
+    // --bench: how long ONE inference takes, which is the whole of the app's
+    // load while a chord rings - the model is asked every 40 ms, so 4 ms and
+    // 38 ms are the difference between 10% of a core and all of it. Worth a flag
+    // rather than a guess: the same machine gave wildly different figures under
+    // two operating systems, and only a number says which build is at fault.
+    if args.iter().any(|a| a == "--bench") {
+        let mut brain = match ChordBrain::new("best_model_v2_take6.onnx") {
+            Ok(b) => b,
+            Err(e) => { eprintln!("❌ model: {e}"); std::process::exit(1); }
+        };
+        let frames = [[0.05f32; audio::TOTAL_FEATURES]; audio::CTX_FRAMES];
+        for _ in 0..5 {
+            let _ = brain.predict(&frames);          // warm-up, not measured
+        }
+        let mut times: Vec<f64> = Vec::new();
+        for _ in 0..60 {
+            let t0 = std::time::Instant::now();
+            let _ = brain.predict(&frames);
+            times.push(t0.elapsed().as_secs_f64() * 1000.0);
+        }
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mean = times.iter().sum::<f64>() / times.len() as f64;
+        println!(
+            "⏱  inference: min {:.1} ms · median {:.1} ms · mean {:.1} ms · max {:.1} ms",
+            times[0], times[times.len() / 2], mean, times[times.len() - 1]
+        );
+        println!("   at one every 40 ms that is {:.0}% of a core", mean / 40.0 * 100.0);
+        std::process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--check") {
         let mut ok = true;
         match audio::CqtAnalyzer::new("dsp_weights.json") {

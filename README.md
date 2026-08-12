@@ -89,7 +89,7 @@ strictly it is judged, **App** for what the window shows.
 | **Hold time** | How long a correct chord must be held before advancing |
 
 The line under `Channel` says what actually opened — device, sample rate, channel count
-and sample format. `./solitito --devices` prints the same information for every device the backend can see.
+and sample format. `./solitito --devices` prints the same information for every device the backend can see, and `./solitito --bench` times one model inference — the app asks the model every 40 ms while a chord rings, so that figure is essentially the whole of its CPU load.
 
 ### What the names mean on Linux
 
