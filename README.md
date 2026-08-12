@@ -4,9 +4,6 @@
 through an audio interface (recommended) or a microphone, recognises what you are playing,
 and walks you through jazz standards, intervals, scales and arpeggios.
 
-It is recommended to use audio interface for your quitar signal - model gets the harmonic
-content it was trained on rather than the room's noise and laptop's fan.
-
 Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
 DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
 
@@ -16,14 +13,12 @@ DSP, inference, UI — happens locally on the CPU. No network, no cloud, no acco
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
-all twelve keys: the red dot is the root, and the shape moves. Thumbnails sit
-under the chord name; clicking one enlarges it.
+all twelve keys: the red dot is the root, and the shape moves. Clicking shape of chord 
+enlarges it.
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
-trainer I use daily. Solo does far more, and does it well. This started as a question about
-whether chord recognition could run locally on a CPU with no network, and grew from there.
-
-Solitito is a desktop application for Linux and Windows. There are no plans for mobile versions.
+trainer I use daily. Solo does far more, and does it well. Solitito is a desktop application 
+for Linux and Windows. There are no plans for mobile versions.
 
 Development started in December 2025. The data pipeline was rewritten from scratch more than
 once before it worked. Most of what follows is a record of what turned out to matter.
@@ -40,32 +35,24 @@ chord, the app moves on to the next one.
   detected but the signal is too weak to lock.
 - **Intervals** — play the chord tones one at a time. You choose which degrees to practise
   (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings). '3' matches both
-  3 and b3.
+  3 and b3, '7'  = 7 and b7, etc - depending on current chord's quality.
 - **Scales** — sequential note practice from a scale definition.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass.
-- **Fretboard** — a region of the neck is drawn at random (a set of strings, four frets) and
+- **Fretboard** — a region of the neck is selected at random (a set of strings, four frets) and
   held; you are asked for notes that live inside it. For learning where the notes are in one
   hand position.
 
-Along the bottom sits the strip: the chord just played and the one after it. The chord left
-behind keeps the colour it earned — green for an exact match, yellow if a triad or a
-substitution got it through — so a pass stays readable after the app has
-moved on. Colouring the *current* chord could not do that: passing changes which chord that
-is, so the mark would land on the one not played yet.
+Bottom part of main window shows the chord just played and the next one, after the current one. 
+The chord left behind keeps the colour it earned — green for an exact match, yellow if a triad
+or a substitution got it through — so a pass stays readable after the app has moved on. 
 
 A shuffle toggle randomises the order — chords in a standard, the tones inside each chord,
 and in Scales the key as well. A pause button freezes progression while the colours keep
 reporting whether the chord is right, so you can sit on one shape and work it out; while
 paused, arrows either side of the strip step back and forth through the progression, for
 going back to a chord that has already gone by.
-
-The window can be resized and remembers its size. The layout does not reflow: it is drawn at
-a fixed size and scaled to fit, so the proportions stay as designed and the text and chord
-diagrams are re-rendered sharp rather than stretched.
-
-Songs and scales are plain text files, so you can add your own.
 
 ---
 
@@ -87,7 +74,7 @@ Songs and scales are plain text files, so you can add your own.
 | **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
-| **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it — see [Short strums](#short-strums) below. A wrong chord still fails |
+| **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it. A wrong chord still fails |
 | **Random order** | Chords come up shuffled instead of in sequence; in the note modes the tones inside each chord are shuffled too, and in Scales the key changes after every pass. Also on the toolbar as the shuffle icon |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
@@ -96,19 +83,16 @@ Songs and scales are plain text files, so you can add your own.
 | **Note threshold** | How sure the model must be that a *single note* is sounding (Intervals / Scales / Arpeggios) |
 | **Hold time** | How long a correct chord must be held before advancing |
 
-The line under the two pickers says what actually opened — device, sample rate, channel count
-and sample format — or why nothing did. On Windows there is no console to print to, so this is
-the only way to tell a stream that failed to start from one that started and heard nothing; the
-interface's own meters look the same either way. `./solitito --devices` prints the same
-information for every device the backend can see.
+The line under `Channel` says what actually opened — device, sample rate, channel count
+and sample format. `./solitito --devices` prints the same information for every device the backend can see.
 
 ### What the names mean on Linux
 
 `default`, `pulse`, `pipewire` and `jack` are not devices. They are paths to a sound server, and
 under PipeWire they all arrive at whatever the desktop has set as the default source. That source
-is often a single socket exported as mono, which the ALSA compatibility layer then hands over as
-two identical channels — so the channel picker has nothing to choose between and appears to do
-nothing. Which socket you get is decided in the desktop's own sound settings.
+is often a single socket exported as mono (e.g. built-in microphone), which the ALSA compatibility 
+layer then hands over as two identical channels — so the channel picker has nothing to choose between 
+and appears to do nothing. Which socket you get is decided in the desktop's own sound settings.
 
 Names like `sysdefault:CARD=U192k` are ALSA cards. The card name comes from the chipset rather
 than the model — a Behringer UMC202HD reports as `U192k`, an onboard codec usually as `Generic`.
@@ -213,8 +197,7 @@ written directly:
    training.
 
 
-**The generator emits labels directly, and a
- separate script verifies that the labels describe the audio.** Full procedure in
+**The generator emits labels directly, and a  separate script verifies that the labels describe the audio.** Full procedure in
 [dist/HOW_TO_PREPARE_DATASET.md](dist/HOW_TO_PREPARE_DATASET.md).
 
 ### 2. GuitarSet — real guitar
@@ -245,42 +228,6 @@ The same pipeline, measured honestly at each stage:
 | take4 | source-grouped split — honest baseline | 44.8% |
 | take5 | solo recordings masked | 82.3% |
 | take6 | `performed` chord annotations | **92.4%** |
-
----
-
-## Real-time behaviour
-
-Recognition accuracy is not the same thing as a usable trainer. Three details mattered as
-much as the model itself.
-
-**The context window has to be full.** The trainer only ever built windows that sat entirely
-inside a sustained chord. After you strike the strings, the app's rolling buffer is part
-silence for 0.77 s — an input the model has never seen. The app now waits until the window is
-90% filled with signal instead of displaying a guess and correcting it a second later.
-
-**A seventh decays faster than the rest of the chord.** Hold a `Gm7` and watch the debug
-output: `b7` falls from 96% to 45% while the root, third and fifth stay put. The model is
-right — the seventh really is gone. But a chord does not change identity while it rings out.
-The app latches the quality at the attack and holds it until the next attack or a root
-change. The latch *engages* on high confidence but *holds* regardless of it, because during
-the decay the model reports the poorer quality at 94–96% confidence.
-
-**Measure elapsed time, do not assume it.** The progress timer was credited a fixed 40 ms per
-update while the AI thread actually took 55–90 ms per cycle (inference *plus* a 40 ms sleep).
-A 0.6 s hold threshold therefore took about a second of wall clock, and varied with machine
-load. Measuring the real interval and shortening the vote window cut the delay between a
-correct chord and advancing from ~1.2 s to ~0.3 s.
-
-### Short strums
-
-A chord struck and released — a chuck, a stab — is right or wrong within a few frames of the
-attack, and then it simply stops sounding. The hold timer cannot tell that from a wrong
-chord: both stop feeding it, and it drains. The chord went green and the app sat there.
-
-**Judge short strums on the attack** replaces the waiting with a verdict. Green already means
-the target chord was heard clearly enough to be trusted, so green advances, and the decay
-that follows cannot take it back. Nothing runs away without a gate on it, because advancing
-changes the target and the chord still ringing stops matching.
 
 ---
 
