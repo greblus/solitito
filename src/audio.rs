@@ -275,6 +275,11 @@ pub struct InputInfo {
     pub sample_rate: u32,
     pub channels: u16,
     pub format: String,
+    /// The chosen device could not be opened and the system default was used
+    /// instead. Worth saying out loud: the fallback works, so nothing looks
+    /// broken - the app is simply listening somewhere else than the picker
+    /// claims, and the channel choice then belongs to a different device.
+    pub fell_back: bool,
 }
 
 /// Silences ALSA's own error printing.
@@ -342,6 +347,7 @@ pub fn probe_input(name: &str) -> Result<InputInfo> {
         sample_rate: supported.sample_rate().0,
         channels: supported.channels(),
         format: format!("{:?}", supported.sample_format()),
+        fell_back: false,
     })
 }
 
@@ -359,12 +365,17 @@ pub fn start_audio_stream(
     channel: usize,
 ) -> Result<(cpal::Stream, InputInfo)> {
     let host = cpal::default_host();
-    let device = preferred
-        .and_then(|want| {
-            host.input_devices()
-                .ok()?
-                .find(|d| d.name().map(|n| n == want).unwrap_or(false))
-        })
+    let picked = preferred.and_then(|want| {
+        host.input_devices()
+            .ok()?
+            .find(|d| d.name().map(|n| n == want).unwrap_or(false))
+    });
+    // A card that something else already holds is not in the enumeration at
+    // all - ALSA hands out a direct device once. So this is not only "unplugged
+    // since last time": it is also "PipeWire is on it", which is the common case
+    // and used to end here silently, on the default, with both channels alike.
+    let fell_back = preferred.is_some() && picked.is_none();
+    let device = picked
         .or_else(|| host.default_input_device())
         .context("No audio input device")?;
 
@@ -382,6 +393,7 @@ pub fn start_audio_stream(
         sample_rate: mic_sr,
         channels: config.channels,
         format: format!("{sample_format:?}"),
+        fell_back,
     };
     
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;

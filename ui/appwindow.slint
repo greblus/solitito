@@ -1,4 +1,4 @@
-import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, ComboBox, LineEdit } from "std-widgets.slint";
+import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, LineEdit } from "std-widgets.slint";
 
 import "./AppFont.ttf"; 
 
@@ -64,6 +64,131 @@ component TabButton inherits Rectangle {
         font-weight: root.selected ? 700 : 400;
         vertical-alignment: center;
         horizontal-alignment: center;
+    }
+}
+
+/// A triangle pointing down. Drawn rather than written: "▾" is not in the
+/// bundled font, and what a system font puts there differs per platform.
+component Chevron inherits Path {
+    in property <brush> tint: #999;
+    width: 9px;
+    height: 5px;
+    viewbox-width: 9;
+    viewbox-height: 5;
+    fill: root.tint;
+    commands: "M 0 0 L 9 0 L 4.5 5 Z";
+}
+
+/// Drop-down list, hand-rolled for the same reason as the tab bar. The standard
+/// ComboBox shows six rows and scrolls the rest behind a scrollbar too thin to
+/// notice, so twelve sound cards look like six; this one puts an arrow under the
+/// last row when there is more below.
+component Dropdown inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    in property <bool> enabled: true;
+    callback selected(int);
+
+    property <length> row-h: 28px;
+    property <int> max-rows: 6;
+    property <bool> overflows: root.model.length > root.max-rows;
+    property <length> pad: 4px;
+
+    height: 34px;
+    horizontal-stretch: 1;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: touch.has-hover && root.enabled ? #555 : #3a3a3a;
+    background: root.enabled ? #2a2a2a : #242424;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.current-index >= 0 && root.current-index < root.model.length
+                ? root.model[root.current-index] : "";
+            color: root.enabled ? #ddd : #666;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Chevron {
+            tint: root.enabled ? #999 : #555;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { popup.show(); }
+    }
+
+    popup := PopupWindow {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: min(root.model.length, root.max-rows) * root.row-h + 2 * root.pad
+                + (root.overflows ? 14px : 0px);
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: #2a2a2a;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #4a4a4a;
+
+            VerticalLayout {
+                padding: root.pad;
+
+                ScrollView {
+                    // Opens with the current row in view, as the standard widget
+                    // does. Scrolling by hand replaces this binding.
+                    viewport-y: -max(0, root.current-index - root.max-rows + 1) * root.row-h;
+
+                    VerticalLayout {
+                        alignment: start;
+                        for value[index] in root.model : Rectangle {
+                            height: root.row-h;
+                            border-radius: 4px;
+                            background: index == root.current-index ? #0055ff
+                                : (row-touch.has-hover ? #383838 : transparent);
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: value;
+                                    font-size: 13px;
+                                    color: index == root.current-index ? white : #ccc;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+
+                            row-touch := TouchArea {
+                                clicked => {
+                                    root.current-index = index;
+                                    root.selected(index);
+                                    popup.close();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.overflows : Rectangle {
+                    height: 14px;
+                    Chevron {
+                        tint: #888;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -418,8 +543,7 @@ export component AppWindow inherits Window {
                                     text: Tr.audio_device; color: #aaa;
                                     vertical-alignment: center; width: 100px;
                                 }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: root.audio_devices;
                                     current-index <=> root.audio_device_index;
                                     selected => { root.audio_device_changed(self.current-index); }
@@ -432,8 +556,7 @@ export component AppWindow inherits Window {
                                     text: Tr.audio_channel; color: #aaa;
                                     vertical-alignment: center; width: 100px;
                                 }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: root.audio_channels;
                                     current-index <=> root.audio_channel_index;
                                     selected => { root.audio_channel_changed(self.current-index); }
@@ -506,8 +629,7 @@ export component AppWindow inherits Window {
 
                             if root.current_mode != 4 : HorizontalLayout {
                                 Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: root.library_items;
                                     current-index <=> root.current_item_index;
                                     selected => { root.item_selected(self.current-index); }
@@ -516,8 +638,7 @@ export component AppWindow inherits Window {
 
                             if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
                                 Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: root.secondary_items;
                                     current-index <=> root.current_secondary_index;
                                     selected => { root.secondary_item_selected(self.current-index); }
@@ -604,8 +725,7 @@ export component AppWindow inherits Window {
                                     text: Tr.startup_mode; color: #aaa;
                                     vertical-alignment: center; width: 140px;
                                 }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard];
                                     current-index <=> root.startup_mode;
                                     selected(v) => { root.startup_mode_changed(root.startup_mode); }
@@ -682,8 +802,7 @@ export component AppWindow inherits Window {
                                     text: Tr.language; color: #aaa;
                                     vertical-alignment: center; width: 140px;
                                 }
-                                ComboBox {
-                                    max-height: 34px;
+                                Dropdown {
                                     model: [Tr.lang_auto, "Polski", "English"];
                                     current-index <=> root.language_idx;
                                     selected(v) => { root.language_changed(root.language_idx); }

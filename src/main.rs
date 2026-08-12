@@ -101,10 +101,17 @@ fn open_input(
     holder.borrow_mut().take();
     match start_audio_stream(state.clone(), device, channel) {
         Ok((stream, info)) => {
-            let line = format!(
+            let mut line = format!(
                 "{} · {} Hz · {} ch · {}",
                 info.name, info.sample_rate, info.channels, info.format
             );
+            if info.fell_back {
+                // Said in words, not just marked: the app still hears something,
+                // so nothing looks wrong - except that the channel picker now
+                // belongs to a device the user did not choose.
+                let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+                line = format!("⚠ {} - {line}", t.audio_busy);
+            }
             println!("🎧 {line}");
             ui.set_audio_info(line.into());
             ui.set_audio_channel_count(info.channels as i32);
@@ -118,6 +125,24 @@ fn open_input(
             *opened.borrow_mut() = InputInfo::default();
         }
     }
+}
+
+/// Adds newly seen devices to the list already on screen, and says whether
+/// anything was added.
+///
+/// The list only ever grows. ALSA hands out a card once, so anything holding
+/// one - PipeWire, another app, or this app's own stream - drops it from the
+/// enumeration entirely; a plain re-scan would leave the picker showing
+/// `default`, `pulse`, `pipewire` and `jack` and nothing else, and would take
+/// the user's own choice with it.
+fn merge_devices(known: &mut Vec<String>, fresh: Vec<String>) -> bool {
+    let before = known.len();
+    for name in fresh {
+        if !known.contains(&name) {
+            known.push(name);
+        }
+    }
+    known.len() != before
 }
 
 /// Puts "system default" at the head of the device list, so index 0 always
@@ -175,6 +200,21 @@ mod ui_tests {
         assert_ne!(sa, sb, "two inputs of one interface collapsed to the same label");
         assert!(sa.chars().count() <= 36, "still too long: {sa}");
         assert!(!sa.starts_with("alsa_input."), "the prefix that says nothing survived");
+    }
+
+    /// A re-scan must never take a device off the list. ALSA leaves out
+    /// everything that is currently held - including the card this app is
+    /// recording from - so a scan that replaced the list would drop the user's
+    /// own device the moment it started working.
+    #[test]
+    fn a_rescan_only_ever_adds() {
+        let mut known = vec!["default".to_string(), "sysdefault:CARD=U192k".to_string()];
+        // The card is busy now, so the scan cannot see it.
+        assert!(!merge_devices(&mut known, vec!["default".into()]), "nothing new to report");
+        assert_eq!(known.len(), 2, "the busy card was dropped from the picker");
+        // A newly plugged-in interface shows up without a restart.
+        assert!(merge_devices(&mut known, vec!["default".into(), "hw:CARD=X".into()]));
+        assert_eq!(known, ["default", "sysdefault:CARD=U192k", "hw:CARD=X"]);
     }
 
     /// Short names are left exactly as they are - Windows reports readable ones.
@@ -448,30 +488,32 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.window().set_position(PhysicalPosition::new(450, 10));
 
     // --- AUDIO INPUT ---
-    // The device list is NOT built here unless a saved device has to be found in
-    // it. Enumerating makes ALSA probe every plugin it knows - OSS emulation,
-    // dsnoop, route - and each failure prints to stderr, so a list nobody asked
-    // for buries the app's own output. It is filled when the settings panel is
-    // first opened instead; see `devices_listed` below.
+    // Listed BEFORE the stream opens, always. Enumerating means opening every
+    // device in turn, and a card that is already taken cannot be opened - so a
+    // list built after this app has a card of its own is missing that card, and
+    // one built while a sound server holds the hardware is missing all of them.
+    // ALSA's own complaints while it probes are silenced by `hush_alsa`.
     let device_names: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
-    let devices_listed = Rc::new(std::cell::Cell::new(false));
     if !file_mode {
         let t = i18n::strings(lang);
-        let mut chosen = 0;
-        if cfg.audio_device.is_some() {
-            let names = audio::list_input_devices();
-            chosen = cfg
-                .audio_device
-                .as_deref()
-                .and_then(|want| names.iter().position(|n| n == want))
-                .map(|i| i as i32 + 1)
-                .unwrap_or(0);
-            fill_device_list(&ui, &names, t.audio_default);
-            *device_names.borrow_mut() = names;
-            devices_listed.set(true);
-        } else {
-            fill_device_list(&ui, &[], t.audio_default);
+        let mut names = audio::list_input_devices();
+        // The saved device stays in the picker even when the enumeration missed
+        // it, so the panel shows what the app is trying to use. Opening it then
+        // falls back to the default and says so, instead of the picker quietly
+        // resetting itself to "system default".
+        if let Some(want) = cfg.audio_device.as_deref() {
+            if !names.iter().any(|n| n == want) {
+                names.push(want.to_string());
+            }
         }
+        let chosen = cfg
+            .audio_device
+            .as_deref()
+            .and_then(|want| names.iter().position(|n| n == want))
+            .map(|i| i as i32 + 1)
+            .unwrap_or(0);
+        fill_device_list(&ui, &names, t.audio_default);
+        *device_names.borrow_mut() = names;
         ui.set_audio_device_index(chosen);
         ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
 
@@ -557,9 +599,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // is feedback that an edit registered, not a permanent badge.
     let mut baseline = SettingsSnapshot::read(&ui);
     let mut settings_were_open = false;
-    let cfg_tick = live_cfg.clone();
     let names_tick = device_names.clone();
-    let listed_tick = devices_listed.clone();
 
     // Built once and then written into, NOT replaced every frame. Assigning a
     // fresh model makes Slint throw away all 48 bars and build them again, and
@@ -639,23 +679,19 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         app.paused = ui.get_paused();
         let settings_open = ui.get_show_settings();
-        // The list is built the first time the panel is opened, not at startup:
-        // enumerating sets ALSA probing every plugin it knows and printing a
-        // failure for each, which is a poor greeting for someone who never
-        // changes the input.
-        if settings_open && !listed_tick.get() && !file_mode {
-            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-            let names = audio::list_input_devices();
-            fill_device_list(&ui, &names, t.audio_default);
-            let saved = cfg_tick.borrow().audio_device.clone();
-            ui.set_audio_device_index(
-                saved
-                    .and_then(|want| names.iter().position(|n| *n == want))
-                    .map(|i| i as i32 + 1)
-                    .unwrap_or(0),
-            );
-            *names_tick.borrow_mut() = names;
-            listed_tick.set(true);
+        // Re-scanned every time the panel opens, and merged into what is already
+        // there: a card that was busy at startup - or has only now been plugged
+        // in - appears without a restart, and nothing that was on the list
+        // disappears from under the user's finger.
+        if settings_open && !settings_were_open && !file_mode {
+            let fresh = audio::list_input_devices();
+            let mut names = names_tick.borrow_mut();
+            if merge_devices(&mut names, fresh) {
+                let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+                let chosen = ui.get_audio_device_index();
+                fill_device_list(&ui, &names, t.audio_default);
+                ui.set_audio_device_index(chosen);   // refilling resets it
+            }
         }
         if settings_were_open && !settings_open {
             baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark

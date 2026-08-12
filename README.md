@@ -99,6 +99,12 @@ than the model — a Behringer UMC202HD reports as `U192k`, an onboard codec usu
 Picking the card gives its sockets as real separate channels, but only if the card is free:
 PipeWire normally claims it, and then every name still ends at the server.
 
+This is also why the list is sometimes short. A card can be opened once, so a card that PipeWire or
+another app is holding is missing from the scan entirely and only the four server names remain. The
+list is re-scanned whenever the settings panel opens and never loses an entry it once had, so a card
+that frees up appears without a restart. If the chosen device cannot be opened, the app says so under
+`Channel` and listens on the default — where both channels usually carry the same signal.
+
 None of this applies to Windows, where an interface appears as one stereo device and the channel
 picker means what it says.
 
