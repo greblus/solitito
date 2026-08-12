@@ -88,6 +88,8 @@ component Dropdown inherits Rectangle {
     in-out property <int> current-index: 0;
     in property <bool> enabled: true;
     callback selected(int);
+    /// Fired as the list is about to open, for whoever wants to refresh it first.
+    callback opened();
 
     property <length> row-h: 28px;
     property <int> max-rows: 6;
@@ -123,7 +125,10 @@ component Dropdown inherits Rectangle {
 
     touch := TouchArea {
         enabled: root.enabled;
-        clicked => { popup.show(); }
+        clicked => {
+            root.opened();
+            popup.show();
+        }
     }
 
     popup := PopupWindow {
@@ -143,7 +148,7 @@ component Dropdown inherits Rectangle {
             VerticalLayout {
                 padding: root.pad;
 
-                ScrollView {
+                list := ScrollView {
                     // Opens with the current row in view, as the standard widget
                     // does. Scrolling by hand replaces this binding.
                     viewport-y: -max(0, root.current-index - root.max-rows + 1) * root.row-h;
@@ -179,9 +184,14 @@ component Dropdown inherits Rectangle {
                     }
                 }
 
+                // The strip is there whenever the list is long, so the popup does
+                // not change height as it scrolls; the arrow inside it appears
+                // only while something is still below. A fixed arrow was worse
+                // than none: it pointed down at a list already at its end.
                 if root.overflows : Rectangle {
                     height: 14px;
                     Chevron {
+                        visible: -list.viewport-y + list.visible-height < list.viewport-height - 1px;
                         tint: #888;
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
@@ -426,6 +436,8 @@ export component AppWindow inherits Window {
     in property <[string]> audio_devices;
     in-out property <int> audio_device_index: 0;
     callback audio_device_changed(int);
+    /// Asks Rust to look for inputs again, just before the picker is drawn.
+    callback audio_devices_rescan();
     /// "Mix all" followed by one entry per channel of the open device.
     in property <[string]> audio_channels;
     in-out property <int> audio_channel_index: 0;
@@ -544,6 +556,7 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center; width: 100px;
                                 }
                                 Dropdown {
+                                    opened => { root.audio_devices_rescan(); }
                                     model: root.audio_devices;
                                     current-index <=> root.audio_device_index;
                                     selected => { root.audio_device_changed(self.current-index); }

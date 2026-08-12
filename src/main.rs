@@ -147,13 +147,41 @@ fn merge_devices(known: &mut Vec<String>, fresh: Vec<String>) -> bool {
 
 /// Puts "system default" at the head of the device list, so index 0 always
 /// means "whatever the OS picks" whether or not any devices were found.
-fn fill_device_list(ui: &AppWindow, names: &[String], default_label: &str) {
+///
+/// `present` is the latest scan. Anything in `names` that it does not contain is
+/// remembered rather than seen - the saved device while the interface is still
+/// in its bag, most often - and is marked, because an entry that reads like any
+/// other is a promise the list cannot keep.
+fn fill_device_list(ui: &AppWindow, names: &[String], default_label: &str, present: &[String]) {
     let mut items: Vec<SharedString> = vec![SharedString::from(default_label)];
     // Shortened for display only. The full names stay in `device_names`, which
     // is what gets matched and saved - a truncated one would find nothing on
     // the next launch.
-    items.extend(names.iter().map(|n| SharedString::from(short_device_name(n))));
+    items.extend(names.iter().map(|n| {
+        let short = short_device_name(n);
+        if present.iter().any(|p| p == n) {
+            SharedString::from(short)
+        } else {
+            SharedString::from(format!("⚠ {short}"))
+        }
+    }));
     ui.set_audio_devices(ModelRc::from(Rc::new(VecModel::from(items))));
+}
+
+/// Re-scans the inputs and refreshes the picker, keeping the current choice.
+///
+/// Cheap enough to do whenever the list is about to be read, which is the point:
+/// an interface plugged in after the app started has to appear without a
+/// restart, and the one that was unplugged has to stop looking available.
+fn rescan_devices(ui: &AppWindow, known: &Rc<RefCell<Vec<String>>>, default_label: &str) {
+    let present = audio::list_input_devices();
+    let mut names = known.borrow_mut();
+    merge_devices(&mut names, present.clone());
+    // Merging only appends, so no index shifts under the user - but replacing
+    // the model does reset the picker, hence putting it back.
+    let chosen = ui.get_audio_device_index();
+    fill_device_list(ui, &names, default_label, &present);
+    ui.set_audio_device_index(chosen);
 }
 
 /// The channel picker's entries for a device with `count` inputs, numbered from
@@ -496,11 +524,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let device_names: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     if !file_mode {
         let t = i18n::strings(lang);
-        let mut names = audio::list_input_devices();
-        // The saved device stays in the picker even when the enumeration missed
-        // it, so the panel shows what the app is trying to use. Opening it then
-        // falls back to the default and says so, instead of the picker quietly
-        // resetting itself to "system default".
+        let present = audio::list_input_devices();
+        let mut names = present.clone();
+        // The saved device stays in the picker even when the scan missed it, so
+        // the panel shows what the app is trying to use - marked, so it does not
+        // read as an interface that is plugged in when it is not.
         if let Some(want) = cfg.audio_device.as_deref() {
             if !names.iter().any(|n| n == want) {
                 names.push(want.to_string());
@@ -512,7 +540,7 @@ fn main() -> Result<(), slint::PlatformError> {
             .and_then(|want| names.iter().position(|n| n == want))
             .map(|i| i as i32 + 1)
             .unwrap_or(0);
-        fill_device_list(&ui, &names, t.audio_default);
+        fill_device_list(&ui, &names, t.audio_default, &present);
         *device_names.borrow_mut() = names;
         ui.set_audio_device_index(chosen);
         ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
@@ -679,19 +707,11 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         app.paused = ui.get_paused();
         let settings_open = ui.get_show_settings();
-        // Re-scanned every time the panel opens, and merged into what is already
-        // there: a card that was busy at startup - or has only now been plugged
-        // in - appears without a restart, and nothing that was on the list
-        // disappears from under the user's finger.
+        // Re-scanned every time the panel opens - and again when the picker
+        // itself is opened, see `on_audio_devices_rescan`.
         if settings_open && !settings_were_open && !file_mode {
-            let fresh = audio::list_input_devices();
-            let mut names = names_tick.borrow_mut();
-            if merge_devices(&mut names, fresh) {
-                let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-                let chosen = ui.get_audio_device_index();
-                fill_device_list(&ui, &names, t.audio_default);
-                ui.set_audio_device_index(chosen);   // refilling resets it
-            }
+            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+            rescan_devices(&ui, &names_tick, t.audio_default);
         }
         if settings_were_open && !settings_open {
             baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark
@@ -986,6 +1006,19 @@ fn main() -> Result<(), slint::PlatformError> {
     
     // Saved immediately - there is no "Save" button, so the setting has to survive
     // closing the window without an extra step.
+    {
+        // Fired as the picker opens, before its list is drawn: an interface
+        // plugged in while the app was running is on the list by the time it
+        // appears, without a restart and without a Refresh button to find.
+        let names_cb = device_names.clone();
+        let uw = ui.as_weak();
+        ui.on_audio_devices_rescan(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+            rescan_devices(&ui, &names_cb, t.audio_default);
+        });
+    }
+
     {
         let cur = live_cfg.clone();
         let state = analysis_state.clone();
