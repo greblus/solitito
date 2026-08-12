@@ -1123,6 +1123,9 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_settings(t.settings.into());
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
+    g.set_tab_audio(t.tab_audio.into());
+    g.set_tab_practice(t.tab_practice.into());
+    g.set_tab_app(t.tab_app.into());
     g.set_audio_calibration(t.audio_calibration.into());
     g.set_audio_device(t.audio_device.into());
     g.set_audio_channel(t.audio_channel.into());

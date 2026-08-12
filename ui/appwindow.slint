@@ -42,6 +42,31 @@ component ModeButton inherits Rectangle {
     }
 }
 
+/// Header of one settings tab. Hand-rolled rather than std-widgets' TabWidget:
+/// that one hard-codes left-aligned titles, and the tab it shows lives inside
+/// the panel, out of reach of the mode buttons above it.
+component TabButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+
+    border-radius: 6px;
+    background: root.selected ? #2e2e2e : (touch.has-hover ? #282828 : transparent);
+    border-width: 1px;
+    border-color: root.selected ? #444 : transparent;
+
+    touch := TouchArea { clicked => { root.clicked() } }
+
+    Text {
+        text: root.text;
+        font-size: 13px;
+        color: root.selected ? white : #999;
+        font-weight: root.selected ? 700 : 400;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+}
+
 /// Icon toggle. On = inverted: light plate, dark glyph. Off = outline only.
 /// The icons are monochrome black on transparent, so `colorize` recolours them.
 component IconToggle inherits Rectangle {
@@ -104,6 +129,9 @@ export global Tr {
     in-out property <string> settings: "Settings";
     in-out property <string> close: "Close";
     in-out property <string> settings_title: "Settings & Calibration";
+    in-out property <string> tab_audio: "Audio";
+    in-out property <string> tab_practice: "Practice";
+    in-out property <string> tab_app: "App";
     in-out property <string> audio_calibration: "Audio Calibration";
     in-out property <string> audio_device: "Input: ";
     in-out property <string> audio_channel: "Channel: ";
@@ -225,6 +253,16 @@ export component AppWindow inherits Window {
 
     // --- SETTINGS ---
     in-out property <bool> show_settings: false;
+    /// Which settings tab is on screen. On the root so `pick_mode` can send the
+    /// user to Practice - picking a mode with the Audio tab open otherwise looks
+    /// like nothing happened, the song list being on the tab next door.
+    in-out property <int> settings_tab: 0;
+
+    /// Mode buttons go through this rather than calling `mode_changed` directly.
+    function pick_mode(m: int) {
+        if (root.show_settings) { root.settings_tab = 1; }
+        root.mode_changed(m);
+    }
     
     // Confidence threshold for the chord NAME (Chords mode).
     in-out property <float> chord_confidence: 0.30;
@@ -311,11 +349,11 @@ export component AppWindow inherits Window {
                 // at 12px. At the old 320px the longer labels were clipped.
                 width: 350px;
                 height: 34px;
-                ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 20%; clicked => { root.mode_changed(4); } }
-                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 20%; clicked => { root.mode_changed(0); } }
-                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 20%; clicked => { root.mode_changed(1); } }
-                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 20%; clicked => { root.mode_changed(2); } }
-                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 20%; clicked => { root.mode_changed(3); } }
+                ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 20%; clicked => { root.pick_mode(4); } }
+                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 20%; clicked => { root.pick_mode(0); } }
+                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 20%; clicked => { root.pick_mode(1); } }
+                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 20%; clicked => { root.pick_mode(2); } }
+                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 20%; clicked => { root.pick_mode(3); } }
             }
 
             // Same height as the mode row so the three line up on one axis.
@@ -342,290 +380,318 @@ export component AppWindow inherits Window {
         }
 
         // SETTINGS PANEL
+        //
+        // Three tabs rather than one long column: the list outgrew the window,
+        // and a panel that has to be scrolled hides half of what it offers.
+        // Only one tab is on screen at a time, so there is also a third as much
+        // to redraw while playing.
         if root.show_settings : Rectangle {
             background: #222;
             border-radius: 10px;
             border-width: 1px;
             border-color: #333;
-            
-            // ScrollView, not a taller window: the panel has fifteen sections and
-            // grows every time an option is added. Without it the last rows - the
-            // model preview and the spectrum - fall off the bottom.
-            ScrollView {
-                VerticalLayout {
-                    padding: 15px;
-                    spacing: 12px;
-                
-                    // Model preview in settings, always visible
-                    Text {
-                        text: Tr.ai_prediction + root.ai_text;
-                        font-size: 18px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        color: white;
-                    }
 
-                    if root.show_spectrum : Rectangle {
-                        height: 60px;
-                        background: black;
-                        border-radius: 4px;
-                        HorizontalLayout {
-                            padding: 2px;
-                            spacing: 1px;
-                            for val[i] in root.spectrum_data : DebugBar {
-                                level: val;
-                                active_color: root.spectrum_colors[i];
-                            }
-                        }
-                    }
+            VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
 
-                    Text { text: Tr.settings_title; font-size: 20px; color: white; horizontal-alignment: center; }
-                
-                    // Song / scale selection - the fretboard trainer has no library
-                    if root.current_mode != 4 : HorizontalLayout {
-                        Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                        ComboBox {
-                            model: root.library_items;
-                            current-index <=> root.current_item_index;
-                            selected => { root.item_selected(self.current-index); }
-                        }
-                    }
-
-                    if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
-                        Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                        ComboBox {
-                            model: root.secondary_items;
-                            current-index <=> root.current_secondary_index;
-                            selected => { root.secondary_item_selected(self.current-index); }
-                        }
-                    }
-
-                    Rectangle { height: 1px; background: #444; }
-
-                    // Only the note modes walk the chord one degree at a time.
-                    // Chords checks the whole voicing and the fretboard trainer
-                    // has no chord at all, so the field steers nothing there.
-                    if root.current_mode == 1 || root.current_mode == 2
-                       || root.current_mode == 3 : VerticalLayout {
-                        spacing: 8px;
-                        HorizontalLayout {
-                            Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
-                            LineEdit {
-                                text <=> root.interval_input_text;
-                                placeholder-text: Tr.intervals_placeholder;
-                            }
-                        }
-                        Text {
-                            text: Tr.intervals_hint;
-                            // Without this the line runs off to the right rather
-                            // than breaking - it fitted before only because the
-                            // old hint was short.
-                            wrap: word-wrap;
-                            color: #666; font-size: 11px;
-                        }
-                        Rectangle { height: 1px; background: #444; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 15px;
-                        CheckBox { checked <=> root.ai_debug_visible; }
-                        Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 15px;
-                        CheckBox {
-                            checked <=> root.show_spectrum;
-                            toggled => { root.show_spectrum_changed(self.checked); }
-                        }
-                        Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
-                    }
-
-                    Text { text: Tr.audio_calibration; color: #ddd; font-size: 13px; }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: Tr.audio_device; color: #aaa;
-                            vertical-alignment: center; width: 100px;
-                        }
-                        ComboBox {
-                            model: root.audio_devices;
-                            current-index <=> root.audio_device_index;
-                            selected => { root.audio_device_changed(self.current-index); }
-                        }
-                    }
-                    // Only worth offering when there is more than one channel to
-                    // choose between.
-                    if root.audio_channel_count > 1 : HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: Tr.audio_channel; color: #aaa;
-                            vertical-alignment: center; width: 100px;
-                        }
-                        ComboBox {
-                            model: root.audio_channels;
-                            current-index <=> root.audio_channel_index;
-                            selected => { root.audio_channel_changed(self.current-index); }
-                        }
-                    }
-                    Text {
-                        text: root.audio_info;
-                        font-size: 11px; color: #777; wrap: word-wrap;
-                    }
-
-                    // Noise gate with a meter. One knob instead of two: input gain
-                    // cancelled out in the features anyway (the CQT is normalised per
-                    // frame), so all it really did was shift the same inequality.
-                    HorizontalLayout {
-                        // No fixed width: it was set to 130px, then 185px, and
-                        // the value still ran off the end under Linux. A label
-                        // measured in pixels cannot fit every language on every
-                        // platform - the bundled Noto Sans is used only where the
-                        // system has none, and fontconfig resolves the name to a
-                        // face with different metrics. Sized by its own text, it
-                        // fits by construction; the slider takes what is left.
-                        Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
-                        Slider { horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
-                    }
-
-                    // Decibel scale: a linear one lacked resolution where it is needed
-                    // and still did not reach a laptop microphone's noise floor.
-                    Rectangle {
-                        height: 14px;
-                        background: #222;
-                        border-radius: 3px;
-                        Rectangle {
-                            x: 0; y: 0; height: parent.height;
-                            width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
-                            background: root.input_level_db > root.gate_db ? #4a9 : #666;
-                            border-radius: 3px;
-                        }
-                        // threshold marker
-                        Rectangle {
-                            x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
-                            y: 0; width: 2px; height: parent.height;
-                            background: #e55;
-                        }
-                    }
-                    Text {
-                        text: Tr.gate_hint;
-                        color: #666; font-size: 11px; wrap: word-wrap;
-                    }
-                
-                    HorizontalLayout {
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 15px;
-                            CheckBox { checked <=> root.boost_enabled; }
-                            Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
-                        }
-                        if root.boost_enabled : Slider {
-                            minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 15px;
-                        CheckBox { checked <=> root.lock_quality; }
-                        Text {
-                            text: Tr.lock_quality;
-                            color: #aaa; vertical-alignment: center;
-                        }
-                    }
-
-                    // Each explanation is grouped with the option it explains,
-                    // tighter than the gap between options. Left as siblings in
-                    // one list they read as belonging to whatever they happened
-                    // to follow - the note about random order sat under the
-                    // chord shapes checkbox.
-                    VerticalLayout {
-                        spacing: 4px;
-                        HorizontalLayout {
-                            spacing: 15px;
-                            CheckBox {
-                                checked <=> root.short_verdict;
-                                toggled => { root.short_verdict_changed(self.checked); }
-                            }
-                            Text {
-                                text: Tr.short_verdict;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
-                        Text {
-                            text: Tr.short_verdict_hint;
-                            font-size: 12px; color: #777; wrap: word-wrap;
-                        }
-                    }
-
-                    VerticalLayout {
-                        spacing: 4px;
-                        HorizontalLayout {
-                            spacing: 15px;
-                            CheckBox { checked <=> root.random_enabled; }
-                            Text {
-                                text: Tr.random_order;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
-                        Text {
-                            text: Tr.random_hint;
-                            font-size: 12px; color: #777; wrap: word-wrap;
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 15px;
-                        CheckBox { checked <=> root.show_diagrams; }
-                        Text {
-                            text: Tr.show_diagrams;
-                            color: #aaa; vertical-alignment: center;
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: Tr.startup_mode; color: #aaa;
-                            vertical-alignment: center; width: 140px;
-                        }
-                        ComboBox {
-                            model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard];
-                            current-index <=> root.startup_mode;
-                            selected(v) => { root.startup_mode_changed(root.startup_mode); }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: Tr.language; color: #aaa;
-                            vertical-alignment: center; width: 140px;
-                        }
-                        ComboBox {
-                            model: [Tr.lang_auto, "Polski", "English"];
-                            current-index <=> root.language_idx;
-                            selected(v) => { root.language_changed(root.language_idx); }
-                        }
-                    }
-
-                    Rectangle { height: 1px; background: #444; }
-
-                    HorizontalLayout {
-                        Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                        Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
-                    }
-
-                    HorizontalLayout {
-                        Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                        Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
-                    }
-
-                    HorizontalLayout {
-                        Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
-                        Slider { minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
-                    }
+                HorizontalLayout {
+                    spacing: 4px;
+                    height: 32px;
+                    TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
+                    TabButton { text: Tr.tab_practice; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
+                    TabButton { text: Tr.tab_app; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
                 }
+                if root.settings_tab == 0 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
+                            alignment: start;
+                            padding: 15px;
+                            spacing: 12px;
+
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.audio_device; color: #aaa;
+                                    vertical-alignment: center; width: 100px;
+                                }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: root.audio_devices;
+                                    current-index <=> root.audio_device_index;
+                                    selected => { root.audio_device_changed(self.current-index); }
+                                }
+                            }
+
+                            if root.audio_channel_count > 1 : HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.audio_channel; color: #aaa;
+                                    vertical-alignment: center; width: 100px;
+                                }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: root.audio_channels;
+                                    current-index <=> root.audio_channel_index;
+                                    selected => { root.audio_channel_changed(self.current-index); }
+                                }
+                            }
+
+                            Text {
+                                text: root.audio_info;
+                                font-size: 11px; color: #777; wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                // No fixed width: it was set to 130px, then 185px, and
+                                // the value still ran off the end under Linux. A label
+                                // measured in pixels cannot fit every language on every
+                                // platform - the bundled Noto Sans is used only where the
+                                // system has none, and fontconfig resolves the name to a
+                                // face with different metrics. Sized by its own text, it
+                                // fits by construction; the slider takes what is left.
+                                Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
+                                Slider { horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
+                            }
+
+                            Rectangle {
+                                height: 14px;
+                                background: #222;
+                                border-radius: 3px;
+                                Rectangle {
+                                    x: 0; y: 0; height: parent.height;
+                                    width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
+                                    background: root.input_level_db > root.gate_db ? #4a9 : #666;
+                                    border-radius: 3px;
+                                }
+                                // threshold marker
+                                Rectangle {
+                                    x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
+                                    y: 0; width: 2px; height: parent.height;
+                                    background: #e55;
+                                }
+                            }
+
+                            Text {
+                                text: Tr.gate_hint;
+                                color: #666; font-size: 11px; wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 10px;
+                                HorizontalLayout {
+                                    spacing: 15px;
+                                    CheckBox { checked <=> root.boost_enabled; }
+                                    Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
+                                }
+                                if root.boost_enabled : Slider {
+                                    minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
+                                }
+                            }
+
+                        }
+                    }
+                if root.settings_tab == 1 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
+                            alignment: start;
+                            padding: 15px;
+                            spacing: 12px;
+
+                            if root.current_mode != 4 : HorizontalLayout {
+                                Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: root.library_items;
+                                    current-index <=> root.current_item_index;
+                                    selected => { root.item_selected(self.current-index); }
+                                }
+                            }
+
+                            if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
+                                Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: root.secondary_items;
+                                    current-index <=> root.current_secondary_index;
+                                    selected => { root.secondary_item_selected(self.current-index); }
+                                }
+                            }
+
+                            if root.current_mode == 1 || root.current_mode == 2
+                               || root.current_mode == 3 : VerticalLayout {
+                                spacing: 8px;
+                                HorizontalLayout {
+                                    Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
+                                    LineEdit {
+                                        text <=> root.interval_input_text;
+                                        placeholder-text: Tr.intervals_placeholder;
+                                    }
+                                }
+                                Text {
+                                    text: Tr.intervals_hint;
+                                    // Without this the line runs off to the right rather
+                                    // than breaking - it fitted before only because the
+                                    // old hint was short.
+                                    wrap: word-wrap;
+                                    color: #666; font-size: 11px;
+                                }
+                                Rectangle { height: 1px; background: #444; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 15px;
+                                CheckBox { checked <=> root.lock_quality; }
+                                Text {
+                                    text: Tr.lock_quality;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.short_verdict;
+                                        toggled => { root.short_verdict_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.short_verdict;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    text: Tr.short_verdict_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 15px;
+                                    CheckBox { checked <=> root.random_enabled; }
+                                    Text {
+                                        text: Tr.random_order;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    text: Tr.random_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 15px;
+                                CheckBox { checked <=> root.show_diagrams; }
+                                Text {
+                                    text: Tr.show_diagrams;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.startup_mode; color: #aaa;
+                                    vertical-alignment: center; width: 140px;
+                                }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard];
+                                    current-index <=> root.startup_mode;
+                                    selected(v) => { root.startup_mode_changed(root.startup_mode); }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
+                            }
+
+                            HorizontalLayout {
+                                Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
+                            }
+
+                            HorizontalLayout {
+                                Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
+                            }
+
+                        }
+                    }
+                if root.settings_tab == 2 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
+                            alignment: start;
+                            padding: 15px;
+                            spacing: 12px;
+
+                            Text {
+                                text: Tr.ai_prediction + root.ai_text;
+                                font-size: 18px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                color: white;
+                            }
+
+                            if root.show_spectrum : Rectangle {
+                                height: 60px;
+                                background: black;
+                                border-radius: 4px;
+                                HorizontalLayout {
+                                    padding: 2px;
+                                    spacing: 1px;
+                                    for val[i] in root.spectrum_data : DebugBar {
+                                        level: val;
+                                        active_color: root.spectrum_colors[i];
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 15px;
+                                CheckBox { checked <=> root.ai_debug_visible; }
+                                Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.show_spectrum;
+                                    toggled => { root.show_spectrum_changed(self.checked); }
+                                }
+                                Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.language; color: #aaa;
+                                    vertical-alignment: center; width: 140px;
+                                }
+                                ComboBox {
+                                    max-height: 34px;
+                                    model: [Tr.lang_auto, "Polski", "English"];
+                                    current-index <=> root.language_idx;
+                                    selected(v) => { root.language_changed(root.language_idx); }
+                                }
+                            }
+
+                        }
+                    }
             }
         }
 
