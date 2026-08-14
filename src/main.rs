@@ -152,14 +152,30 @@ fn merge_devices(known: &mut Vec<String>, fresh: Vec<String>) -> bool {
 /// remembered rather than seen - the saved device while the interface is still
 /// in its bag, most often - and is marked, because an entry that reads like any
 /// other is a promise the list cannot keep.
-fn fill_device_list(ui: &AppWindow, names: &[String], default_label: &str, present: &[String]) {
+/// Is this entry a device the backend can currently see?
+///
+/// The device we are recording from counts as present even though no scan
+/// reports it: a card can be opened once, and we are the ones holding it. Left
+/// out, the picker marks the interface you are playing through as unavailable
+/// the moment it starts working.
+fn device_is_present(name: &str, scan: &[String], open_now: Option<&str>) -> bool {
+    scan.iter().any(|n| n == name) || open_now == Some(name)
+}
+
+fn fill_device_list(
+    ui: &AppWindow,
+    names: &[String],
+    default_label: &str,
+    present: &[String],
+    open_now: Option<&str>,
+) {
     let mut items: Vec<SharedString> = vec![SharedString::from(default_label)];
     // Shortened for display only. The full names stay in `device_names`, which
     // is what gets matched and saved - a truncated one would find nothing on
     // the next launch.
     items.extend(names.iter().map(|n| {
         let short = short_device_name(n);
-        if present.iter().any(|p| p == n) {
+        if device_is_present(n, present, open_now) {
             SharedString::from(short)
         } else {
             SharedString::from(format!("⚠ {short}"))
@@ -173,14 +189,19 @@ fn fill_device_list(ui: &AppWindow, names: &[String], default_label: &str, prese
 /// Cheap enough to do whenever the list is about to be read, which is the point:
 /// an interface plugged in after the app started has to appear without a
 /// restart, and the one that was unplugged has to stop looking available.
-fn rescan_devices(ui: &AppWindow, known: &Rc<RefCell<Vec<String>>>, default_label: &str) {
+fn rescan_devices(
+    ui: &AppWindow,
+    known: &Rc<RefCell<Vec<String>>>,
+    default_label: &str,
+    open_now: Option<&str>,
+) {
     let present = audio::list_input_devices();
     let mut names = known.borrow_mut();
     merge_devices(&mut names, present.clone());
     // Merging only appends, so no index shifts under the user - but replacing
     // the model does reset the picker, hence putting it back.
     let chosen = ui.get_audio_device_index();
-    fill_device_list(ui, &names, default_label, &present);
+    fill_device_list(ui, &names, default_label, &present, open_now);
     ui.set_audio_device_index(chosen);
 }
 
@@ -228,6 +249,25 @@ mod ui_tests {
         assert_ne!(sa, sb, "two inputs of one interface collapsed to the same label");
         assert!(sa.chars().count() <= 36, "still too long: {sa}");
         assert!(!sa.starts_with("alsa_input."), "the prefix that says nothing survived");
+    }
+
+    /// The interface you are playing through is missing from every scan for the
+    /// same reason it is working: we hold the card. Marking it unavailable was
+    /// the bug - the label appeared the moment the device started being used.
+    #[test]
+    fn the_device_we_are_recording_from_counts_as_present() {
+        let scan = vec!["default".to_string(), "pipewire".to_string()];
+        assert!(device_is_present("default", &scan, None));
+        assert!(
+            !device_is_present("sysdefault:CARD=U192k", &scan, None),
+            "a card nobody can see is not present"
+        );
+        assert!(
+            device_is_present("sysdefault:CARD=U192k", &scan, Some("sysdefault:CARD=U192k")),
+            "the card we are recording from was marked unavailable"
+        );
+        // Holding one card says nothing about another.
+        assert!(!device_is_present("hw:CARD=X", &scan, Some("sysdefault:CARD=U192k")));
     }
 
     /// A re-scan must never take a device off the list. ALSA leaves out
@@ -791,7 +831,12 @@ fn main() -> Result<(), slint::PlatformError> {
             .map(|s| SharedString::from(&s.title))
             .collect();
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
-        ui.set_gate_db(default_gate_db);
+        // Per device: the same room and the same fingers give levels tens of
+        // decibels apart through an interface and through a laptop microphone.
+        ui.set_gate_db(
+            cfg.gate_for(cfg.audio_device.as_deref())
+                .unwrap_or(default_gate_db),
+        );
         ui.set_boost_enabled(default_boost_enabled);
         ui.set_boost_gain(default_boost_gain);
         ui.set_current_mode(app.app_mode as i32); 
@@ -835,7 +880,7 @@ fn main() -> Result<(), slint::PlatformError> {
             .and_then(|want| names.iter().position(|n| n == want))
             .map(|i| i as i32 + 1)
             .unwrap_or(0);
-        fill_device_list(&ui, &names, t.audio_default, &present);
+        fill_device_list(&ui, &names, t.audio_default, &present, None);
         *device_names.borrow_mut() = names;
         ui.set_audio_device_index(chosen);
         ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
@@ -911,6 +956,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 let mut cfg = cfg.borrow_mut();
                 cfg.window_w = Some(size.width);
                 cfg.window_h = Some(size.height);
+                let dev = cfg.audio_device.clone();
+                cfg.set_gate(dev.as_deref(), ui.get_gate_db());
                 cfg.save();
             }
             slint::CloseRequestResponse::HideWindow
@@ -923,6 +970,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut baseline = SettingsSnapshot::read(&ui);
     let mut settings_were_open = false;
     let names_tick = device_names.clone();
+    let cfg_gate = live_cfg.clone();
+    let opened_tick = opened.clone();
 
     // Built once and then written into, NOT replaced every frame. Assigning a
     // fresh model makes Slint throw away all 48 bars and build them again, and
@@ -1007,10 +1056,20 @@ fn main() -> Result<(), slint::PlatformError> {
         // itself is opened, see `on_audio_devices_rescan`.
         if settings_open && !settings_were_open && !file_mode {
             let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-            rescan_devices(&ui, &names_tick, t.audio_default);
+            let open_now = (!opened_tick.borrow().fell_back)
+                .then(|| cfg_gate.borrow().audio_device.clone())
+                .flatten();
+            rescan_devices(&ui, &names_tick, t.audio_default, open_now.as_deref());
         }
         if settings_were_open && !settings_open {
             baseline = SettingsSnapshot::read(&ui);   // leaving the panel clears the mark
+            // Written when the panel closes rather than on every drag: the
+            // slider moves in dozens of steps and each one would be a file.
+            let mut cfg = cfg_gate.borrow_mut();
+            let dev = cfg.audio_device.clone();
+            if cfg.set_gate(dev.as_deref(), ui.get_gate_db()) {
+                cfg.save();
+            }
         }
         settings_were_open = settings_open;
         set_if_changed(
@@ -1308,11 +1367,16 @@ fn main() -> Result<(), slint::PlatformError> {
         // plugged in while the app was running is on the list by the time it
         // appears, without a restart and without a Refresh button to find.
         let names_cb = device_names.clone();
+        let info_rescan = opened.clone();
+        let cfg_rescan = live_cfg.clone();
         let uw = ui.as_weak();
         ui.on_audio_devices_rescan(move || {
             let Some(ui) = uw.upgrade() else { return };
             let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-            rescan_devices(&ui, &names_cb, t.audio_default);
+            let open_now = (!info_rescan.borrow().fell_back)
+                .then(|| cfg_rescan.borrow().audio_device.clone())
+                .flatten();
+            rescan_devices(&ui, &names_cb, t.audio_default, open_now.as_deref());
         });
     }
 
@@ -1331,10 +1395,20 @@ fn main() -> Result<(), slint::PlatformError> {
             let name = if idx > 0 { names_cb.borrow().get(idx as usize - 1).cloned() } else { None };
             let channel = {
                 let mut c = cur.borrow_mut();
+                // The gate belongs to the device being left, not to the one
+                // arriving - save it before the name changes under it.
+                let leaving = c.audio_device.clone();
+                c.set_gate(leaving.as_deref(), ui.get_gate_db());
                 c.audio_device = name.clone();
                 c.save();
                 c.audio_channel
             };
+            // Whatever this input was last set to, or the app default if it is
+            // new. Set before the stream opens so the meter and the threshold
+            // agree from the first frame.
+            if let Some(db) = cur.borrow().gate_for(name.as_deref()) {
+                ui.set_gate_db(db);
+            }
             open_input(&state, &holder, &info, &ui, name.as_deref(), channel);
 
             // A different device may have a different number of channels, and a

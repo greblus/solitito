@@ -5,6 +5,7 @@
 //! file, corrupt JSON, no write permission - falls back to defaults.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Startup mode. The indices match `AppMode` and the UI buttons - reordering
@@ -48,6 +49,12 @@ pub struct Settings {
     /// session.
     #[serde(default = "first_channel")]
     pub audio_channel: usize,
+    /// Noise gate in dBFS, per input. Keyed by what the picker shows, because
+    /// that is what the user chose: an interface with a hot output and a laptop
+    /// microphone need thresholds tens of decibels apart, and having to find the
+    /// setting again after every switch is what a saved value is for.
+    #[serde(default)]
+    pub gates: HashMap<String, f32>,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -63,6 +70,14 @@ pub struct Settings {
 /// open an invisible window with no way to grab it, and a huge one could land
 /// entirely off-screen. Both are unrecoverable without editing the file by hand.
 const SANE_WINDOW_PX: std::ops::RangeInclusive<u32> = 200..=20_000;
+
+/// Key for "system default" in `gates`. Empty because no backend names a device
+/// with an empty string, so it cannot collide with a real one.
+const DEFAULT_DEVICE_KEY: &str = "";
+
+/// The slider's range. A value outside it comes from a hand-edited file and
+/// would put the handle off the end of the track.
+const SANE_GATE_DB: std::ops::RangeInclusive<f32> = -72.0..=0.0;
 
 /// Serde default for the channel. Files written while there was still a "mix
 /// all channels" option hold 0, which is not a channel.
@@ -81,6 +96,7 @@ impl Default for Settings {
             show_spectrum: false,
             audio_device: None,
             audio_channel: 1,
+            gates: HashMap::new(),
             window_w: None,
             window_h: None,
         }
@@ -88,6 +104,29 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Saved gate for a device, if there is one. `None` means "never set here",
+    /// and the caller keeps its own default rather than guessing.
+    pub fn gate_for(&self, device: Option<&str>) -> Option<f32> {
+        self.gates
+            .get(device.unwrap_or(DEFAULT_DEVICE_KEY))
+            .copied()
+            .filter(|db| SANE_GATE_DB.contains(db))
+    }
+
+    /// Remembers the gate for a device. Returns whether anything changed, so the
+    /// caller can skip writing the file when nothing moved.
+    pub fn set_gate(&mut self, device: Option<&str>, db: f32) -> bool {
+        if !SANE_GATE_DB.contains(&db) {
+            return false;
+        }
+        let key = device.unwrap_or(DEFAULT_DEVICE_KEY).to_string();
+        if self.gates.get(&key).is_some_and(|old| (old - db).abs() < 0.01) {
+            return false;
+        }
+        self.gates.insert(key, db);
+        true
+    }
+
     pub fn load() -> Self {
         let Some(path) = config_path() else {
             return Self::default();
@@ -206,6 +245,37 @@ mod tests {
         // A file written before the option existed still loads, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.single_notes);
+    }
+
+    #[test]
+    fn the_gate_is_remembered_per_device() {
+        let mut s = Settings::default();
+        assert_eq!(s.gate_for(None), None, "nothing saved yet is not a threshold of 0 dB");
+
+        assert!(s.set_gate(None, -34.0), "the system default should be storable");
+        assert!(s.set_gate(Some("sysdefault:CARD=U192k"), -52.0));
+        assert_eq!(s.gate_for(None), Some(-34.0));
+        assert_eq!(s.gate_for(Some("sysdefault:CARD=U192k")), Some(-52.0));
+        assert_eq!(s.gate_for(Some("some other card")), None, "one device answered for another");
+
+        // Writing the same value again is not a change, so the file is left alone.
+        assert!(!s.set_gate(None, -34.0));
+
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.gate_for(Some("sysdefault:CARD=U192k")), Some(-52.0));
+
+        // A hand-edited file cannot put the slider handle off the end of its track.
+        assert!(!s.set_gate(None, -900.0));
+        let mut mad = Settings::default();
+        mad.gates.insert(String::new(), 40.0);
+        assert_eq!(mad.gate_for(None), None, "an impossible value was handed back");
+    }
+
+    #[test]
+    fn settings_without_gates_still_load() {
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert!(old.gates.is_empty());
+        assert_eq!(old.gate_for(None), None);
     }
 
     #[test]
