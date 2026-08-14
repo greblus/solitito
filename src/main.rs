@@ -33,10 +33,10 @@ slint::include_modules!();
 
 // Compiled in for the same reason as the chord shapes: no loose asset files to
 // lose in a release package. Black on transparent, recoloured by Slint.
-const ICON_SHUFFLE: &str = include_str!("icons/shuffle.svg");
-const ICON_GEAR: &str = include_str!("icons/gear.svg");
-const ICON_PAUSE: &str = include_str!("icons/pause.svg");
-const ICON_PLAY: &str = include_str!("icons/play.svg");
+const ICON_SHUFFLE: &str = include_str!("assets/icons/shuffle.svg");
+const ICON_GEAR: &str = include_str!("assets/icons/gear.svg");
+const ICON_PAUSE: &str = include_str!("assets/icons/pause.svg");
+const ICON_PLAY: &str = include_str!("assets/icons/play.svg");
 
 /// How far the UI may be scaled from its design size. The floor is where the
 /// smallest labels stop being readable, and below it the window stops shrinking

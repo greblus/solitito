@@ -29,7 +29,7 @@ pub struct Diagram {
 
 macro_rules! diagram {
     ($label:expr, $file:expr) => {
-        Diagram { label: $label, svg: include_str!(concat!("chord_diagrams/", $file)) }
+        Diagram { label: $label, svg: include_str!(concat!("assets/chord_diagrams/", $file)) }
     };
 }
 

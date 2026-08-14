@@ -1,6 +1,6 @@
 import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, LineEdit } from "std-widgets.slint";
 
-import "./AppFont.ttf"; 
+import "../src/assets/AppFont.ttf"; 
 
 component NoteBar inherits Rectangle {
     in property <string> label;
@@ -303,7 +303,7 @@ export component AppWindow inherits Window {
     title: "Solitito";
     // Window and taskbar icon. Compiled into the binary like the chord shapes,
     // so a release package is still one file with nothing to lose beside it.
-    icon: @image-url("app-icon.png");
+    icon: @image-url("../src/assets/app-icon.png");
     /// The size the UI is laid out at, whatever the window size. Resizing sets
     /// the window's scale factor to fit this box, so the UI zooms instead of
     /// reflowing and the proportions are the ones it was designed with. Rust
