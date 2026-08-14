@@ -373,6 +373,106 @@ fn keep_console_open(allocated: bool) {
     let _ = std::io::stdin().read_line(&mut line);
 }
 
+/// Runs a recording through the live feature path and reports, window by
+/// window, what the model makes of it.
+///
+/// Deliberately ungated: the app only asks the model once 90% of the 48-frame
+/// window carries signal, so "the model cannot hear it" and "the app never
+/// asked" look identical from the outside. Here the level, the window fill and
+/// the twelve pitch probabilities are printed side by side, which separates the
+/// two.
+fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()> {
+    use audio::{CTX_FRAMES, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, TARGET_SR, TOTAL_FEATURES};
+
+    let reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    let ch = spec.channels as usize;
+    let raw: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int if spec.bits_per_sample == 16 => reader
+            .into_samples::<i16>()
+            .map(|s| s.unwrap_or(0) as f32 / 32768.0)
+            .collect(),
+        hound::SampleFormat::Float => {
+            reader.into_samples::<f32>().map(|s| s.unwrap_or(0.0)).collect()
+        }
+        _ => anyhow::bail!("only 16-bit integer or 32-bit float WAV is read here"),
+    };
+
+    // First channel and a linear resample to 16 kHz - the same two steps the
+    // stream callback does, so the features are the ones the app would see.
+    let mono: Vec<f32> = raw.chunks(ch).map(|f| f[0]).collect();
+    let ratio = spec.sample_rate as f32 / TARGET_SR as f32;
+    let mut sig: Vec<f32> = Vec::with_capacity((mono.len() as f32 / ratio) as usize + 8);
+    let mut read = 0.0f32;
+    while read + 1.0 < mono.len() as f32 {
+        let i = read as usize;
+        let f = read - i as f32;
+        sig.push(mono[i] + f * (mono[i + 1] - mono[i]));
+        read += ratio;
+    }
+
+    let mut analyzer = audio::CqtAnalyzer::new("dsp_weights.json")?;
+    let mut brain = ChordBrain::new("best_model_v2_take6.onnx")?;
+    let gate = db_to_lin(gate_db);
+
+    let mut hist = [[0.0f32; TOTAL_FEATURES]; CTX_FRAMES];
+    let mut live = [false; CTX_FRAMES];
+
+    println!(
+        "\n{path} · {} Hz · {ch} ch · gate {gate_db:.0} dB · bass boost {}",
+        spec.sample_rate,
+        match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
+    );
+    println!(
+        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B   model"
+    );
+
+    let mut frame = 0usize;
+    let mut at = FFT_SIZE;
+    while at <= sig.len() {
+        let chunk = &sig[at - FFT_SIZE..at];
+        let rms = (chunk.iter().map(|x| x * x).sum::<f32>() / FFT_SIZE as f32).sqrt();
+
+        hist.rotate_left(1);
+        live.rotate_left(1);
+        if rms > gate {
+            let amplified: Vec<f32> = chunk.iter().map(|&x| x * INPUT_GAIN).collect();
+            let (cqt, chroma, bass, _) =
+                analyzer.compute_cqt_chroma(&amplified, boost.is_some(), boost.unwrap_or(1.0));
+            let mut f = Vec::with_capacity(TOTAL_FEATURES);
+            f.extend_from_slice(&cqt);
+            f.extend_from_slice(&chroma);
+            f.extend_from_slice(&bass);
+            hist[CTX_FRAMES - 1].copy_from_slice(&f);
+            live[CTX_FRAMES - 1] = true;
+        } else {
+            hist[CTX_FRAMES - 1] = [0.0; TOTAL_FEATURES];
+            live[CTX_FRAMES - 1] = false;
+        }
+
+        frame += 1;
+        if frame >= CTX_FRAMES && frame % 8 == 0 {
+            let fill = live.iter().filter(|&&b| b).count() as f32 / CTX_FRAMES as f32;
+            let p = brain.predict(&hist)?;
+            let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
+            let cells: String =
+                p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
+            println!(
+                "{:6.2} {:6.1} {:4.0}% {}   {} {:.2}{}",
+                at as f32 / TARGET_SR as f32,
+                db,
+                fill * 100.0,
+                cells,
+                p.chord,
+                p.confidence,
+                if fill < 0.9 { "   << app would not ask" } else { "" }
+            );
+        }
+        at += HOP_LENGTH;
+    }
+    Ok(())
+}
+
 fn svg_icon(src: &str) -> slint::Image {
     slint::Image::load_from_svg_data(src.as_bytes()).unwrap_or_default()
 }
@@ -488,6 +588,39 @@ fn main() -> Result<(), slint::PlatformError> {
                 Ok(i) => println!("  {name}\n      {} Hz · {} ch · {}", i.sample_rate, i.channels, i.format),
                 Err(e) => println!("  {name}\n      unavailable: {e}"),
             }
+        }
+        keep_console_open(console);
+        std::process::exit(0);
+    }
+
+    // --probe FILE.wav: what the model hears in a recording, window by window.
+    //
+    // The same feature path as the live stream, but with nothing gated away and
+    // nothing thrown at the screen - so a question like "is it the model that
+    // cannot hear single notes, or does the app never ask?" can be answered from
+    // a recording instead of from memory. Prints the level and the window fill
+    // beside the twelve pitch probabilities, because those three together are
+    // what decides whether a note counts.
+    if let Some(i) = args.iter().position(|a| a == "--probe") {
+        let Some(path) = args.get(i + 1).cloned() else {
+            eprintln!("usage: solitito --probe FILE.wav [--gate DB]");
+            keep_console_open(console);
+            std::process::exit(2);
+        };
+        let gate_db: f32 = args
+            .iter()
+            .position(|a| a == "--gate")
+            .and_then(|g| args.get(g + 1))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(-34.0);
+        let boost = args
+            .iter()
+            .position(|a| a == "--boost")
+            .and_then(|b| args.get(b + 1))
+            .and_then(|v| v.parse::<f32>().ok());
+        match probe_file(&path, gate_db, boost) {
+            Ok(()) => {}
+            Err(e) => eprintln!("❌ {e}"),
         }
         keep_console_open(console);
         std::process::exit(0);

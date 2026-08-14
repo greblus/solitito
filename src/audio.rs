@@ -18,9 +18,9 @@ pub const CTX_FRAMES: usize = 48; // model context
 
 const BASS_BOOST_CUTOFF: usize = 36;
 
-const TARGET_SR: u32 = 16000; 
-const FFT_SIZE: usize = 8192; 
-const HOP_LENGTH: usize = 256; 
+pub const TARGET_SR: u32 = 16000; 
+pub const FFT_SIZE: usize = 8192; 
+pub const HOP_LENGTH: usize = 256; 
 const MIN_REF_LEVEL: f32 = 0.005; 
 
 /// Input gain. A CONSTANT, not a knob: the CQT is max-normalised per frame, so
