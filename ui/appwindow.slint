@@ -278,6 +278,8 @@ export global Tr {
     in-out property <string> lock_quality: "Lock chord quality until new attack";
     in-out property <string> short_verdict: "Judge short strums on the attack";
     in-out property <string> short_verdict_hint: "";
+    in-out property <string> single_notes: "Play the notes one at a time";
+    in-out property <string> single_notes_hint: "";
     in-out property <string> random_order: "Random order";
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> fretboard: "Fretboard";
@@ -430,6 +432,10 @@ export component AppWindow inherits Window {
     /// Judge a strum on its best reading rather than on how long it is held.
     in-out property <bool> short_verdict: false;
     callback short_verdict_changed(bool);
+    /// Note modes: require one note at a time instead of letting a strummed
+    /// chord walk its intervals.
+    in-out property <bool> single_notes: false;
+    callback single_notes_changed(bool);
 
     // --- AUDIO INPUT ---
     /// What the stream actually opened with, or why it did not. The only
@@ -936,6 +942,26 @@ export component AppWindow inherits Window {
                             }
                             Text {
                                 text: Tr.short_verdict_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.single_notes;
+                                    toggled => { root.single_notes_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.single_notes;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                text: Tr.single_notes_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
                         }

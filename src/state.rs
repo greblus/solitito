@@ -160,6 +160,12 @@ pub struct MyApp {
     /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
     /// `None` while the gate is shut or the estimate is weak.
     pub cqt_pitch: Option<usize>,
+    /// Require the notes one at a time. Off, the CQT only ever ADDS a way to
+    /// pass, and a strummed chord still walks its intervals - the model's pitch
+    /// head is polyphonic and reports every tone at once, which a monophonic
+    /// estimate cannot. On, the CQT overrules the model and one pluck credits
+    /// one step.
+    pub single_notes: bool,
     /// Attack counter, mirrored from the audio thread.
     pub onset_id: u64,
     /// Which pitch class was credited last, and on which attack. A step is not
@@ -229,6 +235,7 @@ impl MyApp {
             last_pitches: [0.0; 12],
             prev_pitches: [0.0; 12],
             cqt_pitch: None,
+            single_notes: false,
             onset_id: 0,
             credited: None,
         }
@@ -527,7 +534,7 @@ impl MyApp {
         //    0.77 s of audio, and against one frame that is a claim about the
         //    past. The root head below is left as a second opinion, so a note
         //    the CQT reads badly still has a way through.
-        let stale = self.cqt_pitch.is_some_and(|now| now != target);
+        let stale = self.single_notes && self.cqt_pitch.is_some_and(|now| now != target);
         if !stale && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
             return true;
         }
@@ -596,10 +603,11 @@ impl MyApp {
         if self.app_mode == AppMode::Fretboard {
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
             let Some(target) = self.fret_target else { self.next_fret_target(); return; };
-            let fresh = match self.credited {
-                Some((pc, onset)) => pc != target % 12 || onset != self.onset_id,
-                None => true,
-            };
+            let fresh = !self.single_notes
+                || match self.credited {
+                    Some((pc, onset)) => pc != target % 12 || onset != self.onset_id,
+                    None => true,
+                };
             if fresh && self.note_is_sounding(target, ai_root, confidence) {
                 self.success_timer += dt;
                 self.match_status = MatchStatus::Exact;
@@ -735,10 +743,11 @@ impl MyApp {
                 // One pluck credits one step. Without this an arpeggio asking
                 // for the same pitch class twice runs through both steps on a
                 // single ringing string, with nothing played in between.
-                let fresh = match self.credited {
-                    Some((pc, onset)) => pc != target_note_idx % 12 || onset != self.onset_id,
-                    None => true,
-                };
+                let fresh = !self.single_notes
+                    || match self.credited {
+                        Some((pc, onset)) => pc != target_note_idx % 12 || onset != self.onset_id,
+                        None => true,
+                    };
                 let note_match =
                     fresh && self.note_is_sounding(target_note_idx, ai_root, confidence);
 
@@ -1353,6 +1362,30 @@ pub(crate) mod tests {
         assert_eq!(a.fret_target, Some(target), "paused, yet it drew a new note");
     }
 
+    /// The behaviour the option exists to protect: a strummed chord lights every
+    /// one of its tones in the pitch head at once and the interval modes walk
+    /// through them - something a monophonic estimate cannot do, so it must not
+    /// be allowed to overrule it while the option is off.
+    #[test]
+    fn a_strummed_chord_still_walks_its_intervals() {
+        let mut a = app();
+        a.note_threshold = 0.6;
+        a.single_notes = false;              // the default
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[0] = 0.95;            // C
+        a.last_pitches[4] = 0.92;            // E
+        a.last_pitches[7] = 0.90;            // G
+        a.cqt_pitch = Some(0);               // the estimate can only name one
+        for pc in [0usize, 4, 7] {
+            assert!(a.note_is_sounding(pc, None, 0.0), "chord tone {pc} stopped passing");
+        }
+        a.single_notes = true;
+        assert!(
+            !a.note_is_sounding(4, None, 0.0),
+            "with the option on, E has to be played on its own"
+        );
+    }
+
     /// One CQT frame carries no memory, so it answers "what is sounding NOW"
     /// where the model answers "what sounded in the last 0.77 s".
     #[test]
@@ -1370,6 +1403,7 @@ pub(crate) mod tests {
     #[test]
     fn a_note_that_has_been_left_behind_stops_counting() {
         let mut a = app();
+        a.single_notes = true;
         a.note_threshold = 0.6;
         a.last_pitches = [0.0; 12];
         a.last_pitches[2] = 0.95;            // D, played a moment ago, still loud
@@ -1412,6 +1446,7 @@ pub(crate) mod tests {
     #[test]
     fn one_pluck_credits_one_step() {
         let mut a = app();
+        a.single_notes = true;
         a.set_mode(AppMode::Fretboard as i32);
         a.transition_delay = 0.05;
         a.note_threshold = 0.5;

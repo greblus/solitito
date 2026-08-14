@@ -503,6 +503,7 @@ struct SettingsSnapshot {
     boost_enabled: bool,
     lock_quality: bool,
     short_verdict: bool,
+    single_notes: bool,
     random_enabled: bool,
     show_diagrams: bool,
     ai_debug: bool,
@@ -522,6 +523,7 @@ impl SettingsSnapshot {
             boost_enabled: ui.get_boost_enabled(),
             lock_quality: ui.get_lock_quality(),
             short_verdict: ui.get_short_verdict(),
+            single_notes: ui.get_single_notes(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -796,6 +798,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
+        ui.set_single_notes(cfg.single_notes);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
@@ -992,6 +995,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.transition_delay = ui.get_delay();
         app.set_random_mode(ui.get_random_enabled());
         app.short_verdict = ui.get_short_verdict();
+        app.single_notes = ui.get_single_notes();
         // The fretboard trainer hides the pause button, so a pause carried over
         // from another mode would freeze it with nothing on screen to explain why.
         if app.app_mode == AppMode::Fretboard && ui.get_paused() {
@@ -1386,6 +1390,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_single_notes_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.single_notes = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_startup_mode_changed(move |mode_idx| {
             let mut cur = cur.borrow_mut();
             cur.startup_mode = mode_idx;
@@ -1499,6 +1511,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_lock_quality(t.lock_quality.into());
     g.set_short_verdict(t.short_verdict.into());
     g.set_short_verdict_hint(t.short_verdict_hint.into());
+    g.set_single_notes(t.single_notes.into());
+    g.set_single_notes_hint(t.single_notes_hint.into());
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
     g.set_random_hint(t.random_hint.into());

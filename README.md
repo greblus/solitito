@@ -80,6 +80,7 @@ strictly it is judged, **App** for what the window shows.
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
 | **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it. A wrong chord still fails |
+| **Play the notes one at a time** | Note modes only. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, each note has to be played on its own, the CQT estimate overrules the model, and a repeated note needs a fresh attack |
 | **Random order** | Chords come up shuffled instead of in sequence; in the note modes the tones inside each chord are shuffled too, and in Scales the key changes after every pass. Also on the toolbar as the shuffle icon |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
@@ -149,10 +150,15 @@ in the window.
 
 So the note modes ask a second question of a single CQT frame, which has no memory: a
 harmonic sum over the log-magnitude bins gives the pitch class sounding right now. On the same
-scale it named the current note 57% of the time and never named one that was not played. When
-it disagrees with the model, it wins — everything the model can say about "now" rests on
-three quarters of a second of the past. The remaining lag is the 8192-sample FFT window, half
-a second wide, which is also why notes shorter than about 0.4 s are still hard.
+scale it named the current note 57% of the time and never named one that was not played. The
+remaining lag is the 8192-sample FFT window, half a second wide, which is also why notes
+shorter than about 0.4 s are still hard.
+
+By default that estimate only ADDS a way to pass, because overruling the model would cost
+something worth keeping: the pitch head is polyphonic, so strumming a whole chord walks its
+intervals one by one, which no monophonic tuner can do. **Play the notes one at a time** turns
+the estimate into the authority — then the model's window cannot credit the note before the
+one under your fingers, and a repeated note needs a fresh attack.
 
 ---
 

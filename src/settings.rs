@@ -27,6 +27,11 @@ pub struct Settings {
     /// not change between sessions the way a noise gate might.
     #[serde(default)]
     pub short_verdict: bool,
+    /// Note modes: require the notes one at a time. Off by default, because
+    /// playing the whole chord and watching the intervals go past one by one is
+    /// something the app can do and a monophonic tuner cannot.
+    #[serde(default)]
+    pub single_notes: bool,
     /// The spectrum in the settings panel. Off by default - it is a calibration
     /// aid, and 48 bars redrawn with every frame are what the panel spends most
     /// of its time on.
@@ -72,6 +77,7 @@ impl Default for Settings {
             startup_mode: 4,
             language: 0,
             short_verdict: false,
+            single_notes: false,
             show_spectrum: false,
             audio_device: None,
             audio_channel: 1,
@@ -189,6 +195,17 @@ mod tests {
         // And a file written before it existed must still load, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.short_verdict);
+    }
+
+    #[test]
+    fn single_notes_survives_a_round_trip_and_defaults_off() {
+        assert!(!Settings::default().single_notes, "the strict mode must not be the default");
+        let s = Settings { single_notes: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.single_notes, "the option did not survive being saved");
+        // A file written before the option existed still loads, with it off.
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert!(!old.single_notes);
     }
 
     #[test]
