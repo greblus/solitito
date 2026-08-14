@@ -133,6 +133,27 @@ G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 
 This is what separates "the model cannot hear the seventh" from "it hears it and ignores it"
 — two problems that look identical from the chord name alone and lead in opposite directions.
 
+`./solitito --probe recording.wav` answers the same kind of question about a whole recording:
+it runs the file through the live feature path with nothing gated away and prints, for every
+window, the input level, how full the model's context window was, the twelve pitch
+probabilities and the note the CQT alone reports — so "the model cannot hear it" and "the app
+never asked" stop looking alike.
+
+### Why single notes are not judged by the model alone
+
+The model is asked about 48 frames, which is 0.77 s of audio, and it answers about all of it.
+That is right for a chord you hold and wrong for a scale: measured on a scale at 0.6 s per
+note, the pitch head named the note being played in 7% of windows and the one before it in
+79%. Nothing is broken there — the model is reporting both notes it heard, because both were
+in the window.
+
+So the note modes ask a second question of a single CQT frame, which has no memory: a
+harmonic sum over the log-magnitude bins gives the pitch class sounding right now. On the same
+scale it named the current note 57% of the time and never named one that was not played. When
+it disagrees with the model, it wins — everything the model can say about "now" rests on
+three quarters of a second of the past. The remaining lag is the 8192-sample FFT window, half
+a second wide, which is also why notes shorter than about 0.4 s are still hard.
+
 ---
 
 ## How it works

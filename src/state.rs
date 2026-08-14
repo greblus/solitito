@@ -153,6 +153,20 @@ pub struct MyApp {
     /// rely on this rather than on the chord name - the pitch head is at F1 0.90,
     /// the chord name around 80%.
     pub last_pitches: [f32; 12],
+    /// The pitch vector of the PREVIOUS prediction. A window holding two notes
+    /// credits the older one on level; the newer one only stands out by how much
+    /// it rose, which is what this is for.
+    pub prev_pitches: [f32; 12],
+    /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
+    /// `None` while the gate is shut or the estimate is weak.
+    pub cqt_pitch: Option<usize>,
+    /// Attack counter, mirrored from the audio thread.
+    pub onset_id: u64,
+    /// Which pitch class was credited last, and on which attack. A step is not
+    /// credited twice on one pluck: an arpeggio that asks for the same note
+    /// twice in a row would otherwise run through both on a single ringing
+    /// string, with nothing played in between.
+    pub credited: Option<(usize, u64)>,
 }
 
 impl MyApp {
@@ -213,6 +227,10 @@ impl MyApp {
             rng: Rng::default(),
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
+            prev_pitches: [0.0; 12],
+            cqt_pitch: None,
+            onset_id: 0,
+            credited: None,
         }
     }
     
@@ -484,19 +502,59 @@ impl MyApp {
     /// Is the requested pitch class sounding right now?
     ///
     /// Shared by the note modes and the fretboard trainer so the two cannot
-    /// drift apart. Gated on the pitch head rather than the chord name: F1 0.90
-    /// against roughly 80% for the name.
+    /// drift apart. Four ways in, because no single one covers note practice:
+    ///
+    /// Measured on a scale at 0.6 s per note, the model's pitch head named the
+    /// note actually being played in 7% of windows and the PREVIOUS one in 79% -
+    /// not because it is wrong, but because it is asked about 0.77 s of audio and
+    /// faithfully reports both notes it heard. The CQT estimate looks at one
+    /// frame and got the current note 57% of the time, the previous one the rest,
+    /// and never a note that was not played at all.
     fn note_is_sounding(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> bool {
-        let p_target = self.last_pitches[pc % 12];
-        let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
-        // Loudest class in the window as well as confident: without the second
-        // condition a note still ringing from the previous step would score.
-        if p_target >= self.note_threshold && p_target >= p_max * 0.9 {
+        let target = pc % 12;
+
+        // 1. One frame, one note - no window to smear across.
+        if self.cqt_pitch == Some(target) {
             return true;
         }
-        // The root head is independent confirmation - a single note is reported
-        // by the model as the root.
-        matches!(ai_root, Some(r) if r == NoteName::from_index(pc % 12))
+
+        let p_target = self.last_pitches[target];
+        let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
+
+        // 2. The model, where the target owns the window: a held note, or the
+        //    only one in it. Both model branches are suppressed when the CQT
+        //    names a DIFFERENT note: everything the model can say rests on
+        //    0.77 s of audio, and against one frame that is a claim about the
+        //    past. The root head below is left as a second opinion, so a note
+        //    the CQT reads badly still has a way through.
+        let stale = self.cqt_pitch.is_some_and(|now| now != target);
+        if !stale && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
+            return true;
+        }
+
+        // 3. The model, where the target is the note that just ARRIVED in a
+        //    window still holding the previous one. Being loudest is the wrong
+        //    test there - the older note has had more of the window to itself,
+        //    so it wins on level while the new one wins on rise. Only meaningful
+        //    against a window that already held something: from an empty one
+        //    every class has "risen", which is branch 2 wearing a disguise.
+        let had_content = self.prev_pitches.iter().any(|&v| v > 0.2);
+        let rise = p_target - self.prev_pitches[target];
+        let best_rise = (0..12)
+            .map(|i| self.last_pitches[i] - self.prev_pitches[i])
+            .fold(f32::NEG_INFINITY, f32::max);
+        if !stale
+            && had_content
+            && p_target >= self.note_threshold
+            && rise > 0.05
+            && rise >= best_rise * 0.9
+        {
+            return true;
+        }
+
+        // 4. The root head as independent confirmation - a single note is
+        //    reported by the model as the root.
+        matches!(ai_root, Some(r) if r == NoteName::from_index(target))
             && confidence >= self.chord_confidence
     }
 
@@ -538,7 +596,11 @@ impl MyApp {
         if self.app_mode == AppMode::Fretboard {
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
             let Some(target) = self.fret_target else { self.next_fret_target(); return; };
-            if self.note_is_sounding(target, ai_root, confidence) {
+            let fresh = match self.credited {
+                Some((pc, onset)) => pc != target % 12 || onset != self.onset_id,
+                None => true,
+            };
+            if fresh && self.note_is_sounding(target, ai_root, confidence) {
                 self.success_timer += dt;
                 self.match_status = MatchStatus::Exact;
             } else {
@@ -549,6 +611,7 @@ impl MyApp {
                 if self.paused {
                     self.success_timer = self.transition_delay;
                 } else {
+                    self.credited = Some((target % 12, self.onset_id));
                     self.next_fret_target();
                 }
             }
@@ -669,7 +732,15 @@ impl MyApp {
 
                 // Target pitch class (0..11); NoteName ordering matches the
                 // pitch_logits output (C, Db, D, ...).
-                let note_match = self.note_is_sounding(target_note_idx, ai_root, confidence);
+                // One pluck credits one step. Without this an arpeggio asking
+                // for the same pitch class twice runs through both steps on a
+                // single ringing string, with nothing played in between.
+                let fresh = match self.credited {
+                    Some((pc, onset)) => pc != target_note_idx % 12 || onset != self.onset_id,
+                    None => true,
+                };
+                let note_match =
+                    fresh && self.note_is_sounding(target_note_idx, ai_root, confidence);
 
                 if note_match { self.success_timer += dt; } else { self.success_timer = 0.0; }
 
@@ -681,6 +752,7 @@ impl MyApp {
                     if self.current_note_step < self.collected_notes.len() {
                         self.collected_notes[self.current_note_step] = true;
                     }
+                    self.credited = Some((target_note_idx % 12, self.onset_id));
                     self.current_note_step += 1;
                     self.success_timer = 0.0; 
 
@@ -773,11 +845,23 @@ impl MyApp {
         self.update_collected_notes_size();
     }
 
-    pub fn sync_audio_settings(&self) {
+    pub fn sync_audio_settings(&mut self) {
+        let mut gate_open = false;
         if let Ok(mut state) = self.analysis_state.lock() {
             state.noise_gate = self.noise_gate;
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;
+            self.cqt_pitch = state.cqt_pitch;
+            self.onset_id = state.onset_id;
+            gate_open = state.gate_open;
+        }
+        // Nothing refreshes the pitch vector while the gate is shut - the model
+        // is not even asked - so without this it keeps its last value for as
+        // long as the app runs, and a note that stopped sounding minutes ago
+        // still counts as played.
+        if !gate_open {
+            self.last_pitches = [0.0; 12];
+            self.prev_pitches = [0.0; 12];
         }
     }
 }
@@ -800,6 +884,8 @@ pub(crate) mod tests {
             input_level: 0.0,
             onset_id: 0,
             frames_since_onset: 0,
+            cqt_pitch: None,
+            gate_open: false,
         }));
         let mut a = MyApp::new(analysis, None);
         a.chords = vec![
@@ -1265,6 +1351,84 @@ pub(crate) mod tests {
         a.last_pitches[target] = 1.0;
         for _ in 0..40 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.fret_target, Some(target), "paused, yet it drew a new note");
+    }
+
+    /// One CQT frame carries no memory, so it answers "what is sounding NOW"
+    /// where the model answers "what sounded in the last 0.77 s".
+    #[test]
+    fn the_cqt_alone_credits_the_note_being_played() {
+        let mut a = app();
+        a.note_threshold = 0.6;
+        a.last_pitches = [0.0; 12];          // model still says nothing
+        a.cqt_pitch = Some(4);               // E is sounding
+        assert!(a.note_is_sounding(4, None, 0.0), "the CQT knew and was ignored");
+        assert!(!a.note_is_sounding(7, None, 0.0), "credited a note nobody played");
+    }
+
+    /// The failure this whole path exists for: the window still holds the note
+    /// before the one being played, and it is the LOUDER of the two.
+    #[test]
+    fn a_note_that_has_been_left_behind_stops_counting() {
+        let mut a = app();
+        a.note_threshold = 0.6;
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[2] = 0.95;            // D, played a moment ago, still loud
+        a.last_pitches[4] = 0.70;            // E, the one under the fingers now
+        a.cqt_pitch = Some(4);
+        assert!(!a.note_is_sounding(2, None, 0.0), "credited the previous note");
+        assert!(a.note_is_sounding(4, None, 0.0), "did not credit the current one");
+    }
+
+    /// Without the CQT to arbitrate, the new note is the one that ROSE - being
+    /// loudest belongs to whichever has had more of the window to itself.
+    #[test]
+    fn a_new_note_under_a_louder_old_one_counts() {
+        let mut a = app();
+        a.note_threshold = 0.6;
+        a.cqt_pitch = None;                  // gate open, estimate too weak to rule
+        a.prev_pitches = [0.05; 12];
+        a.prev_pitches[2] = 0.90;            // D was already there
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[2] = 0.95;            // and barely moved
+        a.last_pitches[4] = 0.70;            // E arrived
+        assert!(a.note_is_sounding(4, None, 0.0), "the note that arrived did not count");
+    }
+
+    /// Nothing refreshes the pitch vector while the gate is shut, so it has to be
+    /// cleared - otherwise a note that stopped sounding still reads as played.
+    #[test]
+    fn the_gate_closing_clears_the_pitch_memory() {
+        let mut a = app();
+        a.last_pitches = [0.5; 12];
+        a.prev_pitches = [0.5; 12];
+        a.analysis_state.lock().unwrap().gate_open = false;
+        a.sync_audio_settings();
+        assert_eq!(a.last_pitches, [0.0; 12], "stale pitches survived the gate closing");
+        assert_eq!(a.prev_pitches, [0.0; 12]);
+    }
+
+    /// An arpeggio may ask for the same pitch class twice in a row. One pluck
+    /// must credit one step, or a single ringing string walks through both.
+    #[test]
+    fn one_pluck_credits_one_step() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        a.transition_delay = 0.05;
+        a.note_threshold = 0.5;
+        let target = a.fret_target.unwrap();
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[target % 12] = 1.0;
+        a.credited = Some((target % 12, 0));      // this pluck already counted
+        a.onset_id = 0;
+        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        assert_eq!(a.fret_target, Some(target), "the same pluck counted twice");
+
+        a.onset_id = 1;                            // strings struck again
+        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        assert_eq!(
+            a.credited, Some((target % 12, 1)),
+            "a fresh attack on the right note did not count"
+        );
     }
 
     /// Feeds the note the exercise is currently asking for, once.

@@ -71,6 +71,13 @@ pub struct AudioAnalysis {
     /// Frames since the last attack. Below CTX_FRAMES the context window still
     /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
+    /// Pitch class of the single note sounding in the LAST frame, from the CQT
+    /// alone - see `mono_pitch`. `None` while the gate is shut. The model cannot
+    /// answer this: it looks at 0.77 s and note practice moves faster than that.
+    pub cqt_pitch: Option<usize>,
+    /// Whether the last frame carried signal. Cleared state downstream hangs on
+    /// this: a pitch vector nobody refreshes stays true forever otherwise.
+    pub gate_open: bool,
 }
 
 impl AudioAnalysis {
@@ -262,6 +269,75 @@ impl CqtAnalyzer {
 
         (norm_cqt, chroma_vals, bass_energy, visual)
     }
+}
+
+/// Bins per semitone in the CQT: 144 bins over 6 octaves from C1.
+const BINS_PER_SEMITONE: usize = 2;
+
+/// Offsets of the first six harmonics, in CQT bins: round(24 * log2(h)).
+const HARMONIC_OFFSETS: [usize; 6] = [0, 24, 38, 48, 56, 62];
+
+/// Search range for a guitar fundamental, in CQT bins from C1: E2 (bin 32) up to
+/// roughly E5. Outside it lies nothing a guitar can sound as a fundamental, and
+/// letting the search go there only invites octave errors.
+const F0_LOW_BIN: usize = 30;
+const F0_HIGH_BIN: usize = 112;
+
+/// The pitch class of a SINGLE sounding note, straight from one CQT frame.
+///
+/// A harmonic sum over the log-magnitude CQT - which, the axis being
+/// logarithmic, is the harmonic PRODUCT spectrum, the standard monophonic
+/// estimator. It exists because the model cannot answer this question: its
+/// context window is 48 frames, so it reports everything that sounded in the
+/// last 0.77 s, and in note practice that is two or three notes at once. This
+/// looks at 16 ms and has no memory at all.
+///
+/// Returns the pitch class (0 = C) and the score of the winning bin.
+pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
+    if norm_cqt.len() < CQT_BINS {
+        return None;
+    }
+    let score_at = |b: usize| -> f32 {
+        let mut sum = 0.0;
+        let mut used = 0.0;
+        for (h, off) in HARMONIC_OFFSETS.iter().enumerate() {
+            let idx = b + off;
+            if idx >= CQT_BINS {
+                break;
+            }
+            // Later harmonics say less about which note it is, and are the ones
+            // a neighbouring string is most likely to share.
+            let w = 1.0 / (1.0 + h as f32 * 0.35);
+            sum += w * norm_cqt[idx];
+            used += w;
+        }
+        if used > 0.0 { sum / used } else { 0.0 }
+    };
+
+    let mut best = (0usize, 0.0f32);
+    for b in F0_LOW_BIN..F0_HIGH_BIN.min(CQT_BINS) {
+        let s = score_at(b);
+        if s > best.1 {
+            best = (b, s);
+        }
+    }
+    if best.1 <= 0.0 {
+        return None;
+    }
+
+    // An octave down scores almost as well whenever the true fundamental's
+    // harmonics land on its own - the classic failure of this method. Prefer the
+    // higher candidate unless the lower one is clearly better on its own bin.
+    let mut b = best.0;
+    if b >= 24 + F0_LOW_BIN {
+        let lower = b - 24;
+        if score_at(lower) > best.1 * 0.98 && norm_cqt[lower] > norm_cqt[b] * 1.15 {
+            b = lower;
+        }
+    }
+
+    let semitone = (b as f32 / BINS_PER_SEMITONE as f32).round() as usize;
+    Some((semitone % 12, best.1))
 }
 
 /// What the input stream actually opened with.
@@ -483,7 +559,13 @@ pub fn start_audio_stream(
                             &amplified, boost_enabled, boost_gain
                         );
                         
+                        // One frame, one note: no window memory, so a scale is
+                        // tracked instead of smeared. Weak answers are dropped -
+                        // in noise this estimator always names something.
+                        let mono = mono_pitch(&cqt).filter(|&(_, s)| s >= 0.5).map(|(pc, _)| pc);
                         if let Ok(mut state) = shared_state.lock() {
+                            state.cqt_pitch = mono;
+                            state.gate_open = true;
                             let mut frame = Vec::with_capacity(TOTAL_FEATURES);
                             frame.extend_from_slice(&cqt);
                             frame.extend_from_slice(&chroma);
@@ -498,6 +580,8 @@ pub fn start_audio_stream(
                         }
                     } else if let Ok(mut state) = shared_state.lock() {
                         // In silence push an empty frame to advance the history
+                        state.cqt_pitch = None;
+                        state.gate_open = false;
                         state.push_silence();
                         for x in &mut state.spectrum_visual { *x *= 0.7; }
                     }
@@ -702,6 +786,8 @@ mod fill_tests {
             bass_boost_gain: 1.0,
             noise_gate: 0.0,
             input_level: 0.0,
+            cqt_pitch: None,
+            gate_open: false,
         }
     }
 

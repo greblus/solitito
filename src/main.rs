@@ -381,6 +381,10 @@ fn keep_console_open(allocated: bool) {
 /// asked" look identical from the outside. Here the level, the window fill and
 /// the twelve pitch probabilities are printed side by side, which separates the
 /// two.
+/// Pitch-class names in CQT order, so a probe row reads as notes and not indices.
+const NOTE_NAMES: [&str; 12] =
+    ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
 fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()> {
     use audio::{CTX_FRAMES, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, TARGET_SR, TOTAL_FEATURES};
 
@@ -417,6 +421,7 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
 
     let mut hist = [[0.0f32; TOTAL_FEATURES]; CTX_FRAMES];
     let mut live = [false; CTX_FRAMES];
+    let mut last_cqt: Option<Vec<f32>> = None;
 
     println!(
         "\n{path} · {} Hz · {ch} ch · gate {gate_db:.0} dB · bass boost {}",
@@ -424,7 +429,7 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
         match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
     );
     println!(
-        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B   model"
+        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
     );
 
     let mut frame = 0usize;
@@ -445,9 +450,11 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
             f.extend_from_slice(&bass);
             hist[CTX_FRAMES - 1].copy_from_slice(&f);
             live[CTX_FRAMES - 1] = true;
+            last_cqt = Some(cqt);
         } else {
             hist[CTX_FRAMES - 1] = [0.0; TOTAL_FEATURES];
             live[CTX_FRAMES - 1] = false;
+            last_cqt = None;
         }
 
         frame += 1;
@@ -457,12 +464,17 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
             let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
             let cells: String =
                 p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
+            let cqt = match last_cqt.as_ref().and_then(|c| audio::mono_pitch(c)) {
+                Some((pc, s)) => format!("{:>3} {:.2}", NOTE_NAMES[pc], s),
+                None => "  -     ".to_string(),
+            };
             println!(
-                "{:6.2} {:6.1} {:4.0}% {}   {} {:.2}{}",
+                "{:6.2} {:6.1} {:4.0}% {}  {}  {} {:.2}{}",
                 at as f32 / TARGET_SR as f32,
                 db,
                 fill * 100.0,
                 cells,
+                cqt,
                 p.chord,
                 p.confidence,
                 if fill < 0.9 { "   << app would not ask" } else { "" }
@@ -559,6 +571,8 @@ fn main() -> Result<(), slint::PlatformError> {
         bass_boost_gain: default_boost_gain, 
         noise_gate: db_to_lin(default_gate_db),
         input_level: 0.0,
+        cqt_pitch: None,
+        gate_open: false,
     }));
     
     let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
@@ -1012,6 +1026,7 @@ fn main() -> Result<(), slint::PlatformError> {
             if res.updated {
                 let chord = res.pred.chord.clone();
                 let score = res.pred.confidence;
+                app.prev_pitches = app.last_pitches;
                 app.last_pitches = res.pred.pitches;
 
                 // clear the flag once consumed
