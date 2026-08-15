@@ -17,8 +17,12 @@ all twelve keys: the red dot is the root, and the shape moves. Clicking shape of
 enlarges it.
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
-trainer I use daily. Solo does far more, and does it well. Solitito is a desktop application 
-for Linux and Windows. There are no plans for mobile versions.
+trainer I use daily. Solo does far more, and does it well — but it hears one note at a time.
+That was the one thing that bothered me: playing intervals through changes, you have to mute
+the strings for each note to register, which is an unmusical way to practise. I kept wondering
+how Yousician managed it, since that one does recognise chords.
+
+Solitito is a desktop application for Linux and Windows. There are no plans for mobile versions.
 
 Development started in December 2025. The data pipeline was rewritten from scratch more than
 once before it worked. Most of what follows is a record of what turned out to matter.
@@ -73,7 +77,7 @@ strictly it is judged, **App** for what the window shows.
 | **Pattern** | Arpeggios only: which phrase to walk. The last entry is a generator that builds a fresh one after every pass |
 | **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
 | **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
-| **Show AI Debug in Main Window** | Shows the raw prediction and the spectrum on the main screen |
+| **Show AI Debug in Main Window** | Shows the raw prediction on the main screen |
 | **Input** | Which capture device to open. *System default* follows whatever the OS is set to. Saved, and falls back to the default if that device is gone |
 | **Channel** | Which input of that device to listen on — a guitar in socket 2 of an interface is channel 2. Shown only when the device has more than one, and there is no mixing option: averaging the inputs pulls in whatever is on the other socket and costs 6 dB |
 | **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
@@ -90,7 +94,7 @@ strictly it is judged, **App** for what the window shows.
 | **Hold time** | How long a correct chord must be held before advancing |
 
 The line under `Channel` says what actually opened — device, sample rate, channel count
-and sample format. `./solitito --devices` prints the same information for every device the backend can see, and `./solitito --bench` times one model inference — the app asks the model every 40 ms while a chord rings, so that figure is essentially the whole of its CPU load. On Windows run these from a terminal: the app has no console of its own and borrows the one that launched it.
+and sample format. `./solitito --help` lists every option. `./solitito --devices` prints the same information for every device the backend can see, and `./solitito --bench` times one model inference — the app asks the model every 40 ms while a chord rings, so that figure is essentially the whole of its CPU load. A release build has the `windows` subsystem, so on Windows these modes write to the console that launched them; started with no console at all — from a shortcut carrying the flag — the program opens one of its own and waits for a key, so the report can be read.
 
 ### What the names mean on Linux
 

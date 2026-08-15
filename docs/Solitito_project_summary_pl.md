@@ -2,22 +2,23 @@
 
 **System rozpoznawania akordów gitarowych w czasie rzeczywistym**
 
-*Wersja 0.2.0, sierpień 2026*
+*Wersja 0.3.9, sierpień 2026*
 
 ---
 
 ## 1. Charakterystyka systemu
 
-Solitito jest trenażerem gitarowym działającym w czasie rzeczywistym, zaimplementowanym w języku Rust. Program pobiera sygnał z mikrofonu lub interfejsu audio, rozpoznaje wykonywany materiał i prowadzi użytkownika przez standardy jazzowe, interwały, skale oraz arpeggia.
+Solitito jest trainerem gitarowym działającym w czasie rzeczywistym, stworzonym w Rust. Program pobiera sygnał interfejsu audio lub mikrofonu, rozpoznaje wykonywany materiał i prowadzi użytkownika przez standardy jazzowe, interwały, skale, arpeggia oraz orientację na gryfie.
 
 Rozpoznawanie realizuje sieć neuronowa o 7,3 mln parametrów, wyeksportowana do formatu ONNX. Całość przetwarzania — DSP, inferencja oraz interfejs użytkownika — wykonywana jest lokalnie na procesorze, bez połączenia sieciowego i bez usług zewnętrznych.
 
-System udostępnia cztery tryby pracy:
+System udostępnia pięć trybów pracy:
 
 - **Akordy** — pełne standardy jazzowe. Kolor zielony oznacza trafienie dokładne, żółty — triadę lub typowe zastępstwo, czerwony — akord rozpoznany przy sygnale zbyt słabym, by go zatwierdzić.
 - **Interwały** — składniki akordu wykonywane pojedynczo, z możliwością wyboru ćwiczonych stopni.
 - **Skale** — sekwencyjne przechodzenie dźwięków zgodnie z definicją gamy.
 - **Arpeggia** — składniki akordu w sekwencji, na zadanej progresji.
+- **Gryf** — losowany jest fragment gryfu obejmujący zestaw strun i cztery progi, po czym zostaje utrzymany; użytkownik proszony jest o kolejne dźwięki leżące w tym obszarze. Tryb służy poznawaniu położenia dźwięków w obrębie jednej pozycji ręki.
 
 Prace nad projektem rozpoczęto w grudniu 2025 roku. Niniejszy dokument przedstawia architekturę systemu, przebieg prac oraz decyzje projektowe wraz z ich uzasadnieniem.
 
@@ -201,7 +202,7 @@ Rozróżnienie ról poszczególnych głowic ma charakter kluczowy i zostało pot
 
 | głowica | wynik | rola |
 |---|---|---|
-| `pitch_logits` | F1 0,909 | które dźwięki brzmią — podstawa trybów Interwały, Skale i Arpeggia |
+| `pitch_logits` | F1 0,909 | które dźwięki brzmią — podstawa trybów Interwały, Skale, Arpeggia i Gryf |
 | `root_logits` | 98,1% | nazwa prymy |
 | `quality_logits` | ~93% | rodzina akordu |
 
@@ -380,6 +381,8 @@ Regulator `Confidence` sterował dwiema różnymi wielkościami jednocześnie, a
 
 Bramka szumu operowała uprzednio w liniowej skali RMS 0–0,1, która **nie obejmowała poziomu szumu mikrofonu laptopowego** (RMS 0,05–0,15 po wzmocnieniu). Skala decybelowa −72…0 dBFS zapewnia rozdzielczość w wymaganym zakresie oraz zasięg do pełnej skali.
 
+Panel przerósł od tego czasu pojemność jednej kolumny i podzielony jest na trzy zakładki — wejście wraz z bramką, materiał do zagrania wraz z surowością oceny oraz zawartość okna. Rysowana jest zawsze jedna zakładka, wobec czego odświeżaniu w trakcie gry podlega odpowiednio mniej.
+
 ### 8.7. Tryb diagnostyczny
 
 ```
@@ -393,6 +396,68 @@ G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 
 ```
 
 Narzędzie rozróżnia przypadek, w którym model nie wykrywa septymy, od przypadku, w którym ją wykrywa, lecz pomija w klasyfikacji. Oba objawy są nierozróżnialne na poziomie nazwy akordu i prowadzą do przeciwnych działań korygujących. Przypadek `Gm7` rozstrzygnięto przy jego użyciu bez ponownego treningu.
+
+### 8.8. Pojedynczy dźwięk nie jest pytaniem, na które model potrafi odpowiedzieć
+
+Model pytany jest o 48 ramek — 0,77 s — i odpowiada o całości tego materiału. Jest to właściwe dla
+akordu trzymanego pod palcami i niewłaściwe dla gamy, w której dźwięki następują po sobie szybciej,
+niż okno zdąży się opróżnić.
+
+Pomiar narzędziem `--probe` na gamie granej po 0,6 s na dźwięk, przy obowiązującej wówczas regule
+(klasa docelowa powyżej progu i w granicach 10% od najgłośniejszej):
+
+| | dźwięk aktualnie grany | dźwięk poprzedni |
+|---|---|---|
+| głowica wysokości modelu | 7% okien | 79% |
+| pojedyncza ramka CQT | 57% | 43% |
+
+Wina nie leży po stronie modelu: na dźwiękach izolowanych i trzymanych przypisuje on 0,96–0,99
+właściwej klasie, a na gamie raportuje oba dźwięki, ponieważ oba znajdowały się w oknie. Starszy z
+nich wygrywa poziomem, mając za sobą większą część okna.
+
+Przyjęte rozwiązanie: tryby nutowe zadają drugie pytanie pojedynczej ramce CQT, pozbawionej pamięci.
+Suma harmoniczna po logarytmicznych prążkach — wobec logarytmicznej osi jest to widmo iloczynu
+harmonicznych — wskazuje klasę wysokości brzmiącą w danej chwili. Ani razu nie wskazała klasy, która
+nie została zagrana.
+
+Domyślnie oszacowanie to wyłącznie **dokłada** drogę do zaliczenia, ponieważ oddanie mu rozstrzygnięcia
+kosztowałoby własność odróżniającą ten trenażer od monofonicznego: głowica wysokości jest polifoniczna,
+więc akord zagrany jednym pociągnięciem zalicza swoje interwały po kolei. Opcja **Graj dźwięki
+pojedynczo** czyni oszacowanie rozstrzygającym i dodatkowo wymaga nowego ataku, zanim powtórzony
+dźwięk zostanie zaliczony po raz drugi.
+
+Pozostałe opóźnienie wnosi okno FFT o długości 8192 próbek, czyli pół sekundy, i to ono sprawia, że
+dźwięki krótsze niż około 0,4 s pozostają trudne. Estymator o krótszym oknie, działający w dziedzinie
+czasu (autokorelacja), jest drogą, która pozostaje otwarta.
+
+### 8.9. Wybór wejścia i to, czego lista urządzeń nie pokazuje
+
+Maszyna z systemem Windows nie podawała sygnału do momentu ręcznej zmiany częstotliwości próbkowania,
+co wykazało, że format próbki zwracany przez backend nie może być pomijany, a wybór urządzenia należy
+do użytkownika, nie do domyślnej konfiguracji systemu.
+
+Lista urządzeń ma jedną własność nieoczywistą: **kartę można otworzyć raz.** Cokolwiek ją trzyma —
+serwer dźwięku, inna aplikacja albo własny strumień tego programu — usuwa ją z wyliczenia całkowicie.
+Wynikają z tego trzy konsekwencje, z których każda została najpierw zaobserwowana jako usterka:
+
+- lista zbudowana po otwarciu strumienia nie zawiera karty, z której trwa nagrywanie,
+- pod PipeWire, który przejmuje sprzęt, pozostają wyłącznie cztery nazwy serwerowe,
+- urządzenie, z którego nagrywamy, musi być wyłączone spod oznaczenia „niedostępne", ponieważ jego
+  nieobecność w skanie jest właśnie dowodem, że działa.
+
+Bramka szumu zapamiętywana jest per urządzenie. Interfejs i mikrofon laptopa dzielą dziesiątki
+decybeli, a próg, który trzeba odnajdywać po każdym przełączeniu, nie jest ustawieniem.
+
+### 8.10. Kosztem aplikacji jest jedna inferencja
+
+Tryb `--bench` mierzy czas pojedynczej inferencji. Na maszynie odniesienia wynosi on 39 ms, a model
+pytany jest co 40 ms, wobec czego wątek inferencji pozostaje nasycony przez cały czas wybrzmiewania
+akordu; wszystkie pozostałe wątki — rysowanie, CQT, wywołanie zwrotne audio — dają łącznie poniżej 3%.
+
+Ta sama binarka na tej samej maszynie pod systemem Windows raportuje 61 ms. Pozorna dziesięciokrotna
+różnica obciążenia pomiędzy systemami okazała się różnicą pomiędzy dwoma licznikami, nie pomiędzy dwiema
+kompilacjami: `top` podaje wartość w jednostkach jednego rdzenia, Menedżer zadań w skali całego
+procesora, wobec czego 100% rdzenia przy ośmiu rdzeniach to te same 12,5%.
 
 ---
 
@@ -410,6 +475,7 @@ Rozdział dokumentuje przypadki, w których pomiar obalił wcześniej przyjęte 
 | Maskowanie prymy odblokuje jakość powyżej 73% | jakość pozostała na poziomie 72% |
 | Chroma w dystrybuowanym pliku jest jednoelementowa, a więc nieprawidłowa | `cq_to_chroma` przy 24 binach na oktawę również przypisuje jedną wagę na bin; rozbieżność dotyczyła przesunięcia |
 | Bez zmiennej `ORT_DYLIB_PATH` binarka wykorzysta bibliotekę systemową | `RUNPATH=$ORIGIN` z pliku `.cargo/config.toml` rozwiązywał to zagadnienie |
+| Model pogorszył się w rozpoznawaniu pojedynczych dźwięków | na dźwiękach izolowanych przypisuje 0,96–0,99 właściwej klasie; na gamie jego okno 0,77 s zalicza dźwięk poprzedzający grany, w 79% okien |
 
 Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwentnie, natomiast przewidywania formułowane przed pomiarem okazywały się błędne w sposób systematyczny.** Uzasadnia to przyjętą metodykę opartą na sondach.
 
@@ -446,7 +512,8 @@ Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwent
 ### 10.3. Zagadnienia otwarte
 
 - **Zbiór testowy z instrumentu docelowego.** Wszystkie wskaźniki dotyczą sześciu wykonawców zewnętrznych oraz dwóch renderów zbioru syntetycznego. Brak jest pomiaru na docelowym torze sygnału.
-- **Zmiana `CTX_FRAMES` z 48 na 32** — jedyna modyfikacja architektury o realnym uzasadnieniu (opóźnienie), do zweryfikowania w jednym przebiegu.
+- **Zmiana `CTX_FRAMES` z 48 na 32** — przestała być wyborem swobodnym: wyeksportowany model ma wejście ustalone na 48 ramek, więc zmiana wymaga ponownego trenowania. Opóźnienie, któremu miała zaradzić, usunięto natomiast z tej ścieżki, na której miało znaczenie, oceniając pojedyncze dźwięki na jednej ramce CQT.
+- **Estymator wysokości o krótszym oknie.** Autokorelacja w oknie rzędu 100 ms sprowadziłaby opóźnienie pojedynczego dźwięku poniżej okna FFT o długości 512 ms, które pozostaje ograniczeniem w szybkich przebiegach.
 - **Zwiększenie ilości materiału z rzeczywistego instrumentu** — jedyny czynnik zdolny zmniejszyć różnicę 6,5 punktu procentowego.
 
 ---
@@ -466,5 +533,5 @@ Wymienione cztery zmiany przesunęły wskaźnik `Exact` z 44,8% na 92,4%. Żadna
 
 ---
 
-*Dokument opisuje stan na sierpień 2026, wersja 0.2.0.*
+*Dokument opisuje stan na sierpień 2026, wersja 0.3.9.*
 *Repozytorium: https://github.com/greblus/solitito*

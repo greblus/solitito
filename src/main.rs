@@ -421,6 +421,44 @@ fn keep_console_open(allocated: bool) {
 /// asked" look identical from the outside. Here the level, the window fill and
 /// the twelve pitch probabilities are printed side by side, which separates the
 /// two.
+/// Everything the binary can be asked to do, in one place.
+///
+/// Worth having as a flag rather than only in the README: the reporting modes
+/// exist to answer questions about a machine that is not the developer's, and
+/// whoever is sitting at it has the binary to hand and the README somewhere else.
+fn help_text() -> String {
+    format!(
+        "Solitito {} - real-time polyphonic guitar trainer\n\
+         \n\
+         Usage: solitito [OPTION]...\n\
+         With no options the trainer window opens.\n\
+         \n\
+         Reporting - each prints and exits:\n\
+         \x20 -h, --help            this text\n\
+         \x20     --devices         every input the backend can see, and what each reports\n\
+         \x20     --check           load the model and the DSP weights, say whether they are there\n\
+         \x20     --bench           time one inference; the model is asked every 40 ms, so that\n\
+         \x20                       figure is essentially the whole CPU cost of the app\n\
+         \x20     --probe FILE.wav  what the model hears in a recording, window by window: level,\n\
+         \x20                       how full its context window was, the twelve pitch\n\
+         \x20                       probabilities, and the note the CQT alone reports\n\
+         \x20       --gate DB       noise gate for the probe, in dBFS (default -34)\n\
+         \x20       --boost GAIN    apply the bass boost, as the settings panel would\n\
+         \n\
+         Running:\n\
+         \x20     --file FILE.wav   drive the trainer from a recording instead of the input\n\
+         \n\
+         Environment:\n\
+         \x20 SOLITITO_DEBUG=1      print the model's reading of every window while playing\n\
+         \x20 SOLITITO_STRUM=1      print the strum trace: attack, what was heard, the verdict\n\
+         \n\
+         Settings live in $XDG_CONFIG_HOME/solitito/settings.json, falling back to\n\
+         ~/.config and %APPDATA%. The model and dsp_weights.json are read from the\n\
+         working directory.\n",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 /// Pitch-class names in CQT order, so a probe row reads as notes and not indices.
 const NOTE_NAMES: [&str; 12] =
     ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -631,11 +669,18 @@ fn main() -> Result<(), slint::PlatformError> {
     // One of the reporting flags: borrow (or open) a console first, or the
     // report goes nowhere on a Windows release build.
     let flagged = |f: &str| args.iter().any(|a| a == f);
-    let console = if flagged("--devices") || flagged("--bench") || flagged("--check") {
+    let reporting = ["--help", "-h", "--devices", "--check", "--bench", "--probe"];
+    let console = if reporting.iter().any(|f| flagged(f)) {
         attach_console()
     } else {
         false
     };
+
+    if flagged("--help") || flagged("-h") {
+        print!("{}", help_text());
+        keep_console_open(console);
+        std::process::exit(0);
+    }
 
     if args.iter().any(|a| a == "--devices") {
         audio::hush_alsa();

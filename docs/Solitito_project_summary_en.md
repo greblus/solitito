@@ -2,22 +2,23 @@
 
 **A real-time guitar chord recognition system**
 
-*Version 0.2.0, August 2026*
+*Version 0.3.9, August 2026*
 
 ---
 
 ## 1. System overview
 
-Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales and arpeggios.
+Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales, arpeggios and the layout of the neck.
 
 Recognition is performed by a neural network of 7.3 million parameters exported to the ONNX format. All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
 
-Four modes of operation are provided:
+Five modes of operation are provided:
 
 - **Chords** — complete jazz standards. Green indicates an exact match, yellow a triad or a common substitution, red a chord that was recognised but at a signal level too low to confirm.
 - **Intervals** — chord tones played individually, with a selectable set of degrees to practise.
 - **Scales** — sequential traversal of the notes defined by a scale.
 - **Arpeggios** — chord tones in sequence over a given progression.
+- **Fretboard** — a region of the neck is drawn at random, comprising a set of strings and a span of four frets, and then held; the user is asked for successive notes lying within it. The mode serves to learn the positions of the notes within a single hand position.
 
 Work on the project began in December 2025. This document presents the system architecture, the course of the work, and the design decisions together with their justification.
 
@@ -201,7 +202,7 @@ The distinction between the roles of the individual heads is of central importan
 
 | head | result | role |
 |---|---|---|
-| `pitch_logits` | F1 0.909 | which notes are sounding — the basis of the Intervals, Scales and Arpeggios modes |
+| `pitch_logits` | F1 0.909 | which notes are sounding — the basis of the Intervals, Scales, Arpeggios and Fretboard modes |
 | `root_logits` | 98.1% | the name of the root |
 | `quality_logits` | ~93% | the chord family |
 
@@ -380,6 +381,8 @@ The `Confidence` control governed two distinct quantities simultaneously, and in
 
 The noise gate previously operated on a linear RMS scale of 0–0.1, which **did not reach the noise level of a laptop microphone** (RMS 0.05–0.15 after gain). A decibel scale of −72…0 dBFS provides resolution across the required range together with coverage to full scale.
 
+The panel has since grown past what one column can hold and is divided into three tabs — the input and the gate, what is to be played and how strictly it is judged, and what the window shows. Only one tab is drawn at a time, so there is correspondingly less to redraw while playing.
+
 ### 8.7. Diagnostic mode
 
 ```
@@ -393,6 +396,68 @@ G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 
 ```
 
 The tool distinguishes the case in which the model fails to detect the seventh from the case in which it detects it but disregards it in classification. Both symptoms are indistinguishable at the level of the chord name and call for opposite corrective actions. The `Gm7` case was resolved by these means without retraining.
+
+### 8.8. Single notes are not a question the model can answer
+
+The model is asked about 48 frames — 0.77 s — and answers about all of it. That is correct for a
+chord held under the fingers and wrong for a scale, where notes follow one another faster than the
+window empties.
+
+Measured with `--probe` on a scale at 0.6 s per note, the rule then in force (the target class above
+threshold and within 10% of the loudest) credited:
+
+| | the note being played | the note before it |
+|---|---|---|
+| the model's pitch head | 7% of windows | 79% |
+| a single CQT frame | 57% | 43% |
+
+The model is not at fault: on isolated sustained notes it places 0.96–0.99 on the correct pitch
+class, and on the scale it is reporting both notes because both were in the window. The older of the
+two wins on level, having had more of the window to itself.
+
+The solution adopted: the note-based modes ask a second question of one CQT frame, which carries no
+memory. A harmonic sum over the log-magnitude bins — the harmonic product spectrum, the axis being
+logarithmic — yields the pitch class sounding at that moment. It never named a class that was not
+played.
+
+By default the estimate only **adds** a route to a pass, since overruling the model would forfeit
+the property that distinguishes this trainer from a monophonic one: the pitch head is polyphonic, so
+a strummed chord walks its intervals one by one. The **Play the notes one at a time** option makes
+the estimate the authority, and additionally requires a fresh attack before a repeated note counts a
+second time.
+
+The residual latency is the 8192-sample FFT window, half a second wide, which is why notes shorter
+than approximately 0.4 s remain difficult. A shorter-window estimator in the time domain
+(autocorrelation) is the remaining avenue.
+
+### 8.9. Input selection, and what a device list omits
+
+A Windows machine reported no signal until the sample rate was changed by hand, which established
+that the sample format returned by the backend must not be discarded, and that the choice of device
+belongs to the user rather than to the operating system default.
+
+The device list carries one property that is not obvious: **a card can be opened once.** Whatever
+holds it — a sound server, another application, or this application's own stream — removes it from
+the enumeration entirely. Three consequences follow, each of which was first observed as a defect:
+
+- a list built after the stream opens is missing the card being recorded from,
+- under PipeWire, which claims the hardware, only the four server names remain,
+- the device being recorded from must be exempted from any "unavailable" marking, since its absence
+  from the scan is the evidence that it is working.
+
+The noise gate is stored per device. An interface and a laptop microphone sit tens of decibels
+apart, and a threshold that has to be found again after every switch is not a setting.
+
+### 8.10. The cost of the application is one inference
+
+`--bench` times a single inference. On the reference machine it takes 39 ms, and the model is asked
+every 40 ms, so the inference thread is saturated for as long as a chord rings; every other thread —
+rendering, the CQT, the audio callback — accounts for under 3% between them.
+
+The same binary on the same machine under Windows reports 61 ms. The apparent tenfold discrepancy in
+reported load between the two systems proved to be a discrepancy between two counters rather than
+between two builds: `top` reports in units of one core and the Task Manager over the whole processor,
+so 100% of a core on eight cores is the same 12.5%.
 
 ---
 
@@ -410,6 +475,7 @@ This chapter documents cases in which measurement refuted a previously held assu
 | Masking the root will unblock quality beyond 73% | quality remained at 72% |
 | The chroma in the distributed file is one-hot and therefore defective | `cq_to_chroma` at 24 bins per octave likewise assigns one weight per bin; the discrepancy concerned a shift |
 | Without the `ORT_DYLIB_PATH` variable the binary will use the system library | `RUNPATH=$ORIGIN` from the `.cargo/config.toml` file already addressed this |
+| The model has become worse at single notes | on isolated notes it places 0.96–0.99 on the correct class; on a scale its 0.77 s window credits the note before the one being played, in 79% of windows |
 
 The pattern is unambiguous: **measurement results held consistently, whereas predictions formulated prior to measurement proved wrong in a systematic manner.** This justifies the adopted methodology based on probes.
 
@@ -446,7 +512,8 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 ### 10.3. Open matters
 
 - **A test set from the target instrument.** All figures relate to six external performers and two renders of the synthetic dataset. No measurement on the target signal chain is available.
-- **Changing `CTX_FRAMES` from 48 to 32** — the only architectural modification with genuine justification (latency), to be verified in a single run.
+- **Changing `CTX_FRAMES` from 48 to 32** — no longer a free choice: the exported model fixes its input at 48 frames, so the change requires retraining. The latency it was intended to address was instead removed from the path where it mattered, by judging single notes on one CQT frame.
+- **A pitch estimator with a shorter window.** Autocorrelation over roughly 100 ms would place the latency of a single note below the 512 ms FFT window, which is what still limits fast passages.
 - **Increasing the quantity of material from a real instrument** — the only factor capable of reducing the 6.5 percentage point difference.
 
 ---
@@ -466,5 +533,5 @@ These four changes moved the `Exact` figure from 44.8% to 92.4%. None of them co
 
 ---
 
-*This document describes the state as of August 2026, version 0.2.0.*
+*This document describes the state as of August 2026, version 0.3.9.*
 *Repository: https://github.com/greblus/solitito*
