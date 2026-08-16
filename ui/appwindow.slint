@@ -726,7 +726,7 @@ export component AppWindow inherits Window {
     // width up to a point; past it the rows are just a label at one end of the
     // screen and a control at the other. The practice view is unaffected and
     // keeps its fixed proportions.
-    property <length> panel_w: min(root.width, root.design_w * 8 / 5) - 30px;
+    property <length> panel_w: min(root.width, root.design_w * 3 / 2) - 30px;
     /// Width every control in the panel gets: two thirds of it, but never more
     /// than what is left beside the widest label. Without the second half a row
     /// at the minimum window size came to 532px inside 490px of content, and the
