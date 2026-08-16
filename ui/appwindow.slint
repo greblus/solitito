@@ -726,7 +726,14 @@ export component AppWindow inherits Window {
     // width up to a point; past it the rows are just a label at one end of the
     // screen and a control at the other. The practice view is unaffected and
     // keeps its fixed proportions.
-    property <length> panel_w: min(root.width, root.design_w * 3 / 2) - 30px;
+    property <length> panel_w: min(root.width, root.design_w * 8 / 5) - 30px;
+    /// Width every control in the panel gets: two thirds of it, but never more
+    /// than what is left beside the widest label. Without the second half a row
+    /// at the minimum window size came to 532px inside 490px of content, and the
+    /// whole layout grew wider than the panel - which showed up as the hint text
+    /// being cut off on the right, far from where the cause was.
+    ///   15px padding on each side, 185px the widest label, 10px the row spacing.
+    property <length> ctrl_w: min(root.panel_w * 2 / 3, root.panel_w - 30px - 195px);
     // Aligned to where the top bar ends: box top + padding + bar + spacing.
     property <length> panel_top: (root.height - root.design_h) / 2 + 64px;
     // SETTINGS PANEL
@@ -776,7 +783,7 @@ export component AppWindow inherits Window {
                                 vertical-alignment: center; width: 100px;
                             }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 opened => { root.audio_devices_rescan(); }
                                 model: root.audio_devices;
                                 current-index <=> root.audio_device_index;
@@ -791,7 +798,7 @@ export component AppWindow inherits Window {
                                 vertical-alignment: center; width: 100px;
                             }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 model: root.audio_channels;
                                 current-index <=> root.audio_channel_index;
                                 selected => { root.audio_channel_changed(self.current-index); }
@@ -815,12 +822,12 @@ export component AppWindow inherits Window {
                             // face with different metrics. Sized by its own text, it
                             // fits by construction; the slider takes what is left.
                             Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
-                            Slider { width: root.panel_w * 2 / 3; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
+                            Slider { width: root.ctrl_w; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
                         }
 
                         Rectangle {
                             height: 14px;
-                            width: root.panel_w * 2 / 3;
+                            width: root.ctrl_w;
                             background: #222;
                             border-radius: 3px;
                             Rectangle {
@@ -856,7 +863,7 @@ export component AppWindow inherits Window {
                                 Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
                             }
                             if root.boost_enabled : Slider {
-                                width: root.panel_w * 2 / 3;
+                                width: root.ctrl_w;
                                 minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
                             }
                         }
@@ -876,7 +883,7 @@ export component AppWindow inherits Window {
                         if root.current_mode != 4 : HorizontalLayout {
                             Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 model: root.library_items;
                                 current-index <=> root.current_item_index;
                                 selected => { root.item_selected(self.current-index); }
@@ -886,7 +893,7 @@ export component AppWindow inherits Window {
                         if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
                             Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 model: root.secondary_items;
                                 current-index <=> root.current_secondary_index;
                                 selected => { root.secondary_item_selected(self.current-index); }
@@ -1013,6 +1020,12 @@ export component AppWindow inherits Window {
                                 }
                             }
                             Text {
+                                // Explicit width, unlike its neighbours: inside an
+                                // `if` the layout settles the height before the
+                                // width, so a wrapped line goes missing and the
+                                // block ends up one line short. Told the width, it
+                                // can work its own height out.
+                                width: root.panel_w - 30px;
                                 text: Tr.shuffle_chords_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
@@ -1040,7 +1053,7 @@ export component AppWindow inherits Window {
                                 vertical-alignment: center; width: 140px;
                             }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard];
                                 current-index <=> root.startup_mode;
                                 selected(v) => { root.startup_mode_changed(root.startup_mode); }
@@ -1052,7 +1065,7 @@ export component AppWindow inherits Window {
                             // to the control, which undoes the width set on it.
                             alignment: start;
                             Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.panel_w * 2 / 3; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
                         }
 
                         HorizontalLayout {
@@ -1060,7 +1073,7 @@ export component AppWindow inherits Window {
                             // to the control, which undoes the width set on it.
                             alignment: start;
                             Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.panel_w * 2 / 3; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
                         }
 
                         HorizontalLayout {
@@ -1068,7 +1081,7 @@ export component AppWindow inherits Window {
                             // to the control, which undoes the width set on it.
                             alignment: start;
                             Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.panel_w * 2 / 3; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
                         }
 
                     }
@@ -1139,7 +1152,7 @@ export component AppWindow inherits Window {
                                 vertical-alignment: center; width: 140px;
                             }
                             Dropdown {
-                                    width: root.panel_w * 2 / 3;
+                                    width: root.ctrl_w;
                                 model: [Tr.lang_auto, "Polski", "English"];
                                 current-index <=> root.language_idx;
                                 selected(v) => { root.language_changed(root.language_idx); }
