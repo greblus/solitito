@@ -33,6 +33,11 @@ pub struct Settings {
     /// something the app can do and a monophonic tuner cannot.
     #[serde(default)]
     pub single_notes: bool,
+    /// Whether the shuffle also reorders the chords in Intervals and Arpeggios.
+    /// Off by default: shuffled intervals over the written progression is the
+    /// musical half of the idea, shuffling both is the experiment.
+    #[serde(default)]
+    pub shuffle_chords: bool,
     /// The spectrum in the settings panel. Off by default - it is a calibration
     /// aid, and 48 bars redrawn with every frame are what the panel spends most
     /// of its time on.
@@ -93,6 +98,7 @@ impl Default for Settings {
             language: 0,
             short_verdict: false,
             single_notes: false,
+            shuffle_chords: false,
             show_spectrum: false,
             audio_device: None,
             audio_channel: 1,
@@ -276,6 +282,16 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(old.gates.is_empty());
         assert_eq!(old.gate_for(None), None);
+    }
+
+    #[test]
+    fn shuffle_chords_survives_a_round_trip_and_defaults_off() {
+        assert!(!Settings::default().shuffle_chords, "the progression should stay written by default");
+        let s = Settings { shuffle_chords: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.shuffle_chords);
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert!(!old.shuffle_chords);
     }
 
     #[test]

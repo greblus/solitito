@@ -123,6 +123,12 @@ pub struct MyApp {
     /// broken.
     pub paused: bool,
     pub random_mode: bool,
+    /// Shuffle the CHORD ORDER as well, in the modes where the two are separable.
+    /// In Intervals and Arpeggios the written progression is a tune, and hearing
+    /// shuffled intervals walk through it is musical in a way that shuffling
+    /// everything is not. In Chords there is nothing else for the switch to
+    /// mean, so there it stays on.
+    pub shuffle_chords: bool,
     /// Permutation of `active_indices`, regenerated whenever the chord changes.
     /// Reshuffling every frame would make the target jump around; the order has
     /// to stay fixed for as long as the chord is being played.
@@ -224,6 +230,7 @@ impl MyApp {
             
             paused: false,
             random_mode: false,
+            shuffle_chords: false,
             step_order: vec![],
             start_hint: None,
             play_order: Vec::new(),
@@ -310,6 +317,18 @@ impl MyApp {
     /// Toggling the switch takes effect at once instead of waiting for the next
     /// chord: without the reroll the shuffle and the hint would appear only after
     /// the current exercise is finished, which reads as the switch being broken.
+    /// Same treatment as the shuffle switch: it takes effect at once, because a
+    /// change that waited for the end of the song would read as broken.
+    pub fn set_shuffle_chords(&mut self, on: bool) {
+        if self.shuffle_chords != on {
+            self.shuffle_chords = on;
+            self.rebuild_play_order();
+            self.prev_chord_index = None;
+            self.prev_status = MatchStatus::None;
+            self.reroll();
+        }
+    }
+
     pub fn set_random_mode(&mut self, on: bool) {
         if self.random_mode != on {
             self.random_mode = on;
@@ -324,10 +343,25 @@ impl MyApp {
         }
     }
 
+    /// Does the shuffle reach the chord order in the current mode?
+    ///
+    /// Split out because the toolbar switch means two different things at once:
+    /// the order of the chords, and the order of the tones inside each. Only the
+    /// note modes have both, and only there is the distinction worth a setting.
+    fn shuffles_chord_order(&self) -> bool {
+        if !self.random_mode {
+            return false;
+        }
+        match self.app_mode {
+            AppMode::Intervals | AppMode::Arpeggios => self.shuffle_chords,
+            _ => true,
+        }
+    }
+
     /// Rebuilds the playing order and starts it from the beginning.
     fn rebuild_play_order(&mut self) {
         self.play_order = (0..self.chords.len()).collect();
-        if self.random_mode {
+        if self.shuffles_chord_order() {
             self.rng.shuffle(&mut self.play_order);
         }
         self.play_pos = 0;
@@ -1383,6 +1417,51 @@ pub(crate) mod tests {
         assert!(
             !a.note_is_sounding(4, None, 0.0),
             "with the option on, E has to be played on its own"
+        );
+    }
+
+    /// Dwa różne losowania pod jednym przyciskiem: kolejność akordów i kolejność
+    /// dźwięków w akordzie. Rozdzielone tylko tam, gdzie oba istnieją.
+    #[test]
+    fn the_shuffle_reaches_the_chord_order_only_where_asked() {
+        let mut a = app();
+
+        // Chords: nothing else for the switch to mean, so the option is ignored.
+        a.set_mode(AppMode::Chords as i32);
+        a.set_random_mode(true);
+        assert!(a.shuffles_chord_order(), "shuffle stopped working in Chords");
+        a.set_shuffle_chords(true);
+        assert!(a.shuffles_chord_order());
+
+        // Intervals: the progression is a tune, so it stays put unless asked.
+        a.set_mode(AppMode::Intervals as i32);
+        a.set_shuffle_chords(false);
+        assert!(
+            !a.shuffles_chord_order(),
+            "the progression was reordered without being asked"
+        );
+        a.set_shuffle_chords(true);
+        assert!(a.shuffles_chord_order(), "the option did not reach the chord order");
+
+        // And nothing is shuffled at all with the switch off.
+        a.set_random_mode(false);
+        assert!(!a.shuffles_chord_order());
+    }
+
+    /// Zachowanie, o które chodzi: interwały lecą losowo, progresja zostaje
+    /// zapisana - z tego robi się melodia.
+    #[test]
+    fn shuffled_tones_walk_the_written_progression() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.set_random_mode(true);
+        a.set_shuffle_chords(false);
+        let n = a.chords.len();
+        assert!(n > 1, "test potrzebuje progresji dłuższej niż jeden akord");
+        assert_eq!(
+            a.play_order,
+            (0..n).collect::<Vec<_>>(),
+            "kolejność akordów miała zostać taka, jak zapisana"
         );
     }
 

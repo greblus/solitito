@@ -52,8 +52,10 @@ Bottom part of main window shows the chord just played and the next one, after t
 The chord left behind keeps the colour it earned — green for an exact match, yellow if a triad
 or a substitution got it through — so a pass stays readable after the app has moved on. 
 
-A shuffle toggle randomises the order — chords in a standard, the tones inside each chord,
-and in Scales the key as well. A pause button freezes progression while the colours keep
+A shuffle toggle randomises the order. In the note modes it shuffles the tones inside each
+chord and leaves the progression as written — shuffled intervals walking a real progression
+turn into tunes, where shuffling both is an experiment; a separate setting adds the chords.
+In Chords it reorders the standard, and in Scales it redraws the key. A pause button freezes progression while the colours keep
 reporting whether the chord is right, so you can sit on one shape and work it out; while
 paused, arrows either side of the strip step back and forth through the progression, for
 going back to a chord that has already gone by.
@@ -85,7 +87,8 @@ strictly it is judged, **App** for what the window shows.
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
 | **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it. A wrong chord still fails |
 | **Play the notes one at a time** | Note modes only. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, each note has to be played on its own, the CQT estimate overrules the model, and a repeated note needs a fresh attack |
-| **Random order** | Chords come up shuffled instead of in sequence; in the note modes the tones inside each chord are shuffled too, and in Scales the key changes after every pass. Also on the toolbar as the shuffle icon |
+| **Random order** | The shuffle icon on the toolbar. In the note modes it shuffles the tones inside each chord; in Chords it reorders the progression, and in Scales it redraws the key after every pass |
+| **Shuffle the chords as well** | Intervals and Arpeggios only, and only with the shuffle on. Off, the progression stays as written and just the tones move — shuffled intervals walking a real progression turn into tunes. On, the chords are drawn at random too, which is the more abstract exercise |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
 | **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |

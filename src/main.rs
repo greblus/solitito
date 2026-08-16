@@ -582,6 +582,7 @@ struct SettingsSnapshot {
     lock_quality: bool,
     short_verdict: bool,
     single_notes: bool,
+    shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
     ai_debug: bool,
@@ -602,6 +603,7 @@ impl SettingsSnapshot {
             lock_quality: ui.get_lock_quality(),
             short_verdict: ui.get_short_verdict(),
             single_notes: ui.get_single_notes(),
+            shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -889,6 +891,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
+        ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
@@ -1090,6 +1093,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.set_random_mode(ui.get_random_enabled());
         app.short_verdict = ui.get_short_verdict();
         app.single_notes = ui.get_single_notes();
+        app.set_shuffle_chords(ui.get_shuffle_chords());
         // The fretboard trainer hides the pause button, so a pause carried over
         // from another mode would freeze it with nothing on screen to explain why.
         if app.app_mode == AppMode::Fretboard && ui.get_paused() {
@@ -1517,6 +1521,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_shuffle_chords_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.shuffle_chords = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_startup_mode_changed(move |mode_idx| {
             let mut cur = cur.borrow_mut();
             cur.startup_mode = mode_idx;
@@ -1632,6 +1644,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_short_verdict_hint(t.short_verdict_hint.into());
     g.set_single_notes(t.single_notes.into());
     g.set_single_notes_hint(t.single_notes_hint.into());
+    g.set_shuffle_chords(t.shuffle_chords.into());
+    g.set_shuffle_chords_hint(t.shuffle_chords_hint.into());
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
     g.set_random_hint(t.random_hint.into());
