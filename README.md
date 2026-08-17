@@ -1,8 +1,8 @@
-# Solitito — Real-Time Polyphonic Guitar Trainer
+<!-- # Solitito — Real-Time Polyphonic Guitar Trainer -->
 
 **Solitito** is a real-time guitar trainer written in **Rust**. It listens to your guitar
 through an audio interface (recommended) or a microphone, recognises what you are playing,
-and walks you through jazz standards, intervals, scales and arpeggios.
+and walks you through jazz standards, intervals, scales, arpeggios and interval formulas.
 
 Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
 DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
@@ -34,6 +34,9 @@ once before it worked. Most of what follows is a record of what turned out to ma
 Pick a song, and the app shows one chord at a time. Play it. When the model hears the right
 chord, the app moves on to the next one.
 
+- **Fretboard** — a region of the neck is selected at random (a set of strings, four frets) and
+  held; you are asked for notes that live inside it. For learning where the notes are in one
+  hand position.
 - **Chords** — full jazz standards. Green confirms an exact match, yellow accepts a triad or
   a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
   detected but the signal is too weak to lock.
@@ -44,9 +47,28 @@ chord, the app moves on to the next one.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass.
-- **Fretboard** — a region of the neck is selected at random (a set of strings, four frets) and
-  held; you are asked for notes that live inside it. For learning where the notes are in one
-  hand position.
+- **Formulas** (not yet released) — a set of intervals drawn over a root, played in any order. Each function
+  lights up as it sounds, and the set is finished when all of them have; underneath, the
+  nearest scale you already know, with the formula's own degrees picked out of it.
+
+The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — possibly the most
+interesting approach to creative improvisation ever put together.
+
+The book is available from [Wayne Krantz](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition) directly.
+
+It is amazing how a "two-liner" in Python can hold a whole musical world:
+
+```python
+from itertools import combinations
+
+F = "1 b2 2 b3 3 4 b5 5 b6 6 b7 7".split()
+formulas = [("1", *c) for n in range(12) for c in combinations(F[1:], n)]
+
+len(formulas)  # 2048
+```
+
+Formulas are all subsets of the 12 chromatic functions that contain “1” — that is,
+2¹¹ = 2,048—sorted first by the number of notes, then lexicographically in chromatic order.
 
 Bottom part of main window shows the chord just played and the next one, after the current one. 
 The chord left behind keeps the colour it earned — green for an exact match, yellow if a triad
@@ -89,6 +111,11 @@ strictly it is judged, **App** for what the window shows.
 | **Play the notes one at a time** | Note modes only. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, each note has to be played on its own, the CQT estimate overrules the model, and a repeated note needs a fresh attack |
 | **Random order** | The shuffle icon on the toolbar. In the note modes it shuffles the tones inside each chord; in Chords it reorders the progression, and in Scales it redraws the key after every pass |
 | **Shuffle the chords as well** | Intervals and Arpeggios only, and only with the shuffle on. Off, the progression stays as written and just the tones move — shuffled intervals walking a real progression turn into tunes. On, the chords are drawn at random too, which is the more abstract exercise |
+| **Notes in a formula** | Formulas only: how many functions each drawn formula has, the root included |
+| **Key** (formulas) | The root to read them against, or a fresh one drawn per formula |
+| **Must contain** | Only draw formulas holding these functions, e.g. `b3 b7`. Empty draws from all 2048 |
+| **Show note names** | Formulas only, off by default: the functions are the exercise and the names are a crutch |
+| **Show the nearest scale** | Formulas only: the closest scale you already know, spelled out with the formula's own degrees picked out |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
 | **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
