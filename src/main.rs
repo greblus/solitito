@@ -893,6 +893,11 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
         ui.set_shuffle_chords(cfg.shuffle_chords);
+        ui.set_formula_notes(cfg.formula_notes as i32);
+        ui.set_formula_key_text(cfg.formula_key.clone().into());
+        ui.set_formula_random_key(cfg.formula_random_key);
+        ui.set_formula_required_text(cfg.formula_required.clone().into());
+        ui.set_formula_show_names(cfg.formula_note_names);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
@@ -1275,20 +1280,33 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
 
-            // What this formula is nearly, and where it departs.
+            // What this formula is nearly. The scale is handed over spelled
+            // out, with the formula's own functions flagged, so the screen can
+            // show the difference instead of describing it. Membership is by
+            // pitch, not by spelling: scales write #4 where formulas write b5.
             let near = formulas::nearest_scales(app.formula_mask, &app.scale_definitions, 1);
-            let line = match near.first() {
+            let (name, degrees, inside) = match near.first() {
                 Some(n) => {
-                    let scale = &app.scale_definitions[n.scale].name;
-                    if n.subset {
-                        format!("⊂ {scale}")
-                    } else {
-                        format!("{scale}  +{}", formulas::to_text(n.outside))
-                    }
+                    let sc = &app.scale_definitions[n.scale];
+                    let degs: Vec<SharedString> = sc
+                        .names
+                        .iter()
+                        .map(|d| SharedString::from(d.as_str()))
+                        .collect();
+                    let flags: Vec<bool> = sc
+                        .intervals
+                        .iter()
+                        .map(|&semi| app.formula_mask & (1 << (semi as usize % 12)) != 0)
+                        .collect();
+                    (sc.name.clone(), degs, flags)
                 }
-                None => String::new(),
+                None => (String::new(), vec![], vec![]),
             };
-            set_if_changed(ui.get_formula_scale(), line.into(), |v| ui.set_formula_scale(v));
+            set_if_changed(ui.get_formula_scale_name(), name.into(), |v| {
+                ui.set_formula_scale_name(v)
+            });
+            ui.set_formula_scale_degrees(ModelRc::from(Rc::new(VecModel::from(degrees))));
+            ui.set_formula_scale_in(ModelRc::from(Rc::new(VecModel::from(inside))));
             ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
         } else if app.app_mode == AppMode::Fretboard {
             // Minimal by design: the note, and under it where to play it.
@@ -1575,6 +1593,48 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_formula_notes_changed(move |n| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_notes = n.clamp(1, 12) as usize;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_key_text_changed(move |k| {
+            // Kept even while it is unreadable: the field is being typed into,
+            // and a key that does not parse simply is not used yet.
+            let mut cur = cur.borrow_mut();
+            cur.formula_key = k.to_string();
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_random_key_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_random_key = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_required_changed(move |f| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_required = f.to_string();
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_show_names_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_note_names = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_shuffle_chords_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.shuffle_chords = on;
@@ -1705,7 +1765,14 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_random_hint(t.random_hint.into());
     g.set_fretboard(t.fretboard.into());
     g.set_formulas(t.formulas.into());
-    g.set_formula_of(t.formula_of.into());
+    g.set_formula_key_line(t.formula_key_line.into());
+    g.set_formula_similar(t.formula_similar.into());
+    g.set_formula_notes(t.formula_notes.into());
+    g.set_formula_key(t.formula_key.into());
+    g.set_formula_random(t.formula_random.into());
+    g.set_formula_required(t.formula_required.into());
+    g.set_formula_required_hint(t.formula_required_hint.into());
+    g.set_formula_note_names(t.formula_note_names.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());

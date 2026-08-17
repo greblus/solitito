@@ -286,7 +286,14 @@ export global Tr {
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> fretboard: "Fretboard";
     in-out property <string> formulas: "Formulas";
-    in-out property <string> formula_of: "in";
+    in-out property <string> formula_notes: "Notes in a formula: ";
+    in-out property <string> formula_key: "Key: ";
+    in-out property <string> formula_random: "random";
+    in-out property <string> formula_required: "Must contain: ";
+    in-out property <string> formula_required_hint: "";
+    in-out property <string> formula_note_names: "Show note names";
+    in-out property <string> formula_key_line: "Key";
+    in-out property <string> formula_similar: "Similar to:";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
     in-out property <string> startup_mode: "Startup mode: ";
     in-out property <string> chord_confidence: "Chord confidence: ";
@@ -396,8 +403,11 @@ export component AppWindow inherits Window {
     in property <[string]> formula_note_names;
     /// How the root is spelled.
     in property <string> formula_key;
-    /// The nearest scale, and what falls outside it.
-    in property <string> formula_scale; 
+    /// Name of the nearest known scale.
+    in property <string> formula_scale_name;
+    /// Its degrees, and which of them the formula uses. Parallel lists.
+    in property <[string]> formula_scale_degrees;
+    in property <[bool]> formula_scale_in; 
     
     // hidden in the main window by default
     in-out property <bool> ai_debug_visible: false; 
@@ -433,6 +443,18 @@ export component AppWindow inherits Window {
     /// Whether the shuffle reaches the chord order in Intervals and Arpeggios.
     in-out property <bool> shuffle_chords: false;
     callback shuffle_chords_changed(bool);
+
+    // --- FORMULAS OPTIONS ---
+    in-out property <int> formula_notes: 5;
+    callback formula_notes_changed(int);
+    in-out property <string> formula_key_text: "C";
+    callback formula_key_text_changed(string);
+    in-out property <bool> formula_random_key: true;
+    callback formula_random_key_changed(bool);
+    in-out property <string> formula_required_text: "";
+    callback formula_required_changed(string);
+    in-out property <bool> formula_show_names: false;
+    callback formula_show_names_changed(bool);
     // Icons come from Rust so they can be compiled into the binary alongside the
     // chord shapes rather than shipped as loose files.
     in property <image> icon_shuffle;
@@ -575,14 +597,13 @@ export component AppWindow inherits Window {
                 visible: root.current_mode != 5;
             }
 
-            // FORMULAS. The functions stand on their own line, each lighting up
-            // as it sounds - the set may be played in any order, so there is no
-            // "current" one to point at.
+            // FORMULAS. Plain text, like the other modes: the functions carry
+            // the exercise and a frame around each would only add furniture.
             if root.current_mode == 5 : VerticalLayout {
-                spacing: 14px;
+                spacing: 16px;
 
                 Text {
-                    text: Tr.formula_of + " " + root.formula_key;
+                    text: Tr.formula_key_line + " " + root.formula_key;
                     font-size: 22px;
                     color: #aaa;
                     horizontal-alignment: center;
@@ -590,42 +611,46 @@ export component AppWindow inherits Window {
 
                 HorizontalLayout {
                     alignment: center;
-                    spacing: 10px;
-                    for f[i] in root.formula_functions : Rectangle {
-                        width: 64px;
-                        height: 64px;
-                        border-radius: 8px;
-                        border-width: 2px;
-                        border-color: root.formula_collected[i] ? #3ecf6a : #3a3a3a;
-                        background: root.formula_collected[i] ? #123a20 : #161616;
-
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: 2px;
-                            Text {
-                                text: f;
-                                font-size: 24px;
-                                font-weight: root.formula_collected[i] ? 700 : 400;
-                                color: root.formula_collected[i] ? #7ef0a0 : #ddd;
-                                horizontal-alignment: center;
-                            }
-                            // Only when the option is on; the functions are the
-                            // exercise and the names are a crutch.
-                            if root.formula_note_names.length > i : Text {
-                                text: root.formula_note_names[i];
-                                font-size: 12px;
-                                color: #888;
-                                horizontal-alignment: center;
-                            }
+                    spacing: 22px;
+                    for f[i] in root.formula_functions : VerticalLayout {
+                        spacing: 2px;
+                        Text {
+                            text: f;
+                            font-size: 40px;
+                            font-weight: root.formula_collected[i] ? 700 : 400;
+                            color: root.formula_collected[i] ? #3ecf6a : #ddd;
+                            horizontal-alignment: center;
+                        }
+                        if root.formula_note_names.length > i : Text {
+                            text: root.formula_note_names[i];
+                            font-size: 13px;
+                            color: #777;
+                            horizontal-alignment: center;
                         }
                     }
                 }
 
-                Text {
-                    text: root.formula_scale;
-                    font-size: 15px;
-                    color: #777;
-                    horizontal-alignment: center;
+                // What this formula is nearly. The scale is spelled out under
+                // its name with the formula's own functions picked out, so the
+                // difference is visible rather than described.
+                if root.formula_scale_name != "" : VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: Tr.formula_similar + " " + root.formula_scale_name;
+                        font-size: 15px;
+                        color: #888;
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 14px;
+                        for d[i] in root.formula_scale_degrees : Text {
+                            text: d;
+                            font-size: 17px;
+                            font-weight: root.formula_scale_in[i] ? 700 : 400;
+                            color: root.formula_scale_in[i] ? #6aa9ff : #555;
+                        }
+                    }
                 }
             }
 
@@ -1100,6 +1125,87 @@ export component AppWindow inherits Window {
                                 width: root.panel_w - 30px;
                                 text: Tr.shuffle_chords_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        // FORMULAS. Only in that mode; nothing here means
+                        // anything over a song.
+                        if root.current_mode == 5 : VerticalLayout {
+                            spacing: 12px;
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.formula_notes; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                Dropdown {
+                                    width: root.ctrl_w;
+                                    model: ["1","2","3","4","5","6","7","8","9","10","11","12"];
+                                    current-index: root.formula_notes - 1;
+                                    selected(v) => { root.formula_notes_changed(v + 1); }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.formula_key; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                LineEdit {
+                                    width: 90px;
+                                    text <=> root.formula_key_text;
+                                    enabled: !root.formula_random_key;
+                                    placeholder-text: "C";
+                                    edited => { root.formula_key_text_changed(self.text); }
+                                }
+                                CheckBox {
+                                    checked <=> root.formula_random_key;
+                                    toggled => { root.formula_random_key_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.formula_random; color: #aaa;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.formula_required; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    LineEdit {
+                                        width: root.ctrl_w;
+                                        text <=> root.formula_required_text;
+                                        placeholder-text: "b3 b7";
+                                        edited => { root.formula_required_changed(self.text); }
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.formula_required_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.formula_show_names;
+                                    toggled => { root.formula_show_names_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.formula_note_names; color: #aaa;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
 
