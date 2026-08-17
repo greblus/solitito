@@ -590,6 +590,15 @@ struct SettingsSnapshot {
     startup_mode: i32,
     language: i32,
     intervals: String,
+    show_spectrum: bool,
+    audio_device: i32,
+    audio_channel: i32,
+    formula_notes: i32,
+    formula_key: String,
+    formula_random_key: bool,
+    formula_required: String,
+    formula_show_names: bool,
+    formula_show_similar: bool,
 }
 
 impl SettingsSnapshot {
@@ -611,6 +620,15 @@ impl SettingsSnapshot {
             startup_mode: ui.get_startup_mode(),
             language: ui.get_language_idx(),
             intervals: ui.get_interval_input_text().to_string(),
+            show_spectrum: ui.get_show_spectrum(),
+            audio_device: ui.get_audio_device_index(),
+            audio_channel: ui.get_audio_channel_index(),
+            formula_notes: ui.get_formula_notes(),
+            formula_key: ui.get_formula_key_text().to_string(),
+            formula_random_key: ui.get_formula_random_key(),
+            formula_required: ui.get_formula_required_text().to_string(),
+            formula_show_names: ui.get_formula_show_names(),
+            formula_show_similar: ui.get_formula_show_similar(),
         }
     }
 }
