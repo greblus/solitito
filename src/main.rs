@@ -1020,6 +1020,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut settings_were_open = false;
     let names_tick = device_names.clone();
     let cfg_gate = live_cfg.clone();
+    let cfg_formulas = live_cfg.clone();
     let opened_tick = opened.clone();
 
     // Built once and then written into, NOT replaced every frame. Assigning a
@@ -1095,6 +1096,15 @@ fn main() -> Result<(), slint::PlatformError> {
         app.short_verdict = ui.get_short_verdict();
         app.single_notes = ui.get_single_notes();
         app.set_shuffle_chords(ui.get_shuffle_chords());
+        {
+            // Formulas options. A change to any of them takes effect on the next
+            // formula, not mid-exercise.
+            let cfg = cfg_formulas.borrow();
+            app.formula_notes = cfg.formula_notes;
+            app.formula_required = formulas::parse(&cfg.formula_required).unwrap_or(1);
+            app.formula_random_key = cfg.formula_random_key;
+            app.formula_key_setting = cfg.formula_key.clone();
+        }
         // The fretboard trainer hides the pause button, so a pause carried over
         // from another mode would freeze it with nothing on screen to explain why.
         if app.app_mode == AppMode::Fretboard && ui.get_paused() {
@@ -1237,7 +1247,50 @@ fn main() -> Result<(), slint::PlatformError> {
             set_if_changed(ui.get_current_secondary_index(), app.secondary_index as i32, |v| ui.set_current_secondary_index(v));
         }
 
-        if app.app_mode == AppMode::Fretboard {
+        if app.app_mode == AppMode::Formulas {
+            let funcs = formulas::functions_of(app.formula_mask);
+            let names: Vec<SharedString> = funcs
+                .iter()
+                .map(|&f| SharedString::from(formulas::FUNCS[f]))
+                .collect();
+            ui.set_formula_functions(ModelRc::from(Rc::new(VecModel::from(names))));
+            ui.set_formula_collected(ModelRc::from(Rc::new(VecModel::from(
+                app.formula_collected.clone(),
+            ))));
+            set_if_changed(ui.get_formula_key(), app.formula_key_name.clone().into(), |v| {
+                ui.set_formula_key(v)
+            });
+
+            // Note names are a crutch, so they are only built when asked for.
+            let notes: Vec<SharedString> = if cfg_formulas.borrow().formula_note_names {
+                match formulas::parse_key(&app.formula_key_name) {
+                    Some(k) => formulas::note_names(app.formula_mask, &k)
+                        .into_iter()
+                        .map(SharedString::from)
+                        .collect(),
+                    None => vec![],
+                }
+            } else {
+                vec![]
+            };
+            ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
+
+            // What this formula is nearly, and where it departs.
+            let near = formulas::nearest_scales(app.formula_mask, &app.scale_definitions, 1);
+            let line = match near.first() {
+                Some(n) => {
+                    let scale = &app.scale_definitions[n.scale].name;
+                    if n.subset {
+                        format!("⊂ {scale}")
+                    } else {
+                        format!("{scale}  +{}", formulas::to_text(n.outside))
+                    }
+                }
+                None => String::new(),
+            };
+            set_if_changed(ui.get_formula_scale(), line.into(), |v| ui.set_formula_scale(v));
+            ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
+        } else if app.app_mode == AppMode::Fretboard {
             // Minimal by design: the note, and under it where to play it.
             let name = match app.fret_target {
                 Some(pc) => model::NoteName::from_index(pc).to_string().to_string(),
@@ -1651,6 +1704,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_show_diagrams(t.show_diagrams.into());
     g.set_random_hint(t.random_hint.into());
     g.set_fretboard(t.fretboard.into());
+    g.set_formulas(t.formulas.into());
+    g.set_formula_of(t.formula_of.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());

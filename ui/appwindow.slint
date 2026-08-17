@@ -285,6 +285,8 @@ export global Tr {
     in-out property <string> shuffle_chords_hint: "";
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> fretboard: "Fretboard";
+    in-out property <string> formulas: "Formulas";
+    in-out property <string> formula_of: "in";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
     in-out property <string> startup_mode: "Startup mode: ";
     in-out property <string> chord_confidence: "Chord confidence: ";
@@ -383,7 +385,19 @@ export component AppWindow inherits Window {
     in-out property <int> current_secondary_index: 0;
 
     // --- LOGIKA UI ---
-    in-out property <int> current_mode: 4; 
+    in-out property <int> current_mode: 4;
+
+    // --- FORMULAS MODE ---
+    /// Function names of the formula being practised, e.g. ["1","b3","5","b7"].
+    in property <[string]> formula_functions;
+    /// Which of them have sounded. Parallel to `formula_functions`.
+    in property <[bool]> formula_collected;
+    /// Note names for the same functions, or empty when the option is off.
+    in property <[string]> formula_note_names;
+    /// How the root is spelled.
+    in property <string> formula_key;
+    /// The nearest scale, and what falls outside it.
+    in property <string> formula_scale; 
     
     // hidden in the main window by default
     in-out property <bool> ai_debug_visible: false; 
@@ -498,13 +512,16 @@ export component AppWindow inherits Window {
                 spacing: 5px;
                 // 350px over five buttons is 65px each - enough for "Interwały"
                 // at 12px. At the old 320px the longer labels were clipped.
-                width: 350px;
+                // Six buttons now; 420px keeps "Interwały" and "Formuły" whole
+                // at 12px, where 350 over six would clip them.
+                width: 420px;
                 height: 34px;
-                ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 20%; clicked => { root.pick_mode(4); } }
-                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 20%; clicked => { root.pick_mode(0); } }
-                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 20%; clicked => { root.pick_mode(1); } }
-                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 20%; clicked => { root.pick_mode(2); } }
-                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 20%; clicked => { root.pick_mode(3); } }
+                ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 16.6%; clicked => { root.pick_mode(4); } }
+                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 16.6%; clicked => { root.pick_mode(0); } }
+                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 16.6%; clicked => { root.pick_mode(1); } }
+                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 16.6%; clicked => { root.pick_mode(2); } }
+                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 16.6%; clicked => { root.pick_mode(3); } }
+                ModeButton { text: Tr.formulas; selected: root.current_mode == 5; width: 16.6%; clicked => { root.pick_mode(5); } }
             }
 
             // Same height as the mode row so the three line up on one axis.
@@ -555,6 +572,61 @@ export component AppWindow inherits Window {
                 font-weight: 400; 
                 color: root.chord_text_color; 
                 horizontal-alignment: center;
+                visible: root.current_mode != 5;
+            }
+
+            // FORMULAS. The functions stand on their own line, each lighting up
+            // as it sounds - the set may be played in any order, so there is no
+            // "current" one to point at.
+            if root.current_mode == 5 : VerticalLayout {
+                spacing: 14px;
+
+                Text {
+                    text: Tr.formula_of + " " + root.formula_key;
+                    font-size: 22px;
+                    color: #aaa;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    for f[i] in root.formula_functions : Rectangle {
+                        width: 64px;
+                        height: 64px;
+                        border-radius: 8px;
+                        border-width: 2px;
+                        border-color: root.formula_collected[i] ? #3ecf6a : #3a3a3a;
+                        background: root.formula_collected[i] ? #123a20 : #161616;
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: f;
+                                font-size: 24px;
+                                font-weight: root.formula_collected[i] ? 700 : 400;
+                                color: root.formula_collected[i] ? #7ef0a0 : #ddd;
+                                horizontal-alignment: center;
+                            }
+                            // Only when the option is on; the functions are the
+                            // exercise and the names are a crutch.
+                            if root.formula_note_names.length > i : Text {
+                                text: root.formula_note_names[i];
+                                font-size: 12px;
+                                color: #888;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.formula_scale;
+                    font-size: 15px;
+                    color: #777;
+                    horizontal-alignment: center;
+                }
             }
 
             // Chords only: the note modes already carry an interval strip here,

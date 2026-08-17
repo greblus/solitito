@@ -16,12 +16,16 @@ pub enum AppMode {
     /// Fretboard trainer: one fixed region of the neck, random notes inside it.
     /// Has no song and no chords - see `fretboard`.
     Fretboard = 4,
+    /// Interval formulas: a drawn set of functions over a root, played in any
+    /// order. No song and no chords either - see `formulas`.
+    Formulas = 5,
 }
 
 impl From<i32> for AppMode {
     fn from(val: i32) -> Self {
         match val {
             4 => AppMode::Fretboard,
+            5 => AppMode::Formulas,
             0 => AppMode::Chords,
             1 => AppMode::Intervals,
             2 => AppMode::Scales,
@@ -179,6 +183,23 @@ pub struct MyApp {
     /// twice in a row would otherwise run through both on a single ringing
     /// string, with nothing played in between.
     pub credited: Option<(usize, u64)>,
+
+    // --- Formulas mode ---
+    /// The formula being practised, as a bitmask of functions.
+    pub formula_mask: u16,
+    /// Pitch class of its root, 0 = C.
+    pub formula_root: usize,
+    /// How that root is spelled, for the screen.
+    pub formula_key_name: String,
+    /// Which of the formula's functions have been sounded, in ascending order
+    /// of function - NOT in the order they have to be played. A formula is a
+    /// set; the point is to move around inside it freely.
+    pub formula_collected: Vec<bool>,
+    /// Options, mirrored from the settings each tick.
+    pub formula_notes: usize,
+    pub formula_required: u16,
+    pub formula_random_key: bool,
+    pub formula_key_setting: String,
 }
 
 impl MyApp {
@@ -245,6 +266,14 @@ impl MyApp {
             single_notes: false,
             onset_id: 0,
             credited: None,
+            formula_mask: 0,
+            formula_root: 0,
+            formula_key_name: String::new(),
+            formula_collected: Vec::new(),
+            formula_notes: 5,
+            formula_required: 1,
+            formula_random_key: true,
+            formula_key_setting: "C".to_string(),
         }
     }
     
@@ -450,6 +479,10 @@ impl MyApp {
     }
 
     fn reload_library_content(&mut self) {
+        if self.app_mode == AppMode::Formulas {
+            self.next_formula();
+            return;
+        }
         match self.app_mode {
             AppMode::Chords | AppMode::Intervals => {
                 if self.selected_library_idx < self.song_library.len() {
@@ -480,7 +513,7 @@ impl MyApp {
                     self.chords = vec![Chord { root: root, quality: ChordQuality::CustomScale(def.clone()) }];
                 }
             }
-            AppMode::Fretboard => {
+            AppMode::Fretboard | AppMode::Formulas => {
                 // No song, no chords - the exercise is the region itself, drawn
                 // fresh on every entry into the mode.
                 self.chords = vec![];
@@ -538,6 +571,55 @@ impl MyApp {
             "A#" | "Bb" => Some(NoteName::Bf), "B" => Some(NoteName::B),
             _ => None
         }
+    }
+
+    /// Draws the next formula, and a key for it if the options ask for one.
+    ///
+    /// A filter that nothing satisfies leaves the previous formula standing
+    /// rather than blanking the screen - the settings panel is where that gets
+    /// explained, not here.
+    pub fn next_formula(&mut self) {
+        let key = if self.formula_random_key {
+            None
+        } else {
+            crate::formulas::parse_key(&self.formula_key_setting)
+        };
+        if let Some(d) = crate::formulas::next(
+            &mut self.rng,
+            self.formula_notes,
+            self.formula_required,
+            key,
+        ) {
+            self.formula_mask = d.mask;
+            self.formula_root = d.key.pitch() as usize;
+            self.formula_key_name = d.key.name();
+            self.formula_collected = vec![false; d.mask.count_ones() as usize];
+            self.success_timer = 0.0;
+            self.match_status = MatchStatus::None;
+        }
+    }
+
+    /// Pitch class of each function in the current formula.
+    pub fn formula_pitches(&self) -> Vec<usize> {
+        crate::formulas::functions_of(self.formula_mask)
+            .iter()
+            .map(|&f| (self.formula_root + f) % 12)
+            .collect()
+    }
+
+    /// Marks off whatever is sounding, and says whether the set is complete.
+    ///
+    /// Unordered on purpose: the exercise is to move around inside the set, so
+    /// any function may be struck at any time, and several at once when a chord
+    /// is played. The formula is finished when every one of them has sounded.
+    fn collect_formula(&mut self, ai_root: Option<NoteName>, confidence: f32) -> bool {
+        let pitches = self.formula_pitches();
+        for (i, &pc) in pitches.iter().enumerate() {
+            if !self.formula_collected[i] && self.note_is_sounding(pc, ai_root, confidence) {
+                self.formula_collected[i] = true;
+            }
+        }
+        !self.formula_collected.is_empty() && self.formula_collected.iter().all(|&c| c)
     }
 
     /// Is the requested pitch class sounding right now?
@@ -633,6 +715,25 @@ impl MyApp {
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
 
+        // Formulas have no song either: a drawn set of functions over a drawn
+        // root, played in any order.
+        if self.app_mode == AppMode::Formulas {
+            let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
+            if self.formula_collected.is_empty() {
+                self.next_formula();
+                return;
+            }
+            let done = self.collect_formula(ai_root, confidence);
+            self.match_status = if done { MatchStatus::Exact } else { MatchStatus::None };
+            if done {
+                self.success_timer += dt;
+                if self.success_timer > self.transition_delay && !self.paused {
+                    self.next_formula();
+                }
+            }
+            return;
+        }
+
         // The fretboard trainer has no song, so it runs before the chord guard.
         if self.app_mode == AppMode::Fretboard {
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
@@ -670,8 +771,8 @@ impl MyApp {
         let all_targets = target_chord.get_target_indices(); 
 
         match self.app_mode {
-            // Returned above, before the chord guard - it has no chords to check.
-            AppMode::Fretboard => {}
+            // Both returned above, before the chord guard - neither has chords.
+            AppMode::Fretboard | AppMode::Formulas => {}
             AppMode::Chords => {
                 let target_qual_str = target_chord.quality.to_string();
                 let mut exact_match = false;

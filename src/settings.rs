@@ -14,7 +14,8 @@ use std::path::PathBuf;
 /// sits first in the UI but keeps index 4, so a saved setting keeps its meaning).
 /// The range check below depends on this being complete - a missing entry would
 /// silently reset the user's choice to Chords.
-pub const MODE_NAMES: [&str; 5] = ["Chords", "Intervals", "Scales", "Arpeggios", "Fretboard"];
+pub const MODE_NAMES: [&str; 6] =
+    ["Chords", "Intervals", "Scales", "Arpeggios", "Fretboard", "Formulas"];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
@@ -269,11 +270,12 @@ mod tests {
     fn mode_names_match_appmode() {
         // The order is a contract with `AppMode` in state.rs and the buttons in
         // appwindow.slint. A mismatch means starting in the wrong mode.
-        assert_eq!(MODE_NAMES.len(), 5, "every AppMode needs an entry or its setting is dropped");
+        assert_eq!(MODE_NAMES.len(), 6, "every AppMode needs an entry or its setting is dropped");
         assert_eq!(MODE_NAMES[1], "Intervals");
         assert_eq!(MODE_NAMES[2], "Scales");
         assert_eq!(MODE_NAMES[3], "Arpeggios");
         assert_eq!(MODE_NAMES[4], "Fretboard");
+        assert_eq!(MODE_NAMES[5], "Formulas");
     }
 
     #[test]
