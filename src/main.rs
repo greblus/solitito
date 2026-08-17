@@ -5,6 +5,7 @@ mod arpeggio;
 mod audio;
 mod brain;
 mod diagrams;
+mod formulas;
 mod fretboard;
 mod i18n;
 mod latch;
@@ -499,7 +500,7 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
 
     let mut hist = [[0.0f32; TOTAL_FEATURES]; CTX_FRAMES];
     let mut live = [false; CTX_FRAMES];
-    let mut last_cqt: Option<Vec<f32>> = None;
+    let mut last_cqt: Option<Vec<f32>>;
 
     println!(
         "\n{path} · {} Hz · {ch} ch · gate {gate_db:.0} dB · bass boost {}",
