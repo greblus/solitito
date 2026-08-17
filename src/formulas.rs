@@ -276,6 +276,29 @@ pub fn note_names(mask: u16, key: &Key) -> Vec<String> {
     functions_of(mask).iter().map(|&f| note_name(key, f)).collect()
 }
 
+/// One exercise: a formula and the key to read it in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Drawn {
+    pub mask: u16,
+    pub key: Key,
+}
+
+/// Draws the next exercise.
+///
+/// `key` of `None` means a fresh one per formula, taken from `KEY_POOL` - one
+/// spelling per pitch class, so the names that appear are the ones players
+/// write. Drawing the key alongside the formula rather than once per session is
+/// deliberate: the formula is the constant, and hearing it land somewhere else
+/// each time is what stops it turning into a shape under the fingers.
+pub fn next(rng: &mut Rng, notes: usize, required: u16, key: Option<Key>) -> Option<Drawn> {
+    let mask = draw(rng, notes, required)?;
+    let key = match key {
+        Some(k) => k,
+        None => parse_key(KEY_POOL[rng.below(KEY_POOL.len())])?,
+    };
+    Some(Drawn { mask, key })
+}
+
 // -------------------------------------------------------- against scales
 
 /// How a formula sits next to a scale the player already knows.
@@ -389,6 +412,34 @@ mod tests {
         assert_eq!(drawn.count_ones(), 5);
         // Four functions demanded, three notes on offer.
         assert_eq!(draw(&mut rng, 3, required), None);
+    }
+
+    #[test]
+    fn the_key_is_either_chosen_or_drawn() {
+        let mut rng = Rng::with_seed(7);
+        let required = parse("b3 b7").unwrap();
+
+        // Chosen: every draw reads in that key, the formula keeps changing.
+        let eb = parse_key("Eb").unwrap();
+        for _ in 0..20 {
+            let d = next(&mut rng, 5, required, Some(eb)).unwrap();
+            assert_eq!(d.key, eb);
+            assert!(contains_all(d.mask, required));
+            assert_eq!(d.mask.count_ones(), 5);
+        }
+
+        // Drawn: keys come from the pool, and over twenty draws more than one
+        // of them shows up - otherwise "random" would be a fixed key in disguise.
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..20 {
+            let d = next(&mut rng, 4, 1, None).unwrap();
+            assert!(KEY_POOL.contains(&d.key.name().as_str()), "{} is off the pool", d.key.name());
+            seen.insert(d.key.name());
+        }
+        assert!(seen.len() > 1, "the drawn key never moved");
+
+        // An impossible filter fails here too, rather than looping for a key.
+        assert_eq!(next(&mut rng, 2, parse("1 b3 5 b7").unwrap(), None), None);
     }
 
     #[test]

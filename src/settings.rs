@@ -60,6 +60,25 @@ pub struct Settings {
     /// setting again after every switch is what a saved value is for.
     #[serde(default)]
     pub gates: HashMap<String, f32>,
+    /// Formulas mode: how many notes each drawn formula has, the root included.
+    #[serde(default = "five_notes")]
+    pub formula_notes: usize,
+    /// The key to read formulas in, e.g. "A", "Ab", "F#". Remembered even while
+    /// `formula_random_key` is on, so unticking the box brings back the key that
+    /// was typed rather than an empty field.
+    #[serde(default = "key_of_c")]
+    pub formula_key: String,
+    /// Draw a fresh key for every formula instead of using `formula_key`.
+    #[serde(default = "yes")]
+    pub formula_random_key: bool,
+    /// Functions every drawn formula has to contain, e.g. "b3 b7". Empty means
+    /// no filter.
+    #[serde(default)]
+    pub formula_required: String,
+    /// Show note names under the functions. Off by default: the functions are
+    /// the exercise, and reading names is the habit the mode exists to break.
+    #[serde(default)]
+    pub formula_note_names: bool,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -84,6 +103,18 @@ const DEFAULT_DEVICE_KEY: &str = "";
 /// would put the handle off the end of the track.
 const SANE_GATE_DB: std::ops::RangeInclusive<f32> = -72.0..=0.0;
 
+fn five_notes() -> usize {
+    5
+}
+
+fn key_of_c() -> String {
+    "C".to_string()
+}
+
+fn yes() -> bool {
+    true
+}
+
 /// Serde default for the channel. Files written while there was still a "mix
 /// all channels" option hold 0, which is not a channel.
 fn first_channel() -> usize {
@@ -103,6 +134,11 @@ impl Default for Settings {
             audio_device: None,
             audio_channel: 1,
             gates: HashMap::new(),
+            formula_notes: 5,
+            formula_key: "C".to_string(),
+            formula_random_key: true,
+            formula_required: String::new(),
+            formula_note_names: false,
             window_w: None,
             window_h: None,
         }
@@ -153,6 +189,7 @@ impl Settings {
                     if s.audio_channel == 0 {
                         s.audio_channel = 1;
                     }
+                    s.clamp_formulas();
                     println!("⚙️  Settings from {}", path.display());
                     s
                 }
@@ -173,6 +210,22 @@ impl Settings {
         if !(ok(self.window_w) && ok(self.window_h)) {
             self.window_w = None;
             self.window_h = None;
+        }
+    }
+
+    /// Brings the Formulas settings back into range. A hand-edited file could
+    /// otherwise ask for a nine-note formula containing eleven functions, and
+    /// the draw would come back empty every time with nothing to explain it.
+    fn clamp_formulas(&mut self) {
+        self.formula_notes = self.formula_notes.clamp(1, 12);
+        if crate::formulas::parse_key(&self.formula_key).is_none() {
+            self.formula_key = key_of_c();
+        }
+        match crate::formulas::parse(&self.formula_required) {
+            // The filter cannot ask for more functions than the formula holds.
+            Some(m) if m.count_ones() as usize <= self.formula_notes => {}
+            _ if self.formula_required.trim().is_empty() => {}
+            _ => self.formula_required = String::new(),
         }
     }
 
@@ -292,6 +345,52 @@ mod tests {
         assert!(back.shuffle_chords);
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.shuffle_chords);
+    }
+
+    #[test]
+    fn formula_settings_default_and_survive_a_round_trip() {
+        let d = Settings::default();
+        assert_eq!(d.formula_notes, 5);
+        assert_eq!(d.formula_key, "C");
+        assert!(d.formula_random_key, "a drawn key needs no typing to get going");
+        assert!(!d.formula_note_names, "names are the habit the mode breaks");
+
+        let s = Settings {
+            formula_notes: 7,
+            formula_key: "Eb".into(),
+            formula_random_key: false,
+            formula_required: "b3 b7".into(),
+            formula_note_names: true,
+            ..Settings::default()
+        };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.formula_key, "Eb");
+        assert_eq!(back.formula_required, "b3 b7");
+        assert!(!back.formula_random_key);
+
+        // A file written before the mode existed still loads.
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert_eq!(old.formula_notes, 5);
+        assert_eq!(old.formula_key, "C");
+    }
+
+    #[test]
+    fn a_hand_edited_formula_setting_is_brought_back_into_range() {
+        let mut s = Settings {
+            formula_notes: 99,
+            formula_key: "H".into(),
+            formula_required: "1 b3 5 b7".into(),
+            ..Settings::default()
+        };
+        s.clamp_formulas();
+        assert_eq!(s.formula_notes, 12);
+        assert_eq!(s.formula_key, "C", "H is not a key here");
+        assert_eq!(s.formula_required, "1 b3 5 b7", "four functions fit in twelve notes");
+
+        // A filter wider than the formula would never draw anything.
+        let mut tight = Settings { formula_notes: 3, formula_required: "1 b3 5 b7".into(), ..Settings::default() };
+        tight.clamp_formulas();
+        assert_eq!(tight.formula_required, "", "an unsatisfiable filter is dropped");
     }
 
     #[test]
