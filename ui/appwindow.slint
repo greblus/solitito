@@ -449,11 +449,9 @@ export component AppWindow inherits Window {
     in-out property <int> formula_notes: 5;
     callback formula_notes_changed(int);
     in-out property <string> formula_key_text: "C";
-    callback formula_key_text_changed(string);
     in-out property <bool> formula_random_key: true;
     callback formula_random_key_changed(bool);
     in-out property <string> formula_required_text: "";
-    callback formula_required_changed(string);
     in-out property <bool> formula_show_names: false;
     callback formula_show_names_changed(bool);
     in-out property <bool> formula_show_similar: true;
@@ -746,8 +744,9 @@ export component AppWindow inherits Window {
             // under the interval strip in the note modes, under the shapes in
             // Chords, under the position line in the fretboard trainer.
             // The fretboard trainer has nothing to hold: the note is drawn at
-            // random and the region already stays put.
-            if root.current_mode != 4 : HorizontalLayout {
+            // random and the region already stays put. Formulas have nothing to
+            // hold either until they are played over a progression.
+            if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
                 IconToggle {
                     icon: root.paused ? root.icon_play : root.icon_pause;
@@ -1171,11 +1170,13 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center; width: 185px;
                                 }
                                 LineEdit {
+                                    // Bound and nothing else, exactly like the
+                                    // Intervals field: the tick reads it and
+                                    // saves when it changes. An `edited` handler
+                                    // here left the field refusing input.
                                     width: 90px;
                                     text <=> root.formula_key_text;
                                     enabled: !root.formula_random_key;
-                                    placeholder-text: "C";
-                                    edited => { root.formula_key_text_changed(self.text); }
                                 }
                                 CheckBox {
                                     checked <=> root.formula_random_key;
@@ -1197,11 +1198,12 @@ export component AppWindow inherits Window {
                                         vertical-alignment: center; width: 185px;
                                     }
                                     LineEdit {
-                                        // No explicit width, exactly like the
-                                        // Intervals field it works alongside.
+                                        // No width and no handler, exactly like
+                                        // the Intervals field it works next to.
+                                        // No placeholder either: grey "b3 b7"
+                                        // read as a value that could not be
+                                        // cleared.
                                         text <=> root.formula_required_text;
-                                        placeholder-text: "b3 b7";
-                                        edited => { root.formula_required_changed(self.text); }
                                     }
                                 }
                                 Text {

@@ -1103,6 +1103,19 @@ fn main() -> Result<(), slint::PlatformError> {
         app.single_notes = ui.get_single_notes();
         app.set_shuffle_chords(ui.get_shuffle_chords());
         {
+            // The two text fields are read from the UI, not pushed into it -
+            // the same arrangement the Intervals field uses, and the only one
+            // that leaves them editable.
+            let key_txt = ui.get_formula_key_text().to_string();
+            let req_txt = ui.get_formula_required_text().to_string();
+            let mut cfg = cfg_formulas.borrow_mut();
+            if cfg.formula_key != key_txt || cfg.formula_required != req_txt {
+                cfg.formula_key = key_txt;
+                cfg.formula_required = req_txt;
+                cfg.save();
+            }
+        }
+        {
             // Formulas options. A change to any of them takes effect on the next
             // formula, not mid-exercise.
             let cfg = cfg_formulas.borrow();
@@ -1602,27 +1615,9 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
-        ui.on_formula_key_text_changed(move |k| {
-            // Kept even while it is unreadable: the field is being typed into,
-            // and a key that does not parse simply is not used yet.
-            let mut cur = cur.borrow_mut();
-            cur.formula_key = k.to_string();
-            cur.save();
-        });
-    }
-    {
-        let cur = live_cfg.clone();
         ui.on_formula_random_key_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.formula_random_key = on;
-            cur.save();
-        });
-    }
-    {
-        let cur = live_cfg.clone();
-        ui.on_formula_required_changed(move |f| {
-            let mut cur = cur.borrow_mut();
-            cur.formula_required = f.to_string();
             cur.save();
         });
     }
