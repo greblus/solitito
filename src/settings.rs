@@ -80,6 +80,11 @@ pub struct Settings {
     /// the exercise, and reading names is the habit the mode exists to break.
     #[serde(default)]
     pub formula_note_names: bool,
+    /// Show the nearest known scale under the formula, with the formula's own
+    /// degrees picked out. On by default: it is what turns a drawn set into
+    /// something a player can place.
+    #[serde(default = "yes")]
+    pub formula_show_similar: bool,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -140,6 +145,7 @@ impl Default for Settings {
             formula_random_key: true,
             formula_required: String::new(),
             formula_note_names: false,
+            formula_show_similar: true,
             window_w: None,
             window_h: None,
         }

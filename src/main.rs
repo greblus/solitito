@@ -898,6 +898,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_formula_random_key(cfg.formula_random_key);
         ui.set_formula_required_text(cfg.formula_required.clone().into());
         ui.set_formula_show_names(cfg.formula_note_names);
+        ui.set_formula_show_similar(cfg.formula_show_similar);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
@@ -1635,6 +1636,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_formula_show_similar_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_show_similar = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_shuffle_chords_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.shuffle_chords = on;
@@ -1773,6 +1782,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_formula_required(t.formula_required.into());
     g.set_formula_required_hint(t.formula_required_hint.into());
     g.set_formula_note_names(t.formula_note_names.into());
+    g.set_formula_similar_opt(t.formula_similar_opt.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());

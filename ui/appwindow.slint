@@ -292,6 +292,7 @@ export global Tr {
     in-out property <string> formula_required: "Must contain: ";
     in-out property <string> formula_required_hint: "";
     in-out property <string> formula_note_names: "Show note names";
+    in-out property <string> formula_similar_opt: "Show the nearest scale";
     in-out property <string> formula_key_line: "Key";
     in-out property <string> formula_similar: "Similar to:";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
@@ -455,6 +456,8 @@ export component AppWindow inherits Window {
     callback formula_required_changed(string);
     in-out property <bool> formula_show_names: false;
     callback formula_show_names_changed(bool);
+    in-out property <bool> formula_show_similar: true;
+    callback formula_show_similar_changed(bool);
     // Icons come from Rust so they can be compiled into the binary alongside the
     // chord shapes rather than shipped as loose files.
     in property <image> icon_shuffle;
@@ -565,7 +568,14 @@ export component AppWindow inherits Window {
                 active: root.settings_touched;
                 width: 34px;
                 height: 34px;
-                toggled => { root.show_settings = !root.show_settings; }
+                toggled => {
+                    // Formulas keep everything worth changing on the Practice
+                    // tab, so the gear goes straight there.
+                    if (!root.show_settings && root.current_mode == 5) {
+                        root.settings_tab = 1;
+                    }
+                    root.show_settings = !root.show_settings;
+                }
             }
         }
 
@@ -581,6 +591,9 @@ export component AppWindow inherits Window {
             spacing: 25px;
             
             Text {
+                // Formulas have no song yet. When they are played over standards
+                // this comes back, and so does the strip at the bottom.
+                visible: root.current_mode != 5;
                 text: root.song_title;
                 font-size: 26px;
                 color: #aaa;
@@ -633,7 +646,7 @@ export component AppWindow inherits Window {
                 // What this formula is nearly. The scale is spelled out under
                 // its name with the formula's own functions picked out, so the
                 // difference is visible rather than described.
-                if root.formula_scale_name != "" : VerticalLayout {
+                if root.formula_show_similar && root.formula_scale_name != "" : VerticalLayout {
                     spacing: 6px;
                     Text {
                         text: Tr.formula_similar + " " + root.formula_scale_name;
@@ -753,8 +766,8 @@ export component AppWindow inherits Window {
         // STOPKA - poprzedni i nastepny akord
         if !root.show_settings : Rectangle {
             height: 60px;
-            // The fretboard trainer has no progression to walk along.
-            if root.current_mode != 4 : HorizontalLayout {
+            // Neither the fretboard trainer nor formulas walk a progression.
+            if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
                 spacing: 26px;
 
@@ -1141,7 +1154,9 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center; width: 185px;
                                 }
                                 Dropdown {
-                                    width: root.ctrl_w;
+                                    // One digit: a control as wide as the song
+                                    // picker would be all air.
+                                    width: 90px;
                                     model: ["1","2","3","4","5","6","7","8","9","10","11","12"];
                                     current-index: root.formula_notes - 1;
                                     selected(v) => { root.formula_notes_changed(v + 1); }
@@ -1182,7 +1197,8 @@ export component AppWindow inherits Window {
                                         vertical-alignment: center; width: 185px;
                                     }
                                     LineEdit {
-                                        width: root.ctrl_w;
+                                        // No explicit width, exactly like the
+                                        // Intervals field it works alongside.
                                         text <=> root.formula_required_text;
                                         placeholder-text: "b3 b7";
                                         edited => { root.formula_required_changed(self.text); }
@@ -1204,6 +1220,19 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: Tr.formula_note_names; color: #aaa;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.formula_show_similar;
+                                    toggled => { root.formula_show_similar_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.formula_similar_opt; color: #aaa;
                                     vertical-alignment: center;
                                 }
                             }
