@@ -53,6 +53,16 @@ pub enum MatchStatus {
 /// test tying the two together.
 pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 
+/// Ticks the single-frame estimate must repeat itself before a formula counts
+/// it. At one tick per 16 ms this is 64 ms - see `collect_formula`.
+const CQT_STEADY_TICKS: u32 = 4;
+
+/// How long a finished formula stays on screen before the next lap, whatever
+/// the hold time is set to. Elsewhere that setting says how long a target has
+/// to be held to pass; here the whole set has already been played, and the
+/// screen owes the player the sight of the last function going green.
+pub const FORMULA_LAP_PAUSE: f32 = 1.0;
+
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
     pub brain: Option<Arc<Mutex<ChordBrain>>>,
@@ -170,6 +180,14 @@ pub struct MyApp {
     /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
     /// `None` while the gate is shut or the estimate is weak.
     pub cqt_pitch: Option<usize>,
+    /// What that estimate has been repeating, and for how many ticks. One frame
+    /// is 16 ms and has no memory, so it names a neighbour now and then; where
+    /// a mark never expires, that one frame is enough to light a function.
+    cqt_run_pitch: Option<usize>,
+    cqt_run: u32,
+    /// Attack the current formula lap began on. Nothing is credited under it:
+    /// the note that finished the lap before is still ringing.
+    lap_onset: u64,
     /// Require the notes one at a time. Off, the CQT only ever ADDS a way to
     /// pass, and a strummed chord still walks its intervals - the model's pitch
     /// head is polyphonic and reports every tone at once, which a monophonic
@@ -263,6 +281,9 @@ impl MyApp {
             last_pitches: [0.0; 12],
             prev_pitches: [0.0; 12],
             cqt_pitch: None,
+            cqt_run_pitch: None,
+            cqt_run: 0,
+            lap_onset: 0,
             single_notes: false,
             onset_id: 0,
             credited: None,
@@ -594,6 +615,17 @@ impl MyApp {
             self.formula_root = d.key.pitch() as usize;
             self.formula_key_name = d.key.name();
             self.formula_collected = vec![false; d.mask.count_ones() as usize];
+            // As after a finished lap: whatever is still ringing belongs to the
+            // formula that has gone.
+            self.lap_onset = self.onset_id;
+            // Without this a log jumps key mid-way with nothing to say why.
+            if std::env::var("SOLITITO_FORMULA").is_ok() {
+                println!(
+                    "--- nowa formula: {} w {}",
+                    crate::formulas::to_text(self.formula_mask),
+                    self.formula_key_name,
+                );
+            }
             self.success_timer = 0.0;
             self.match_status = MatchStatus::None;
         }
@@ -609,6 +641,10 @@ impl MyApp {
         for done in self.formula_collected.iter_mut() {
             *done = false;
         }
+        // The note that finished the lap is still ringing, and it would mark
+        // itself off again the moment the marks cleared - the new lap would
+        // start with one function given away. It counts from the next attack.
+        self.lap_onset = self.onset_id;
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
     }
@@ -646,13 +682,70 @@ impl MyApp {
     /// Marks off whatever is sounding, and says whether the set is complete.
     ///
     /// Unordered on purpose: the exercise is to move around inside the set, so
-    /// any function may be struck at any time, and several at once when a chord
-    /// is played. The formula is finished when every one of them has sounded.
+    /// any function may be struck at any time. The formula is finished when
+    /// every one of them has sounded.
+    ///
+    /// Three of the four ways in count here; the chord NAME does not. It says
+    /// what the model made of 0.77 s and credits whatever function its root
+    /// lands on, and a mark here never expires, so a name that named the wrong
+    /// root would light a function for the rest of the exercise.
+    ///
+    /// The single-frame estimate was tried as the sole way in and read a plain
+    /// E as Ab and Eb; the model's pitch head alone was tried next and took
+    /// three or four seconds a note, its window being 0.77 s long. Both are
+    /// needed, which is what `note_is_sounding` was built for.
+    ///
+    /// Two rules were tried and dropped, both recorded so they are not tried
+    /// again: rationing credits to one per attack, which handed the credit to
+    /// the note still ringing from before and left the note actually played
+    /// nothing to claim; and crediting only near an attack, which lost the
+    /// notes of anyone not picking hard enough to be heard as one.
     fn collect_formula(&mut self, ai_root: Option<NoteName>, confidence: f32) -> bool {
         let pitches = self.formula_pitches();
+        let funcs = crate::formulas::functions_of(self.formula_mask);
+        // SOLITITO_FORMULA=1: what the ear reports, and what it credited. The
+        // only way to tell a bad reading from a bad rule.
+        let loud = std::env::var("SOLITITO_FORMULA").is_ok();
+        // A lap begins on the attack after the one that ended the last: the note
+        // that finished it rings on, and would credit itself straight away.
+        if self.onset_id == self.lap_onset {
+            return false;
+        }
         for (i, &pc) in pitches.iter().enumerate() {
-            if !self.formula_collected[i] && self.note_is_sounding(pc, ai_root, confidence) {
-                self.formula_collected[i] = true;
+            if self.formula_collected[i] {
+                continue;
+            }
+            let Some(branch) = self.sounding_by(pc, ai_root, confidence) else {
+                continue;
+            };
+            // 4 is the chord name; see above.
+            if branch == 4 {
+                continue;
+            }
+            // The single-frame estimate has to have held still. It is the fast
+            // way in and worth keeping fast, but on its own it names the odd
+            // neighbour - the root credited the major seventh a semitone below
+            // it - and one such frame lights a function for the whole exercise.
+            // Four ticks is 64 ms: nothing next to how long a note rings, and
+            // longer than a fluke lasts. The model's own readings are not held
+            // to this; its window has already done the averaging.
+            if branch == 1 && self.cqt_run < CQT_STEADY_TICKS {
+                continue;
+            }
+            self.credited = Some((pc % 12, self.onset_id));
+            self.formula_collected[i] = true;
+            if loud {
+                println!(
+                    "atak#{} zaliczono {:<3} (sposob {branch})  ucho={:<3} model_prymy={:<3}",
+                    self.onset_id,
+                    funcs.get(i).map(|&f| crate::formulas::FUNCS[f]).unwrap_or("?"),
+                    self.cqt_pitch
+                        .map(|p| NoteName::from_index(p).to_string().to_string())
+                        .unwrap_or_else(|| "-".into()),
+                    ai_root
+                        .map(|r| r.to_string().to_string())
+                        .unwrap_or_else(|| "-".into()),
+                );
             }
         }
         !self.formula_collected.is_empty() && self.formula_collected.iter().all(|&c| c)
@@ -670,11 +763,19 @@ impl MyApp {
     /// frame and got the current note 57% of the time, the previous one the rest,
     /// and never a note that was not played at all.
     fn note_is_sounding(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> bool {
+        self.sounding_by(pc, ai_root, confidence).is_some()
+    }
+
+    /// The same question, answered with WHICH of the four ways in let the note
+    /// through. Formulas need to know: their marks accumulate, so a branch that
+    /// fires once too often is the difference between an exercise and a screen
+    /// that fills itself in.
+    fn sounding_by(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> Option<u8> {
         let target = pc % 12;
 
         // 1. One frame, one note - no window to smear across.
         if self.cqt_pitch == Some(target) {
-            return true;
+            return Some(1);
         }
 
         let p_target = self.last_pitches[target];
@@ -688,7 +789,7 @@ impl MyApp {
         //    the CQT reads badly still has a way through.
         let stale = self.single_notes && self.cqt_pitch.is_some_and(|now| now != target);
         if !stale && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
-            return true;
+            return Some(2);
         }
 
         // 3. The model, where the target is the note that just ARRIVED in a
@@ -708,13 +809,14 @@ impl MyApp {
             && rise > 0.05
             && rise >= best_rise * 0.9
         {
-            return true;
+            return Some(3);
         }
 
         // 4. The root head as independent confirmation - a single note is
         //    reported by the model as the root.
-        matches!(ai_root, Some(r) if r == NoteName::from_index(target))
-            && confidence >= self.chord_confidence
+        let by_root = matches!(ai_root, Some(r) if r == NoteName::from_index(target))
+            && confidence >= self.chord_confidence;
+        if by_root { Some(4) } else { None }
     }
 
     /// Draws a fresh practice region: a set of strings and a fret window.
@@ -750,6 +852,15 @@ impl MyApp {
     }
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
+        // Counted first, before any mode returns: how long the single-frame
+        // estimate has been saying the same thing.
+        if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
+            self.cqt_run = self.cqt_run.saturating_add(1);
+        } else {
+            self.cqt_run_pitch = self.cqt_pitch;
+            self.cqt_run = 1;
+        }
+
 
         // Formulas have no song either: a drawn set of functions over a drawn
         // root, played in any order.
@@ -763,7 +874,12 @@ impl MyApp {
             self.match_status = if done { MatchStatus::Exact } else { MatchStatus::None };
             if done {
                 self.success_timer += dt;
-                if self.success_timer > self.transition_delay && !self.paused {
+                // A whole formula finished is worth seeing finished. The hold
+                // time is a quarter of a second by default - long enough to
+                // pass a chord on, too short to notice the last function turn
+                // green before the marks clear under it.
+                let show = self.transition_delay.max(FORMULA_LAP_PAUSE);
+                if self.success_timer > show && !self.paused {
                     self.restart_formula();
                 }
             }
@@ -1056,6 +1172,13 @@ impl MyApp {
 pub(crate) mod tests {
     use super::*;
     use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
+
+    /// One note sounding, as the model's pitch head would report it - the only
+    /// way into a formula's marks.
+    pub(crate) fn model_hears(a: &mut MyApp, pc: usize) {
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[pc % 12] = 1.0;
+    }
 
     /// MyApp needs the shared audio state; nothing here touches it.
     pub(crate) fn app() -> MyApp {
@@ -1953,19 +2076,112 @@ mod generator_tests {
         let mask = a.formula_mask;
         assert!(mask != 0, "entering the mode should draw a formula");
 
-        for pc in a.formula_pitches() {
-            a.cqt_pitch = Some(pc);
+        for (n, pc) in a.formula_pitches().into_iter().enumerate() {
+            a.onset_id = n as u64 + 1;
+            model_hears(&mut a, pc);
             a.check_progress_with_ai(0.0, "...", 0.0);
         }
         assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
 
         // Past the hold time the lap ends.
         a.cqt_pitch = None;
-        a.check_progress_with_ai(a.transition_delay + 0.01, "...", 0.0);
+        a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
         assert_eq!(a.formula_mask, mask, "a new formula was drawn");
         assert!(
             a.formula_collected.iter().all(|&c| !c),
             "the marks did not start again"
+        );
+    }
+
+    /// The note that finishes a formula does not open the next lap. It is still
+    /// ringing when the marks clear, and would mark itself off again - which
+    /// came out as the last function of one round being credited in the next.
+    #[test]
+    fn the_note_that_ended_a_lap_does_not_start_the_next() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        let pitches = a.formula_pitches();
+        for (n, &pc) in pitches.iter().enumerate() {
+            a.onset_id = n as u64 + 1;
+            model_hears(&mut a, pc);
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
+        // Past the pause the lap ends, with the last note still sounding.
+        a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
+        assert!(a.formula_collected.iter().all(|&c| !c), "the lap did not restart");
+
+        // It rings on, and must count for nothing until the strings are struck.
+        for _ in 0..20 {
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "the ringing note credited itself into the new lap"
+        );
+
+        // A fresh attack on the same note counts, as any note would.
+        a.onset_id += 1;
+        a.check_progress_with_ai(0.0, "...", 0.0);
+        assert_eq!(
+            a.formula_collected.iter().filter(|&&c| c).count(),
+            1,
+            "a struck note did not count in the new lap"
+        );
+    }
+
+    /// A single frame of the fast estimate credits nothing.
+    ///
+    /// It names a neighbour now and then - the root crediting the semitone
+    /// beside it was the shape this took on the guitar - and a mark here never
+    /// expires. Held for four ticks, the same reading counts.
+    #[test]
+    fn one_frame_of_the_fast_estimate_is_not_enough() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.onset_id = 2;
+        let pitches = a.formula_pitches();
+
+        // Flickering between two of them: neither ever settles.
+        for _ in 0..8 {
+            for &pc in pitches.iter().take(2) {
+                a.cqt_pitch = Some(pc);
+                a.check_progress_with_ai(0.0, "...", 0.0);
+            }
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "a flickering estimate marked functions off"
+        );
+
+        // Held still, it counts.
+        a.cqt_pitch = Some(pitches[0]);
+        for _ in 0..CQT_STEADY_TICKS {
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
+        assert!(a.formula_collected[0], "a steady reading did not count");
+    }
+
+    /// A chord name credits nothing here, however sure the model is of it. The
+    /// marks never expire, so a function lit by a name nobody played would stay
+    /// lit for the rest of the exercise.
+    #[test]
+    fn a_chord_name_alone_credits_nothing() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.formula_random_key = false;
+        a.formula_key_setting = "C".to_string();
+        a.rekey_formula();
+        // Nothing heard: no single frame, no pitch vector. Only the name.
+        a.cqt_pitch = None;
+        a.last_pitches = [0.0; 12];
+        a.prev_pitches = [0.0; 12];
+        for n in 0..20u64 {
+            a.onset_id = n;
+            a.check_progress_with_ai(0.05, "C Maj7", 0.99);
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "the chord name credited a function on its own"
         );
     }
 
@@ -1980,13 +2196,14 @@ mod generator_tests {
         let key = a.formula_key_name.clone();
         let mask = a.formula_mask;
 
-        for _ in 0..5 {
-            for pc in a.formula_pitches() {
-                a.cqt_pitch = Some(pc);
+        for lap in 0..5u64 {
+            for (n, pc) in a.formula_pitches().into_iter().enumerate() {
+                a.onset_id = lap * 12 + n as u64 + 1;
+                model_hears(&mut a, pc);
                 a.check_progress_with_ai(0.0, "...", 0.0);
             }
             a.cqt_pitch = None;
-            a.check_progress_with_ai(a.transition_delay + 0.01, "...", 0.0);
+            a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
             assert_eq!(a.formula_key_name, key, "the lap moved the key");
             assert_eq!(a.formula_mask, mask, "the lap moved the formula");
         }

@@ -703,10 +703,15 @@ export component AppWindow inherits Window {
                 // at one and the row above shows what it is built from - which
                 // is the whole use of the list: not the names, but where they
                 // sit inside the set.
-                if root.formula_show_chords && root.formula_chords.length > 0 : VerticalLayout {
+                if root.formula_show_chords : VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: Tr.formula_chords;
+                        // The dash rather than no line at all: at five notes one
+                        // formula in seven has no chord inside it, and a line
+                        // that comes and goes reads as the app losing track.
+                        text: root.formula_chords.length > 0
+                            ? Tr.formula_chords
+                            : Tr.formula_chords + " —";
                         font-size: 15px;
                         color: #888;
                         horizontal-alignment: center;

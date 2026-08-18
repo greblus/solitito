@@ -277,6 +277,12 @@ const BINS_PER_SEMITONE: usize = 2;
 /// Offsets of the first six harmonics, in CQT bins: round(24 * log2(h)).
 const HARMONIC_OFFSETS: [usize; 6] = [0, 24, 38, 48, 56, 62];
 
+/// Least a reading has to score to be believed. In noise this estimator always
+/// names something, so a weak answer is worth less than none - and the modes
+/// that judge single notes have the model's pitch head to fall back on.
+/// SOLITITO_EAR=1 prints the scores, this one included, before it is moved.
+pub const MONO_MIN_SCORE: f32 = 0.5;
+
 /// Search range for a guitar fundamental, in CQT bins from C1: E2 (bin 32) up to
 /// roughly E5. Outside it lies nothing a guitar can sound as a fundamental, and
 /// letting the search go there only invites octave errors.
@@ -314,7 +320,14 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
         if used > 0.0 { sum / used } else { 0.0 }
     };
 
-    let mut best = (0usize, 0.0f32);
+    // Every bin, quarter tones included. Restricting the search to semitone
+    // centres was tried and starved the score: a real note sits a few cents off
+    // and leaves most of its energy in the bin next door, which took a plain
+    // reading from 1.00 down to 0.45 - under the gate, so no note reported at
+    // all, and the app left waiting on the model's 0.77 s window. The quarter
+    // tones are where the resolution is; what they must not do is decide the
+    // semitone by rounding, which is what the interpolation below is for.
+    let mut best = (F0_LOW_BIN, 0.0f32);
     for b in F0_LOW_BIN..F0_HIGH_BIN.min(CQT_BINS) {
         let s = score_at(b);
         if s > best.1 {
@@ -336,7 +349,27 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
         }
     }
 
-    let semitone = (b as f32 / BINS_PER_SEMITONE as f32).round() as usize;
+    // Where the peak really lies, to a fraction of a bin. Three scores around
+    // the winner describe a parabola, and its vertex says how far off centre
+    // the note sits - which is what decides the semitone. Rounding the winning
+    // bin instead answered every quarter-tone reading with the note ABOVE
+    // (`round(18.5)` goes away from zero), so an F# a little sharp came back as
+    // G, and in Formulas - where a mark never expires - the flat second lit up
+    // every time the root was struck.
+    let mut pos = b as f32;
+    if b > 0 && b + 1 < CQT_BINS {
+        let (l, c, r) = (score_at(b - 1), best.1, score_at(b + 1));
+        let denom = l - 2.0 * c + r;
+        if denom.abs() > 1e-6 {
+            let delta = 0.5 * (l - r) / denom;
+            // Beyond half a bin the parabola is describing something other than
+            // this peak, and the shift is not to be trusted.
+            if delta.abs() <= 0.5 {
+                pos += delta;
+            }
+        }
+    }
+    let semitone = (pos / BINS_PER_SEMITONE as f32).round() as usize;
     Some((semitone % 12, best.1))
 }
 
@@ -480,6 +513,7 @@ pub fn start_audio_stream(
     const ATTACK_FLOOR: f32 = 0.01;       // absolute floor, rejects noise
     const ATTACK_REFRACTORY: u32 = 12;    // ~0.2 s of detector silence after an attack
     let mut env_baseline: f32 = 0.0;
+    let loud_ear = std::env::var("SOLITITO_EAR").is_ok();
     let mut frames_since_attack: u32 = ATTACK_REFRACTORY;
 
     let mut input_acc = Vec::with_capacity(8192 * 2);
@@ -562,7 +596,22 @@ pub fn start_audio_stream(
                         // One frame, one note: no window memory, so a scale is
                         // tracked instead of smeared. Weak answers are dropped -
                         // in noise this estimator always names something.
-                        let mono = mono_pitch(&cqt).filter(|&(_, s)| s >= 0.5).map(|(pc, _)| pc);
+                        let heard = mono_pitch(&cqt);
+                        // SOLITITO_EAR=1: every reading with its score, the ones
+                        // under the gate included. A note played softly has its
+                        // upper partials down in the noise and scores lower for
+                        // it, and this is the only way to see by how much before
+                        // moving the gate.
+                        if loud_ear {
+                            if let Some((pc, s)) = heard {
+                                println!(
+                                    "ucho {:<3} wynik={s:.2}{}",
+                                    crate::NOTE_NAMES[pc],
+                                    if s >= MONO_MIN_SCORE { "" } else { "   << pod bramka" },
+                                );
+                            }
+                        }
+                        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(pc, _)| pc);
                         if let Ok(mut state) = shared_state.lock() {
                             state.cqt_pitch = mono;
                             state.gate_open = true;
@@ -836,4 +885,83 @@ mod fill_tests {
         assert!(a.frame_live[CTX_FRAMES - 2]);
         assert_eq!(a.input_history[CTX_FRAMES - 2][0], 1.0);
     }
+
+    /// The stretched partials of a real string do not name the semitone above.
+    ///
+    /// A steel string is inharmonic: its partials run progressively sharp, so
+    /// they land above where a perfect harmonic series would put them. The CQT
+    /// has two bins to a semitone, so the QUARTER-TONE bin above the note
+    /// collects that stretched series in full while the note's own bin only has
+    /// the fundamental - and the winner used to be free to sit there, whereupon
+    /// the semitone it rounded to was the one above. F# came back as G, which in
+    /// Formulas lit the flat second every time the root was struck.
+    #[test]
+    fn stretched_partials_do_not_name_the_semitone_above() {
+        // F#2: semitone 18 above C1, so bin 36 with two bins to a semitone.
+        const F_SHARP_2: usize = 36;
+        let mut cqt = vec![0.0f32; CQT_BINS];
+        cqt[F_SHARP_2] = 1.0;
+        for h in HARMONIC_OFFSETS.iter().skip(1) {
+            let idx = F_SHARP_2 + h + 1; // a bin sharp, as a real string is
+            if idx < CQT_BINS {
+                cqt[idx] = 1.0;
+            }
+        }
+        let (pc, _) = mono_pitch(&cqt).expect("a note with a fundamental present");
+        assert_eq!(pc, 6, "F# was named {}", NOTE_NAMES_TEST[pc]);
+    }
+
+
+    /// A note a few cents sharp still scores high enough to be reported.
+    ///
+    /// The CQT has two bins to a semitone - 50 cents apart - so a string tuned
+    /// a shade sharp spreads its energy over the note's own bin and the quarter
+    /// tone above it, and every partial does the same. Searching semitone
+    /// centres only, that spread has to still add up: the estimate is gated on
+    /// its score, and a note that scores under the gate is reported as no note
+    /// at all, which leaves the app waiting for the model's 0.77 s window.
+    #[test]
+    fn a_note_a_few_cents_sharp_still_scores() {
+        // F#2: semitone 18 above C1, so bin 36 with two bins to a semitone.
+        const F_SHARP_2: usize = 36;
+        const GATE: f32 = 0.5; // the value the input thread filters on
+        let mut cqt = vec![0.0f32; CQT_BINS];
+        for h in HARMONIC_OFFSETS {
+            let idx = F_SHARP_2 + h;
+            if idx + 1 < CQT_BINS {
+                // Sharp of centre: most of the energy one bin up.
+                cqt[idx] = 0.45;
+                cqt[idx + 1] = 1.0;
+            }
+        }
+        let (pc, score) = mono_pitch(&cqt).expect("a note with every harmonic present");
+        assert_eq!(pc, 6, "named {} instead of F#", NOTE_NAMES_TEST[pc]);
+        assert!(score >= GATE, "scored {score:.2}, under the gate of {GATE}");
+    }
+
+    /// Energy leaking into the bin above does not become the note above.
+    ///
+    /// This is the failure that kept coming back on the guitar: the root and the
+    /// flat second credited off one pluck. A note peaks in its own bin and
+    /// spills into the quarter tone next to it, and that spill must not carry
+    /// the reading a semitone up.
+    #[test]
+    fn a_spill_into_the_next_bin_is_not_the_next_note() {
+        // D3: semitone 26 above C1, so bin 52.
+        const D3: usize = 52;
+        let mut cqt = vec![0.0f32; CQT_BINS];
+        for h in HARMONIC_OFFSETS {
+            let idx = D3 + h;
+            if idx + 1 < CQT_BINS {
+                cqt[idx] = 1.0;
+                cqt[idx + 1] = 0.5;
+            }
+        }
+        let (pc, _) = mono_pitch(&cqt).expect("a note with every harmonic present");
+        assert_eq!(pc, 2, "D read as {}", NOTE_NAMES_TEST[pc]);
+    }
+
+    const NOTE_NAMES_TEST: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
 }
