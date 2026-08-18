@@ -599,6 +599,42 @@ impl MyApp {
         }
     }
 
+    /// Starts the standing formula again, exactly as it stands.
+    ///
+    /// Playing a formula through is not a reason to lose it, and not a reason to
+    /// move it either: the exercise is the formula in that key, and the next lap
+    /// is the same exercise. A different formula, or a different key for it,
+    /// comes from the arrows or the settings.
+    pub fn restart_formula(&mut self) {
+        for done in self.formula_collected.iter_mut() {
+            *done = false;
+        }
+        self.success_timer = 0.0;
+        self.match_status = MatchStatus::None;
+    }
+
+    /// Puts the standing formula in the key the options ask for.
+    ///
+    /// The functions do not move - only the notes they land on, so the marks
+    /// start again. A key that cannot be read leaves the old one in place, as
+    /// `next_formula` leaves the old formula when the filter matches nothing.
+    pub fn rekey_formula(&mut self) {
+        let key = if self.formula_random_key {
+            crate::formulas::draw_key(&mut self.rng)
+        } else {
+            crate::formulas::parse_key(&self.formula_key_setting)
+        };
+        if let Some(k) = key {
+            self.formula_root = k.pitch() as usize;
+            self.formula_key_name = k.name();
+        }
+        for done in self.formula_collected.iter_mut() {
+            *done = false;
+        }
+        self.success_timer = 0.0;
+        self.match_status = MatchStatus::None;
+    }
+
     /// Pitch class of each function in the current formula.
     pub fn formula_pitches(&self) -> Vec<usize> {
         crate::formulas::functions_of(self.formula_mask)
@@ -728,7 +764,7 @@ impl MyApp {
             if done {
                 self.success_timer += dt;
                 if self.success_timer > self.transition_delay && !self.paused {
-                    self.next_formula();
+                    self.restart_formula();
                 }
             }
             return;
@@ -925,6 +961,12 @@ impl MyApp {
     /// already gone by. Only useful while paused - playing would move it on
     /// again at once - so the caller decides when to offer it.
     pub fn step_chord(&mut self, delta: i32) {
+        // A formula stands until it is asked to move, and the arrows are the
+        // asking. No progression here, so no direction either - both draw.
+        if self.app_mode == AppMode::Formulas {
+            self.next_formula();
+            return;
+        }
         if self.chords.is_empty() {
             return;
         }
@@ -1899,5 +1941,102 @@ mod generator_tests {
             }
             a.advance_chord();
         }
+    }
+
+    /// A formula played through STAYS. It is the exercise itself, not a step
+    /// inside one, so finishing it starts another lap rather than drawing a
+    /// replacement; a different formula comes from the settings.
+    #[test]
+    fn finishing_a_formula_keeps_it() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        let mask = a.formula_mask;
+        assert!(mask != 0, "entering the mode should draw a formula");
+
+        for pc in a.formula_pitches() {
+            a.cqt_pitch = Some(pc);
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
+        assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
+
+        // Past the hold time the lap ends.
+        a.cqt_pitch = None;
+        a.check_progress_with_ai(a.transition_delay + 0.01, "...", 0.0);
+        assert_eq!(a.formula_mask, mask, "a new formula was drawn");
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "the marks did not start again"
+        );
+    }
+
+    /// And it stays in its key. A lap ending is not a reason to move the
+    /// exercise; the key is drawn for a new formula, not for a new lap of the
+    /// one being played.
+    #[test]
+    fn a_lap_does_not_move_the_key() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.formula_random_key = true;
+        let key = a.formula_key_name.clone();
+        let mask = a.formula_mask;
+
+        for _ in 0..5 {
+            for pc in a.formula_pitches() {
+                a.cqt_pitch = Some(pc);
+                a.check_progress_with_ai(0.0, "...", 0.0);
+            }
+            a.cqt_pitch = None;
+            a.check_progress_with_ai(a.transition_delay + 0.01, "...", 0.0);
+            assert_eq!(a.formula_key_name, key, "the lap moved the key");
+            assert_eq!(a.formula_mask, mask, "the lap moved the formula");
+        }
+    }
+
+    /// The key does move when the settings say so - random draws a fresh one.
+    #[test]
+    fn a_random_key_is_drawn_when_asked_for() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.formula_random_key = true;
+        let mask = a.formula_mask;
+        let mut keys = std::collections::HashSet::new();
+        for _ in 0..40 {
+            keys.insert(a.formula_key_name.clone());
+            a.rekey_formula();
+            assert_eq!(a.formula_mask, mask, "the formula changed along with the key");
+        }
+        assert!(keys.len() > 1, "the key never moved");
+    }
+
+    /// A key typed into the settings is a key asked for.
+    #[test]
+    fn a_chosen_key_stays_put() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.formula_random_key = false;
+        a.formula_key_setting = "Ab".to_string();
+        for _ in 0..10 {
+            a.rekey_formula();
+            assert_eq!(a.formula_key_name, "Ab", "the key wandered off the chosen one");
+        }
+    }
+
+    /// The arrows are the only way to ask for a different formula by hand, so
+    /// they have to draw one whichever way they point.
+    #[test]
+    fn the_arrows_draw_another_formula() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        let mut masks = std::collections::HashSet::new();
+        for i in 0..40 {
+            masks.insert(a.formula_mask);
+            a.step_chord(if i % 2 == 0 { 1 } else { -1 });
+            assert_eq!(
+                a.formula_collected.len(),
+                a.formula_mask.count_ones() as usize,
+                "the marks do not match the formula drawn"
+            );
+        }
+        assert!(masks.len() > 1, "the arrows never changed the formula");
     }
 }

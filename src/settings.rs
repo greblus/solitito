@@ -44,6 +44,11 @@ pub struct Settings {
     /// of its time on.
     #[serde(default)]
     pub show_spectrum: bool,
+    /// The model's reading of the chord in the main window. Off by default, and
+    /// remembered like the spectrum beside it - it was not, and a restart put it
+    /// out with nothing said.
+    #[serde(default)]
+    pub ai_debug: bool,
     /// Input device to open, by name. `None` means the system default. Saved
     /// because on Windows the right interface is not always the default one,
     /// and picking it again on every launch is the sort of thing that makes an
@@ -85,6 +90,11 @@ pub struct Settings {
     /// something a player can place.
     #[serde(default = "yes")]
     pub formula_show_similar: bool,
+    /// Show the chords that fit inside the formula, pointing at one lighting up
+    /// the functions it is built from. On by default, for the same reason as the
+    /// scale: it says what the set can be played over.
+    #[serde(default = "yes")]
+    pub formula_show_chords: bool,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -137,6 +147,7 @@ impl Default for Settings {
             single_notes: false,
             shuffle_chords: false,
             show_spectrum: false,
+            ai_debug: false,
             audio_device: None,
             audio_channel: 1,
             gates: HashMap::new(),
@@ -146,6 +157,7 @@ impl Default for Settings {
             formula_required: String::new(),
             formula_note_names: false,
             formula_show_similar: true,
+            formula_show_chords: true,
             window_w: None,
             window_h: None,
         }

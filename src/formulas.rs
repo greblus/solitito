@@ -294,9 +294,14 @@ pub fn next(rng: &mut Rng, notes: usize, required: u16, key: Option<Key>) -> Opt
     let mask = draw(rng, notes, required)?;
     let key = match key {
         Some(k) => k,
-        None => parse_key(KEY_POOL[rng.below(KEY_POOL.len())])?,
+        None => draw_key(rng)?,
     };
     Some(Drawn { mask, key })
+}
+
+/// One key from `KEY_POOL`, for moving a formula that already stands.
+pub fn draw_key(rng: &mut Rng) -> Option<Key> {
+    parse_key(KEY_POOL[rng.below(KEY_POOL.len())])
 }
 
 // -------------------------------------------------------- against scales
@@ -358,6 +363,108 @@ pub fn nearest_scales(mask: u16, scales: &[ScaleDefinition], limit: usize) -> Ve
         .filter(|n| n.distance > 0)
         .collect();
     out.sort_by_key(|n| (n.outside_count, n.distance, n.scale));
+    out.truncate(limit);
+    out
+}
+
+// -------------------------------------------------------- against chords
+
+/// Chord shapes looked for inside a formula, as semitones from their own root.
+///
+/// Sevenths, sixths and triads - the shapes a guitarist reaches for, not every
+/// name in the books. The order is the order they are offered in: a seventh says
+/// more about where a formula sits than the triad hiding inside it, so the
+/// bigger shapes come first. A major triad carries no suffix, as on a chart.
+pub const CHORD_SHAPES: [(&str, &[u8]); 14] = [
+    ("Maj7", &[0, 4, 7, 11]),
+    ("m7", &[0, 3, 7, 10]),
+    ("7", &[0, 4, 7, 10]),
+    ("m7b5", &[0, 3, 6, 10]),
+    ("dim7", &[0, 3, 6, 9]),
+    ("mMaj7", &[0, 3, 7, 11]),
+    ("6", &[0, 4, 7, 9]),
+    ("m6", &[0, 3, 7, 9]),
+    ("", &[0, 4, 7]),
+    ("m", &[0, 3, 7]),
+    ("dim", &[0, 3, 6]),
+    ("aug", &[0, 4, 8]),
+    ("sus2", &[0, 2, 7]),
+    ("sus4", &[0, 5, 7]),
+];
+
+/// Degrees for chords, in the same order as `FUNCS`.
+///
+/// Roman where the functions above are arabic, which is how chords are written
+/// over a key anyway - and it keeps the two rows apart: read as arabic, a
+/// dominant seventh on the second degree comes out "27".
+pub const ROMAN: [&str; 12] = [
+    "I", "bII", "II", "bIII", "III", "IV", "bV", "V", "bVI", "VI", "bVII", "VII",
+];
+
+/// A chord that fits entirely inside a formula.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fit {
+    /// Function of the formula the chord is rooted on.
+    pub degree: usize,
+    /// Index into `CHORD_SHAPES`.
+    pub shape: usize,
+}
+
+impl Fit {
+    /// How it reads on screen: the degree it stands on, then the suffix.
+    pub fn name(&self) -> String {
+        format!("{}{}", ROMAN[self.degree], CHORD_SHAPES[self.shape].0)
+    }
+
+    /// Which functions of the formula the chord is built from - what to pick out
+    /// of the row above when this one is pointed at.
+    pub fn functions(&self) -> Vec<usize> {
+        CHORD_SHAPES[self.shape]
+            .1
+            .iter()
+            .map(|&semi| (self.degree + semi as usize) % 12)
+            .collect()
+    }
+}
+
+/// Chords playable without leaving the formula, the fullest first.
+///
+/// "Fits" means every note of the chord is in the set - the formula need not use
+/// all of it. That is the useful direction: it says what can be sounded under
+/// the exercise without stepping outside it.
+///
+/// Rooted on the formula's own functions only. A chord rooted on a note the
+/// formula does not contain can still have all its notes inside it, but it is
+/// not something the formula offers to play.
+///
+/// Only the fullest are kept. Everything smaller that fits inside one of them is
+/// already being played when it is: the triad inside a seventh, the seventh that
+/// is that seventh read from another of its notes. Over the major scale this
+/// leaves exactly the seven diatonic sevenths, which is the answer; without it
+/// the same four notes came back three times over as `IV7`, `IV6`, `IV`.
+///
+/// That covers symmetry too, where a shape reads the same from several of its
+/// own notes - a diminished seventh from each of its four.
+pub fn chords_inside(mask: u16, limit: usize) -> Vec<Fit> {
+    let mut kept: Vec<(Fit, u16)> = Vec::new();
+    for (shape, (_, intervals)) in CHORD_SHAPES.iter().enumerate() {
+        for &degree in functions_of(mask).iter() {
+            let pcs = intervals
+                .iter()
+                .fold(0u16, |m, &semi| m | 1 << ((degree + semi as usize) % 12));
+            if pcs & !mask != 0 {
+                continue;
+            }
+            // Bigger shapes come first, so anything this is contained in has
+            // been seen already.
+            if kept.iter().any(|(_, other)| pcs & !other == 0) {
+                continue;
+            }
+            kept.push((Fit { degree, shape }, pcs));
+        }
+    }
+    let mut out: Vec<Fit> = kept.into_iter().map(|(f, _)| f).collect();
+    out.sort_by_key(|f| (f.shape, f.degree));
     out.truncate(limit);
     out
 }
@@ -490,5 +597,57 @@ mod tests {
         // The scale itself is dropped - it has nothing new to teach.
         let major = parse("1 2 3 4 5 6 7").unwrap();
         assert!(nearest_scales(major, &scales, 5).iter().all(|n| n.scale != 0));
+    }
+
+    /// "Fits" means every note of the chord is inside the formula - which for
+    /// four notes leaves very little room.
+    #[test]
+    fn a_chord_fits_only_when_all_of_it_is_inside() {
+        let m = parse("1 b3 5 b7").expect("a minor seventh reads as a formula");
+        let names: Vec<String> = chords_inside(m, 20).iter().map(|f| f.name()).collect();
+        // One chord, not four: the triad inside it, the major triad on b3 and
+        // the same four notes read from b3 as a sixth are all being played
+        // already whenever the seventh is.
+        assert_eq!(names, vec!["Im7".to_string()], "{names:?}");
+    }
+
+    /// The rule stated at its plainest: over the major scale, the chords that
+    /// fit are the seven diatonic sevenths. Anything more is one of them under
+    /// another name, anything less is a piece of one.
+    #[test]
+    fn the_major_scale_yields_its_seven_sevenths() {
+        let m = parse("1 2 3 4 5 6 7").expect("the major scale reads as a formula");
+        let names: Vec<String> = chords_inside(m, 7).iter().map(|f| f.name()).collect();
+        assert_eq!(
+            names,
+            vec!["IMaj7", "IVMaj7", "IIm7", "IIIm7", "VIm7", "V7", "VIIm7b5"],
+            "{names:?}"
+        );
+    }
+
+    /// The fullest shapes are offered first - a seventh says more about where a
+    /// formula sits than the triad hiding inside it.
+    #[test]
+    fn sevenths_come_before_triads() {
+        let m = parse("1 b2 2 b3 3 4 b5 5 b6 6 b7 7").expect("the whole chromatic set");
+        let fits = chords_inside(m, 4);
+        assert!(
+            fits.iter().all(|f| CHORD_SHAPES[f.shape].1.len() == 4),
+            "a triad got in front of the sevenths"
+        );
+    }
+
+    /// A diminished seventh reads the same from each of its four notes; naming
+    /// it four times would fill the line with one chord.
+    #[test]
+    fn symmetrical_shapes_are_named_once() {
+        let m = parse("1 b2 2 b3 3 4 b5 5 b6 6 b7 7").expect("the whole chromatic set");
+        let fits = chords_inside(m, 200);
+        let dim7 = fits.iter().filter(|f| CHORD_SHAPES[f.shape].0 == "dim7").count();
+        assert_eq!(dim7, 3, "there are only three diminished sevenths in twelve notes");
+        // None at all, and rightly: an augmented triad sits inside the minor
+        // major seventh a third below it, so wherever one fits, so does that.
+        let aug = fits.iter().filter(|f| CHORD_SHAPES[f.shape].0 == "aug").count();
+        assert_eq!(aug, 0, "an augmented triad on its own is never the fullest");
     }
 }

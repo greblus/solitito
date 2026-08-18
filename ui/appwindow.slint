@@ -266,6 +266,7 @@ export global Tr {
     in-out property <string> settings_title: "Settings & Calibration";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
+    in-out property <string> tab_general: "General";
     in-out property <string> tab_app: "App";
     in-out property <string> audio_calibration: "Audio Calibration";
     in-out property <string> audio_device: "Input: ";
@@ -293,6 +294,9 @@ export global Tr {
     in-out property <string> formula_required_hint: "";
     in-out property <string> formula_note_names: "Show note names";
     in-out property <string> formula_similar_opt: "Show the nearest scale";
+    in-out property <string> formula_another: "another formula";
+    in-out property <string> formula_chords: "Chords:";
+    in-out property <string> formula_chords_opt: "Show the chords that fit";
     in-out property <string> formula_key_line: "Key";
     in-out property <string> formula_similar: "Similar to:";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
@@ -408,10 +412,19 @@ export component AppWindow inherits Window {
     in property <string> formula_scale_name;
     /// Its degrees, and which of them the formula uses. Parallel lists.
     in property <[string]> formula_scale_degrees;
-    in property <[bool]> formula_scale_in; 
+    in property <[bool]> formula_scale_in;
+    /// Chords playable without leaving the formula, e.g. ["1m7","b36"].
+    in property <[string]> formula_chords;
+    /// Which functions each of them is built from, laid out flat: one run of
+    /// `formula_functions.length` flags per chord. Slint has no list of lists,
+    /// and the flat form indexes as chord * notes + note.
+    in property <[bool]> formula_chord_in;
+    /// Chord being pointed at, or -1. Its notes light up in the row above.
+    in-out property <int> formula_hover: -1;
     
     // hidden in the main window by default
-    in-out property <bool> ai_debug_visible: false; 
+    in-out property <bool> ai_debug_visible: false;
+    callback ai_debug_changed(bool);
     /// The spectrum in the settings panel. Off by default: it is a calibration
     /// aid, and drawing 48 bars sixty times a second is the most expensive thing
     /// in the panel by a wide margin.
@@ -427,7 +440,9 @@ export component AppWindow inherits Window {
 
     /// Mode buttons go through this rather than calling `mode_changed` directly.
     function pick_mode(m: int) {
-        if (root.show_settings) { root.settings_tab = 1; }
+        // The fretboard trainer has no settings of its own, so Practice is not
+        // there to land on; General is the nearest tab that still applies.
+        if (root.show_settings) { root.settings_tab = m == 4 ? 1 : 2; }
         root.mode_changed(m);
     }
     
@@ -456,6 +471,8 @@ export component AppWindow inherits Window {
     callback formula_show_names_changed(bool);
     in-out property <bool> formula_show_similar: true;
     callback formula_show_similar_changed(bool);
+    in-out property <bool> formula_show_chords: true;
+    callback formula_show_chords_changed(bool);
     // Icons come from Rust so they can be compiled into the binary alongside the
     // chord shapes rather than shipped as loose files.
     in property <image> icon_shuffle;
@@ -568,8 +585,14 @@ export component AppWindow inherits Window {
                 height: 34px;
                 toggled => {
                     // Formulas keep everything worth changing on the Practice
-                    // tab, so the gear goes straight there.
+                    // tab, so the gear goes straight there. The fretboard
+                    // trainer has no such tab, so a Practice left over from
+                    // another mode would open onto nothing.
                     if (!root.show_settings && root.current_mode == 5) {
+                        root.settings_tab = 2;
+                    }
+                    if (!root.show_settings && root.current_mode == 4
+                        && root.settings_tab == 2) {
                         root.settings_tab = 1;
                     }
                     root.show_settings = !root.show_settings;
@@ -625,11 +648,23 @@ export component AppWindow inherits Window {
                     spacing: 22px;
                     for f[i] in root.formula_functions : VerticalLayout {
                         spacing: 2px;
+                        // Pointing at a chord below asks a different question of
+                        // this row - not "what has been played" but "what is
+                        // this chord made of" - so while one is pointed at, it
+                        // answers that one instead. The green comes back the
+                        // moment the pointer leaves.
+                        property <bool> in_chord: root.formula_hover >= 0
+                            && root.formula_chord_in[
+                                root.formula_hover * root.formula_functions.length + i];
                         Text {
                             text: f;
                             font-size: 40px;
-                            font-weight: root.formula_collected[i] ? 700 : 400;
-                            color: root.formula_collected[i] ? #3ecf6a : #ddd;
+                            font-weight: root.formula_hover >= 0
+                                ? (parent.in_chord ? 700 : 400)
+                                : (root.formula_collected[i] ? 700 : 400);
+                            color: root.formula_hover >= 0
+                                ? (parent.in_chord ? #6aa9ff : #444)
+                                : (root.formula_collected[i] ? #3ecf6a : #ddd);
                             horizontal-alignment: center;
                         }
                         if root.formula_note_names.length > i : Text {
@@ -660,6 +695,40 @@ export component AppWindow inherits Window {
                             font-size: 17px;
                             font-weight: root.formula_scale_in[i] ? 700 : 400;
                             color: root.formula_scale_in[i] ? #6aa9ff : #555;
+                        }
+                    }
+                }
+
+                // Chords that can be played without leaving the formula. Point
+                // at one and the row above shows what it is built from - which
+                // is the whole use of the list: not the names, but where they
+                // sit inside the set.
+                if root.formula_show_chords && root.formula_chords.length > 0 : VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: Tr.formula_chords;
+                        font-size: 15px;
+                        color: #888;
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 16px;
+                        for c[i] in root.formula_chords : Text {
+                            text: c;
+                            font-size: 17px;
+                            font-weight: root.formula_hover == i ? 700 : 400;
+                            color: root.formula_hover == i ? #6aa9ff : #999;
+                            chord_touch := TouchArea {
+                                // A click as well as the pointer: on a touch
+                                // screen there is no hover to speak of.
+                                clicked => {
+                                    root.formula_hover = root.formula_hover == i ? -1 : i;
+                                }
+                                changed has-hover => {
+                                    root.formula_hover = self.has-hover ? i : -1;
+                                }
+                            }
                         }
                     }
                 }
@@ -825,6 +894,40 @@ export component AppWindow inherits Window {
                     fwd_touch := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
+
+            // Formulas have no progression to walk, but a formula now stands
+            // until it is asked to move, and this is the asking. Both arrows do
+            // the same - there is no order here for them to differ in - and
+            // neither waits for a pause, which this mode does not offer.
+            if root.current_mode == 5 : HorizontalLayout {
+                alignment: center;
+                spacing: 26px;
+
+                Text {
+                    text: "‹";
+                    font-size: 34px;
+                    color: draw_back.has-hover ? #fff : #ddd;
+                    vertical-alignment: center;
+                    draw_back := TouchArea { clicked => { root.step_chord(-1); } }
+                }
+                // The words draw one too. They name what the arrows do, and a
+                // label that says "another formula" is the thing a hand goes
+                // for; the arrows are only easier to hit.
+                Text {
+                    text: Tr.formula_another;
+                    font-size: 12px;
+                    color: draw_word.has-hover ? #ddd : #666;
+                    vertical-alignment: center;
+                    draw_word := TouchArea { clicked => { root.step_chord(1); } }
+                }
+                Text {
+                    text: "›";
+                    font-size: 34px;
+                    color: draw_fwd.has-hover ? #fff : #ddd;
+                    vertical-alignment: center;
+                    draw_fwd := TouchArea { clicked => { root.step_chord(1); } }
+                }
+            }
         }
     }
 
@@ -869,8 +972,12 @@ export component AppWindow inherits Window {
                 spacing: 4px;
                 height: 32px;
                 TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
-                TabButton { text: Tr.tab_practice; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
-                TabButton { text: Tr.tab_app; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
+                TabButton { text: Tr.tab_general; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
+                // Nothing on it in the fretboard trainer: the note is drawn from
+                // the region and judged on its own, so an empty tab is all it
+                // would offer.
+                if root.current_mode != 4 : TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
+                TabButton { text: Tr.tab_app; selected: root.settings_tab == 3; clicked => { root.settings_tab = 3; } }
             }
             if root.settings_tab == 0 : ScrollView {
                     VerticalLayout {
@@ -979,6 +1086,11 @@ export component AppWindow inherits Window {
 
                     }
                 }
+            // GENERAL. How the app judges what it hears, as against Practice,
+            // which holds the exercise itself. Two of these bite on chord names
+            // and two on single notes, so each is shown where it does something:
+            // the latch never engages on a name reading "Note ...", and the
+            // per-strum verdict lives inside the Chords branch alone.
             if root.settings_tab == 1 : ScrollView {
                     VerticalLayout {
                         // Rows keep their own height and the slack falls to the
@@ -989,7 +1101,114 @@ export component AppWindow inherits Window {
                         padding: 15px;
                         spacing: 18px;
 
-                        if root.current_mode != 4 : HorizontalLayout {
+                        // Chords only: the latch holds a chord through its decay,
+                        // and it refuses to engage on anything the model reports
+                        // as a note.
+                        if root.current_mode == 0 : HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            spacing: 15px;
+                            CheckBox { checked <=> root.lock_quality; }
+                            Text {
+                                text: Tr.lock_quality;
+                                color: #aaa; vertical-alignment: center;
+                            }
+                        }
+
+                        // Chords only: it is read inside that branch of the
+                        // judge, past the point the other modes return from.
+                        if root.current_mode == 0 : VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.short_verdict;
+                                    toggled => { root.short_verdict_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.short_verdict;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                // Explicit width, as everywhere inside an `if`:
+                                // the layout settles the height first and a
+                                // wrapped line would go missing.
+                                width: root.panel_w - 30px;
+                                text: Tr.short_verdict_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        // The other way round: a strummed chord has no notes to
+                        // take one at a time.
+                        if root.current_mode != 0 : VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.single_notes;
+                                    toggled => { root.single_notes_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.single_notes;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                width: root.panel_w - 30px;
+                                text: Tr.single_notes_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
+                        }
+
+                        // Read only by `note_is_sounding`, which Chords never
+                        // calls - there the verdict comes from the chord name.
+                        if root.current_mode != 0 : HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
+                        }
+
+                        HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
+                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
+                        }
+
+                    }
+                }
+            if root.settings_tab == 2 : ScrollView {
+                    VerticalLayout {
+                        // Rows keep their own height and the slack falls to the
+                        // bottom; without this the tab shares its spare height
+                        // out among the rows and a one-line combo box ends up
+                        // several centimetres tall.
+                        alignment: start;
+                        padding: 15px;
+                        spacing: 18px;
+
+                        // Neither the fretboard trainer nor formulas read from
+                        // the library - one draws its own notes, the other its
+                        // own formulas.
+                        if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                             Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                             Dropdown {
                                     width: root.ctrl_w;
@@ -1033,61 +1252,10 @@ export component AppWindow inherits Window {
                             Rectangle { height: 1px; background: #444; }
                         }
 
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 15px;
-                            CheckBox { checked <=> root.lock_quality; }
-                            Text {
-                                text: Tr.lock_quality;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
-
-                        VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.short_verdict;
-                                    toggled => { root.short_verdict_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.short_verdict;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                text: Tr.short_verdict_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.single_notes;
-                                    toggled => { root.single_notes_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.single_notes;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                text: Tr.single_notes_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        VerticalLayout {
+                        // Neither mode has a written order for the shuffle to
+                        // depart from: formulas are drawn every time, and the
+                        // fretboard trainer picks its own note from the region.
+                        if root.current_mode != 4 && root.current_mode != 5 : VerticalLayout {
                             spacing: 4px;
                             HorizontalLayout {
                                 // Packed left: with the default stretch the row hands its spare width
@@ -1101,6 +1269,10 @@ export component AppWindow inherits Window {
                                 }
                             }
                             Text {
+                                // Explicit width: inside an `if` the layout
+                                // settles the height before the width, so a
+                                // wrapped line goes missing.
+                                width: root.panel_w - 30px;
                                 text: Tr.random_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
@@ -1238,9 +1410,25 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center;
                                 }
                             }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.formula_show_chords;
+                                    toggled => { root.formula_show_chords_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.formula_chords_opt; color: #aaa;
+                                    vertical-alignment: center;
+                                }
+                            }
                         }
 
-                        HorizontalLayout {
+                        // Chords only, because that is the only mode that draws
+                        // the shapes - the row of them under the chord name is
+                        // itself gated on the mode.
+                        if root.current_mode == 0 : HorizontalLayout {
                             // Packed left: with the default stretch the row hands its spare width
                             // to the control, which undoes the width set on it.
                             alignment: start;
@@ -1252,50 +1440,9 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 10px;
-                            Text {
-                                text: Tr.startup_mode; color: #aaa;
-                                vertical-alignment: center; width: 140px;
-                            }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard];
-                                current-index <=> root.startup_mode;
-                                selected(v) => { root.startup_mode_changed(root.startup_mode); }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
-                        }
-
                     }
                 }
-            if root.settings_tab == 2 : ScrollView {
+            if root.settings_tab == 3 : ScrollView {
                     VerticalLayout {
                         // Rows keep their own height and the slack falls to the
                         // bottom; without this the tab shares its spare height
@@ -1335,7 +1482,10 @@ export component AppWindow inherits Window {
                             // to the control, which undoes the width set on it.
                             alignment: start;
                             spacing: 15px;
-                            CheckBox { checked <=> root.ai_debug_visible; }
+                            CheckBox {
+                                checked <=> root.ai_debug_visible;
+                                toggled => { root.ai_debug_changed(self.checked); }
+                            }
                             Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
                         }
 
@@ -1349,6 +1499,26 @@ export component AppWindow inherits Window {
                                 toggled => { root.show_spectrum_changed(self.checked); }
                             }
                             Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
+                        }
+
+                        HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            spacing: 10px;
+                            Text {
+                                text: Tr.startup_mode; color: #aaa;
+                                vertical-alignment: center; width: 140px;
+                            }
+                            Dropdown {
+                                    width: root.ctrl_w;
+                                // Every mode button has an entry here; a mode
+                                // missing from the list cannot be picked, and
+                                // the index would then point at its neighbour.
+                                model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard, Tr.formulas];
+                                current-index <=> root.startup_mode;
+                                selected(v) => { root.startup_mode_changed(root.startup_mode); }
+                            }
                         }
 
                         HorizontalLayout {

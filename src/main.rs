@@ -599,6 +599,7 @@ struct SettingsSnapshot {
     formula_required: String,
     formula_show_names: bool,
     formula_show_similar: bool,
+    formula_show_chords: bool,
 }
 
 impl SettingsSnapshot {
@@ -629,6 +630,7 @@ impl SettingsSnapshot {
             formula_required: ui.get_formula_required_text().to_string(),
             formula_show_names: ui.get_formula_show_names(),
             formula_show_similar: ui.get_formula_show_similar(),
+            formula_show_chords: ui.get_formula_show_chords(),
         }
     }
 }
@@ -917,7 +919,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_formula_required_text(cfg.formula_required.clone().into());
         ui.set_formula_show_names(cfg.formula_note_names);
         ui.set_formula_show_similar(cfg.formula_show_similar);
+        ui.set_formula_show_chords(cfg.formula_show_chords);
         ui.set_show_spectrum(cfg.show_spectrum);
+        ui.set_ai_debug_visible(cfg.ai_debug);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
         ui.set_icon_pause(svg_icon(ICON_PAUSE));
@@ -1082,6 +1086,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
+    // The chord list only changes with the formula, and rebuilding it every tick
+    // would drop whichever chord the pointer is on sixty times a second.
+    let mut last_formula_chords: u16 = 0;
     // Live readouts are what drive the redraw rate, and the panel is expensive to
     // redraw. Neither of these carries information at sixty frames a second: the
     // confidence figure jitters by a point between frames, and the meter is
@@ -1134,13 +1141,30 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         {
-            // Formulas options. A change to any of them takes effect on the next
-            // formula, not mid-exercise.
+            // Formulas options. A formula now stands until something here moves,
+            // so a change has to act at once - waiting for "the next formula"
+            // would mean waiting for one that is never drawn.
             let cfg = cfg_formulas.borrow();
+            let required = formulas::parse(&cfg.formula_required).unwrap_or(1);
+            // Which of the two: the size and the filter describe the formula
+            // itself, the key only says where to read it. Redrawing on a key
+            // change would throw away the formula being practised, and the key
+            // field is read letter by letter as it is typed.
+            let redraw = app.formula_notes != cfg.formula_notes
+                || app.formula_required != required;
+            let rekey = app.formula_random_key != cfg.formula_random_key
+                || app.formula_key_setting != cfg.formula_key;
             app.formula_notes = cfg.formula_notes;
-            app.formula_required = formulas::parse(&cfg.formula_required).unwrap_or(1);
+            app.formula_required = required;
             app.formula_random_key = cfg.formula_random_key;
             app.formula_key_setting = cfg.formula_key.clone();
+            if app.app_mode == state::AppMode::Formulas {
+                if redraw {
+                    app.next_formula();
+                } else if rekey {
+                    app.rekey_formula();
+                }
+            }
         }
         // The fretboard trainer hides the pause button, so a pause carried over
         // from another mode would freeze it with nothing on screen to explain why.
@@ -1311,6 +1335,26 @@ fn main() -> Result<(), slint::PlatformError> {
                 vec![]
             };
             ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
+
+            // Chords that fit inside the formula, with the functions each is
+            // built from flagged against the row of functions above - pointing
+            // at one lights them up. Six is what a line holds; past that the
+            // list stops saying anything.
+            if app.formula_mask != last_formula_chords {
+                last_formula_chords = app.formula_mask;
+                let fits = formulas::chords_inside(app.formula_mask, 7);
+                let names: Vec<SharedString> =
+                    fits.iter().map(|f| SharedString::from(f.name())).collect();
+                let mut flags: Vec<bool> = Vec::with_capacity(fits.len() * funcs.len());
+                for fit in &fits {
+                    let used = fit.functions();
+                    flags.extend(funcs.iter().map(|f| used.contains(f)));
+                }
+                ui.set_formula_chords(ModelRc::from(Rc::new(VecModel::from(names))));
+                ui.set_formula_chord_in(ModelRc::from(Rc::new(VecModel::from(flags))));
+                // The chord pointed at belonged to the formula that has gone.
+                ui.set_formula_hover(-1);
+            }
 
             // What this formula is nearly. The scale is handed over spelled
             // out, with the formula's own functions flagged, so the screen can
@@ -1609,6 +1653,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_ai_debug_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.ai_debug = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_short_verdict_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.short_verdict = on;
@@ -1652,6 +1704,14 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_formula_show_similar_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.formula_show_similar = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_show_chords_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_show_chords = on;
             cur.save();
         });
     }
@@ -1766,6 +1826,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_settings_title(t.settings_title.into());
     g.set_tab_audio(t.tab_audio.into());
     g.set_tab_practice(t.tab_practice.into());
+    g.set_tab_general(t.tab_general.into());
     g.set_tab_app(t.tab_app.into());
     g.set_audio_calibration(t.audio_calibration.into());
     g.set_audio_device(t.audio_device.into());
@@ -1796,6 +1857,9 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_formula_required_hint(t.formula_required_hint.into());
     g.set_formula_note_names(t.formula_note_names.into());
     g.set_formula_similar_opt(t.formula_similar_opt.into());
+    g.set_formula_another(t.formula_another.into());
+    g.set_formula_chords(t.formula_chords.into());
+    g.set_formula_chords_opt(t.formula_chords_opt.into());
     g.set_startup_mode(t.startup_mode.into());
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());
