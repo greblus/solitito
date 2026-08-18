@@ -53,6 +53,31 @@ pub enum MatchStatus {
 /// test tying the two together.
 pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 
+/// Ticks the onset head is remembered for - 96 ms, about two answers.
+const ONSET_MEMORY: usize = 6;
+
+/// How sure the onset head has to be that THIS class was struck.
+///
+/// Measured over 49 notes of a real recording (dist/latency_rules.py), on top
+/// of the steady estimate:
+///
+///   gate   false credits   notes missed
+///   none             33              0
+///   0.3              24              3
+///   0.5              20              4
+///   0.7              15              4
+///   0.8              10              7
+///
+/// 0.7 is where the line bends: everything up to it is bought for nothing, and
+/// past it the misses start. A false credit ends the exercise, a missed note
+/// costs one more strike, so they are not worth the same.
+fn onset_threshold() -> f32 {
+    std::env::var("SOLITITO_ONSET_THR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.7)
+}
+
 /// Ticks the single-frame estimate must repeat itself before a formula counts
 /// it. At one tick per 16 ms this is 64 ms - see `collect_formula`.
 const CQT_STEADY_TICKS: u32 = 4;
@@ -177,6 +202,18 @@ pub struct MyApp {
     /// credits the older one on level; the newer one only stands out by how much
     /// it rose, which is what this is for.
     pub prev_pitches: [f32; 12],
+    /// Probability that each pitch class was STRUCK in the last few frames, from
+    /// the model's onset head. All zeros with a model that has none.
+    ///
+    /// The distinction is the whole reason the head exists: measured on a real
+    /// recording, the pitch head is right about what SOUNDS in 94% of frames and
+    /// still leaves 78% of notes with some class lit that nobody played - an
+    /// open string ringing in sympathy is sounding, and so is the note before.
+    pub last_onsets: [f32; 12],
+    /// The highest each class has reached over the last few ticks. The app is
+    /// answered every 40 ms and a strike is over faster than that, so asking
+    /// "was it struck just now" of a single tick would miss most of them.
+    onset_recent: [[f32; 12]; ONSET_MEMORY],
     /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
     /// `None` while the gate is shut or the estimate is weak.
     pub cqt_pitch: Option<usize>,
@@ -280,6 +317,8 @@ impl MyApp {
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
             prev_pitches: [0.0; 12],
+            last_onsets: [0.0; 12],
+            onset_recent: [[0.0; 12]; ONSET_MEMORY],
             cqt_pitch: None,
             cqt_run_pitch: None,
             cqt_run: 0,
@@ -711,6 +750,23 @@ impl MyApp {
         if self.onset_id == self.lap_onset {
             return false;
         }
+        // Measured on a real recording, over 49 notes (dist/latency_stats.py):
+        //
+        //   the three ways in together      110 false credits, 0 notes missed
+        //   the steady estimate alone         33 false credits, 0 notes missed
+        //   and with the onset head           15 false credits, 4 notes missed
+        //
+        // So the model's pitch head is struck out here. It answers "what is
+        // sounding", and a string ringing on - or one resonating in sympathy,
+        // which is why the fourth and the fifth kept lighting up - is sounding
+        // without having been played. It was 99 of those 110.
+        //
+        // The onset head, where the model carries one, does not decide WHAT was
+        // played (it spreads an attack over the neighbouring strings) but it is
+        // sure about WHEN: 202 ms after the strike at the median, 285 ms at the
+        // ninetieth, where the other paths trail to 676 ms. So it is asked only
+        // to confirm that something was struck at all.
+        let by_onset = self.onset_recent.iter().any(|f| f.iter().any(|&v| v > 0.0));
         for (i, &pc) in pitches.iter().enumerate() {
             if self.formula_collected[i] {
                 continue;
@@ -718,19 +774,14 @@ impl MyApp {
             let Some(branch) = self.sounding_by(pc, ai_root, confidence) else {
                 continue;
             };
-            // 4 is the chord name; see above.
-            if branch == 4 {
+            if branch != 1 || self.cqt_run < CQT_STEADY_TICKS {
                 continue;
             }
-            // The single-frame estimate has to have held still. It is the fast
-            // way in and worth keeping fast, but on its own it names the odd
-            // neighbour - the root credited the major seventh a semitone below
-            // it - and one such frame lights a function for the whole exercise.
-            // Four ticks is 64 ms: nothing next to how long a note rings, and
-            // longer than a fluke lasts. The model's own readings are not held
-            // to this; its window has already done the averaging.
-            if branch == 1 && self.cqt_run < CQT_STEADY_TICKS {
-                continue;
+            if by_onset {
+                let struck = self.onset_recent.iter().fold(0.0f32, |m, f| m.max(f[pc % 12]));
+                if struck < onset_threshold() {
+                    continue;
+                }
             }
             self.credited = Some((pc % 12, self.onset_id));
             self.formula_collected[i] = true;
@@ -854,6 +905,8 @@ impl MyApp {
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         // Counted first, before any mode returns: how long the single-frame
         // estimate has been saying the same thing.
+        self.onset_recent.rotate_left(1);
+        self.onset_recent[ONSET_MEMORY - 1] = self.last_onsets;
         if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
             self.cqt_run = self.cqt_run.saturating_add(1);
         } else {
@@ -1173,11 +1226,13 @@ pub(crate) mod tests {
     use super::*;
     use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
 
-    /// One note sounding, as the model's pitch head would report it - the only
-    /// way into a formula's marks.
-    pub(crate) fn model_hears(a: &mut MyApp, pc: usize) {
-        a.last_pitches = [0.0; 12];
-        a.last_pitches[pc % 12] = 1.0;
+    /// One note played and heard: the single-frame estimate holding still on it,
+    /// which is the only way into a formula's marks.
+    pub(crate) fn ear_hears(a: &mut MyApp, pc: usize) {
+        a.cqt_pitch = Some(pc % 12);
+        for _ in 0..CQT_STEADY_TICKS {
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
     }
 
     /// MyApp needs the shared audio state; nothing here touches it.
@@ -2078,8 +2133,7 @@ mod generator_tests {
 
         for (n, pc) in a.formula_pitches().into_iter().enumerate() {
             a.onset_id = n as u64 + 1;
-            model_hears(&mut a, pc);
-            a.check_progress_with_ai(0.0, "...", 0.0);
+            ear_hears(&mut a, pc);
         }
         assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
 
@@ -2103,8 +2157,7 @@ mod generator_tests {
         let pitches = a.formula_pitches();
         for (n, &pc) in pitches.iter().enumerate() {
             a.onset_id = n as u64 + 1;
-            model_hears(&mut a, pc);
-            a.check_progress_with_ai(0.0, "...", 0.0);
+            ear_hears(&mut a, pc);
         }
         // Past the pause the lap ends, with the last note still sounding.
         a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
@@ -2161,6 +2214,40 @@ mod generator_tests {
         assert!(a.formula_collected[0], "a steady reading did not count");
     }
 
+    /// With an onset head in the model, the ear alone is not enough: the head
+    /// has to have seen something struck. A string ringing on - or one
+    /// resonating in sympathy, which is how the fourth and the fifth kept
+    /// lighting up - is sounding but was never played.
+    #[test]
+    fn the_onset_head_credits_only_what_was_struck() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.onset_id = 2;
+        let pitches = a.formula_pitches();
+
+        // Heard clearly and steadily, but nothing was struck: it does not count.
+        a.last_pitches = [1.0; 12];
+        a.cqt_pitch = Some(pitches[0]);
+        a.last_onsets = [0.01; 12];
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.0, "...", 0.0);
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "a sounding string was credited without being struck"
+        );
+
+        // Struck: the head names that class, and the ear is already steady.
+        a.last_onsets[pitches[0] % 12] = 0.95;
+        a.check_progress_with_ai(0.0, "...", 0.0);
+        assert!(a.formula_collected[0], "a struck note did not count");
+        assert_eq!(
+            a.formula_collected.iter().filter(|&&c| c).count(),
+            1,
+            "the head credited a class it did not name"
+        );
+    }
+
     /// A chord name credits nothing here, however sure the model is of it. The
     /// marks never expire, so a function lit by a name nobody played would stay
     /// lit for the rest of the exercise.
@@ -2199,8 +2286,7 @@ mod generator_tests {
         for lap in 0..5u64 {
             for (n, pc) in a.formula_pitches().into_iter().enumerate() {
                 a.onset_id = lap * 12 + n as u64 + 1;
-                model_hears(&mut a, pc);
-                a.check_progress_with_ai(0.0, "...", 0.0);
+                ear_hears(&mut a, pc);
             }
             a.cqt_pitch = None;
             a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);

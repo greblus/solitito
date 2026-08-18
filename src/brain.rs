@@ -52,6 +52,11 @@ pub struct Prediction {
     pub qual_probs: [f32; 11],
     /// Root index (12 = Noise) - diagnostics only.
     pub root_idx: usize,
+    /// Probability that each pitch class was STRUCK in the last few frames, from
+    /// the onset head. All zeros with a model that has none - what is sounding
+    /// and what was just played are different questions, and only this one
+    /// tells a new note from the one still ringing beside it.
+    pub onsets: [f32; 12],
 }
 
 impl Default for Prediction {
@@ -62,12 +67,16 @@ impl Default for Prediction {
             pitches: [0.0; 12],
             qual_probs: [0.0; 11],
             root_idx: 12,
+            onsets: [0.0; 12],
         }
     }
 }
 
 pub struct ChordBrain {
     session: Session,
+    /// Whether this model carries the onset head. Older files do not, and the
+    /// app has to run with them unchanged.
+    has_onset: bool,
 }
 
 impl ChordBrain {
@@ -79,7 +88,10 @@ impl ChordBrain {
             .with_intra_threads(1)?
             .commit_from_file(model_path)?;
 
-        Ok(Self { session })
+        let has_onset = session.outputs.iter().any(|o| o.name == "onset_logits");
+        println!("   onset head: {}", if has_onset { "yes" } else { "no" });
+
+        Ok(Self { session, has_onset })
     }
 
     pub fn predict(
@@ -95,6 +107,13 @@ impl ChordBrain {
         let (_, root_t) = outputs["root_logits"].try_extract_tensor::<f32>()?;
         let (_, qual_t) = outputs["quality_logits"].try_extract_tensor::<f32>()?;
         let (_, pitch_t) = outputs["pitch_logits"].try_extract_tensor::<f32>()?;
+        let mut onsets = [0.0f32; 12];
+        if self.has_onset {
+            let (_, onset_t) = outputs["onset_logits"].try_extract_tensor::<f32>()?;
+            for (i, slot) in onsets.iter_mut().enumerate() {
+                *slot = 1.0 / (1.0 + (-onset_t[i]).exp());
+            }
+        }
 
         let (root_idx, root_conf) = argmax_softmax(root_t);
         let (qual_idx, qual_conf) = argmax_softmax(qual_t);
@@ -116,6 +135,7 @@ impl ChordBrain {
                 pitches,
                 qual_probs,
                 root_idx,
+                onsets,
             });
         }
 
@@ -136,6 +156,7 @@ impl ChordBrain {
             pitches,
             qual_probs,
             root_idx,
+            onsets,
         })
     }
 }

@@ -464,7 +464,17 @@ fn help_text() -> String {
 const NOTE_NAMES: [&str; 12] =
     ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()> {
+/// Which model file to load.
+///
+/// `SOLITITO_MODEL` overrides it, so two models can be measured against the same
+/// recording without moving files around - which is how a comparison ends up
+/// being run twice on the same one.
+fn model_path() -> String {
+    std::env::var("SOLITITO_MODEL")
+        .unwrap_or_else(|_| "best_model_v2_take6.onnx".to_string())
+}
+
+fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyhow::Result<()> {
     use audio::{CTX_FRAMES, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, TARGET_SR, TOTAL_FEATURES};
 
     let reader = hound::WavReader::open(path)?;
@@ -495,7 +505,7 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
     }
 
     let mut analyzer = audio::CqtAnalyzer::new("dsp_weights.json")?;
-    let mut brain = ChordBrain::new("best_model_v2_take6.onnx")?;
+    let mut brain = ChordBrain::new(&model_path())?;
     let gate = db_to_lin(gate_db);
 
     let mut hist = [[0.0f32; TOTAL_FEATURES]; CTX_FRAMES];
@@ -507,8 +517,11 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
         spec.sample_rate,
         match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
     );
+    // The onset block is printed whether the model has the head or not - a
+    // format that changes shape with the file is a format nothing can parse.
     println!(
-        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
+        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B \
+| struck:  C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
     );
 
     let mut frame = 0usize;
@@ -537,22 +550,25 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>) -> anyhow::Result<()
         }
 
         frame += 1;
-        if frame >= CTX_FRAMES && frame % 8 == 0 {
+        if frame >= CTX_FRAMES && frame % step == 0 {
             let fill = live.iter().filter(|&&b| b).count() as f32 / CTX_FRAMES as f32;
             let p = brain.predict(&hist)?;
             let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
             let cells: String =
                 p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
+            let struck: String =
+                p.onsets.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
             let cqt = match last_cqt.as_ref().and_then(|c| audio::mono_pitch(c)) {
                 Some((pc, s)) => format!("{:>3} {:.2}", NOTE_NAMES[pc], s),
                 None => "  -     ".to_string(),
             };
             println!(
-                "{:6.2} {:6.1} {:4.0}% {}  {}  {} {:.2}{}",
+                "{:6.2} {:6.1} {:4.0}% {} |{}  {}  {} {:.2}{}",
                 at as f32 / TARGET_SR as f32,
                 db,
                 fill * 100.0,
                 cells,
+                struck,
                 cqt,
                 p.chord,
                 p.confidence,
@@ -727,7 +743,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // what decides whether a note counts.
     if let Some(i) = args.iter().position(|a| a == "--probe") {
         let Some(path) = args.get(i + 1).cloned() else {
-            eprintln!("usage: solitito --probe FILE.wav [--gate DB]");
+            eprintln!("usage: solitito --probe FILE.wav [--gate DB] [--step N]");
             keep_console_open(console);
             std::process::exit(2);
         };
@@ -742,7 +758,16 @@ fn main() -> Result<(), slint::PlatformError> {
             .position(|a| a == "--boost")
             .and_then(|b| args.get(b + 1))
             .and_then(|v| v.parse::<f32>().ok());
-        match probe_file(&path, gate_db, boost) {
+        // Every eighth frame is enough to read a chord off the screen; a
+        // latency measurement needs every one of them - a frame is 16 ms.
+        let step: usize = args
+            .iter()
+            .position(|a| a == "--step")
+            .and_then(|g| args.get(g + 1))
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(8);
+        match probe_file(&path, gate_db, boost, step) {
             Ok(()) => {}
             Err(e) => eprintln!("❌ {e}"),
         }
@@ -756,7 +781,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // rather than a guess: the same machine gave wildly different figures under
     // two operating systems, and only a number says which build is at fault.
     if args.iter().any(|a| a == "--bench") {
-        let mut brain = match ChordBrain::new("best_model_v2_take6.onnx") {
+        let mut brain = match ChordBrain::new(&model_path()) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("❌ model: {e}");
@@ -791,7 +816,7 @@ fn main() -> Result<(), slint::PlatformError> {
             Ok(_) => println!("✅ dsp_weights.json"),
             Err(e) => { eprintln!("❌ dsp_weights.json: {e}"); ok = false; }
         }
-        match ChordBrain::new("best_model_v2_take6.onnx") {
+        match ChordBrain::new(&model_path()) {
             Ok(_) => println!("✅ best_model_v2_take6.onnx"),
             Err(e) => { eprintln!("❌ model: {e}"); ok = false; }
         }
@@ -826,8 +851,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // just "solitito", which made "is it the model or the drawing?" unanswerable
     // without a debugger.
     let _ai_thread = thread::Builder::new().name("solitito-ai".into()).spawn(move || {
-        let model_filename = "best_model_v2_take6.onnx";
-        let mut brain = match ChordBrain::new(model_filename) {
+        let model_filename = model_path();
+        let mut brain = match ChordBrain::new(&model_filename) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("WARNING: Could not load AI Model: {}", e);
@@ -1212,6 +1237,9 @@ fn main() -> Result<(), slint::PlatformError> {
                 let score = res.pred.confidence;
                 app.prev_pitches = app.last_pitches;
                 app.last_pitches = res.pred.pitches;
+                // What was STRUCK, as against what is sounding. Zeros with a
+                // model that has no onset head, and the modes fall back.
+                app.last_onsets = res.pred.onsets;
 
                 // clear the flag once consumed
                 res.updated = false;

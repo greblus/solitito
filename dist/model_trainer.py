@@ -127,6 +127,34 @@ ONNX_FT    = f"best_model_{RUN_TAG}_finetuned.onnx"
 HIST_CSV   = f"training_history_{RUN_TAG}.csv"
 HIST_FT    = f"training_history_{RUN_TAG}_finetune.csv"
 LOG_TXT    = f"training_log_{RUN_TAG}.txt"
+ONNX_ONSET = f"best_model_{RUN_TAG}_onset.onnx"
+CKPT_ONSET = f"checkpoint_{RUN_TAG}_onset.pth"
+
+# ---- Phase 4: the onset head ----
+# The app does not need to know what is SOUNDING - it needs to know what was
+# STRUCK. Measured on a real recording (dist/latency_stats.py), the pitch head
+# is right in 94% of frames and still leaves 78% of notes with some class lit
+# that nobody played: an open string ringing in sympathy IS sounding, and so is
+# the note before it, and the Formulas mode keeps its marks to the end of the
+# exercise. Only an attack tells those apart, and the labels already carry it -
+# `note_midi` gives every onset to the frame.
+#
+# Nothing else about the model changes: the trunk stays frozen, so the chord
+# path cannot regress, and the phase reads the same cache and the same split.
+RUN_PHASE4        = True
+ONSET_FRAMES      = 6      # a strike is "just now" for this many frames (96 ms)
+ONSET_LOOKBACK    = 6      # frames back the head compares the present against
+ONSET_EPOCHS      = 8      # the head is two layers; it converges early
+ONSET_LR          = 1e-3
+ONSET_POS_WEIGHT  = 4.0    # positives are rare even with the sampling below
+ONSET_BATCH_SIZE  = 96
+ONSET_NEG_PER_POS = 1.0    # windows with no attack in them, per window with one
+# Solo recordings only - monophonic lines, one attack and one class. The first
+# run trained on the accompaniment files too, where a strum sets four classes at
+# once, and the head learned to spread an attack over the neighbours: measured on
+# a real recording its false credits sat at +7, +9 and +5 semitones, which are
+# the intervals between guitar strings.
+ONSET_SOLO_ONLY   = True
 
 INPUT_DIR  = "/kaggle/input"
 WORK_DIR   = "/kaggle/working"
@@ -677,6 +705,143 @@ def process_audio_file(path):
 # ==========================================
 # DATASET
 # ==========================================
+# ==========================================
+# PITCH SHIFT
+# ==========================================
+def shift_feature_bins(feat, shift):
+    if shift == 0: return feat
+    feat = feat.copy()
+    def roll_zero(a, sh):                 # shift with ZERO fill (not a wrap)
+        out = np.zeros_like(a)
+        if sh > 0:   out[:, sh:] = a[:, :-sh]
+        elif sh < 0: out[:, :sh] = a[:, -sh:]
+        else:        out[:] = a
+        return out
+    # CQT (0:144, 2 bins/semitone) and bass (156:168) are LINEAR in frequency
+    # -> ZERO-FILL. np.roll (wrap) used to push upper harmonics into the low
+    # bins and into the boosted bass, inventing PHANTOM notes -> the model did
+    # not see sevenths (min7=0%, maj7=10%).
+    feat[:, 0:144]   = roll_zero(feat[:, 0:144],   shift * 2)
+    feat[:, 156:168] = roll_zero(feat[:, 156:168], shift)
+    # chroma (144:156): pitch classes are CYCLIC -> wrap is correct here
+    feat[:, 144:156] = np.roll(feat[:, 144:156], shift, axis=1)
+    return feat
+
+
+class OnsetDataset(Dataset):
+    """Windows labelled with what was STRUCK in their last `ONSET_FRAMES`.
+
+    A separate set rather than another target on `FrameBasedDataset`, because it
+    wants different windows: that one strides four frames and drops anything
+    quiet (the energy gate), which is exactly the moment a note arrives under one
+    still ringing. Here every offset from an onset is sampled, so the head sees
+    the attack at each of the positions it can reach the app in.
+
+    It reads the same CQT cache and takes the same split, so nothing is
+    recomputed and nothing leaks between train and test.
+
+    Only files with note-level annotation can be used - `note_midi` is what says
+    where a note begins. Chord annotation cannot: it describes a passage.
+    """
+
+    def __init__(self, data_list, cache_map, training=True):
+        self.training = training
+        self.cache_map = cache_map
+        self.samples = []          # (cp, frame_idx)
+        self.onsets = {}           # cp -> (frames[np], pcs[np])
+
+        # Which stretches of each file this split may look at.
+        spans = defaultdict(list)
+        no_cache = set()
+        for item in data_list:
+            if item['path'] not in cache_map:
+                no_cache.add(item['path'])
+                continue
+            cp, n_frames = cache_map[item['path']]
+            s_f = int(item['start'] * SR / HOP_LENGTH)
+            e_f = min(int(item['end'] * SR / HOP_LENGTH), n_frames)
+            if e_f - s_f > CTX_FRAMES:
+                spans[item['path']].append((cp, s_f, e_f))
+
+        pos, neg = 0, 0
+        for path, sp in spans.items():
+            ev = NOTES_BY_PATH.get(path)
+            if not ev:
+                continue
+            cp = sp[0][0]
+            fr = np.array([int(t0 * SR / HOP_LENGTH) for (t0, _, _) in ev], dtype=np.int64)
+            pc = np.array([p for (_, _, p) in ev], dtype=np.int64)
+            order = np.argsort(fr)
+            self.onsets[cp] = (fr[order], pc[order])
+
+            allowed = [(a, b) for (_, a, b) in sp]
+            def fits(i):
+                return any(a <= i and i + CTX_FRAMES <= b for (a, b) in allowed)
+
+            here = set()
+            for f in self.onsets[cp][0]:
+                # Every position the attack can occupy inside the tail the head
+                # reads - the app meets it at each of them in turn.
+                for j in range(1, ONSET_FRAMES + 1):
+                    i = int(f) - CTX_FRAMES + j
+                    if i >= 0 and fits(i):
+                        here.add(i)
+            pos += len(here)
+
+            # Windows with no attack in their tail: without them the head would
+            # learn that something is always being struck.
+            quiet = []
+            for (a, b) in allowed:
+                for i in range(a, b - CTX_FRAMES, 4):
+                    if i in here:
+                        continue
+                    if not self.target_at(cp, i).any():
+                        quiet.append(i)
+            want = int(len(here) * ONSET_NEG_PER_POS)
+            if len(quiet) > want:
+                step = max(1, len(quiet) // want)
+                quiet = quiet[::step][:want]
+            neg += len(quiet)
+            self.samples += [(cp, i) for i in sorted(here)] + [(cp, i) for i in quiet]
+
+        print(f"   🎯 Onset windows: {pos} with an attack, {neg} without "
+              f"({len(self.onsets)} files with note-level annotation)")
+        if no_cache:
+            print(f"   ⚠️  {len(no_cache)} files had no CQT in the map handed over "
+                  f"and were skipped")
+
+    def target_at(self, cp, i):
+        """Pitch classes struck inside the last ONSET_FRAMES of this window."""
+        v = np.zeros(12, dtype=np.float32)
+        fr, pc = self.onsets.get(cp, (None, None))
+        if fr is None:
+            return v
+        lo = i + CTX_FRAMES - ONSET_FRAMES
+        hi = i + CTX_FRAMES
+        a = int(np.searchsorted(fr, lo, side='left'))
+        b = int(np.searchsorted(fr, hi, side='left'))
+        for k in range(a, b):
+            v[pc[k]] = 1.0
+        return v
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        cp, i = self.samples[idx]
+        feat = np.load(cp, mmap_mode='r')[i: i + CTX_FRAMES].copy()
+        target = self.target_at(cp, i)
+        if self.training:
+            # A shift moves the features and the answer together, so the head
+            # learns the shape of an attack rather than twelve separate ones.
+            shift = random.randint(-PITCH_SHIFT_MAX, PITCH_SHIFT_MAX)
+            if shift != 0:
+                feat = shift_feature_bins(feat, shift)
+                target = np.roll(target, shift)
+            feat = feat + np.random.randn(*feat.shape).astype(np.float32) * random.uniform(0.005, 0.02)
+        return torch.tensor(feat, dtype=torch.float32), torch.tensor(target, dtype=torch.float32)
+
+
 class FrameBasedDataset(Dataset):
     def __init__(self, data_list, training=True):
         self.training = training
@@ -794,23 +959,7 @@ class FrameBasedDataset(Dataset):
         return np.clip(feat, 0.0, 1.0)
 
     def pitch_shift_features(self, feat, shift):
-        if shift == 0: return feat
-        feat = feat.copy()
-        def roll_zero(a, sh):                 # shift with ZERO fill (not a wrap)
-            out = np.zeros_like(a)
-            if sh > 0:   out[:, sh:] = a[:, :-sh]
-            elif sh < 0: out[:, :sh] = a[:, -sh:]
-            else:        out[:] = a
-            return out
-        # CQT (0:144, 2 bins/semitone) and bass (156:168) are LINEAR in frequency
-        # -> ZERO-FILL. np.roll (wrap) used to push upper harmonics into the low
-        # bins and into the boosted bass, inventing PHANTOM notes -> the model did
-        # not see sevenths (min7=0%, maj7=10%).
-        feat[:, 0:144]   = roll_zero(feat[:, 0:144],   shift * 2)
-        feat[:, 156:168] = roll_zero(feat[:, 156:168], shift)
-        # chroma (144:156): pitch classes are CYCLIC -> wrap is correct here
-        feat[:, 144:156] = np.roll(feat[:, 144:156], shift, axis=1)
-        return feat
+        return shift_feature_bins(feat, shift)
 
     def __getitem__(self, idx):
         s    = self.samples[idx]
@@ -937,14 +1086,53 @@ class ChordTransformer(nn.Module):
             nn.Linear(128, 64),  nn.GELU(), nn.Dropout(DROPOUT_RATE * 0.5),
             nn.Linear(64, 12)
         )
+        # ONSET output: which pitch classes were STRUCK in the last frames.
+        #
+        # It hangs on frame tokens, not on CLS: CLS is a summary of the whole
+        # 0.77 s window and carries the very smear this head exists to get past.
+        # The time axis survives the encoder - the convolutions pool frequency
+        # only - so the tokens are still one per frame.
+        #
+        # It is fed the newest frame AND the newest minus what it looked like
+        # `ONSET_LOOKBACK` frames ago. An attack is not a state but a CHANGE:
+        # every frame here covers 512 ms of audio, so the note before is in both
+        # of them and cancels, while the note just struck is only in one.
+        #
+        # And it is fed the same difference taken on the RAW spectrum, folded
+        # onto the twelve classes. The trunk is trained for chord identity,
+        # which is precisely what is invariant to which string was struck, so
+        # its tokens say that something arrived without saying where: the first
+        # run's false credits sat a fifth, a sixth and a fourth away - the
+        # intervals between the strings. The CQT still has that detail.
+        self.fc_onset = nn.Sequential(
+            nn.LayerNorm(792),
+            nn.Linear(792, 192), nn.GELU(), nn.Dropout(DROPOUT_RATE * 0.5),
+            nn.Linear(192, 12)
+        )
 
     def forward(self, x):
+        # The onset head reads the raw features too, so they are taken before
+        # the encoder sees them.
+        raw_now    = x[:, -1]
+        raw_before = x[:, -1 - ONSET_LOOKBACK]
+        # What GREW in the spectrum: an attack adds energy, a decay does not.
+        cqt_rise = (raw_now[:, :144] - raw_before[:, :144]).clamp(min=0.0)
+        # 144 bins are 2 per semitone over 6 octaves from C1, so bin
+        # (octave*12 + class)*2 + half folds onto its class exactly.
+        rise_pc = cqt_rise.view(-1, 6, 12, 2).sum(dim=(1, 3))
+        rise_chroma = raw_now[:, 144:156] - raw_before[:, 144:156]
+
         x      = self.enc(self.inorm(x.unsqueeze(1)))
         b, c, t, f = x.size()
         x      = self.proj(x.permute(0, 2, 1, 3).reshape(b, t, c * f))
         x      = torch.cat((self.cls.expand(b, -1, -1), x), 1) + self.pos
-        emb    = self.tr(x)[:, 0]
-        return self.fc_root(emb), self.fc_quality(emb), self.fc_pitch(emb)
+        seq    = self.tr(x)
+        emb    = seq[:, 0]
+        now    = seq[:, -1]
+        before = seq[:, -1 - ONSET_LOOKBACK]
+        onset_in = torch.cat([now, now - before, rise_pc, rise_chroma], dim=-1)
+        return (self.fc_root(emb), self.fc_quality(emb), self.fc_pitch(emb),
+                self.fc_onset(onset_in))
 
     def freeze_encoder(self):
         """Freezes everything but the quality+pitch heads - for phase 3."""
@@ -953,6 +1141,13 @@ class ChordTransformer(nn.Module):
         frozen = sum(p.numel() for p in self.parameters() if not p.requires_grad)
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"   🔒 Frozen: {frozen:,} parameters | Trainable: {trainable:,}")
+
+    def freeze_all_but_onset(self):
+        """Phase 4: only the onset head trains, so nothing else can regress."""
+        for name, param in self.named_parameters():
+            param.requires_grad = "fc_onset" in name
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f"   🔒 Only the onset head trains: {trainable:,} parameters")
 
     def unfreeze_all(self):
         for param in self.parameters():
@@ -991,7 +1186,7 @@ def evaluate(model, loader, threshold=0.5):
         for x, root, qual, pitch, root_ok, qual_ok in loader:
             x, root, qual, pitch = x.to(device), root.to(device), qual.to(device), pitch.to(device)
             root_ok, qual_ok = root_ok.to(device), qual_ok.to(device)
-            out_root, out_qual, out_pitch = model(x)
+            out_root, out_qual, out_pitch, _ = model(x)
             rp = out_root.argmax(1); qp = out_qual.argmax(1)
             # Chord metrics count ONLY where the chord label describes the signal.
             # In solo recordings it describes the accompaniment, so measuring
@@ -1096,11 +1291,13 @@ def export_onnx(model, save_path, threshold=0.5):
         torch.onnx.export(
             model, (dummy_x,), save_path,
             input_names=["features"],
-            output_names=["root_logits", "quality_logits", "pitch_logits"],
+            output_names=["root_logits", "quality_logits", "pitch_logits",
+                          "onset_logits"],
             dynamic_axes={"features": {0: "batch"},
                           "root_logits": {0: "batch"},
                           "quality_logits": {0: "batch"},
-                          "pitch_logits": {0: "batch"}},
+                          "pitch_logits": {0: "batch"},
+                          "onset_logits": {0: "batch"}},
             opset_version=14
         )
     finally:
@@ -1120,6 +1317,27 @@ def export_onnx(model, save_path, threshold=0.5):
             meta = m.metadata_props.add(); meta.key = k; meta.value = v
         onnx.save(m, save_path)
     except: pass
+
+def load_weights(model, state):
+    """Loads what fits and says what it dropped.
+
+    `strict=False` forgives a MISSING key but not one whose shape changed, and
+    the onset head's input grew when it was given the spectrum - so a checkpoint
+    from the run before would stop the next one dead. A head that has to be
+    retrained anyway is better started fresh than not started at all.
+    """
+    own = model.state_dict()
+    fits = {k: v for k, v in state.items()
+            if k in own and own[k].shape == v.shape}
+    dropped = sorted({k.split('.')[0] for k in state if k not in fits})
+    missing, _ = model.load_state_dict(fits, strict=False)
+    fresh = sorted({m.split('.')[0] for m in missing})
+    if dropped:
+        print(f"   ↩️  weights that no longer fit, left behind: {dropped}")
+    if fresh:
+        print(f"   🆕 starting random: {fresh}")
+    return fresh
+
 
 def load_checkpoint_meta():
     """
@@ -1152,7 +1370,11 @@ def resume_from_checkpoint(model, opt, sched):
                                  local_dir=WORK_DIR, token=hf_token)
         ckpt  = torch.load(local, map_location=device, weights_only=False)
 
-        model.load_state_dict(ckpt['model_state_dict'])
+        # A checkpoint from before the onset head has no weights for it, and one
+        # from before it was given the spectrum has the wrong shape. Either way
+        # the head starts fresh and phase 4 trains it alone; everything else
+        # loads as it always did.
+        load_weights(model, ckpt['model_state_dict'])
         # optimizer and scheduler only matter while phase 1 is unfinished
         if not ckpt.get('phase1_done', False):
             opt.load_state_dict(ckpt['optimizer_state_dict'])
@@ -1266,7 +1488,7 @@ def phase1_train(model, tr_l, te_l, tr_eval_l=None):
             root_ok, qual_ok = root_ok.to(device), qual_ok.to(device)
             opt.zero_grad()
             with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
-                out_root, out_qual, out_pitch = model(x)
+                out_root, out_qual, out_pitch, _ = model(x)
                 if MASK_ROOT_WHEN_SILENT:
                     # Windows without an audible root contribute nothing to the
                     # root loss. Averaging over the valid samples only keeps the
@@ -1404,7 +1626,7 @@ def phase1_train(model, tr_l, te_l, tr_eval_l=None):
                         m_saved.get('pitch_prec', 0), m_saved.get('pitch_rec', 0),
                         m_saved.get('chord_exact', 0), phase1_done=True)
         # ONNX once, from the best phase 1 weights
-        model.load_state_dict(ckpt_meta['model_state_dict'])
+        load_weights(model, ckpt_meta['model_state_dict'])
         save_path = os.path.join(WORK_DIR, ONNX_BEST)
         export_onnx(model, save_path)
         upload_file_safe(save_path, ONNX_BEST)
@@ -1483,6 +1705,141 @@ def phase2_threshold_tuning(model, te_l):
     return best_thr
 
 # ==========================================
+# PHASE 4 - THE ONSET HEAD
+# ==========================================
+def onset_metrics(model, loader, threshold=0.5):
+    """Precision, recall and F1 of "this class was struck just now"."""
+    model.eval()
+    tp = fp = fn = 0
+    with torch.no_grad():
+        for x, y in loader:
+            x, y = x.to(device), y.to(device)
+            _, _, _, out = model(x)
+            pred = (torch.sigmoid(out) > threshold).float()
+            tp += (pred * y).sum().item()
+            fp += (pred * (1.0 - y)).sum().item()
+            fn += ((1.0 - pred) * y).sum().item()
+    prec = tp / (tp + fp + 1e-8)
+    rec  = tp / (tp + fn + 1e-8)
+    return 2 * prec * rec / (prec + rec + 1e-8), prec, rec
+
+
+def onset_split(tr_items, vl_items):
+    """Train/validation over the files that carry note-level annotation.
+
+    Phase 1 splits by source across EVERY group, and the synthetic blocks - one
+    group each - outnumber the recordings many times over. A 6% draw can
+    therefore miss the annotated files completely, which is what it did: 339
+    annotated files on one side and none on the other. So the annotated takes
+    are split here on their own, by the same group key, so no take straddles.
+
+    The trunk did see this audio in phase 1. It is frozen and it never saw an
+    onset label, so what is measured is the head - but the verdict that counts
+    is still the one from a recording the model has never met, which is what
+    dist/latency_stats.py is for.
+    """
+    def has_notes(it):
+        if not NOTES_BY_PATH.get(it['path']):
+            return False
+        # A strummed accompaniment sets four classes on one attack, which is
+        # what taught the head to spread. A solo file is one note at a time.
+        return is_solo_recording(it['path']) or not ONSET_SOLO_ONLY
+    tr = [x for x in tr_items if has_notes(x)]
+    vl = [x for x in vl_items if has_notes(x)]
+    if vl:
+        return tr, vl, "phase-1 split"
+
+    groups = sorted({split_group_key(x) for x in tr})
+    rnd = random.Random(4242)
+    rnd.shuffle(groups)
+    n_val = max(1, int(round(len(groups) * (1.0 - TRAIN_FRAC))))
+    val_g = set(groups[:n_val])
+    return ([x for x in tr if split_group_key(x) not in val_g],
+            [x for x in tr if split_group_key(x) in val_g],
+            f"carved from the annotated takes ({len(groups)} groups, {n_val} held out)")
+
+
+def phase4_train_onset(model, tr_items, vl_items, cache_map):
+    """Trains the onset head alone, on windows sampled around real attacks.
+
+    Everything else is frozen, so this cannot move the chord path by a decimal:
+    the phase either produces a head worth using or leaves the model as it was.
+    """
+    print("\n" + "=" * 60)
+    print("PHASE 4 - THE ONSET HEAD")
+    print("=" * 60)
+
+    tr_notes, vl_notes, how = onset_split(tr_items, vl_items)
+    print(f"   Split: {how} | {len(tr_notes)} train segments, "
+          f"{len(vl_notes)} validation")
+    ds_tr = OnsetDataset(tr_notes, cache_map, training=True)
+    ds_vl = OnsetDataset(vl_notes, cache_map, training=False)
+    if len(ds_tr) == 0 or len(ds_vl) == 0:
+        print("⏭️  No note-level annotation to train on - is note_midi in the input?")
+        return
+    tr_l = DataLoader(ds_tr, batch_size=ONSET_BATCH_SIZE, shuffle=True,
+                      num_workers=2, pin_memory=True)
+    vl_l = DataLoader(ds_vl, batch_size=ONSET_BATCH_SIZE, shuffle=False,
+                      num_workers=2, pin_memory=True)
+
+    model.freeze_all_but_onset()
+    opt = optim.AdamW([p for p in model.parameters() if p.requires_grad],
+                      lr=ONSET_LR, weight_decay=WEIGHT_DECAY)
+    sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=ONSET_EPOCHS,
+                                                 eta_min=ONSET_LR * 0.1)
+    loss_fn = nn.BCEWithLogitsLoss(
+        pos_weight=torch.tensor(ONSET_POS_WEIGHT, device=device))
+
+    print(f"   Epochs: {ONSET_EPOCHS} | LR: {ONSET_LR:.0e} | "
+          f"Batch: {ONSET_BATCH_SIZE} | looks back {ONSET_LOOKBACK} frames | "
+          f"an attack counts for {ONSET_FRAMES} frames "
+          f"({ONSET_FRAMES * HOP_LENGTH / SR * 1000:.0f} ms)")
+
+    best_f1 = 0.0
+    for ep in range(ONSET_EPOCHS):
+        model.train()
+        losses = []
+        for x, y in tqdm(tr_l, desc=f"Onset ep {ep+1}/{ONSET_EPOCHS}", leave=False):
+            x, y = x.to(device), y.to(device)
+            opt.zero_grad()
+            _, _, _, out = model(x)
+            loss = loss_fn(out, y)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                [p for p in model.parameters() if p.requires_grad], 1.0)
+            opt.step()
+            losses.append(loss.item())
+        sched.step()
+        f1, prec, rec = onset_metrics(model, vl_l)
+        print(f"   ep {ep+1:2}/{ONSET_EPOCHS}  loss {np.mean(losses):.4f}  "
+              f"F1 {f1:.3f}  precision {prec:.3f}  recall {rec:.3f}")
+        if f1 > best_f1 + 1e-3:
+            best_f1 = f1
+            torch.save({'model_state_dict': model.state_dict(),
+                        'onset_f1': f1, 'onset_prec': prec, 'onset_rec': rec,
+                        'onset_frames': ONSET_FRAMES,
+                        'onset_lookback': ONSET_LOOKBACK},
+                       os.path.join(WORK_DIR, CKPT_ONSET))
+            export_onnx(model, os.path.join(WORK_DIR, ONNX_ONSET))
+            upload_file_safe(os.path.join(WORK_DIR, CKPT_ONSET), CKPT_ONSET)
+            upload_file_safe(os.path.join(WORK_DIR, ONNX_ONSET), ONNX_ONSET)
+            print(f"      ⬆️  new best, saved as {ONNX_ONSET}")
+
+    # Where to set the threshold is not a training question. In the Formulas
+    # mode a false credit is permanent and a missed one costs another strike, so
+    # the app wants precision and can pay for it in recall - but the price has
+    # to be visible before anyone picks a number.
+    print("\n   threshold   precision  recall      F1")
+    for thr in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        f1, prec, rec = onset_metrics(model, vl_l, threshold=thr)
+        print(f"   {thr:9.2f}   {prec:9.3f}  {rec:6.3f}  {f1:6.3f}")
+
+    print(f"\n   Best onset F1: {best_f1:.3f}")
+    print("   The number that decides anything is not this one but the app's:")
+    print("   dist/latency_stats.py on a recording, false credits per note.")
+
+
+# ==========================================
 # PHASE 3 - PITCH HEAD FINE-TUNING
 # ==========================================
 def phase3_finetune_pitch(model, tr_l, te_l, best_threshold):
@@ -1537,7 +1894,7 @@ def phase3_finetune_pitch(model, tr_l, te_l, best_threshold):
         for x, root, qual, pitch, _root_ok, _qual_ok in loop:
             x, root, qual, pitch = x.to(device), root.to(device), qual.to(device), pitch.to(device)
             opt_ft.zero_grad()
-            out_root, out_qual, out_pitch = model(x)
+            out_root, out_qual, out_pitch, _ = model(x)
             # phase 3 tunes the quality (main) + pitch (aux) heads; encoder frozen
             loss_q = loss_qual_fn(out_qual, qual)
             loss_p = loss_pitch_fn(out_pitch, pitch)
@@ -1603,7 +1960,7 @@ def phase3_finetune_pitch(model, tr_l, te_l, best_threshold):
         upload_file_safe(ckpt_save, CKPT_FT)
         # ONNX is exported ONCE, from the best weights - not every epoch. Exporting
         # and uploading 29 MB each epoch cost more than the fine-tuning itself.
-        model.load_state_dict(ckpt_ft['model_state_dict'])
+        load_weights(model, ckpt_ft['model_state_dict'])
         save_path = os.path.join(WORK_DIR, ONNX_FT)
         export_onnx(model, save_path, threshold=best_threshold)
         upload_file_safe(save_path, ONNX_FT)
@@ -1682,7 +2039,7 @@ def main():
     # reload the best weights (later phase 1 epochs may have changed the model)
     ckpt_meta = load_checkpoint_meta()
     if ckpt_meta:
-        model.load_state_dict(ckpt_meta['model_state_dict'])
+        load_weights(model, ckpt_meta['model_state_dict'])
         print("🔄 Loaded the best weights for threshold tuning")
 
     best_threshold = phase2_threshold_tuning(model, te_l)
@@ -1691,10 +2048,22 @@ def main():
     # reload the best phase 1 weights (phase 2 did not change the model)
     if RUN_PHASE3:
         if ckpt_meta:
-            model.load_state_dict(ckpt_meta['model_state_dict'])
+            load_weights(model, ckpt_meta['model_state_dict'])
         phase3_finetune_pitch(model, tr_l, te_l, best_threshold)
     else:
         print("\n⏭️  Phase 3 skipped (RUN_PHASE3=False) - see the comment on the flag.")
+
+    # --- Phase 4: the onset head ---
+    if RUN_PHASE4:
+        if ckpt_meta:
+            load_weights(model, ckpt_meta['model_state_dict'])
+        # BOTH maps: a path missing from the map is skipped without a word, and
+        # the validation files live in the validation dataset's map. Handing over
+        # the training one alone left the phase with nothing to measure on.
+        phase4_train_onset(model, tr_items, vl_items,
+                           {**ds_tr.cache_map, **ds_vl.cache_map})
+    else:
+        print("\n⏭️  Phase 4 skipped (RUN_PHASE4=False)")
 
     # The cache is NOT deleted - it is shared by every run with the same signal
     # parameters and rebuilding it costs tens of CPU minutes. Delete it by hand, or
@@ -1712,7 +2081,11 @@ def main():
         print(f"   Exact Match: {m.get('chord_exact', 0):.1%}")
     # Without phase 3 the `_finetuned` file is never produced - calling it the
     # final model sent people after an artifact that does not exist.
+    # Phase 4 writes the last file, and it is the one the app wants: it carries
+    # the chord outputs unchanged under their old names plus the onset head.
     final_onnx = ONNX_FT if RUN_PHASE3 else ONNX_BEST
+    if RUN_PHASE4 and os.path.exists(os.path.join(WORK_DIR, ONNX_ONSET)):
+        final_onnx = ONNX_ONSET
     print(f"   Final model: {final_onnx}")
     print("="*60)
 

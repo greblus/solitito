@@ -295,8 +295,14 @@ const F0_HIGH_BIN: usize = 112;
 /// logarithmic, is the harmonic PRODUCT spectrum, the standard monophonic
 /// estimator. It exists because the model cannot answer this question: its
 /// context window is 48 frames, so it reports everything that sounded in the
-/// last 0.77 s, and in note practice that is two or three notes at once. This
-/// looks at 16 ms and has no memory at all.
+/// last 0.77 s, and in note practice that is two or three notes at once.
+///
+/// It has no memory of its own - but it is NOT the quick answer this comment
+/// used to claim. One frame is 512 ms of audio (`FFT_SIZE` at `TARGET_SR`),
+/// refreshed every 16 ms; the hop is what is short, not the window. Measured
+/// against material with known onsets (`dist/latency_material.py`) it names a
+/// new note at a median of 560 ms after the strike, against the model's 620 ms
+/// - the two paths sit on the same floor, and that floor is the window.
 ///
 /// Returns the pitch class (0 = C) and the score of the winning bin.
 pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {

@@ -229,3 +229,56 @@ same instrument on both sides of the split) and fragility on a real guitar.
 
 Use `"performed"`. Never `"both"` — that is the same fragment twice with
 conflicting labels, and the duplicate leaked between train and validation.
+
+---
+
+## Phase 4 — the onset head
+
+The app does not need to know what is SOUNDING. It needs to know what was
+STRUCK, and those differ by more than they sound like they should: an open
+string ringing in sympathy is sounding, the note before is still sounding, and
+in the Formulas mode a mark never expires, so anything the model calls present
+stays lit for the rest of the exercise.
+
+Measured on a real recording (`dist/latency_ground_truth.py` for the truth,
+`dist/latency_stats.py` for the figures), the pitch head is right in **94 % of
+frames** and still leaves **78 % of notes** with some class lit that nobody
+played. Per frame it is a good answer to the wrong question.
+
+`fc_onset` answers the right one: which pitch classes were struck inside the
+last `ONSET_FRAMES` (6 frames, 96 ms). Three things make it cheap:
+
+* the time axis survives the encoder — the convolutions pool frequency only —
+  so the transformer already holds one token per frame, and only CLS was ever
+  read;
+* the labels exist already: `note_midi` gives every onset to the frame, which is
+  what `NOTES_BY_PATH` is built from;
+* the trunk is frozen, so the chord path cannot regress by a decimal. The phase
+  either produces a head worth using or leaves the model as it was.
+
+The head is fed the newest frame **and** the newest minus what it looked like
+`ONSET_LOOKBACK` frames ago. An attack is not a state but a change: every frame
+covers 512 ms of audio, so the note before appears in both and cancels, while
+the note just struck appears in only one.
+
+`OnsetDataset` samples its own windows rather than reusing the phase-1 ones,
+which stride four frames and drop quiet windows through the energy gate —
+exactly the moment a new note arrives under one still ringing. Every offset from
+an attack is sampled, plus as many windows with no attack in them, or the head
+would learn that something is always being struck.
+
+To run it: `RUN_PHASE4 = True` (the default) and leave `RUN_TAG` alone — the
+phase reads the existing checkpoint, and bumping the tag would start the whole
+model from scratch. It writes `best_model_<tag>_onset.onnx`, which still carries
+the old three outputs under their old names, so the app keeps working with it
+before anything is wired to the new one.
+
+The F1 the phase prints is not the number that decides anything. That one is
+false credits per note, from `dist/latency_stats.py` on a recording — the same
+measurement that produced the figures above, so the two are comparable:
+
+| rule | false credits | notes affected |
+|---|---|---|
+| ear, every frame | 122 | 38 / 49 |
+| ear, held 4 frames | 33 | 27 / 49 |
+| model pitch ≥ 0.6 | 91 | 37 / 49 |
