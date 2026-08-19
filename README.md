@@ -8,8 +8,8 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
 
 <div align="center">
-<img width="340" alt="Solitito main window" src="docs/solitito_main.png" />
-<img width="340" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
+<img height="479" alt="Solitito main window" src="docs/solitito_main.png" />
+<img height="479" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
@@ -47,14 +47,34 @@ chord, the app moves on to the next one.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass.
-- **Formulas** (not yet released) — a set of intervals drawn over a root, played in any order. Each function
+- **Formulas** — a set of intervals drawn over a root, played in any order. Each function
   lights up as it sounds, and the set is finished when all of them have; underneath, the
-  nearest scale you already know, with the formula's own degrees picked out of it.
+  nearest scale you already know, with the formula's own degrees picked out of it, and the
+  chords that fit inside it — point at one and the row above shows what it is built from.
+  Pause turns the set blue and stops judging altogether: your turn, improvise inside it.
 
 The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — possibly the most
 interesting approach to creative improvisation ever put together.
 
 The book is available from [Wayne Krantz](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition) directly.
+
+<div align="center">
+<img height="479" alt="Formulas" src="docs/solitito_formulas.png" />
+</div>
+
+The line under the scale reads **chords that fit inside the formula** — every note of them
+is in the set, so the formula covers them without leaving it once. They are written as a
+degree in roman numerals plus a quality, the degree counted from the formula's own root:
+in the shot above, `bVIMaj7` and `bVI7` both stand on `bVI`, which in the key of C is Ab.
+
+That is `AbMaj7` (Ab C Eb **G**) and `Ab7` (Ab C Eb **Gb**) — and both appear because the
+formula holds `5` and `b5` alike, so it covers either seventh. Loop one of those chords and
+the formula is a colour for it: every note lands.
+
+Roman for the chords, arabic for the functions above them, so the two rows cannot be
+confused — a dominant seventh on the second degree written in arabic reads "27". Only the
+fullest chords are listed: one that fits inside another already there is played whenever
+that one is.
 
 It is amazing how a "two-liner" in Python can hold a whole musical world:
 
@@ -86,13 +106,25 @@ going back to a chord that has already gone by.
 
 ## ⚙️ Settings
 
-Three tabs: **Audio** for the input and the noise gate, **Practice** for what to play and how
-strictly it is judged, **App** for what the window shows.
+Four tabs: **Audio** for the input and the noise gate, **General** for how strictly what you
+play is judged, **Practice** for what to play, and **App** for what the window shows.
 
 <div align="center">
-<img width="265" alt="Settings, Audio tab" src="docs/solitito_settings.png" />
-<img width="265" alt="Settings, Practice tab" src="docs/solitito_settings2.png" />
-<img width="265" alt="Settings, App tab" src="docs/solitito_settings1.png" />
+<img width="220" alt="Settings, Audio tab" src="docs/solitito_settings2.png" />
+<img width="220" alt="Settings, General tab" src="docs/solitito_settings1.png" />
+<img width="220" alt="Settings, App tab" src="docs/solitito_settings4.png" />
+</div>
+
+**Practice** holds only what belongs to the mode on screen — a song has nothing to say in
+Formulas, a formula nothing in Chords — so it is a different tab in each of them, and the
+fretboard trainer, which has no settings of its own, does not show it at all:
+
+<div align="center">
+<img width="175" alt="Practice, Chords" src="docs/solitito_settings3.png" />
+<img width="175" alt="Practice, Intervals" src="docs/solitito_settings5.png" />
+<img width="175" alt="Practice, Scales" src="docs/solitito_settings6.png" />
+<img width="175" alt="Practice, Arpeggios" src="docs/solitito_settings7.png" />
+<img width="175" alt="Practice, Formulas" src="docs/solitito_settings8.png" />
 </div>
 
 | Setting | Description |
@@ -116,6 +148,9 @@ strictly it is judged, **App** for what the window shows.
 | **Must contain** | Only draw formulas holding these functions, e.g. `b3 b7`. Empty draws from all 2048 |
 | **Show note names** | Formulas only, off by default: the functions are the exercise and the names are a crutch |
 | **Show the nearest scale** | Formulas only: the closest scale you already know, spelled out with the formula's own degrees picked out |
+| **Show the chords that fit** | Formulas only: chords playable without leaving the set, written as degrees. Only the fullest — over the major scale that leaves exactly the seven diatonic sevenths |
+| **Play the notes in order** | Formulas only: the set has to be walked lowest function first. Off, it is a set — any of them, in any order |
+| **Console debug** | Prints a line for every function credited, with what was heard. A window on the judging; on Windows a release build has no console to print it to |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Startup mode** | Which mode the app opens in |
 | **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
@@ -223,7 +258,7 @@ frame.
 
 ### Model
 
-A hybrid CNN + Transformer with three output heads:
+A hybrid CNN + Transformer with four output heads:
 
 | Stage | Detail |
 |---|---|
@@ -233,6 +268,7 @@ A hybrid CNN + Transformer with three output heads:
 | `root_logits` | 13 classes — 12 pitch classes + "Noise" |
 | `quality_logits` | 11 classes — maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
 | `pitch_logits` | 12 sigmoid outputs — which pitch classes are sounding |
+| `onset_logits` | 12 sigmoid outputs — which pitch classes were STRUCK in the last 6 frames |
 
 The three heads answer different questions and are **not** interchangeable:
 
@@ -240,6 +276,15 @@ The three heads answer different questions and are **not** interchangeable:
   right now", which is exactly what the Intervals / Scales / Arpeggios modes need.
 - `root_logits` names the tonal centre. 98.1%.
 - `quality_logits` names the chord family. This is the hard one.
+- `onset_logits` is the newest, and answers a question the other three cannot: not what is
+  sounding but what was *struck*. Sounding is not enough — an open string ringing in
+  sympathy is sounding, and so is the note before — which matters most in Formulas, where a
+  mark never expires. It was trained on its own, with the rest of the network frozen, so the
+  three heads above are bit-for-bit what they were. Measured against a real recording it is
+  the fastest answer in the app (202 ms after the strike, against 676 ms) but it spreads an
+  attack across neighbouring strings, so nothing is judged by it yet — it is read, logged
+  and being measured. An older three-head model still runs: the names of the first three
+  outputs did not change.
 
 ---
 
@@ -342,7 +387,7 @@ The binary needs two files in its working directory. `dsp_weights.json` is in
 this repository; the model is not, because it is 29 MB:
 
 ```bash
-curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6.onnx
+curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
 ```
 
 `./solitito --check` loads both and reports whether they are usable, which is

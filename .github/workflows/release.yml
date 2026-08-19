@@ -14,9 +14,11 @@ on:
         default: ""
 
 env:
-  MODEL: best_model_v2_take6.onnx
-  # The model is not in the repository - 29 MB per checkpoint.
-  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6.onnx
+  MODEL: best_model_v2_take6_onset.onnx
+  # The model is not in the repository - 29 MB per checkpoint. This one carries
+  # the onset head as a fourth output; the three the app has always read keep
+  # their names, so an older file still works if it is put beside the binary.
+  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
 
 jobs:
   resolve-ort:
