@@ -470,8 +470,19 @@ const NOTE_NAMES: [&str; 12] =
 /// recording without moving files around - which is how a comparison ends up
 /// being run twice on the same one.
 fn model_path() -> String {
-    std::env::var("SOLITITO_MODEL")
-        .unwrap_or_else(|_| "best_model_v2_take6.onnx".to_string())
+    if let Ok(p) = std::env::var("SOLITITO_MODEL") {
+        return p;
+    }
+    // The onset model first: it carries the three older outputs unchanged under
+    // their old names, so nothing that reads them notices, and it adds the head
+    // that says what was STRUCK. Falls back to the plain file where that one
+    // has not been fetched.
+    for name in ["best_model_v2_take6_onset.onnx", "best_model_v2_take6.onnx"] {
+        if std::path::Path::new(name).exists() {
+            return name.to_string();
+        }
+    }
+    "best_model_v2_take6.onnx".to_string()
 }
 
 fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyhow::Result<()> {
@@ -616,6 +627,8 @@ struct SettingsSnapshot {
     formula_show_names: bool,
     formula_show_similar: bool,
     formula_show_chords: bool,
+    in_order: bool,
+    debug_console: bool,
 }
 
 impl SettingsSnapshot {
@@ -647,6 +660,8 @@ impl SettingsSnapshot {
             formula_show_names: ui.get_formula_show_names(),
             formula_show_similar: ui.get_formula_show_similar(),
             formula_show_chords: ui.get_formula_show_chords(),
+            in_order: ui.get_in_order(),
+            debug_console: ui.get_debug_console(),
         }
     }
 }
@@ -692,6 +707,7 @@ fn main() -> Result<(), slint::PlatformError> {
         input_level: 0.0,
         cqt_pitch: None,
         gate_open: false,
+        frames_seen: 0,
     }));
     
     let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
@@ -945,6 +961,8 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_formula_show_names(cfg.formula_note_names);
         ui.set_formula_show_similar(cfg.formula_show_similar);
         ui.set_formula_show_chords(cfg.formula_show_chords);
+        ui.set_in_order(cfg.formula_in_order);
+        ui.set_debug_console(cfg.debug_console);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_ai_debug_visible(cfg.ai_debug);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
@@ -1111,6 +1129,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
+    let mut last_ui_tick: Option<std::time::Instant> = None;
     // The chord list only changes with the formula, and rebuilding it every tick
     // would drop whichever chord the pointer is on sixty times a second.
     let mut last_formula_chords: u16 = 0;
@@ -1183,6 +1202,8 @@ fn main() -> Result<(), slint::PlatformError> {
             app.formula_required = required;
             app.formula_random_key = cfg.formula_random_key;
             app.formula_key_setting = cfg.formula_key.clone();
+            app.formula_in_order = cfg.formula_in_order;
+            app.log_credits = cfg.debug_console;
             if app.app_mode == state::AppMode::Formulas {
                 if redraw {
                     app.next_formula();
@@ -1191,8 +1212,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
         }
-        // The fretboard trainer hides the pause button, so a pause carried over
-        // from another mode would freeze it with nothing on screen to explain why.
+        // Neither the fretboard trainer nor formulas show the pause button, so a
+        // pause carried in from another mode would freeze them with nothing on
+        // screen to explain why - in Formulas it came out as a set that stayed
+        // green while the next one never came.
         if app.app_mode == AppMode::Fretboard && ui.get_paused() {
             ui.set_paused(false);
         }
@@ -1230,6 +1253,15 @@ fn main() -> Result<(), slint::PlatformError> {
             app.reset_logic_state();
         }
         app.sync_audio_settings();
+        // Every frame, model answering or not: the ear is a per-frame estimate,
+        // and a finished lap is timed in wall clock rather than in answers.
+        let now = std::time::Instant::now();
+        let ui_dt = last_ui_tick
+            .map(|t| now.duration_since(t).as_secs_f32())
+            .unwrap_or(0.016)
+            .min(0.25);
+        last_ui_tick = Some(now);
+        app.tick(ui_dt);
 
         if let Ok(mut res) = result_for_ui.lock() {
             if res.updated {
@@ -1239,7 +1271,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 app.last_pitches = res.pred.pitches;
                 // What was STRUCK, as against what is sounding. Zeros with a
                 // model that has no onset head, and the modes fall back.
-                app.last_onsets = res.pred.onsets;
+                app.set_onsets(res.pred.onsets);
 
                 // clear the flag once consumed
                 res.updated = false;
@@ -1343,9 +1375,15 @@ fn main() -> Result<(), slint::PlatformError> {
                 .map(|&f| SharedString::from(formulas::FUNCS[f]))
                 .collect();
             ui.set_formula_functions(ModelRc::from(Rc::new(VecModel::from(names))));
-            ui.set_formula_collected(ModelRc::from(Rc::new(VecModel::from(
-                app.formula_collected.clone(),
-            ))));
+            // Paused here means "your turn": the whole set lit, nothing judged,
+            // and the screen says so. It is the one mode where a pause is an
+            // exercise rather than a halt.
+            let lit = if app.paused {
+                vec![true; app.formula_collected.len()]
+            } else {
+                app.formula_collected.clone()
+            };
+            ui.set_formula_collected(ModelRc::from(Rc::new(VecModel::from(lit))));
             set_if_changed(ui.get_formula_key(), app.formula_key_name.clone().into(), |v| {
                 ui.set_formula_key(v)
             });
@@ -1737,6 +1775,22 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_in_order_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.formula_in_order = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_debug_console_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.debug_console = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_formula_show_chords_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.formula_show_chords = on;
@@ -1869,6 +1923,9 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_short_verdict_hint(t.short_verdict_hint.into());
     g.set_single_notes(t.single_notes.into());
     g.set_single_notes_hint(t.single_notes_hint.into());
+    g.set_in_order(t.in_order.into());
+    g.set_in_order_hint(t.in_order_hint.into());
+    g.set_debug_console(t.debug_console.into());
     g.set_shuffle_chords(t.shuffle_chords.into());
     g.set_shuffle_chords_hint(t.shuffle_chords_hint.into());
     g.set_random_order(t.random_order.into());
@@ -1886,6 +1943,7 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_formula_note_names(t.formula_note_names.into());
     g.set_formula_similar_opt(t.formula_similar_opt.into());
     g.set_formula_another(t.formula_another.into());
+    g.set_formula_free(t.formula_free.into());
     g.set_formula_chords(t.formula_chords.into());
     g.set_formula_chords_opt(t.formula_chords_opt.into());
     g.set_startup_mode(t.startup_mode.into());

@@ -78,6 +78,13 @@ pub struct AudioAnalysis {
     /// Whether the last frame carried signal. Cleared state downstream hangs on
     /// this: a pitch vector nobody refreshes stays true forever otherwise.
     pub gate_open: bool,
+    /// Frames pushed since the app started, gated or not.
+    ///
+    /// The UI runs on its own clock, and anything that samples the per-frame
+    /// estimate from there counts the same frame twice as often as not - which
+    /// is enough for one bad reading to carry a vote. This is what says whether
+    /// there is anything new to look at.
+    pub frames_seen: u64,
 }
 
 impl AudioAnalysis {
@@ -100,6 +107,7 @@ impl AudioAnalysis {
         if data.len() != TOTAL_FEATURES {
             return;
         }
+        self.frames_seen = self.frames_seen.wrapping_add(1);
         self.frames_since_onset = self.frames_since_onset.saturating_add(1);
         self.input_history.rotate_left(1);
         self.input_history[CTX_FRAMES - 1].copy_from_slice(data);
@@ -843,6 +851,7 @@ mod fill_tests {
             input_level: 0.0,
             cqt_pitch: None,
             gate_open: false,
+            frames_seen: 0,
         }
     }
 

@@ -90,6 +90,15 @@ pub struct Settings {
     /// something a player can place.
     #[serde(default = "yes")]
     pub formula_show_similar: bool,
+    /// Formulas: the set has to be played in the order it is written, lowest
+    /// function first, instead of moving around inside it freely.
+    #[serde(default)]
+    pub formula_in_order: bool,
+    /// Print a line for every function credited, and what was heard. Off by
+    /// default: it is a developer's window on the judging, and on Windows a
+    /// release build has no console to print it to.
+    #[serde(default)]
+    pub debug_console: bool,
     /// Show the chords that fit inside the formula, pointing at one lighting up
     /// the functions it is built from. On by default, for the same reason as the
     /// scale: it says what the set can be played over.
@@ -157,6 +166,8 @@ impl Default for Settings {
             formula_required: String::new(),
             formula_note_names: false,
             formula_show_similar: true,
+            formula_in_order: false,
+            debug_console: false,
             formula_show_chords: true,
             window_w: None,
             window_h: None,

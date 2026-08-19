@@ -281,6 +281,9 @@ export global Tr {
     in-out property <string> short_verdict_hint: "";
     in-out property <string> single_notes: "Play the notes one at a time";
     in-out property <string> single_notes_hint: "";
+    in-out property <string> in_order: "Play the notes in order";
+    in-out property <string> in_order_hint: "";
+    in-out property <string> debug_console: "Console debug";
     in-out property <string> random_order: "Random order";
     in-out property <string> shuffle_chords: "Shuffle the chords as well";
     in-out property <string> shuffle_chords_hint: "";
@@ -295,6 +298,7 @@ export global Tr {
     in-out property <string> formula_note_names: "Show note names";
     in-out property <string> formula_similar_opt: "Show the nearest scale";
     in-out property <string> formula_another: "another formula";
+    in-out property <string> formula_free: "Your turn! Improvise!";
     in-out property <string> formula_chords: "Chords:";
     in-out property <string> formula_chords_opt: "Show the chords that fit";
     in-out property <string> formula_key_line: "Key";
@@ -495,6 +499,10 @@ export component AppWindow inherits Window {
     /// chord walk its intervals.
     in-out property <bool> single_notes: false;
     callback single_notes_changed(bool);
+    in-out property <bool> in_order: false;
+    callback in_order_changed(bool);
+    in-out property <bool> debug_console: false;
+    callback debug_console_changed(bool);
 
     // --- AUDIO INPUT ---
     /// What the stream actually opened with, or why it did not. The only
@@ -662,9 +670,13 @@ export component AppWindow inherits Window {
                             font-weight: root.formula_hover >= 0
                                 ? (parent.in_chord ? 700 : 400)
                                 : (root.formula_collected[i] ? 700 : 400);
+                            // Blue while paused: the set is not "played", it is
+                            // yours to play inside, and green is the colour this
+                            // app uses for a thing already done.
                             color: root.formula_hover >= 0
                                 ? (parent.in_chord ? #6aa9ff : #444)
-                                : (root.formula_collected[i] ? #3ecf6a : #ddd);
+                                : (root.paused ? #6aa9ff
+                                   : (root.formula_collected[i] ? #3ecf6a : #ddd));
                             horizontal-alignment: center;
                         }
                         if root.formula_note_names.length > i : Text {
@@ -814,12 +826,32 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // In Formulas the pause is an exercise of its own: the whole set
+            // lit and nothing judged, so the thing to do is play inside it.
+            if root.current_mode == 5 && root.paused : Text {
+                text: Tr.formula_free;
+                font-size: 17px;
+                color: #6aa9ff;
+                horizontal-alignment: center;
+            }
+            if root.current_mode == 5 : HorizontalLayout {
+                alignment: center;
+                IconToggle {
+                    icon: root.paused ? root.icon_play : root.icon_pause;
+                    active: root.paused;
+                    dim: true;
+                    invert: false;
+                    width: 68px;
+                    height: 68px;
+                    toggled => { root.paused = !root.paused; }
+                }
+            }
+
             // Last in the column so it sits below whatever the mode shows -
             // under the interval strip in the note modes, under the shapes in
             // Chords, under the position line in the fretboard trainer.
             // The fretboard trainer has nothing to hold: the note is drawn at
-            // random and the region already stays put. Formulas have nothing to
-            // hold either until they are played over a progression.
+            // random and the region already stays put.
             if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
                 IconToggle {
@@ -900,37 +932,17 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Formulas have no progression to walk, but a formula now stands
-            // until it is asked to move, and this is the asking. Both arrows do
-            // the same - there is no order here for them to differ in - and
-            // neither waits for a pause, which this mode does not offer.
+            // Formulas have no progression to walk, but a formula stands until
+            // it is asked to move, and this is the asking. The words alone: two
+            // arrows either side of them said the same thing three times over.
             if root.current_mode == 5 : HorizontalLayout {
                 alignment: center;
-                spacing: 26px;
-
-                Text {
-                    text: "‹";
-                    font-size: 34px;
-                    color: draw_back.has-hover ? #fff : #ddd;
-                    vertical-alignment: center;
-                    draw_back := TouchArea { clicked => { root.step_chord(-1); } }
-                }
-                // The words draw one too. They name what the arrows do, and a
-                // label that says "another formula" is the thing a hand goes
-                // for; the arrows are only easier to hit.
                 Text {
                     text: Tr.formula_another;
-                    font-size: 12px;
-                    color: draw_word.has-hover ? #ddd : #666;
+                    font-size: 15px;
+                    color: draw_word.has-hover ? #6aa9ff : #4a7fd0;
                     vertical-alignment: center;
                     draw_word := TouchArea { clicked => { root.step_chord(1); } }
-                }
-                Text {
-                    text: "›";
-                    font-size: 34px;
-                    color: draw_fwd.has-hover ? #fff : #ddd;
-                    vertical-alignment: center;
-                    draw_fwd := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
         }
@@ -1145,6 +1157,29 @@ export component AppWindow inherits Window {
                                 // wrapped line would go missing.
                                 width: root.panel_w - 30px;
                                 text: Tr.short_verdict_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        // Formulas only: the note modes walk their own order
+                        // already, and a chord has none to walk.
+                        if root.current_mode == 5 : VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.in_order;
+                                    toggled => { root.in_order_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.in_order;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                width: root.panel_w - 30px;
+                                text: Tr.in_order_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
                         }
@@ -1470,9 +1505,11 @@ export component AppWindow inherits Window {
                             background: black;
                             border-radius: 4px;
                             HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
+                                // NOT packed left, unlike the rows of controls
+                                // above: this one is meant to fill. Packed, the
+                                // layout gave every bar its 3px minimum and left
+                                // the rest of the panel black - 48 bars in 191px
+                                // of a 520px panel.
                                 padding: 2px;
                                 spacing: 1px;
                                 for val[i] in root.spectrum_data : DebugBar {
@@ -1504,6 +1541,18 @@ export component AppWindow inherits Window {
                                 toggled => { root.show_spectrum_changed(self.checked); }
                             }
                             Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
+                        }
+
+                        HorizontalLayout {
+                            // Packed left: with the default stretch the row hands its spare width
+                            // to the control, which undoes the width set on it.
+                            alignment: start;
+                            spacing: 15px;
+                            CheckBox {
+                                checked <=> root.debug_console;
+                                toggled => { root.debug_console_changed(self.checked); }
+                            }
+                            Text { text: Tr.debug_console; color: #aaa; vertical-alignment: center; }
                         }
 
                         HorizontalLayout {

@@ -53,40 +53,37 @@ pub enum MatchStatus {
 /// test tying the two together.
 pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 
-/// Ticks the onset head is remembered for - 96 ms, about two answers.
-const ONSET_MEMORY: usize = 6;
+/// Ticks the onset head is remembered for. The model answers every 40 ms or so
+/// and a tick is 16 ms, so this has to span more than one answer or the gate
+/// would be shut for most of the ticks between them.
+const ONSET_MEMORY: usize = 16;
 
-/// How sure the onset head has to be that THIS class was struck.
-///
-/// Measured over 49 notes of a real recording (dist/latency_rules.py), on top
-/// of the steady estimate:
-///
-///   gate   false credits   notes missed
-///   none             33              0
-///   0.3              24              3
-///   0.5              20              4
-///   0.7              15              4
-///   0.8              10              7
-///
-/// 0.7 is where the line bends: everything up to it is bought for nothing, and
-/// past it the misses start. A false credit ends the exercise, a missed note
-/// costs one more strike, so they are not worth the same.
-fn onset_threshold() -> f32 {
-    std::env::var("SOLITITO_ONSET_THR")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0.7)
-}
+/// How long a new lap ignores what it hears, so the last one's decay cannot
+/// walk into it. A quarter of a second: past the moment the marks clear, short
+/// enough to be over before anyone has played the next note.
+const LAP_HOLD: f32 = 0.25;
 
-/// Ticks the single-frame estimate must repeat itself before a formula counts
-/// it. At one tick per 16 ms this is 64 ms - see `collect_formula`.
-const CQT_STEADY_TICKS: u32 = 4;
+/// How steady the single-frame estimate has to be: this many of the last
+/// `EAR_WINDOW` ticks naming the class.
+///
+/// A vote, not a run. A run broke on any single stray frame and had to start
+/// over, and at half a second to the note - which is not fast playing - the
+/// estimate flickers between the note arriving and the one still ringing, so
+/// the run was rarely reached before the next note began. Four of five
+/// forgives one stray frame and still refuses a reading that cannot make up its
+/// mind: an estimate alternating between two classes reaches two, never three.
+const EAR_VOTES: usize = 4;
+const EAR_WINDOW: usize = 5;
+
+/// Ticks the tests feed before expecting the vote to carry.
+#[cfg(test)]
+pub(crate) const CQT_STEADY_TICKS: u32 = EAR_WINDOW as u32;
 
 /// How long a finished formula stays on screen before the next lap, whatever
 /// the hold time is set to. Elsewhere that setting says how long a target has
 /// to be held to pass; here the whole set has already been played, and the
 /// screen owes the player the sight of the last function going green.
-pub const FORMULA_LAP_PAUSE: f32 = 1.0;
+pub const FORMULA_LAP_PAUSE: f32 = 0.6;
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
@@ -214,6 +211,40 @@ pub struct MyApp {
     /// answered every 40 ms and a strike is over faster than that, so asking
     /// "was it struck just now" of a single tick would miss most of them.
     onset_recent: [[f32; 12]; ONSET_MEMORY],
+    /// Ticks since the model last answered. The app asks it only once the
+    /// context window is nine tenths full, which after a pause is 688 ms of
+    /// playing - so between phrases this runs away and the head's answer is
+    /// about a note that has already gone.
+    onset_age: u32,
+    /// Judge formulas the strict way - the steady single-frame estimate with
+    /// the onset head vouching for it - instead of the rule the note modes use.
+    ///
+    /// On by default: the loose rule credits whatever is sounding, which after
+    /// a few notes is most of the formula. `SOLITITO_FORMULA_STRICT=0` gives
+    /// the note modes' rule back for a comparison.
+    pub strict_formulas: bool,
+    /// Audio frames pushed so far, and the last one this app has looked at.
+    ///
+    /// The judging is driven off THIS, not off the UI clock and not off the
+    /// model's answers. Off the UI clock the same frame was sampled two or
+    /// three times, which let one bad reading carry a vote; off the model's
+    /// answers it stopped whenever the model did - and the model is asked only
+    /// while the context window is nine tenths full, which playing one note at
+    /// a time never manages. Once per new frame is once per new reading.
+    audio_frames: u64,
+    judged_frame: u64,
+    /// The model's last word, kept so the frame clock can judge a formula
+    /// without waiting for the next one. The model is asked only while the
+    /// context window is nine tenths full, and playing one note at a time never
+    /// fills it - so a rule that needs nothing from the model was still waiting
+    /// on it, which is what made the mode feel slow.
+    last_ai_root: Option<NoteName>,
+    last_ai_conf: f32,
+    /// Play the set in the order it is written, lowest function first.
+    pub formula_in_order: bool,
+    /// Print a line for every function credited. The panel's own switch; the
+    /// environment can force it either way while something is being chased.
+    pub log_credits: bool,
     /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
     /// `None` while the gate is shut or the estimate is weak.
     pub cqt_pitch: Option<usize>,
@@ -222,9 +253,16 @@ pub struct MyApp {
     /// a mark never expires, that one frame is enough to light a function.
     cqt_run_pitch: Option<usize>,
     cqt_run: u32,
-    /// Attack the current formula lap began on. Nothing is credited under it:
-    /// the note that finished the lap before is still ringing.
-    lap_onset: u64,
+    /// What the estimate named over the last `EAR_WINDOW` ticks.
+    ear_window: [Option<usize>; EAR_WINDOW],
+    /// Seconds left of the hold a new lap begins with. What was ringing when
+    /// the last one ended is still ringing now, and would walk into this one.
+    ///
+    /// Timed, not tied to the next attack. Tied to the attack it blocked
+    /// EVERYTHING until one was detected - and an attack is detected from a
+    /// transient, which soft playing does not always give, so the first
+    /// function of a new lap could take seconds.
+    lap_hold: f32,
     /// Require the notes one at a time. Off, the CQT only ever ADDS a way to
     /// pass, and a strummed chord still walks its intervals - the model's pitch
     /// head is polyphonic and reports every tone at once, which a monophonic
@@ -319,10 +357,21 @@ impl MyApp {
             prev_pitches: [0.0; 12],
             last_onsets: [0.0; 12],
             onset_recent: [[0.0; 12]; ONSET_MEMORY],
+            onset_age: u32::MAX,
+            strict_formulas: std::env::var("SOLITITO_FORMULA_STRICT")
+                .map(|v| v != "0")
+                .unwrap_or(true),
+            audio_frames: 0,
+            judged_frame: u64::MAX,
+            last_ai_root: None,
+            last_ai_conf: 0.0,
+            formula_in_order: false,
+            log_credits: false,
             cqt_pitch: None,
             cqt_run_pitch: None,
             cqt_run: 0,
-            lap_onset: 0,
+            ear_window: [None; EAR_WINDOW],
+            lap_hold: 0.0,
             single_notes: false,
             onset_id: 0,
             credited: None,
@@ -656,7 +705,7 @@ impl MyApp {
             self.formula_collected = vec![false; d.mask.count_ones() as usize];
             // As after a finished lap: whatever is still ringing belongs to the
             // formula that has gone.
-            self.lap_onset = self.onset_id;
+            self.lap_hold = LAP_HOLD;
             // Without this a log jumps key mid-way with nothing to say why.
             if std::env::var("SOLITITO_FORMULA").is_ok() {
                 println!(
@@ -668,6 +717,77 @@ impl MyApp {
             self.success_timer = 0.0;
             self.match_status = MatchStatus::None;
         }
+    }
+
+    /// Has the estimate been naming this class? See `EAR_VOTES`.
+    fn ear_says(&self, pc: usize) -> bool {
+        self.ear_window.iter().filter(|&&v| v == Some(pc % 12)).count() >= EAR_VOTES
+    }
+
+    /// The finished lap's clock, run every frame whether the model answers or
+    /// not.
+    ///
+    /// Only this. Judging was moved here too and had to come back: the reading
+    /// is per audio frame, the UI runs on its own clock, and sampling one from
+    /// the other counted the same frame two or three times over - so a single
+    /// bad reading could fill the vote by itself. Measured on the guitar it was
+    /// both slower and less accurate, which settles it.
+    ///
+    /// The lap's clock is the exception, because it must not stop when the
+    /// player does: the judge is called only when the model answers, and the
+    /// model is asked only while the context window is nine tenths full, so a
+    /// finished set stood there all green with no next one coming.
+    pub fn tick(&mut self, dt: f32) {
+        if self.app_mode != AppMode::Formulas {
+            return;
+        }
+        if self.formula_collected.is_empty() {
+            self.next_formula();
+            return;
+        }
+        self.lap_hold = (self.lap_hold - dt).max(0.0);
+        // One reading per new audio frame - no more, or the same frame votes
+        // twice; no less, or the judging waits on the model.
+        if self.audio_frames != self.judged_frame {
+            self.judged_frame = self.audio_frames;
+            self.ear_window.rotate_left(1);
+            self.ear_window[EAR_WINDOW - 1] = self.cqt_pitch;
+            if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
+                self.cqt_run = self.cqt_run.saturating_add(1);
+            } else {
+                self.cqt_run_pitch = self.cqt_pitch;
+                self.cqt_run = 1;
+            }
+            // Paused is "your turn": the whole set lit, nothing judged.
+            if !self.paused {
+                let done = self.collect_formula(self.last_ai_root, self.last_ai_conf);
+                self.match_status = if done { MatchStatus::Exact } else { MatchStatus::None };
+            }
+        }
+        if !self.formula_collected.iter().all(|&c| c) {
+            return;
+        }
+        self.success_timer += dt;
+        // Straight on after the pause. Waiting for the formula's own notes to
+        // die away was tried, to stop a new lap filling itself in from their
+        // decay - but that log predates the vote, and a decay wandering across
+        // three classes cannot now hold any of them for four readings of five.
+        // The wait was insurance against something already insured, and it was
+        // paid for in the only currency this mode has: the seconds after a
+        // formula, when the player is already playing the next one.
+        let show = self.transition_delay.max(FORMULA_LAP_PAUSE);
+        if self.success_timer > show && !self.paused {
+            self.restart_formula();
+        }
+    }
+
+    /// A fresh answer from the model's onset head.
+    ///
+    /// Set through this rather than by hand: the age is what tells a gate that
+    /// knows something from one repeating an answer about a note long gone.
+    pub fn set_onsets(&mut self, v: [f32; 12]) {
+        self.last_onsets = v;
+        self.onset_age = 0;
     }
 
     /// Starts the standing formula again, exactly as it stands.
@@ -683,7 +803,7 @@ impl MyApp {
         // The note that finished the lap is still ringing, and it would mark
         // itself off again the moment the marks cleared - the new lap would
         // start with one function given away. It counts from the next attack.
-        self.lap_onset = self.onset_id;
+        self.lap_hold = LAP_HOLD;
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
     }
@@ -742,12 +862,16 @@ impl MyApp {
     fn collect_formula(&mut self, ai_root: Option<NoteName>, confidence: f32) -> bool {
         let pitches = self.formula_pitches();
         let funcs = crate::formulas::functions_of(self.formula_mask);
-        // SOLITITO_FORMULA=1: what the ear reports, and what it credited. The
-        // only way to tell a bad reading from a bad rule.
-        let loud = std::env::var("SOLITITO_FORMULA").is_ok();
-        // A lap begins on the attack after the one that ended the last: the note
-        // that finished it rings on, and would credit itself straight away.
-        if self.onset_id == self.lap_onset {
+        // What the ear reported and what was credited. On by default while the
+        // mode is being tuned - it is the only way to tell a bad reading from a
+        // bad rule, and it says one line per credit, not per frame.
+        // SOLITITO_FORMULA=0 silences it.
+        let loud = std::env::var("SOLITITO_FORMULA")
+            .map(|v| v != "0")
+            .unwrap_or(self.log_credits && !cfg!(test));
+        // A new lap holds for a moment: what finished the last one is still
+        // ringing, and the ear would hand it straight back.
+        if self.lap_hold > 0.0 {
             return false;
         }
         // Measured on a real recording, over 49 notes (dist/latency_stats.py):
@@ -761,27 +885,38 @@ impl MyApp {
         // which is why the fourth and the fifth kept lighting up - is sounding
         // without having been played. It was 99 of those 110.
         //
-        // The onset head, where the model carries one, does not decide WHAT was
-        // played (it spreads an attack over the neighbouring strings) but it is
-        // sure about WHEN: 202 ms after the strike at the median, 285 ms at the
-        // ninetieth, where the other paths trail to 676 ms. So it is asked only
-        // to confirm that something was struck at all.
-        let by_onset = self.onset_recent.iter().any(|f| f.iter().any(|&v| v > 0.0));
+        // The onset head is not consulted. On a recording it looked the answer:
+        // sure about WHEN at 202 ms against the other paths' 676. Live it
+        // answered 0.09 for notes plainly being played - it is asked only when
+        // the context window is nine tenths full, and playing one note at a
+        // time never fills it - so as a gate it refused far more than it
+        // caught. It is still read and printed, to be measured against a
+        // recording at playing speed rather than argued about.
+        // In order: only the lowest function not yet marked off may count. The
+        // set is written low to high, so this is the same set read as a line -
+        // and nothing else is refused loudly, it simply does not count yet.
+        let next_due = self.formula_collected.iter().position(|&c| !c);
         for (i, &pc) in pitches.iter().enumerate() {
             if self.formula_collected[i] {
+                continue;
+            }
+            if self.formula_in_order && next_due != Some(i) {
                 continue;
             }
             let Some(branch) = self.sounding_by(pc, ai_root, confidence) else {
                 continue;
             };
-            if branch != 1 || self.cqt_run < CQT_STEADY_TICKS {
+            // Strict: the single-frame estimate, and it has to have been saying
+            // so. The onset head is NOT asked - live it answered 0.09 for notes
+            // plainly being played, so as a gate it refused more than it caught.
+            // It is still read and logged, to be measured against a recording
+            // at playing speed rather than argued about.
+            //
+            // Loose (the default): the rule the note modes use, any of the four
+            // ways in at once. It credited 110 things nobody played over 49
+            // notes, against 33 for this one.
+            if self.strict_formulas && (branch != 1 || !self.ear_says(pc)) {
                 continue;
-            }
-            if by_onset {
-                let struck = self.onset_recent.iter().fold(0.0f32, |m, f| m.max(f[pc % 12]));
-                if struck < onset_threshold() {
-                    continue;
-                }
             }
             self.credited = Some((pc % 12, self.onset_id));
             self.formula_collected[i] = true;
@@ -903,39 +1038,23 @@ impl MyApp {
     }
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
-        // Counted first, before any mode returns: how long the single-frame
-        // estimate has been saying the same thing.
+        self.onset_age = self.onset_age.saturating_add(1);
         self.onset_recent.rotate_left(1);
-        self.onset_recent[ONSET_MEMORY - 1] = self.last_onsets;
-        if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
-            self.cqt_run = self.cqt_run.saturating_add(1);
-        } else {
-            self.cqt_run_pitch = self.cqt_pitch;
-            self.cqt_run = 1;
-        }
-
+        self.onset_recent[ONSET_MEMORY - 1] =
+            if self.onset_age <= 1 { self.last_onsets } else { [0.0; 12] };
 
         // Formulas have no song either: a drawn set of functions over a drawn
         // root, played in any order.
         if self.app_mode == AppMode::Formulas {
+            // Only remember what was said. The judging happens once per audio
+            // frame in `tick`, because this mode credits on a per-frame reading
+            // and the model is asked only while the window is full - which
+            // playing one note at a time never manages, so waiting here meant
+            // waiting for an answer that often never came.
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
-            if self.formula_collected.is_empty() {
-                self.next_formula();
-                return;
-            }
-            let done = self.collect_formula(ai_root, confidence);
-            self.match_status = if done { MatchStatus::Exact } else { MatchStatus::None };
-            if done {
-                self.success_timer += dt;
-                // A whole formula finished is worth seeing finished. The hold
-                // time is a quarter of a second by default - long enough to
-                // pass a chord on, too short to notice the last function turn
-                // green before the marks clear under it.
-                let show = self.transition_delay.max(FORMULA_LAP_PAUSE);
-                if self.success_timer > show && !self.paused {
-                    self.restart_formula();
-                }
-            }
+            self.last_ai_root = ai_root;
+            self.last_ai_conf = confidence;
+            let _ = dt;
             return;
         }
 
@@ -1208,6 +1327,7 @@ impl MyApp {
             state.bass_boost_gain = self.bass_boost_gain;
             self.cqt_pitch = state.cqt_pitch;
             self.onset_id = state.onset_id;
+            self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
         }
         // Nothing refreshes the pitch vector while the gate is shut - the model
@@ -1229,9 +1349,37 @@ pub(crate) mod tests {
     /// One note played and heard: the single-frame estimate holding still on it,
     /// which is the only way into a formula's marks.
     pub(crate) fn ear_hears(a: &mut MyApp, pc: usize) {
-        a.cqt_pitch = Some(pc % 12);
+        ready(a);
         for _ in 0..CQT_STEADY_TICKS {
-            a.check_progress_with_ai(0.0, "...", 0.0);
+            ear_frame(a, Some(pc % 12));
+        }
+    }
+
+    /// One reading, as one new audio frame carrying it.
+    pub(crate) fn ear_frame(a: &mut MyApp, pc: Option<usize>) {
+        a.cqt_pitch = pc;
+        a.audio_frames += 1;
+        a.tick(0.016);
+    }
+
+    /// Past the hold a new lap begins with - which real playing walks through
+    /// without noticing, and a test would otherwise have to wait out.
+    pub(crate) fn ready(a: &mut MyApp) {
+        a.lap_hold = 0.0;
+    }
+
+    /// The ear letting go: answers arriving with nothing heard in them.
+    pub(crate) fn ear_silent(a: &mut MyApp) {
+        for _ in 0..EAR_WINDOW {
+            ear_frame(a, None);
+        }
+    }
+
+    /// Frames passing with nothing new from the model - which is what happens
+    /// the moment the player stops playing.
+    pub(crate) fn frames_pass(a: &mut MyApp, n: usize, dt: f32) {
+        for _ in 0..n {
+            a.tick(dt);
         }
     }
 
@@ -1250,6 +1398,7 @@ pub(crate) mod tests {
             frames_since_onset: 0,
             cqt_pitch: None,
             gate_open: false,
+            frames_seen: 0,
         }));
         let mut a = MyApp::new(analysis, None);
         a.chords = vec![
@@ -2137,48 +2286,14 @@ mod generator_tests {
         }
         assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
 
-        // Past the hold time the lap ends.
-        a.cqt_pitch = None;
-        a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
+        // Past the hold time, and once the last note has died away, the lap
+        // ends - see `a_lap_waits_for_its_own_notes_to_die`.
+        ear_silent(&mut a);
+        frames_pass(&mut a, 1, FORMULA_LAP_PAUSE + 0.01);
         assert_eq!(a.formula_mask, mask, "a new formula was drawn");
         assert!(
             a.formula_collected.iter().all(|&c| !c),
             "the marks did not start again"
-        );
-    }
-
-    /// The note that finishes a formula does not open the next lap. It is still
-    /// ringing when the marks clear, and would mark itself off again - which
-    /// came out as the last function of one round being credited in the next.
-    #[test]
-    fn the_note_that_ended_a_lap_does_not_start_the_next() {
-        let mut a = app();
-        a.set_mode(AppMode::Formulas as i32);
-        let pitches = a.formula_pitches();
-        for (n, &pc) in pitches.iter().enumerate() {
-            a.onset_id = n as u64 + 1;
-            ear_hears(&mut a, pc);
-        }
-        // Past the pause the lap ends, with the last note still sounding.
-        a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
-        assert!(a.formula_collected.iter().all(|&c| !c), "the lap did not restart");
-
-        // It rings on, and must count for nothing until the strings are struck.
-        for _ in 0..20 {
-            a.check_progress_with_ai(0.0, "...", 0.0);
-        }
-        assert!(
-            a.formula_collected.iter().all(|&c| !c),
-            "the ringing note credited itself into the new lap"
-        );
-
-        // A fresh attack on the same note counts, as any note would.
-        a.onset_id += 1;
-        a.check_progress_with_ai(0.0, "...", 0.0);
-        assert_eq!(
-            a.formula_collected.iter().filter(|&&c| c).count(),
-            1,
-            "a struck note did not count in the new lap"
         );
     }
 
@@ -2191,14 +2306,15 @@ mod generator_tests {
     fn one_frame_of_the_fast_estimate_is_not_enough() {
         let mut a = app();
         a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
         a.onset_id = 2;
         let pitches = a.formula_pitches();
 
         // Flickering between two of them: neither ever settles.
+        ready(&mut a);
         for _ in 0..8 {
             for &pc in pitches.iter().take(2) {
-                a.cqt_pitch = Some(pc);
-                a.check_progress_with_ai(0.0, "...", 0.0);
+                ear_frame(&mut a, Some(pc));
             }
         }
         assert!(
@@ -2207,45 +2323,233 @@ mod generator_tests {
         );
 
         // Held still, it counts.
-        a.cqt_pitch = Some(pitches[0]);
-        for _ in 0..CQT_STEADY_TICKS {
-            a.check_progress_with_ai(0.0, "...", 0.0);
-        }
+        ear_hears(&mut a, pitches[0]);
         assert!(a.formula_collected[0], "a steady reading did not count");
     }
 
-    /// With an onset head in the model, the ear alone is not enough: the head
-    /// has to have seen something struck. A string ringing on - or one
-    /// resonating in sympathy, which is how the fourth and the fifth kept
-    /// lighting up - is sounding but was never played.
+    /// The strict rule is what the mode runs on, and the loose one - what the
+    /// note modes use - is still there to compare against. It credits whatever
+    /// is sounding, which after a few notes is most of the formula: 110 things
+    /// nobody played over 49 notes, against 33.
     #[test]
-    fn the_onset_head_credits_only_what_was_struck() {
+    fn strict_is_the_default_and_loose_still_works() {
         let mut a = app();
         a.set_mode(AppMode::Formulas as i32);
-        a.onset_id = 2;
-        let pitches = a.formula_pitches();
+        assert!(a.strict_formulas, "the strict rule is what the mode runs on");
 
-        // Heard clearly and steadily, but nothing was struck: it does not count.
-        a.last_pitches = [1.0; 12];
-        a.cqt_pitch = Some(pitches[0]);
-        a.last_onsets = [0.01; 12];
-        for _ in 0..10 {
-            a.check_progress_with_ai(0.0, "...", 0.0);
+        a.strict_formulas = false;
+        a.onset_id = 2;
+        let pc = a.formula_pitches()[0];
+        // The model's pitch head alone, on the first frame after it is seen.
+        ready(&mut a);
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[pc % 12] = 1.0;
+        ear_frame(&mut a, None);
+        assert!(a.formula_collected[0], "the note modes would have counted this");
+    }
+
+    /// A finished lap moves on even when the player has stopped playing.
+    ///
+    /// The judge is only called when the model answers, and the model is only
+    /// asked while the context window is nine tenths full - so when the hands
+    /// come off the strings it stops being called, and the lap that timed itself
+    /// there stopped with it: every function green and no next formula, until
+    /// something was played again.
+    #[test]
+    fn a_finished_lap_moves_on_in_silence() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        for (n, &pc) in a.formula_pitches().iter().enumerate() {
+            a.onset_id = n as u64 + 1;
+            ear_hears(&mut a, pc);
+        }
+        assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
+
+        // Silence: the ear lets go, then nothing is asked of the model at all -
+        // only frames go by, which is what happens when the hands come off.
+        ear_silent(&mut a);
+        frames_pass(&mut a, 200, 0.016);
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "the lap never moved on with nobody playing"
+        );
+    }
+
+    /// Paused in Formulas is "your turn": nothing is judged until it is let go.
+    #[test]
+    fn a_paused_formula_judges_nothing() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        a.onset_id = 2;
+        let pc = a.formula_pitches()[0];
+        ready(&mut a);
+        a.paused = true;
+        for _ in 0..40 {
+            ear_frame(&mut a, Some(pc));
         }
         assert!(
             a.formula_collected.iter().all(|&c| !c),
-            "a sounding string was credited without being struck"
+            "a paused formula was still being judged"
         );
 
-        // Struck: the head names that class, and the ear is already steady.
-        a.last_onsets[pitches[0] % 12] = 0.95;
-        a.check_progress_with_ai(0.0, "...", 0.0);
-        assert!(a.formula_collected[0], "a struck note did not count");
-        assert_eq!(
-            a.formula_collected.iter().filter(|&&c| c).count(),
-            1,
-            "the head credited a class it did not name"
+        a.paused = false;
+        ear_hears(&mut a, pc);
+        assert!(a.formula_collected[0], "letting go did not start it again");
+    }
+
+    /// A finished lap moves on after its pause, and holds for a moment so that
+    /// what was ringing when it ended cannot walk into it.
+    ///
+    /// The hold is timed rather than tied to the next attack. Tied to the
+    /// attack it blocked everything until one was detected, and an attack comes
+    /// from a transient, which soft playing does not always give - so the first
+    /// function of a new lap could take seconds.
+    #[test]
+    fn a_lap_moves_on_and_holds_for_a_moment() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        let pitches = a.formula_pitches();
+        for (n, &pc) in pitches.iter().enumerate() {
+            a.onset_id = n as u64 + 1;
+            ear_hears(&mut a, pc);
+        }
+        assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
+
+        frames_pass(&mut a, 1, FORMULA_LAP_PAUSE + 0.01);
+        assert!(a.formula_collected.iter().all(|&c| !c), "the lap did not move on");
+
+        // The last note still ringing, straight away: held.
+        for _ in 0..EAR_WINDOW {
+            ear_frame(&mut a, Some(pitches[0]));
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "the decay of the last lap walked into the new one"
         );
+
+        // A moment later the same note, played, counts like any other.
+        frames_pass(&mut a, 1, LAP_HOLD);
+        for _ in 0..EAR_WINDOW {
+            ear_frame(&mut a, Some(pitches[0]));
+        }
+        assert!(a.formula_collected[0], "the hold never let go");
+    }
+
+    /// One reading per audio frame: no more, no less.
+    ///
+    /// Sampled off the UI clock the same frame was counted two or three times,
+    /// and one bad reading could carry the vote by itself. Sampled off the
+    /// model's answers it stopped whenever the model did - and the model is
+    /// asked only while the context window is nine tenths full, which playing
+    /// one note at a time never manages. Both were measured on the guitar, and
+    /// both were worse.
+    #[test]
+    fn a_frame_votes_once_however_often_it_is_looked_at() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        a.onset_id = 2;
+        let stray = a.formula_pitches()[1];
+
+        // One frame, looked at twenty times: one vote, so nothing counts.
+        ready(&mut a);
+        a.cqt_pitch = Some(stray);
+        a.audio_frames += 1;
+        for _ in 0..20 {
+            a.tick(0.0);
+        }
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "one frame filled the vote by being looked at repeatedly"
+        );
+
+        // Four more frames of it, and it is evidence.
+        for _ in 0..(EAR_VOTES - 1) {
+            ear_frame(&mut a, Some(stray));
+        }
+        assert!(a.formula_collected[1], "four readings of five did not count");
+    }
+
+    /// A settled reading counts. Judging runs where the answers arrive, so each
+    /// reading in the vote is a new one - sampling it on the UI clock instead
+    /// counted the same audio frame twice and let one bad reading through.
+    #[test]
+    fn a_settled_reading_counts() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        a.onset_id = 2;
+        let pc = a.formula_pitches()[0];
+
+        ear_hears(&mut a, pc);
+        assert!(a.formula_collected[0], "a settled reading did not count");
+    }
+
+    /// In order: the set is played low to high, and a function out of turn
+    /// waits. Nothing is refused loudly - it simply does not count yet.
+    #[test]
+    fn in_order_takes_the_lowest_function_first() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        a.formula_in_order = true;
+        a.onset_id = 2;
+        let pitches = a.formula_pitches();
+
+        // The second function first: it waits.
+        ear_hears(&mut a, pitches[1]);
+        assert!(
+            a.formula_collected.iter().all(|&c| !c),
+            "a function out of turn was counted"
+        );
+
+        // The first, then the second: both count, in that order.
+        a.onset_id += 1;
+        ear_hears(&mut a, pitches[0]);
+        assert!(a.formula_collected[0], "the function due did not count");
+        a.onset_id += 1;
+        ear_hears(&mut a, pitches[1]);
+        assert!(a.formula_collected[1], "the next one due did not count");
+    }
+
+    /// Off, which is the default, the set is a set: any of them, any order.
+    #[test]
+    fn out_of_order_is_the_default() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        assert!(!a.formula_in_order, "a formula is unordered unless asked");
+        a.onset_id = 2;
+        let pitches = a.formula_pitches();
+        ear_hears(&mut a, pitches[2]);
+        assert!(a.formula_collected[2], "the set refused a function it should take");
+    }
+
+    /// One stray frame does not undo a steady reading. A run had to start over
+    /// on any flicker, which at half a second to the note was rarely finished
+    /// before the next note began - the vote survives it.
+    #[test]
+    fn a_stray_frame_does_not_reset_the_evidence() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
+        a.onset_id = 2;
+        let pitches = a.formula_pitches();
+        let (played, stray) = (pitches[0], pitches[1]);
+
+        // The note, one stray reading, then the note again: four of five.
+        ready(&mut a);
+        let frames = [played, stray, played, played, played];
+        for (n, pc) in frames.iter().enumerate() {
+            ear_frame(&mut a, Some(*pc));
+            if n + 1 < frames.len() {
+                assert!(!a.formula_collected[0], "counted before the evidence was in");
+            }
+        }
+        assert!(a.formula_collected[0], "a stray frame threw away four good ones");
     }
 
     /// A chord name credits nothing here, however sure the model is of it. The
@@ -2255,6 +2559,7 @@ mod generator_tests {
     fn a_chord_name_alone_credits_nothing() {
         let mut a = app();
         a.set_mode(AppMode::Formulas as i32);
+        a.strict_formulas = true;
         a.formula_random_key = false;
         a.formula_key_setting = "C".to_string();
         a.rekey_formula();
