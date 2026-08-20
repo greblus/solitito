@@ -118,6 +118,12 @@ pub struct Strings {
     pub formula_similar_opt: &'static str,
     pub formula_another: &'static str,
     pub formula_free: &'static str,
+    pub fav_name: &'static str,
+    pub fav_pick: &'static str,
+    pub fav_search: &'static str,
+    pub fav_hint: &'static str,
+    pub fav_add: &'static str,
+    pub fav_remove: &'static str,
     pub formula_chords: &'static str,
     pub formula_chords_opt: &'static str,
     pub startup_mode: &'static str,
@@ -185,10 +191,16 @@ pub const EN: Strings = Strings {
     formula_random: "random",
     formula_required: "Must contain: ",
     formula_required_hint: "Functions every formula has to have, e.g. b3 b7. Empty draws from all of them.",
-    formula_note_names: "Show note names",
+    formula_note_names: "Show note and chord names",
     formula_similar_opt: "Show the nearest scale",
     formula_another: "another formula",
     formula_free: "Your turn! Improvise!",
+    fav_name: "Name it:",
+    fav_pick: "Favourites: ",
+    fav_search: "search",
+    fav_hint: "The star keeps the formula on screen. Picking one here draws it.",
+    fav_add: "Keep this formula",
+    fav_remove: "Drop it from the favourites",
     formula_chords: "Chords:",
     formula_chords_opt: "Show the chords that fit",
     startup_mode: "Startup mode: ",
@@ -242,7 +254,7 @@ pub const PL: Strings = Strings {
     random_order: "Losowa kolejność",
     show_diagrams: "Wyświetlaj schematy akordów",
     select_song: "Utwór:",
-    select_scale: "Gama:",
+    select_scale: "Skala:",
     pattern: "Wzorzec:",
     key_root: "Tonacja:",
     random_hint: "W trybach nutowych: składniki akordu.",
@@ -256,10 +268,16 @@ pub const PL: Strings = Strings {
     formula_random: "losowa",
     formula_required: "Musi zawierać: ",
     formula_required_hint: "Funkcje obecne w każdej formule, np. b3 b7. Puste losuje ze wszystkich.",
-    formula_note_names: "Pokazuj nazwy dźwięków",
+    formula_note_names: "Pokazuj nazwy dźwięków i akordów",
     formula_similar_opt: "Pokazuj najbliższą skalę",
     formula_another: "nowa formuła",
     formula_free: "Twoja kolej! Improwizuj!",
+    fav_name: "Nazwij:",
+    fav_pick: "Ulubione: ",
+    fav_search: "szukaj",
+    fav_hint: "Gwiazdka zapisuje formułę z ekranu. Wybór z listy ją przywraca.",
+    fav_add: "Dodaj do ulubionych",
+    fav_remove: "Usuń z ulubionych",
     formula_chords: "Akordy:",
     formula_chords_opt: "Pokazuj pasujące akordy",
     startup_mode: "Tryb po uruchomieniu: ",
@@ -338,5 +356,46 @@ mod tests {
             assert!(!pl.is_empty(), "{name}: Polish missing");
             assert_ne!(en, pl, "{name}: Polish identical to English");
         }
+    }
+}
+
+/// Scale names in the chosen language.
+///
+/// The definitions carry English names because that is what the files and the
+/// literature use, and translating them at the point of display keeps the file
+/// format and the indices into it untouched. A name not in the table is passed
+/// through - a user's own scale in `user_scales_def.txt` stays as written.
+pub fn scale_name(lang: Lang, name: &str) -> &str {
+    if lang != Lang::Pl {
+        return name;
+    }
+    match name {
+        "Major Scale (Ionian)" => "Durowa (jońska)",
+        "Natural Minor (Aeolian)" => "Molowa naturalna (eolska)",
+        "Harmonic Minor" => "Molowa harmoniczna",
+        "Melodic Minor (Jazz)" => "Molowa melodyczna (jazzowa)",
+        "Pentatonic Minor" => "Pentatonika molowa",
+        "Pentatonic Major" => "Pentatonika durowa",
+        "Blues Scale" => "Bluesowa",
+        "Whole-Half Diminished" => "Zmniejszona (cały-pół)",
+        "Half-Whole Diminished (Dominant)" => "Zmniejszona (pół-cały, dominantowa)",
+        "Whole Tone" => "Całotonowa",
+        "Altered Scale (Super Locrian)" => "Alterowana (superlokrycka)",
+        "Lydian Dominant" => "Lidyjska dominantowa",
+        "Lydian Augmented" => "Lidyjska zwiększona",
+        "Phrygian Dominant" => "Frygijska dominantowa",
+        "Locrian #2" => "Lokrycka #2",
+        "Dorian" => "Dorycka",
+        "Mixolydian" => "Miksolidyjska",
+        "Lydian" => "Lidyjska",
+        "Phrygian" => "Frygijska",
+        "Locrian" => "Lokrycka",
+        "Bebop Dominant" => "Bebopowa dominantowa",
+        "Bebop Major" => "Bebopowa durowa",
+        "Bebop Dorian" => "Bebopowa dorycka",
+        "Major 6 Diminished" => "Durowa 6 zmniejszona",
+        "Minor 6 Diminished" => "Molowa 6 zmniejszona",
+        "Dominant 7th Diminished" => "Dominantowa 7 zmniejszona",
+        other => other,
     }
 }

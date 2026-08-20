@@ -62,6 +62,11 @@ The book is available from [Wayne Krantz](https://waynekrantz.bandcamp.com/merch
 <img height="479" alt="Formulas" src="docs/solitito_formulas.png" />
 </div>
 
+A formula worth coming back to is kept with the **star** under it: it asks for a name, and
+the name goes on the list in Practice settings, where picking one draws that formula again
+over whatever key is on screen — a formula is key-independent, so only the set is stored.
+The cross on a row throws it out, and the star, filled in, drops the one on screen.
+
 The line under the scale reads **chords that fit inside the formula** — every note of them
 is in the set, so the formula covers them without leaving it once. They are written as a
 degree in roman numerals plus a quality, the degree counted from the formula's own root:
@@ -146,9 +151,10 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Notes in a formula** | Formulas only: how many functions each drawn formula has, the root included |
 | **Key** (formulas) | The root to read them against, or a fresh one drawn per formula |
 | **Must contain** | Only draw formulas holding these functions, e.g. `b3 b7`. Empty draws from all 2048 |
-| **Show note names** | Formulas only, off by default: the functions are the exercise and the names are a crutch |
+| **Show note and chord names** | Formulas only: the letters under the functions and under the chords |
 | **Show the nearest scale** | Formulas only: the closest scale you already know, spelled out with the formula's own degrees picked out |
 | **Show the chords that fit** | Formulas only: chords playable without leaving the set, written as degrees. Only the fullest — over the major scale that leaves exactly the seven diatonic sevenths |
+| **Favourites** | Formulas only: the star keeps the formula on screen under a name, and the list draws it again. A cross on a row throws it out |
 | **Play the notes in order** | Formulas only: the set has to be walked lowest function first. Off, it is a set — any of them, in any order |
 | **Console debug** | Prints a line for every function credited, with what was heard. A window on the judging; on Windows a release build has no console to print it to |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |

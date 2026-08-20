@@ -36,6 +36,11 @@ slint::include_modules!();
 // lose in a release package. Black on transparent, recoloured by Slint.
 const ICON_SHUFFLE: &str = include_str!("assets/icons/shuffle.svg");
 const ICON_GEAR: &str = include_str!("assets/icons/gear.svg");
+const ICON_STAR: &str = include_str!("assets/icons/star.svg");
+/// The same star with its inside filled. Two files rather than one plus the
+/// inverted plate the other toggles use: a whole square lighting up said
+/// "pressed", where what is meant is "kept".
+const ICON_STAR_ON: &str = include_str!("assets/icons/star_on.svg");
 const ICON_PAUSE: &str = include_str!("assets/icons/pause.svg");
 const ICON_PLAY: &str = include_str!("assets/icons/play.svg");
 
@@ -670,6 +675,10 @@ impl SettingsSnapshot {
 struct AiResult {
     pred: Prediction,
     updated: bool,
+    /// How full the context window was when this was asked. The chord NAME is
+    /// only believed on a full one - that is what the model was trained on -
+    /// while the pitch and onset heads are read whatever it says.
+    fill: f32,
 }
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -876,11 +885,22 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         };
         
-        // How much of the context window must carry real signal before we ask the
-        // model at all. The trainer only built windows INSIDE a sustained chord, so
-        // "half silence, half chord" is out of distribution - which is why chords
-        // seemed to resolve only in the decay.
-        const MIN_FILL: f32 = 0.9;
+        // How much of the context window must carry real signal before the model
+        // is asked at all, and how much before its CHORD NAME is believed.
+        //
+        // They were one number, 0.9, and that number is right for the name: the
+        // trainer only built windows INSIDE a sustained chord, so "half silence,
+        // half chord" is out of distribution. But it also meant the model was not
+        // asked at all until 43 frames - 688 ms - of unbroken sound, and playing
+        // one note at a time never gets there. The screen froze on the last
+        // chord it had, and everything downstream froze with it.
+        //
+        // Measured on notes with known onsets: at 50-70% fill the pitch head
+        // names an isolated note correctly in every frame of the measurement.
+        // So the model is asked from half a window, and the name waits for the
+        // full one.
+        const MIN_FILL: f32 = 0.5;
+        const MIN_FILL_CHORD: f32 = 0.9;
 
         // SOLITITO_DEBUG=1 prints WHAT the model hears and WHAT it is torn between.
         // Without it a mistake shows only as a chord name, which cannot separate
@@ -911,6 +931,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 if let Ok(mut res) = result_for_ai.lock() {
                     res.pred = pred;
+                    res.fill = fill;
                     res.updated = true;
                 }
             }
@@ -967,6 +988,8 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_ai_debug_visible(cfg.ai_debug);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
         ui.set_icon_gear(svg_icon(ICON_GEAR));
+        ui.set_icon_star(svg_icon(ICON_STAR));
+        ui.set_icon_star_on(svg_icon(ICON_STAR_ON));
         ui.set_icon_pause(svg_icon(ICON_PAUSE));
         ui.set_icon_play(svg_icon(ICON_PLAY));
         apply_language(&ui, lang);
@@ -1130,9 +1153,11 @@ fn main() -> Result<(), slint::PlatformError> {
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
     let mut last_ui_tick: Option<std::time::Instant> = None;
-    // The chord list only changes with the formula, and rebuilding it every tick
-    // would drop whichever chord the pointer is on sixty times a second.
-    let mut last_formula_chords: u16 = 0;
+    // The chord list only changes with the formula or its key, and rebuilding it
+    // every tick would drop whichever chord the pointer is on sixty times a
+    // second. The key is in the guard because the chords are also spelled out in
+    // letters, and those follow it.
+    let mut last_formula_chords: (u16, String) = (0, String::new());
     // Live readouts are what drive the redraw rate, and the panel is expensive to
     // redraw. Neither of these carries information at sixty frames a second: the
     // confidence figure jitters by a point between frames, and the meter is
@@ -1265,6 +1290,9 @@ fn main() -> Result<(), slint::PlatformError> {
 
         if let Ok(mut res) = result_for_ui.lock() {
             if res.updated {
+                // A half-full window is answerable for what is SOUNDING, not for
+                // what chord it is - see MIN_FILL_CHORD.
+                let named = res.fill >= 0.9;
                 let chord = res.pred.chord.clone();
                 let score = res.pred.confidence;
                 app.prev_pitches = app.last_pitches;
@@ -1282,8 +1310,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 // confidence forward while voting damps it. Three rather than five:
                 // with five, a new chord needed three predictions to outweigh the
                 // old one, adding ~0.2 s to every transition.
-                app.chord_history.push_back((chord.clone(), score));
-                if app.chord_history.len() > 3 { app.chord_history.pop_front(); }
+                // Only full windows vote. A half one is not evidence against the
+                // chord standing, and letting it in would dilute the vote of
+                // whoever is strumming shortly.
+                if named {
+                    app.chord_history.push_back((chord.clone(), score));
+                    if app.chord_history.len() > 3 { app.chord_history.pop_front(); }
+                }
                 
                 let mut votes: HashMap<String, f32> = HashMap::new();
                 for (c, s) in &app.chord_history {
@@ -1307,9 +1340,18 @@ fn main() -> Result<(), slint::PlatformError> {
                     let s = app.analysis_state.lock().unwrap();
                     (s.onset_id, s.frames_since_onset)
                 };
-                let shown = chord_latch.update(
-                    ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
-                );
+                // "..." is what the app already uses for "nothing to say". It is
+                // better on screen than the chord from a minute ago: the display
+                // used to hold the last name it had for as long as nobody played
+                // a full window, which with one note at a time is for ever.
+                let shown = if named {
+                    chord_latch.update(
+                        ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
+                    )
+                } else {
+                    "...".to_string()
+                };
+                let current_confidence = if named { current_confidence } else { 0.0 };
 
                 // The chord name appears at once - that is what is being read.
                 // A changed percentage on the same chord waits its turn, at five
@@ -1402,15 +1444,67 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
 
+            // The favourites, narrowed by whatever is typed beside them, and
+            // whether what is on screen is one of them. Rebuilt every tick: the
+            // list is short and the filter has to answer as it is typed.
+            {
+                let cfg = cfg_formulas.borrow();
+                let needle = ui.get_favourite_filter().to_string().to_lowercase();
+                let shown: Vec<SharedString> = cfg
+                    .favourites
+                    .iter()
+                    .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+                    .map(|f| SharedString::from(f.name.as_str()))
+                    .collect();
+                if ui.get_favourites().row_count() != shown.len()
+                    || (0..shown.len()).any(|i| ui.get_favourites().row_data(i) != Some(shown[i].clone()))
+                {
+                    ui.set_favourites(ModelRc::from(Rc::new(VecModel::from(shown))));
+                }
+                // What the combo shows: the formula on screen, if it is one of
+                // them. Left at -1 the box was blank even right after a search
+                // had put something there, and the only way to see the result
+                // was to open the list.
+                let here = cfg
+                    .favourites
+                    .iter()
+                    .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+                    .position(|f| f.mask == app.formula_mask);
+                set_if_changed(ui.get_formula_starred(), here.is_some(), |v| {
+                    ui.set_formula_starred(v)
+                });
+                // The formula on screen when it is one of them; otherwise
+                // whatever was last picked, and failing that the first row.
+                // Falling back to -1 left the box blank whenever the drawn
+                // formula happened not to be a favourite, which is most of the
+                // time, and a blank box reads as an empty list.
+                let shown_len = ui.get_favourites().row_count() as i32;
+                let idx = match here {
+                    Some(i) => i as i32,
+                    None if shown_len == 0 => -1,
+                    None => ui.get_favourite_index().clamp(0, shown_len - 1),
+                };
+                set_if_changed(ui.get_favourite_index(), idx, |v| ui.set_favourite_index(v));
+            }
+
             // Chords that fit inside the formula, with the functions each is
             // built from flagged against the row of functions above - pointing
             // at one lights them up. Six is what a line holds; past that the
             // list stops saying anything.
-            if app.formula_mask != last_formula_chords {
-                last_formula_chords = app.formula_mask;
+            if last_formula_chords.0 != app.formula_mask
+                || last_formula_chords.1 != app.formula_key_name
+            {
+                last_formula_chords = (app.formula_mask, app.formula_key_name.clone());
                 let fits = formulas::chords_inside(app.formula_mask, 7);
                 let names: Vec<SharedString> =
                     fits.iter().map(|f| SharedString::from(f.name())).collect();
+                // The same chords in letters, under the degrees - the note names
+                // under the functions, one row down.
+                let spelled: Vec<SharedString> = match formulas::parse_key(&app.formula_key_name) {
+                    Some(k) => fits.iter().map(|f| SharedString::from(f.named_in(&k))).collect(),
+                    None => vec![],
+                };
+                ui.set_formula_chord_names(ModelRc::from(Rc::new(VecModel::from(spelled))));
                 let mut flags: Vec<bool> = Vec::with_capacity(fits.len() * funcs.len());
                 for fit in &fits {
                     let used = fit.functions();
@@ -1424,23 +1518,29 @@ fn main() -> Result<(), slint::PlatformError> {
 
             // What this formula is nearly. The scale is handed over spelled
             // out, with the formula's own functions flagged, so the screen can
-            // show the difference instead of describing it. Membership is by
-            // pitch, not by spelling: scales write #4 where formulas write b5.
+            // show the difference instead of describing it.
             let near = formulas::nearest_scales(app.formula_mask, &app.scale_definitions, 1);
+            let lang_now = Lang::from_setting(ui.get_language_idx());
             let (name, degrees, inside) = match near.first() {
                 Some(n) => {
                     let sc = &app.scale_definitions[n.scale];
+                    // Spelled from the semitone rather than from the scale file:
+                    // scale definitions write #4 where a formula writes b5, and
+                    // the two rows sit one above the other. There is no harmonic
+                    // argument for either here - a drawn set has no key of its
+                    // own - so they may as well agree, and flats are what the
+                    // functions above already use.
                     let degs: Vec<SharedString> = sc
-                        .names
+                        .intervals
                         .iter()
-                        .map(|d| SharedString::from(d.as_str()))
+                        .map(|&semi| SharedString::from(formulas::FUNCS[semi as usize % 12]))
                         .collect();
                     let flags: Vec<bool> = sc
                         .intervals
                         .iter()
                         .map(|&semi| app.formula_mask & (1 << (semi as usize % 12)) != 0)
                         .collect();
-                    (sc.name.clone(), degs, flags)
+                    (i18n::scale_name(lang_now, &sc.name).to_string(), degs, flags)
                 }
                 None => (String::new(), vec![], vec![]),
             };
@@ -1790,6 +1890,109 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        // The star: keep what is on screen, or let go of it. Kept formulas are
+        // matched on the set AND the key, because the same functions read from
+        // another root are a different exercise.
+        let cur = live_cfg.clone();
+        let app_star = my_app.clone();
+        let uw = ui.as_weak();
+        ui.on_star_clicked(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let mask = app_star.lock().unwrap().formula_mask;
+            let mut cur = cur.borrow_mut();
+            let before = cur.favourites.len();
+            cur.favourites.retain(|f| f.mask != mask);
+            if cur.favourites.len() != before {
+                cur.save();
+                return;
+            }
+            // Not kept yet: ask what to call it, with the formula itself as the
+            // suggestion. Typing over it is one gesture; accepting it is none.
+            ui.set_favourite_name(formulas::to_text(mask).into());
+            ui.set_naming(true);
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        let app_named = my_app.clone();
+        ui.on_favourite_named(move |name| {
+            let mask = app_named.lock().unwrap().formula_mask;
+            let name = name.to_string();
+            let name = if name.trim().is_empty() {
+                formulas::to_text(mask)
+            } else {
+                name.trim().to_string()
+            };
+            let mut cur = cur.borrow_mut();
+            cur.favourites.retain(|f| f.mask != mask);
+            cur.favourites.push(settings::Favourite { name, mask });
+            cur.save();
+        });
+    }
+    {
+        // Enter in the search field, or the button beside it: take the first
+        // one left in the narrowed list. Typing three letters and reaching for
+        // the mouse to finish the job is the thing this avoids.
+        let cur = live_cfg.clone();
+        let app_search = my_app.clone();
+        let uw = ui.as_weak();
+        ui.on_favourite_search(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let cur = cur.borrow();
+            let needle = ui.get_favourite_filter().to_string().to_lowercase();
+            if let Some(f) = cur
+                .favourites
+                .iter()
+                .find(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+            {
+                app_search.lock().unwrap().load_formula(f.mask);
+            }
+        });
+    }
+    {
+        // Picking one draws it. The index is into the FILTERED list, so the
+        // filter is applied again here rather than trusted to have stood still.
+        let cur = live_cfg.clone();
+        let app_pick = my_app.clone();
+        let uw = ui.as_weak();
+        ui.on_favourite_picked(move |idx| {
+            let Some(ui) = uw.upgrade() else { return };
+            let cur = cur.borrow();
+            let needle = ui.get_favourite_filter().to_string().to_lowercase();
+            let Some(f) = cur
+                .favourites
+                .iter()
+                .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+                .nth(idx.max(0) as usize)
+            else {
+                return;
+            };
+            app_pick.lock().unwrap().load_formula(f.mask);
+        });
+    }
+    {
+        // The cross on a row. Same walk as picking one - the index is into the
+        // filtered list - and then it is gone from the file as well as the list.
+        let cur = live_cfg.clone();
+        let uw = ui.as_weak();
+        ui.on_favourite_deleted(move |idx| {
+            let Some(ui) = uw.upgrade() else { return };
+            let mut cur = cur.borrow_mut();
+            let needle = ui.get_favourite_filter().to_string().to_lowercase();
+            let Some(mask) = cur
+                .favourites
+                .iter()
+                .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+                .nth(idx.max(0) as usize)
+                .map(|f| f.mask)
+            else {
+                return;
+            };
+            cur.favourites.retain(|f| f.mask != mask);
+            cur.save();
+        });
+    }
+    {
         let cur = live_cfg.clone();
         ui.on_formula_show_chords_changed(move |on| {
             let mut cur = cur.borrow_mut();
@@ -1835,17 +2038,22 @@ fn main() -> Result<(), slint::PlatformError> {
         app.set_mode(mode_idx);
         ui.set_current_mode(mode_idx);
         ui.set_interval_input_text(app.intervals_input.clone().into());
-        let t = i18n::strings(lang);
-        let (label, items, sec_label, sec_items) = match app.app_mode {
+        // The language as it is now, not as it was at startup.
+        let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+        let (label, sec_label) = mode_labels(&t, app.app_mode);
+        let (items, sec_items): (Vec<SharedString>, Vec<SharedString>) = match app.app_mode {
             AppMode::Scales => (
-                t.select_scale, app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>(),
-                t.key_root, keys_list_clone.clone()
+                app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect(),
+                keys_list_clone.clone(),
             ),
             AppMode::Arpeggios => (
-                t.select_song, app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(),
-                t.pattern, app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect::<Vec<SharedString>>()
+                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect(),
+                app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect(),
             ),
-            _ => (t.select_song, app.song_library.iter().map(|s| SharedString::from(&s.title)).collect::<Vec<SharedString>>(), "", vec![]),
+            _ => (
+                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect(),
+                vec![],
+            ),
         };
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
@@ -1896,8 +2104,32 @@ fn main() -> Result<(), slint::PlatformError> {
 /// is low, hearing is the bottleneck; if it is high and the quality still comes
 /// out "m", the quality head is not using information it already has.
 /// Fills the UI `Tr` global with the chosen language's strings.
+/// The two combo labels a mode shows over its pickers.
+///
+/// Wanted in two places - when the mode changes and when the language does -
+/// and it used to be built only in the first, from a language captured at
+/// startup. Switching to English left "Utwór" standing over an English panel.
+fn mode_labels(t: &i18n::Strings, mode: AppMode) -> (&'static str, &'static str) {
+    match mode {
+        AppMode::Scales => (t.select_scale, t.key_root),
+        AppMode::Arpeggios => (t.select_song, t.pattern),
+        _ => (t.select_song, ""),
+    }
+}
+
 fn apply_language(ui: &AppWindow, lang: Lang) {
     let t = i18n::strings(lang);
+    // Not everything on screen goes through the Tr global: these three are
+    // built in Rust and stayed in whatever language they were made in.
+    let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()));
+    ui.set_library_label(label.into());
+    ui.set_secondary_label(sec_label.into());
+    let channels = ui.get_audio_channels().row_count() as i32;
+    let chosen = ui.get_audio_channel_index();
+    ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
+        channels, t.audio_one,
+    )))));
+    ui.set_audio_channel_index(chosen);
     let g = ui.global::<Tr>();
     g.set_chords(t.chords.into());
     g.set_intervals(t.intervals.into());
@@ -1944,6 +2176,12 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_formula_similar_opt(t.formula_similar_opt.into());
     g.set_formula_another(t.formula_another.into());
     g.set_formula_free(t.formula_free.into());
+    g.set_fav_name(t.fav_name.into());
+    g.set_fav_pick(t.fav_pick.into());
+    g.set_fav_search(t.fav_search.into());
+    g.set_fav_hint(t.fav_hint.into());
+    g.set_fav_add(t.fav_add.into());
+    g.set_fav_remove(t.fav_remove.into());
     g.set_formula_chords(t.formula_chords.into());
     g.set_formula_chords_opt(t.formula_chords_opt.into());
     g.set_startup_mode(t.startup_mode.into());

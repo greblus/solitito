@@ -183,8 +183,6 @@ pub fn draw(rng: &mut Rng, n: usize, required: u16) -> Option<u16> {
 pub struct Key {
     letter: usize,
     acc: i32,
-    /// Spelling to fall back on when a degree would need a double accidental.
-    sharps: bool,
 }
 
 impl Key {
@@ -214,11 +212,7 @@ pub fn parse_key(s: &str) -> Option<Key> {
         "b" | "B" | "♭" => -1,
         _ => return None,
     };
-    Some(Key {
-        letter,
-        acc,
-        sharps: acc == 1 || (acc == 0 && matches!(head, 'G' | 'D' | 'A' | 'E' | 'B')),
-    })
+    Some(Key { letter, acc })
 }
 
 fn accidental(n: i32) -> Option<&'static str> {
@@ -250,19 +244,26 @@ pub fn note_name(key: &Key, func: usize) -> String {
     }
     let acc = diff + alt;
 
-    let table = if key.sharps { NAMES_SHARP } else { NAMES_FLAT };
     let pc = (target + alt).rem_euclid(12) as usize;
 
     match accidental(acc) {
         Some(a) => {
+            // The degree spelling stands whenever it is a name a player would
+            // write, whichever accidental it carries: `b3` in F# is Ab, not A#,
+            // because the function is a flattened third. Keying this off the
+            // key's own signature instead - a sharp key gets the sharp table -
+            // is what put A# and C# under flat functions.
             let by_degree = format!("{}{}", LETTERS[letter], a);
-            if table.contains(&by_degree.as_str()) {
+            let usable = NAMES_FLAT.contains(&by_degree.as_str())
+                || NAMES_SHARP.contains(&by_degree.as_str());
+            if usable {
                 by_degree
             } else {
-                table[pc].to_string()
+                // Fb, E#, double accidentals: nobody reads those off a neck.
+                NAMES_FLAT[pc].to_string()
             }
         }
-        None => table[pc].to_string(),
+        None => NAMES_FLAT[pc].to_string(),
     }
 }
 
@@ -381,7 +382,9 @@ pub const CHORD_SHAPES: [(&str, &[u8]); 14] = [
     ("7", &[0, 4, 7, 10]),
     ("m7b5", &[0, 3, 6, 10]),
     ("dim7", &[0, 3, 6, 9]),
-    ("mMaj7", &[0, 3, 7, 11]),
+    // Bracketed on purpose: "mMaj7" reads like a typo or a contradiction,
+    // and it is neither - the "m" is the third, the "maj7" the seventh.
+    ("m(maj7)", &[0, 3, 7, 11]),
     ("6", &[0, 4, 7, 9]),
     ("m6", &[0, 3, 7, 9]),
     ("", &[0, 4, 7]),
@@ -414,6 +417,12 @@ impl Fit {
     /// How it reads on screen: the degree it stands on, then the suffix.
     pub fn name(&self) -> String {
         format!("{}{}", ROMAN[self.degree], CHORD_SHAPES[self.shape].0)
+    }
+
+    /// The same chord spelled with note names, e.g. `AbMaj7` - for the line
+    /// under the degrees, where the note names under the functions are.
+    pub fn named_in(&self, key: &Key) -> String {
+        format!("{}{}", note_name(key, self.degree), CHORD_SHAPES[self.shape].0)
     }
 
     /// Which functions of the formula the chord is built from - what to pick out
@@ -561,6 +570,11 @@ mod tests {
         let fs = parse_key("F#").unwrap();
         assert_eq!(note_name(&fs, 0), "F#");
         assert_eq!(note_names(parse("1 3 5").unwrap(), &fs), ["F#", "A#", "C#"]);
+        // A flattened function keeps its flat in a sharp key: the spelling
+        // follows the degree, not the key signature. b5 of G reads Db, and
+        // reading the key signature instead had it as C#.
+        let g = parse_key("G").unwrap();
+        assert_eq!(note_names(parse("1 3 b5 5 6").unwrap(), &g), ["G", "B", "Db", "D", "E"]);
         assert!(parse_key("H").is_none());
     }
 
@@ -645,8 +659,8 @@ mod tests {
         let fits = chords_inside(m, 200);
         let dim7 = fits.iter().filter(|f| CHORD_SHAPES[f.shape].0 == "dim7").count();
         assert_eq!(dim7, 3, "there are only three diminished sevenths in twelve notes");
-        // None at all, and rightly: an augmented triad sits inside the minor
-        // major seventh a third below it, so wherever one fits, so does that.
+        // None at all, and rightly: an augmented triad sits inside the
+        // m(maj7) a third below it, so wherever one fits, so does that.
         let aug = fits.iter().filter(|f| CHORD_SHAPES[f.shape].0 == "aug").count();
         assert_eq!(aug, 0, "an augmented triad on its own is never the fullest");
     }

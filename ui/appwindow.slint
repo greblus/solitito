@@ -87,7 +87,11 @@ component Dropdown inherits Rectangle {
     in property <[string]> model;
     in-out property <int> current-index: 0;
     in property <bool> enabled: true;
+    /// Puts a cross on every row. For lists that are a collection rather than a
+    /// set of choices - throwing one out belongs where it is being looked at.
+    in property <bool> deletable: false;
     callback selected(int);
+    callback deleted(int);
     /// Fired as the list is about to open, for whoever wants to refresh it first.
     callback opened();
 
@@ -163,7 +167,7 @@ component Dropdown inherits Rectangle {
 
                             HorizontalLayout {
                                 padding-left: 8px;
-                                padding-right: 8px;
+                                padding-right: root.deletable ? root.row-h : 8px;
                                 Text {
                                     text: value;
                                     font-size: 13px;
@@ -178,6 +182,30 @@ component Dropdown inherits Rectangle {
                                     root.current-index = index;
                                     root.selected(index);
                                     popup.close();
+                                }
+                            }
+
+                            // After the row's own touch area, so it is the one
+                            // on top: declared inside the layout above it would
+                            // be covered by it and never see a click.
+                            if root.deletable : Rectangle {
+                                width: root.row-h;
+                                height: root.row-h;
+                                x: parent.width - self.width;
+                                Text {
+                                    text: "✕";
+                                    font-size: 12px;
+                                    color: del-touch.has-hover ? #ff7b7b : #888;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    width: 100%;
+                                    height: 100%;
+                                }
+                                del-touch := TouchArea {
+                                    clicked => {
+                                        root.deleted(index);
+                                        popup.close();
+                                    }
                                 }
                             }
                         }
@@ -211,6 +239,8 @@ component IconToggle inherits Rectangle {
     /// Light plate + dark glyph when active. Switch off where the icon itself
     /// already carries the state, as pause/play does.
     in property <bool> invert: true;
+    /// For whoever wants to say what the icon does while it is pointed at.
+    out property <bool> hovered: touch.has-hover;
     callback toggled();
 
     width: 34px;
@@ -299,6 +329,12 @@ export global Tr {
     in-out property <string> formula_similar_opt: "Show the nearest scale";
     in-out property <string> formula_another: "another formula";
     in-out property <string> formula_free: "Your turn! Improvise!";
+    in-out property <string> fav_name: "Name it:";
+    in-out property <string> fav_pick: "Favourites: ";
+    in-out property <string> fav_search: "search";
+    in-out property <string> fav_hint: "";
+    in-out property <string> fav_add: "Keep this formula";
+    in-out property <string> fav_remove: "Drop it from the favourites";
     in-out property <string> formula_chords: "Chords:";
     in-out property <string> formula_chords_opt: "Show the chords that fit";
     in-out property <string> formula_key_line: "Key";
@@ -419,12 +455,35 @@ export component AppWindow inherits Window {
     in property <[bool]> formula_scale_in;
     /// Chords playable without leaving the formula, e.g. ["1m7","b36"].
     in property <[string]> formula_chords;
+    /// The same chords in letters, e.g. ["AbMaj7"]. Empty when the names are
+    /// switched off. Parallel to `formula_chords`.
+    in property <[string]> formula_chord_names;
     /// Which functions each of them is built from, laid out flat: one run of
     /// `formula_functions.length` flags per chord. Slint has no list of lists,
     /// and the flat form indexes as chord * notes + note.
     in property <[bool]> formula_chord_in;
     /// Chord being pointed at, or -1. Its notes light up in the row above.
     in-out property <int> formula_hover: -1;
+    /// Whether the formula on screen is already kept, and the names of the ones
+    /// that are - filtered by `favourite_filter`.
+    in property <bool> formula_starred;
+    in property <[string]> favourites;
+    in-out property <string> favourite_filter: "";
+    /// Which of them is on screen, or -1.
+    in-out property <int> favourite_index: -1;
+    in-out property <string> favourite_name: "";
+    /// True while the name is being typed, which is the only time the field is
+    /// on screen: a mode that shows five things does not need a sixth standing
+    /// empty.
+    in-out property <bool> naming: false;
+    /// Pointer on the star. A property rather than a direct reference: the star
+    /// and the line that explains it sit in different conditional blocks.
+    property <bool> star_hover: false;
+    callback star_clicked();
+    callback favourite_named(string);
+    callback favourite_picked(int);
+    callback favourite_search();
+    callback favourite_deleted(int);
     
     // hidden in the main window by default
     in-out property <bool> ai_debug_visible: false;
@@ -481,6 +540,8 @@ export component AppWindow inherits Window {
     // chord shapes rather than shipped as loose files.
     in property <image> icon_shuffle;
     in property <image> icon_gear;
+    in property <image> icon_star;
+    in property <image> icon_star_on;
     /// True once any setting differs from what the app started with.
     in property <bool> settings_touched: false;
     in property <image> icon_pause;
@@ -539,13 +600,30 @@ export component AppWindow inherits Window {
     callback item_selected(int);
     callback secondary_item_selected(int); 
 
+    // How wide the practice box is allowed to be. Everywhere but Formulas that
+    // is the design width, and the slack goes to the black margins. Formulas
+    // asks for more: twelve functions inside 550px cannot be drawn much larger
+    // than 25px, while a 16:9 window leaves several hundred logical pixels
+    // unused on either side, because the scale factor is pinned by height.
+    // Capped at 1.7x so a very wide screen does not stretch the row apart.
+    // Chords asks for the same room when it is showing diagrams: four shapes
+    // at 112px use all but 26px of the design width, so they can only grow if
+    // the box does.
+    property <bool> wide_view: !root.show_settings
+        && (root.current_mode == 5
+            || (root.current_mode == 0 && root.show_diagrams
+                && root.chord_diagrams.length > 0));
+    property <length> box_w: root.wide_view
+        ? min(root.width, root.design_w * 17 / 10)
+        : root.design_w;
+
     VerticalLayout {
         // Explicit design-sized geometry rather than filling the window. The
         // scale factor already makes this box as large as the window allows;
         // when the window's aspect ratio differs from the design's, the slack
         // is left over on one axis and the box is centred in it. Against a
         // black background that reads as the window simply having margins.
-        width: root.design_w;
+        width: root.box_w;
         height: root.design_h;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
@@ -553,7 +631,14 @@ export component AppWindow inherits Window {
         spacing: 15px;
 
         // TOP BAR
+        //
+        // Held at the design width and centred, so widening the box under
+        // Formulas moves the content and not the buttons: the gear would
+        // otherwise walk off to the far right whenever the mode changed.
         HorizontalLayout {
+            alignment: center;
+            HorizontalLayout {
+            width: root.design_w - 30px;
             alignment: space-between;
             
             HorizontalLayout {
@@ -607,6 +692,7 @@ export component AppWindow inherits Window {
                 }
             }
         }
+        }
 
         // The settings panel is NOT here. At two thirds of the window it is
         // wider than this 550px box, and a child cannot outgrow its parent,
@@ -618,11 +704,19 @@ export component AppWindow inherits Window {
         if !root.show_settings : VerticalLayout {
             alignment: center;
             spacing: 25px;
+            // The fretboard trainer shows two lines and nothing else, and a
+            // centred pair of lines sits lower than the eye expects - the more
+            // so since the empty interval strip stopped holding space below
+            // them. Padding at the foot shrinks the box this is centred in,
+            // which lifts the note and its position by half of it.
+            padding-bottom: root.current_mode == 4 ? 80px : 0px;
             
-            Text {
+            // `if`, not `visible`: a hidden element still holds its place in
+            // the column, and two of them left the formulas block sitting a
+            // line lower than every other mode.
+            if root.current_mode != 5 : Text {
                 // Formulas have no song yet. When they are played over standards
                 // this comes back, and so does the strip at the bottom.
-                visible: root.current_mode != 5;
                 text: root.song_title;
                 font-size: 26px;
                 color: #aaa;
@@ -630,30 +724,44 @@ export component AppWindow inherits Window {
                 wrap: word-wrap;
             }
 
-            Text {
+            if root.current_mode != 5 : Text {
                 text: root.chord_name;
                 font-size: 60px; 
                 font-weight: 400; 
                 color: root.chord_text_color; 
                 horizontal-alignment: center;
-                visible: root.current_mode != 5;
             }
 
             // FORMULAS. Plain text, like the other modes: the functions carry
             // the exercise and a frame around each would only add furniture.
-            if root.current_mode == 5 : VerticalLayout {
+            if root.current_mode == 5 : fbox := VerticalLayout {
                 spacing: 16px;
+                // The lines around the functions grow with the box too, or a
+                // wide window reads as one large row surrounded by fine print.
+                // Held well under the box's own 1.7x: these are captions.
+                property <float> zoom: min(1.35, root.box_w / root.design_w);
 
                 Text {
                     text: Tr.formula_key_line + " " + root.formula_key;
-                    font-size: 22px;
+                    font-size: 22px * fbox.zoom;
                     color: #aaa;
                     horizontal-alignment: center;
                 }
 
-                HorizontalLayout {
+                // The row holds anything from one function to all twelve, and
+                // at a fixed 40px a set of twelve ran off the right edge with
+                // b7 and 7 outside the window. Rather than step the size down
+                // in brackets, it is solved for: a label is about 1.2 ems wide
+                // and the gap half an em, so n of them come to (1.7n - 0.5)
+                // ems, and that is set equal to the width there is. The cap is
+                // what keeps a five-note formula from turning into a banner.
+                func_row := HorizontalLayout {
                     alignment: center;
-                    spacing: 22px;
+                    property <int> n: root.formula_functions.length;
+                    property <length> avail: root.box_w - 40px;
+                    spacing: self.fsize / 2;
+                    property <length> fsize:
+                        min(48px, self.avail / (1.7 * self.n - 0.5));
                     for f[i] in root.formula_functions : VerticalLayout {
                         spacing: 2px;
                         // Pointing at a chord below asks a different question of
@@ -666,7 +774,7 @@ export component AppWindow inherits Window {
                                 root.formula_hover * root.formula_functions.length + i];
                         Text {
                             text: f;
-                            font-size: 40px;
+                            font-size: func_row.fsize;
                             font-weight: root.formula_hover >= 0
                                 ? (parent.in_chord ? 700 : 400)
                                 : (root.formula_collected[i] ? 700 : 400);
@@ -681,8 +789,12 @@ export component AppWindow inherits Window {
                         }
                         if root.formula_note_names.length > i : Text {
                             text: root.formula_note_names[i];
-                            font-size: 13px;
-                            color: #777;
+                            // Two-letter names under a small function still
+                            // need to clear their neighbours, so this follows
+                            // the row down - to a floor, below which the names
+                            // stop being readable at all.
+                            font-size: max(11px, func_row.fsize * 0.4);
+                            color: #8a8a8a;
                             horizontal-alignment: center;
                         }
                     }
@@ -695,16 +807,16 @@ export component AppWindow inherits Window {
                     spacing: 6px;
                     Text {
                         text: Tr.formula_similar + " " + root.formula_scale_name;
-                        font-size: 15px;
+                        font-size: 15px * fbox.zoom;
                         color: #888;
                         horizontal-alignment: center;
                     }
                     HorizontalLayout {
                         alignment: center;
-                        spacing: 14px;
+                        spacing: 14px * fbox.zoom;
                         for d[i] in root.formula_scale_degrees : Text {
                             text: d;
-                            font-size: 17px;
+                            font-size: 17px * fbox.zoom;
                             font-weight: root.formula_scale_in[i] ? 700 : 400;
                             color: root.formula_scale_in[i] ? #6aa9ff : #555;
                         }
@@ -724,16 +836,26 @@ export component AppWindow inherits Window {
                         text: root.formula_chords.length > 0
                             ? Tr.formula_chords
                             : Tr.formula_chords + " —";
-                        font-size: 15px;
+                        font-size: 15px * fbox.zoom;
                         color: #888;
                         horizontal-alignment: center;
                     }
-                    HorizontalLayout {
+                    // Seven chords of eight characters - bIIIMaj7 and the like -
+                    // are wider than the window at its narrowest, so this row
+                    // is solved the same way as the functions above: a name of
+                    // that length runs about 4.4 ems, plus half an em of gap.
+                    chord_row := HorizontalLayout {
                         alignment: center;
-                        spacing: 16px;
-                        for c[i] in root.formula_chords : Text {
+                        property <int> n: max(1, root.formula_chords.length);
+                        spacing: self.csize / 2;
+                        property <length> csize: min(20px,
+                            (root.box_w - 40px) / (4.9 * self.n - 0.5));
+                        for c[i] in root.formula_chords : VerticalLayout {
+                            spacing: 2px;
+                            Text {
                             text: c;
-                            font-size: 17px;
+                            font-size: chord_row.csize;
+                            horizontal-alignment: center;
                             font-weight: root.formula_hover == i ? 700 : 400;
                             color: root.formula_hover == i ? #6aa9ff : #999;
                             chord_touch := TouchArea {
@@ -746,7 +868,117 @@ export component AppWindow inherits Window {
                                     root.formula_hover = self.has-hover ? i : -1;
                                 }
                             }
+                            }
+                            // The letters under the degrees, as the note names
+                            // sit under the functions above.
+                            if root.formula_chord_names.length > i : Text {
+                                text: root.formula_chord_names[i];
+                                font-size: chord_row.csize - 2px;
+                                // Same answer as the degree above it: the letter
+                                // is the same chord, so pointing at either one
+                                // should light up what it is built from.
+                                font-weight: root.formula_hover == i ? 700 : 400;
+                                color: root.formula_hover == i ? #6aa9ff : #8a8a8a;
+                                horizontal-alignment: center;
+                                name_touch := TouchArea {
+                                    clicked => {
+                                        root.formula_hover = root.formula_hover == i ? -1 : i;
+                                    }
+                                    changed has-hover => {
+                                        root.formula_hover = self.has-hover ? i : -1;
+                                    }
+                                }
+                            }
                         }
+                    }
+                }
+
+                // The star: keep this formula, or let go of one already kept. In the
+                // middle of the column, between what the formula IS and what to do
+                // with it, and no bigger than the shuffle it borrows its manner from.
+                if root.current_mode == 5 : HorizontalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    IconToggle {
+                        // Filled when kept, outline when not - the glyph carries the
+                        // state, so the plate does not have to.
+                        icon: root.formula_starred ? root.icon_star_on : root.icon_star;
+                        active: false;
+                        dim: !root.formula_starred;
+                        invert: false;
+                        width: 34px;
+                        height: 34px;
+                        toggled => { root.star_clicked(); }
+                        changed hovered => { root.star_hover = self.hovered; }
+                    }
+                    if root.naming : Text {
+                        text: Tr.fav_name;
+                        color: #888;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    // The scope is there for Escape alone: a LineEdit has no key
+                    // callback of its own, and the text field rejects the key, so
+                    // it reaches the scope around it. Enter saves, Escape drops the
+                    // whole thing - nothing is written until one or the other.
+                    if root.naming : FocusScope {
+                        width: 180px;
+                        height: 32px;
+                        key-pressed(event) => {
+                            if (event.text == Key.Escape) {
+                                root.naming = false;
+                                return accept;
+                            }
+                            reject
+                        }
+                        // Typing is the only thing to do here, so the caret is
+                        // put in the field rather than waiting for a click.
+                        init => { fav_edit.focus(); }
+                        fav_edit := LineEdit {
+                            width: 100%;
+                            height: 100%;
+                            text <=> root.favourite_name;
+                            accepted => {
+                                root.favourite_named(root.favourite_name);
+                                root.naming = false;
+                            }
+                        }
+                    }
+                }
+
+                // In Formulas the pause is an exercise of its own: the whole set
+                // lit and nothing judged, so the thing to do is play inside it.
+                //
+                // The line is here whether it says anything or not. Appearing and
+                // disappearing, it pushed everything below it down - the words
+                // under the pause button slid towards the bottom edge on every
+                // pause and back again on every release.
+                if root.current_mode == 5 : Text {
+                    // Fixed height, not just a line that is sometimes empty: an
+                    // empty string is measured as no line at all, so the column
+                    // still shrank and everything below it slid up and down with
+                    // every pause.
+                    height: 26px;
+                    // The line under the star is already a fixed box, so the
+                    // hint can borrow it without anything moving.
+                    text: root.star_hover
+                        ? (root.formula_starred ? Tr.fav_remove : Tr.fav_add)
+                        : (root.paused ? Tr.formula_free : "");
+                    font-size: 17px;
+                    color: root.star_hover ? #888 : #6aa9ff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if root.current_mode == 5 : HorizontalLayout {
+                    alignment: center;
+                    IconToggle {
+                        icon: root.paused ? root.icon_play : root.icon_pause;
+                        active: root.paused;
+                        dim: true;
+                        invert: false;
+                        width: 68px;
+                        height: 68px;
+                        toggled => { root.paused = !root.paused; }
                     }
                 }
             }
@@ -754,12 +986,19 @@ export component AppWindow inherits Window {
             // Chords only: the note modes already carry an interval strip here,
             // and two rows of information would fight for the same space.
             if root.current_mode == 0 && root.show_diagrams
-               && root.chord_diagrams.length > 0 : HorizontalLayout {
+               && root.chord_diagrams.length > 0 : shapes := HorizontalLayout {
                 alignment: center;
-                spacing: 12px;
+                // Solved from the width there is, as the formula rows are: n
+                // shapes and n-1 gaps of a ninth of a shape. The cap is what
+                // stops four diagrams on a wide screen from crowding out the
+                // chord name above them.
+                property <int> n: root.chord_diagrams.length;
+                property <length> dw: min(170px,
+                    (root.box_w - 70px) / (self.n + (self.n - 1) / 9));
+                spacing: self.dw / 9;
                 for i in root.chord_diagrams.length : TouchArea {
-                    width: 112px;
-                    height: 104px;
+                    width: shapes.dw;
+                    height: shapes.dw * 104 / 112;
                     clicked => { root.diagram_zoom = i; }
                     plate := Rectangle {
                         width: 100%;
@@ -794,7 +1033,12 @@ export component AppWindow inherits Window {
             // The strip scrolls under a fixed centre rather than the highlight
             // jumping along a static row: a two-octave arpeggio is fifteen steps,
             // about 1050px, and the window is 550px.
-            if root.current_mode != 0 : Rectangle {
+            //
+            // Not in the fretboard trainer or in Formulas: both are handed an
+            // empty strip, and the 65px band of nothing was enough to push the
+            // footer under them off the bottom of the window.
+            if root.current_mode != 0 && root.current_mode != 4
+                && root.current_mode != 5 : Rectangle {
                 height: 65px;
                 clip: true;
 
@@ -826,27 +1070,6 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // In Formulas the pause is an exercise of its own: the whole set
-            // lit and nothing judged, so the thing to do is play inside it.
-            if root.current_mode == 5 && root.paused : Text {
-                text: Tr.formula_free;
-                font-size: 17px;
-                color: #6aa9ff;
-                horizontal-alignment: center;
-            }
-            if root.current_mode == 5 : HorizontalLayout {
-                alignment: center;
-                IconToggle {
-                    icon: root.paused ? root.icon_play : root.icon_pause;
-                    active: root.paused;
-                    dim: true;
-                    invert: false;
-                    width: 68px;
-                    height: 68px;
-                    toggled => { root.paused = !root.paused; }
-                }
-            }
-
             // Last in the column so it sits below whatever the mode shows -
             // under the interval strip in the note modes, under the shapes in
             // Chords, under the position line in the fretboard trainer.
@@ -871,8 +1094,10 @@ export component AppWindow inherits Window {
         // STOPKA - poprzedni i nastepny akord
         if !root.show_settings : Rectangle {
             height: 60px;
-            // Neither the fretboard trainer nor formulas walk a progression.
-            if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
+            // Only where there is a progression to walk. A scale is one item,
+            // so the strip showed the same name on both sides of it, cut off at
+            // the width of the column.
+            if root.current_mode != 2 && root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
                 spacing: 26px;
 
@@ -1463,6 +1688,62 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center;
                                 }
                             }
+
+                            // Kept formulas. Two lines, not one: the list is the
+                            // thing being used and the search is how it is
+                            // narrowed, and side by side they read as one wide
+                            // control that does neither well.
+                            VerticalLayout {
+                                // 12px, not the tab's own 18: the rows above are
+                                // a label beside a control, and the label's line
+                                // is shorter than the control it sits next to, so
+                                // their centres come 47px apart. Three stacked
+                                // controls at 18px came to 53 and read as a
+                                // looser block than everything above it.
+                                spacing: 12px;
+                                // The label takes its own line: below it the
+                                // list and the search sit one above the other at
+                                // the same width, which reads as one control
+                                // with two ways in rather than three columns.
+                                Text {
+                                    text: Tr.fav_pick; color: #aaa;
+                                    vertical-alignment: center;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Dropdown {
+                                        width: 185px;
+                                        model: root.favourites;
+                                        current-index <=> root.favourite_index;
+                                        deletable: true;
+                                        selected(v) => { root.favourite_picked(v); }
+                                        deleted(v) => { root.favourite_deleted(v); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    LineEdit {
+                                        // The list narrows as this is typed, and
+                                        // Enter - or the button - takes the first
+                                        // that is left, which is the whole point
+                                        // of typing three letters.
+                                        width: 185px;
+                                        text <=> root.favourite_filter;
+                                        accepted => { root.favourite_search(); }
+                                    }
+                                    Button {
+                                        text: Tr.fav_search;
+                                        clicked => { root.favourite_search(); }
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.fav_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
                         }
 
                         // Chords only, because that is the only mode that draws

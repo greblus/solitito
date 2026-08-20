@@ -17,6 +17,20 @@ use std::path::PathBuf;
 pub const MODE_NAMES: [&str; 6] =
     ["Chords", "Intervals", "Scales", "Arpeggios", "Fretboard", "Formulas"];
 
+/// A formula worth coming back to: the set, and what the player calls it.
+///
+/// No key. A formula IS key-independent - that is the whole of the notation -
+/// so keeping one per key would put the same exercise on the list twelve times
+/// and leave the star dark on eleven of them. It arrives in whatever key is on
+/// screen, which is what the options are for.
+///
+/// The mask is stored rather than the text, so a rename cannot break it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Favourite {
+    pub name: String,
+    pub mask: u16,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     /// Which mode the app opens in. Fretboard by default.
@@ -81,9 +95,10 @@ pub struct Settings {
     /// no filter.
     #[serde(default)]
     pub formula_required: String,
-    /// Show note names under the functions. Off by default: the functions are
-    /// the exercise, and reading names is the habit the mode exists to break.
-    #[serde(default)]
+    /// Show note names under the functions, and under the chords that fit. On
+    /// by default: the functions are the exercise and the names are a crutch,
+    /// but a crutch nobody asked for is worse than one they can put down.
+    #[serde(default = "yes")]
     pub formula_note_names: bool,
     /// Show the nearest known scale under the formula, with the formula's own
     /// degrees picked out. On by default: it is what turns a drawn set into
@@ -104,6 +119,9 @@ pub struct Settings {
     /// scale: it says what the set can be played over.
     #[serde(default = "yes")]
     pub formula_show_chords: bool,
+    /// Formulas kept by name, newest last.
+    #[serde(default)]
+    pub favourites: Vec<Favourite>,
     /// Window size in PHYSICAL pixels, saved when the window closes. Physical
     /// rather than logical because the logical size depends on the scale factor
     /// the app itself sets from this - storing logical would make the size drift
@@ -164,11 +182,12 @@ impl Default for Settings {
             formula_key: "C".to_string(),
             formula_random_key: true,
             formula_required: String::new(),
-            formula_note_names: false,
+            formula_note_names: true,
             formula_show_similar: true,
             formula_in_order: false,
             debug_console: false,
             formula_show_chords: true,
+            favourites: Vec::new(),
             window_w: None,
             window_h: None,
         }
@@ -384,7 +403,7 @@ mod tests {
         assert_eq!(d.formula_notes, 5);
         assert_eq!(d.formula_key, "C");
         assert!(d.formula_random_key, "a drawn key needs no typing to get going");
-        assert!(!d.formula_note_names, "names are the habit the mode breaks");
+        assert!(d.formula_note_names, "the names are there until someone puts them down");
 
         let s = Settings {
             formula_notes: 7,
@@ -461,5 +480,21 @@ mod tests {
             s.startup_mode = 0;
         }
         assert_eq!(s.startup_mode, 0);
+    }
+
+    #[test]
+    fn favourites_survive_a_round_trip_and_an_old_file_has_none() {
+        let s = Settings {
+            favourites: vec![Favourite {
+                name: "kranciasta".into(),
+                mask: 0b1000_1001_0001,
+            }],
+            ..Settings::default()
+        };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.favourites, s.favourites, "a kept formula did not survive");
+
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
+        assert!(old.favourites.is_empty(), "a file from before them must read clean");
     }
 }

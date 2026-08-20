@@ -808,6 +808,21 @@ impl MyApp {
         self.match_status = MatchStatus::None;
     }
 
+    /// Puts a kept formula back on screen, in whatever key is showing.
+    ///
+    /// No key travels with it: a formula is the same exercise in all twelve, and
+    /// the key on screen is the one the options chose.
+    pub fn load_formula(&mut self, mask: u16) {
+        if mask == 0 {
+            return;
+        }
+        self.formula_mask = mask;
+        self.formula_collected = vec![false; mask.count_ones() as usize];
+        self.lap_hold = LAP_HOLD;
+        self.success_timer = 0.0;
+        self.match_status = MatchStatus::None;
+    }
+
     /// Puts the standing formula in the key the options ask for.
     ///
     /// The functions do not move - only the notes they land on, so the marks
@@ -887,11 +902,12 @@ impl MyApp {
         //
         // The onset head is not consulted. On a recording it looked the answer:
         // sure about WHEN at 202 ms against the other paths' 676. Live it
-        // answered 0.09 for notes plainly being played - it is asked only when
-        // the context window is nine tenths full, and playing one note at a
-        // time never fills it - so as a gate it refused far more than it
-        // caught. It is still read and printed, to be measured against a
-        // recording at playing speed rather than argued about.
+        // answered 0.09 for notes plainly being played, so as a gate it refused
+        // far more than it caught. That was measured while the model was asked
+        // only from a nine tenths full context window, which playing one note at
+        // a time never filled; it is asked from half a window now, so the
+        // reading is worth taking again before the head is written off. It is
+        // still read and printed, against a recording at playing speed.
         // In order: only the lowest function not yet marked off may count. The
         // set is written low to high, so this is the same set read as a line -
         // and nothing else is refused loudly, it simply does not count yet.
@@ -2471,6 +2487,21 @@ mod generator_tests {
             ear_frame(&mut a, Some(stray));
         }
         assert!(a.formula_collected[1], "four readings of five did not count");
+    }
+
+    /// A kept formula comes back as a set, with nothing marked off - and in
+    /// whatever key is on screen, because a formula has none of its own.
+    #[test]
+    fn a_favourite_comes_back_whole() {
+        let mut a = app();
+        a.set_mode(AppMode::Formulas as i32);
+        let mask = crate::formulas::parse("1 b3 5 b7").unwrap();
+        let key = a.formula_key_name.clone();
+        a.load_formula(mask);
+        assert_eq!(a.formula_mask, mask, "the set did not come back");
+        assert_eq!(a.formula_key_name, key, "it brought a key of its own");
+        assert_eq!(a.formula_collected.len(), 4, "the marks do not fit the set");
+        assert!(a.formula_collected.iter().all(|&c| !c), "it came back half played");
     }
 
     /// A settled reading counts. Judging runs where the answers arrive, so each
