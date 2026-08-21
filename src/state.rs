@@ -690,7 +690,28 @@ impl MyApp {
         self.reset_logic_state();
     }
 
+    /// Drops everything the app has heard so far.
+    ///
+    /// The model answers about 0.77 s of audio, so at the moment the exercise
+    /// moves on - a new chord, a new mode - its last answer is still about what
+    /// came before. Left in place it credits the first target of the new chord
+    /// from the ringing of the old one, which is why a mode could feel sharp on
+    /// the first chord and loose on every one after it. Nothing is lost by
+    /// forgetting: the next audio frame is 16 ms away and the next inference
+    /// 40 ms.
+    fn forget_what_was_heard(&mut self) {
+        self.last_pitches = [0.0; 12];
+        self.prev_pitches = [0.0; 12];
+        self.last_onsets = [0.0; 12];
+        self.onset_age = u32::MAX;
+        self.ear_window = [None; EAR_WINDOW];
+        self.cqt_run_pitch = None;
+        self.cqt_run = 0;
+        self.credited = None;
+    }
+
     pub fn reset_logic_state(&mut self) {
+        self.forget_what_was_heard();
         self.rebuild_play_order();
         self.current_note_step = 0;
         self.success_timer = 0.0;
@@ -1483,6 +1504,7 @@ impl MyApp {
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
         self.prev_status = MatchStatus::None;
+        self.forget_what_was_heard();
         // Landing on a chord draws it a string to start from and an order for
         // its notes, exactly as arriving there by playing would. Without this
         // the suggestion stayed on whatever it was when the arrows started.
@@ -1497,6 +1519,7 @@ impl MyApp {
         self.success_timer = 0.0;
         self.current_note_step = 0;
         self.match_status = MatchStatus::None;
+        self.forget_what_was_heard();
         // Scales hold a single "chord" - the whole scale - so the list has one
         // entry and the index never moves. Advancing there means a new KEY:
         // finish the scale, get another one somewhere else on the neck.
@@ -2098,6 +2121,45 @@ pub(crate) mod tests {
             !a.note_is_sounding(4, None, 0.0),
             "with the option on, E has to be played on its own"
         );
+    }
+
+    /// The reported case: not the first chord of a run but every one after it.
+    #[test]
+    fn a_new_chord_does_not_inherit_the_old_ones_ringing() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.last_pitches = [0.9; 12];
+        a.prev_pitches = [0.8; 12];
+        a.set_onsets([0.5; 12]);
+        a.credited = Some((3, 7));
+
+        a.advance_chord();
+
+        assert_eq!(a.last_pitches, [0.0; 12], "the previous chord came along");
+        assert_eq!(a.last_onsets, [0.0; 12]);
+        assert_eq!(a.credited, None);
+    }
+
+    /// Entering a mode is a fresh start for the ear as well as for the exercise.
+    #[test]
+    fn a_mode_starts_without_what_was_heard_before_it() {
+        let mut a = app();
+        a.last_pitches = [0.9; 12];
+        a.prev_pitches = [0.8; 12];
+        a.set_onsets([0.5; 12]);
+        a.credited = Some((3, 7));
+        a.cqt_pitch = Some(3);
+
+        a.set_mode(AppMode::Intervals as i32);
+
+        assert_eq!(a.last_pitches, [0.0; 12], "the model's last answer came along");
+        assert_eq!(a.prev_pitches, [0.0; 12]);
+        assert_eq!(a.last_onsets, [0.0; 12], "an attack from before the switch");
+        assert_eq!(a.credited, None, "a note credited in another mode still counted");
+        // And nothing passes on it: the pitch head has nothing to say until the
+        // next audio frame arrives.
+        a.cqt_pitch = None;
+        assert!(!a.note_is_sounding(3, None, 0.0));
     }
 
     /// The note before, still ringing inside the model's window, is what the
