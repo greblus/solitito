@@ -18,62 +18,65 @@ Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
 wszystkie dwanaście tonacji: czerwona kropka to pryma, kliknięcie w
 schemat powiększa go.
 
-Solitito jest mocno zainspirowane aplikacją [Solo](https://www.solotrainer.app/), trenerem na
+Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
 Androida i iOS, z którego korzystam codziennie. Solo robi znacznie więcej i robi to dobrze —
-ale słyszy jeden dźwięk naraz. To była jedyna rzecz, która mi w nim przeszkadzała: grając
+ale słyszy jeden dźwięk naraz. To jedyna funkcjonalność, której mi w nim brakuje: grając
 interwały przez zmiany harmoniczne, trzeba tłumić struny, żeby każdy dźwięk został
-zarejestrowany, a to niemuzyczny sposób ćwiczenia. Zastanawiałem się przy tym, jak radzi sobie
-Yousician, skoro tamten rozpoznaje akordy.
+zarejestrowany, a to mało muzyczny sposób ćwiczenia i psuje cały fun. Zastanawiałem się od dawna, jak 
+Yousician rozpoznaje akordy polifonicznie i tak powstało Solitito.
 
-Solitito jest aplikacją desktopową dla Linuksa i Windowsa. Wersji mobilnych nie planuję.
+Program jest aplikacją desktopową dla Linuksa i Windowsa. Wersji mobilnych nie planuję.
 
-Prace ruszyły w grudniu 2025. Potok danych był przepisywany od zera więcej niż raz, zanim
-zadziałał. To, co poniżej, jest w większości zapisem tego, co okazało się mieć znaczenie.
+Prace ruszyły w grudniu 2025. Procedura szkolenia modelu i sam program w Rust był przepisywany od zera
+więcej niż raz, zanim zadziałał. To, co opisano poniżej, jest w większości zapisem tego, co okazało się
+mieć znaczenie.
 
 ---
 
-## Co to robi
+## Co to robi?
 
-Wybierasz utwór, a program pokazuje jeden akord naraz. Grasz go. Kiedy model usłyszy właściwy
+Wybierasz utwór, a program pokazuje jeden akord. Po zagraniu go, gdy model usłyszy właściwy
 akord, przechodzi do następnego.
 
-- **Gryf** — losowany jest fragment gryfu (zestaw strun, cztery progi) i utrzymywany; program
-  prosi o dźwięki, które w nim leżą. Do nauki, gdzie w jednej pozycji ręki są które dźwięki.
+- **Gryf** — losowany jest fragment gryfu (zestaw strun, cztery progi) i program
+  prosi o kolejne dźwięki, które znajdują się w tym, ograniczonym pozycją ręki, fragmencie gryfu. 
 - **Akordy** — pełne standardy jazzowe. Zielony potwierdza trafienie dokładne, żółty przyjmuje
-  triadę albo częstą zamianę (voicing bez prymy, `m7` odczytane jako `m`), czerwony znaczy, że
+  triadę albo substytucję (voicing bez prymy, `m7` odczytane jako `m`), czerwony znaczy, że
   akord został wykryty, ale sygnał jest za słaby, by go zatwierdzić.
 - **Interwały** — składniki akordu grane pojedynczo. Sam wybierasz, które stopnie ćwiczyć
   (`1 3 5` dla triad, `1 3 5 7` dla akordów septymowych, `1 3` dla voicingów szkieletowych).
-  „3" obejmuje i 3, i b3, „7" — 7 i b7, i tak dalej, zależnie od jakości bieżącego akordu.
+  `3` obejmuje i `3`, i `b3`, `7` — `7` i `b7`, i tak dalej, zależnie od jakości bieżącego akordu.
 - **Skale** — ćwiczenie dźwięków po kolei, z definicji skali.
-- **Arpeggia** — składniki akordu w kolejności, przez progresję, zapisane stopniami, więc
+- **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
-  generator budujący świeżą po każdym przejściu.
+  generator budujący nowe arpeggio po każdym przejściu.
 - **Formuły** — zbiór interwałów wylosowany nad prymą, grany w dowolnej kolejności. Każda
-  funkcja zapala się, gdy zabrzmi, a zbiór jest domknięty, kiedy zapalą się wszystkie; pod
+  funkcja/interwał zapala się, gdy zabrzmi, a zbiór jest zaliczany, kiedy zapalą się wszystkie; pod
   spodem najbliższa skala, którą już znasz, z wyróżnionymi stopniami formuły, oraz akordy
-  mieszczące się w niej — wskaż jeden, a rząd wyżej pokaże, z czego jest zbudowany. Pauza
-  zmienia zbiór na niebieski i wstrzymuje ocenianie: twoja kolej, improwizuj w środku.
-  Tę samą formułę można też postawić na akordzie albo przenieść przez cały standard — jak
+  w niej zawarte — wskaż jeden, a linia powyżej pokaże, z czego jest zbudowany. Pauza
+  zmienia zbiór na niebieski i wstrzymuje ocenianie: twoja kolej, improwizuj, twórz melodie
+  z tych dźwięków.
+  Tę samą formułę można też zagrać na akordzie albo ograć nią cały standard — jak
   pracować ze wszystkimi trzema, opisuje [ćwiczenie z formułami](docs/formulas-practice_pl.md).
 
 Tryb Formuł jest zainspirowany książką **An Improviser's OS** Wayne'a Krantza — być może
 najciekawszym podejściem do kreatywnej improwizacji, jakie powstało.
 
 Książkę można kupić bezpośrednio u [Wayne'a Krantza](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition).
+Warto też posłuchać jego muzyki, bo to genialny muzyk i improwizator.
 
 <div align="center">
 <img height="479" alt="Formuły" src="docs/solitito_formulas.png" />
 </div>
 
-Formułę można dodać do Ulubionych klikając na **gwiazdkę** pod nią: program pyta o nazwę, a nazwa trafia
-na listę w ustawieniach Ćwiczeń, skąd wybór przywraca tę formułę nad dowolną tonacją, która
-akurat jest na ekranie — formuła jest niezależna od tonacji, więc zapisywany jest sam zbiór.
-Krzyżyk na wierszu usuwa wpis, a gwiazdka wypełniona porzuca formułę widoczną na ekranie.
+Formułę można dodać do Ulubionych klikając na **gwiazdkę** pod nią: program pyta o nazwę i trafia
+ona na listę w ustawieniach Ćwiczeń, skąd wybór przywraca tę formułę dla dowolnej tonacji, która
+akurat jest na ekranie — formuła jest niezależna od tonacji, więc zapisywany jest sam zbiór interwałów.
+Krzyżyk w wierszu Ulubionych usuwa wpis, a kliknięcie w oknie głównym zaświeconej gwiazdki, porzuca
+formułę widoczną na ekranie.
 
-Linia pod skalą to **akordy mieszczące się w formule** — każdy ich dźwięk należy do zbioru,
-więc formuła pokrywa je, ani razu z niego nie wychodząc. Zapisane są jako stopień cyframi
-rzymskimi plus jakość, przy czym stopień liczy się od prymy samej formuły: na zrzucie powyżej
+Linia pod skalą to **akordy mieszczące się w formule** — ich dźwięki należą do zbioru interwałów w formule.
+Zapisane są jako stopień cyframi rzymskimi plus jakość, przy czym stopień liczy się od prymy samej formuły: na zrzucie powyżej
 `VI`, `VIm` i `VIsus2` stoją wszystkie na `VI`, czyli w tonacji E na C#.
 
 Triada durowa i molowa na tym samym stopniu pojawiają się obie, ponieważ formuła zawiera
@@ -107,10 +110,10 @@ gdy przeszedł triadą albo zamianą — więc zaliczenie pozostaje czytelne po 
 poszedł dalej.
 
 Przełącznik losowania miesza kolejność. W trybach nutowych miesza składniki wewnątrz każdego
-akordu, gdzie mieszanie obu naraz jest eksperymentem; osobne ustawienie dokłada do tego same
-akordy. W Akordach zmienia kolejność standardu, w Skalach losuje tonikę od nowa. Przycisk
+akordu, osobne ustawienie dokłada do tego losową kolejność akordów.
+W Akordach zmienia kolejność standardu, w Skalach losuje tonikę od nowa. Przycisk
 pauzy zatrzymuje progresję, podczas gdy kolory dalej mówią, czy akord jest właściwy, więc
-można usiąść na jednym chwycie i go rozpracować; przy pauzie strzałki po bokach paska
+można usiąść nad jednym akordem i się go porządnie nauczyć. Przy pauzie strzałki po bokach paska
 przechodzą tam i z powrotem po progresji, co pozwala wrócić do akordu, który już minął.
 
 ---
@@ -126,7 +129,7 @@ to, co grasz, **Ćwiczenia** — co grać, oraz **Program** — co pokazuje okno
 <img width="220" alt="Ustawienia, zakładka Program" src="docs/solitito_settings4.png" />
 </div>
 
-**Ćwiczenia** zawierają wyłącznie to, co należy do trybu widocznego na ekranie — utwór nie ma
+**Ćwiczenia** zawierają wyłącznie to, co ma sens dla trybu widocznego na ekranie — utwór nie ma
 nic do powiedzenia w Formułach, formuła nic w Akordach — więc w każdym trybie jest to inna
 zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej wcale:
 

@@ -21,8 +21,9 @@ enlarges it.
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
 trainer I use daily. Solo does far more, and does it well — but it hears one note at a time.
 That was the one thing that bothered me: playing intervals through changes, you have to mute
-the strings for each note to register, which is an unmusical way to practise. I kept wondering
-how Yousician managed it, since that one does recognise chords.
+the strings for each note to register, which is slightly unmusical way to practise. I kept wondering
+how Yousician managed it, since that one know how to recognise chords and that's how the idea
+of Solitito was born.
 
 Solitito is a desktop application for Linux and Windows. There are no plans for mobile versions.
 

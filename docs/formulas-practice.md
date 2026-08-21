@@ -16,7 +16,7 @@ A formula is a set of intervals over a root, written as functions rather than no
 ```
 
 That is all it is. Not a scale — there is no fixed order to walk. Not a chord — there is no
-obligation to sound them together. Five or six of the twelve chromatic functions, chosen at
+obligation to sound them together but you can. Four or five of the twelve chromatic functions, chosen at
 random, that you have to find on the neck and play in any order you like.
 
 Two things follow, and they are the whole point of the mode:
@@ -37,7 +37,7 @@ root.
 ## The screen, row by row
 
 Over a chord, the column reads top to bottom as one sentence. Here is the fullest version,
-with everything switched on:
+with everything switched on, if it's too much, disable some of these:
 
 ```
               Autumn Leaves          the tune, in "Over the changes" only
@@ -68,8 +68,8 @@ can be switched off in Practice settings once it has done its job.
 - **Relative to F** and the small row above the functions — only over a chord. The same
   notes, counted from the chord's root instead of the formula's. The ones in **blue** are the
   chord's own tones. This row is the lesson in the harmony exercises; more on it below.
-- **The letters** under the functions. Useful when checking yourself on the neck, and the
-  first thing to switch off: reading letters is the habit the mode exists to break.
+- **The letters** under the functions. Useful when checking yourself on the neck, and helps to
+  learn spread intervals.
 - **The verdict line** — `colours it · 1 of 4 chord tones` — counts how much of the chord the
   formula covers. Again, harmony exercises only.
 - **Nearest scale** is the bridge from what you already know. `1 2 3 b5 5 6 b7` with your
@@ -120,7 +120,7 @@ been perfectly clear, and the reverse happens just as often.
 
 ## Exercise 1 — Formula in a key
 
-**What it is.** A drawn formula over a drawn root. No chord, no tune. This is the mode as it
+**A drawn formula over a drawn root**. No chord, no tune. This is the mode as it
 has always been, and it is where to start.
 
 <div align="center">
@@ -174,8 +174,8 @@ the starred sets still sounds good on the second meeting, that one has earned it
 
 ## Exercise 2 — Over a chord
 
-**What it is.** One chord, drawn at random and standing still, with the formula planted on one
-of its twelve degrees. This is where the mode stops being about the formula alone and starts
+**One chord, drawn at random** and standing still, with the **formula planted on one
+of its twelve degrees**. This is where the mode stops being about the formula alone and starts
 being about harmony.
 
 **The idea, in one sentence.** The same formula sounds like a completely different thing
@@ -281,7 +281,7 @@ still for that to happen. A new chord comes from *another formula*.
 
 ## Exercise 3 — Over the changes
 
-**What it is.** The same formula carried across a whole standard, replanted on every chord.
+**The same formula carried across a whole standard, replanted on every chord**.
 The tune comes from the same library Chords reads from, so your own `user_songs.txt` works
 here too.
 
@@ -326,8 +326,8 @@ will start predicting them — that is the skill arriving.
 
 | stage | exercise | settings | what you are learning |
 |---|---|---|---|
-| 1 | Formula in a key | 4 notes, letters on | to find functions on the neck at all |
-| 2 | Formula in a key | 5 notes, letters off | to hear a set instead of reading it |
+| 1 | Formula in a key | 4 notes, note names on | to find functions on the neck at all |
+| 2 | Formula in a key | 5 notes, note names off | to hear a set instead of reading it |
 | 3 | Over a chord | placement: *spells the chord out* | that a formula can be the chord |
 | 4 | Over a chord | *colours it*, then *outside it* | what colour and tension sound like |
 | 5 | Over a chord | *any*, guess before reading | to hear which of the three it is |
@@ -344,8 +344,9 @@ warm-up is worth as much on the day you begin as it is a month later.
   barely sounded will not be credited, and that is not the app being difficult — it is the
   same standard your ear applies.
 - **Nothing is credited twice.** Once a function is green it stays green for the lap; playing
-  it again does nothing. If a function refuses to light, it is usually the neighbouring
-  semitone being heard instead — check the letters row.
+  it again does nothing but it doesn't mean you shouldn't - pause button is there just for you
+  to play. If a function refuses to light, it is usually the neighbouring
+  semitone being played instead — check the note names row.
 - **Pause is a real part of the exercise**, not a break from it. The mode teaches sets; the
   pause is where you find out what you can do with one.
 - **Console debug** (Practice settings) prints a line for every credited function with what
