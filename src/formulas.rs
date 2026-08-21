@@ -419,6 +419,21 @@ impl Fit {
         format!("{}{}", ROMAN[self.degree], CHORD_SHAPES[self.shape].0)
     }
 
+    /// The same chord counted from somewhere else - the chord being played
+    /// over, rather than the formula's own root.
+    ///
+    /// Over harmony the whole screen reads from the chord, and a row still
+    /// counting from the formula would be two reference points at once. This is
+    /// also the row that answers "what can I superimpose here": a triad from
+    /// the ninth of a dominant chord, say, sitting inside the formula whole.
+    pub fn name_from(&self, offset: usize) -> String {
+        format!(
+            "{}{}",
+            ROMAN[(self.degree + offset) % 12],
+            CHORD_SHAPES[self.shape].0
+        )
+    }
+
     /// The same chord spelled with note names, e.g. `AbMaj7` - for the line
     /// under the degrees, where the note names under the functions are.
     pub fn named_in(&self, key: &Key) -> String {
@@ -476,6 +491,130 @@ pub fn chords_inside(mask: u16, limit: usize) -> Vec<Fit> {
     out.sort_by_key(|f| (f.shape, f.degree));
     out.truncate(limit);
     out
+}
+
+// ------------------------------------------------- formulas over a chord
+
+/// What a formula says about the chord it is played over.
+///
+/// A count rather than an opinion: the more of the chord's own tones a formula
+/// covers, the more plainly that chord is heard; with none of them the formula
+/// is heard against the chord rather than as it. The middle is the interesting
+/// ground - a set that shares a note or two with the chord colours it instead
+/// of either spelling it out or fighting it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// Carries what fixes the chord's quality - its third and seventh, and the
+    /// flat fifth of a m7b5 - so the chord is spelled out.
+    Defines,
+    /// Some of the chord, but not what pins its quality down.
+    Colours,
+    /// Not one note in common. Tension, deliberately.
+    Outside,
+}
+
+/// A formula planted on one degree of a chord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    /// Semitones above the chord's root where the formula's `1` is put.
+    pub degree: usize,
+    /// How many of the chord's tones the formula covers.
+    pub hits: u32,
+    pub verdict: Verdict,
+}
+
+/// The formula's notes as pitch classes, with its `1` on `root_pc`.
+pub fn placed_pcs(mask: u16, root_pc: usize) -> u16 {
+    let mut out = 0u16;
+    for f in functions_of(mask) {
+        out |= 1 << ((f + root_pc) % 12);
+    }
+    out
+}
+
+/// The tones that fix a chord's quality: everything but the root and a perfect
+/// fifth. A major seventh and a dominant differ only in their seventh, a minor
+/// and a major only in their third, and a m7b5 needs its flat fifth as well -
+/// while root and fifth say nothing about which of them is being played.
+fn characteristic(chord_pcs: u16, chord_root: usize) -> u16 {
+    let root = 1 << chord_root;
+    let fifth = 1 << ((chord_root + 7) % 12);
+    chord_pcs & !root & !fifth
+}
+
+/// How a formula lands on a chord when its `1` sits `degree` semitones above
+/// the chord's root.
+pub fn placement(mask: u16, chord_root: usize, chord_pcs: u16, degree: usize) -> Placement {
+    let pcs = placed_pcs(mask, (chord_root + degree) % 12);
+    let hits = (pcs & chord_pcs).count_ones();
+    let want = characteristic(chord_pcs, chord_root);
+    let verdict = if want != 0 && pcs & want == want {
+        Verdict::Defines
+    } else if hits == 0 {
+        Verdict::Outside
+    } else {
+        Verdict::Colours
+    };
+    Placement { degree, hits, verdict }
+}
+
+/// Every way of planting the formula on the chord, one per semitone.
+pub fn placements(mask: u16, chord_root: usize, chord_pcs: u16) -> Vec<Placement> {
+    (0..12)
+        .map(|d| placement(mask, chord_root, chord_pcs, d))
+        .collect()
+}
+
+/// One placement, of the kind asked for.
+///
+/// `want` of `None` draws from all twelve. A kind that no degree produces falls
+/// back to the whole set rather than refusing: with some formulas over some
+/// chords there is no placement that says nothing at all about the chord, and
+/// an exercise that stops dead is worse than one that answers with what exists.
+pub fn draw_placement(
+    rng: &mut Rng,
+    mask: u16,
+    chord_root: usize,
+    chord_pcs: u16,
+    want: Option<Verdict>,
+) -> Placement {
+    let all = placements(mask, chord_root, chord_pcs);
+    let pool: Vec<Placement> = match want {
+        Some(v) => all.iter().copied().filter(|p| p.verdict == v).collect(),
+        None => all.clone(),
+    };
+    let pool = if pool.is_empty() { all } else { pool };
+    pool[rng.below(pool.len())]
+}
+
+/// How players name a note that is not part of the chord it is played over.
+///
+/// The same twelve intervals as `FUNCS`, in the language of tensions: over a
+/// chord, `Db` above `F` is a flat thirteenth rather than a flat sixth, and a
+/// player reading a chart expects to see it written that way. Only for notes
+/// outside the chord - what belongs to the chord is named by the chord.
+pub const TENSIONS: [&str; 12] = [
+    "1", "b9", "9", "#9", "3", "11", "#11", "5", "b13", "13", "b7", "7",
+];
+
+/// The formula's functions read against the CHORD's root rather than its own.
+///
+/// The teaching is in the two rows together: the same four notes are `1 b3 b5
+/// b7` to the formula and something else entirely to the chord under them.
+pub fn against_chord(mask: u16, degree: usize) -> Vec<String> {
+    functions_of(mask)
+        .iter()
+        .map(|&f| FUNCS[(f + degree) % 12].to_string())
+        .collect()
+}
+
+/// Which of the formula's notes, in order, are tones of the chord.
+pub fn chord_tones_in(mask: u16, chord_root: usize, chord_pcs: u16, degree: usize) -> Vec<bool> {
+    let root_pc = (chord_root + degree) % 12;
+    functions_of(mask)
+        .iter()
+        .map(|&f| chord_pcs & (1 << ((f + root_pc) % 12)) != 0)
+        .collect()
 }
 
 #[cfg(test)]
@@ -576,6 +715,88 @@ mod tests {
         let g = parse_key("G").unwrap();
         assert_eq!(note_names(parse("1 3 b5 5 6").unwrap(), &g), ["G", "B", "Db", "D", "E"]);
         assert!(parse_key("H").is_none());
+    }
+
+    /// A half-diminished tetrad over a half-diminished chord, from four of the
+    /// twelve degrees. Plain harmony, worked through: from the root it is the
+    /// chord, from the flat seventh it spells an altered dominant, and from the
+    /// second it gives the Locrian natural 2 sound.
+    #[test]
+    fn a_formula_says_a_different_thing_from_each_degree() {
+        let f = parse("1 b3 b5 b7").unwrap();
+        // Cm7b5 = C Eb Gb Bb.
+        let chord = (1 << 0) | (1 << 3) | (1 << 6) | (1 << 10);
+
+        // "from the root of a -7b5 chord: defines chord"
+        let p = placement(f, 0, chord, 0);
+        assert_eq!(p.verdict, Verdict::Defines);
+        assert_eq!(p.hits, 4);
+
+        // "from bVII: creates altered dominant" - one note in common, and read
+        // against C the notes are b7 b2 3 b6, which is that sound.
+        let p = placement(f, 0, chord, 10);
+        assert_eq!(p.verdict, Verdict::Colours);
+        assert_eq!(p.hits, 1);
+        assert_eq!(against_chord(f, 10), ["b7", "b2", "3", "b6"]);
+
+        // "from II: creates locrian natural 2 sound"
+        assert_eq!(placement(f, 0, chord, 2).verdict, Verdict::Colours);
+
+        // Half the notes shared and still not the chord: from bIII the shape
+        // lands on Eb and Gb but misses the seventh, which is half of what
+        // tells a m7b5 from a diminished.
+        let p = placement(f, 0, chord, 3);
+        assert_eq!(p.hits, 2);
+        assert_eq!(p.verdict, Verdict::Colours);
+
+        // Nothing in common at all.
+        let p = placement(f, 0, chord, 1);
+        assert_eq!(p.hits, 0);
+        assert_eq!(p.verdict, Verdict::Outside);
+    }
+
+    #[test]
+    fn a_fitting_chord_can_be_counted_from_the_chord_underneath() {
+        // The triad on the formula's own bVII, with the formula planted on the
+        // II of what is sounding, stands on the I of that chord: 10 + 2 = 12.
+        let f = Fit { degree: 10, shape: 0 };
+        assert_eq!(f.name_from(0), f.name(), "no chord, no offset");
+        assert!(f.name_from(2).starts_with('I'), "{}", f.name_from(2));
+        assert_eq!(f.name_from(2), format!("{}{}", ROMAN[0], CHORD_SHAPES[0].0));
+    }
+
+    #[test]
+    fn the_chord_moves_and_the_placement_moves_with_it() {
+        let f = parse("1 3 5 7").unwrap();
+        // The same shape over Ebmaj7 as over Cmaj7, one placement apart.
+        let cmaj = (1 << 0) | (1 << 4) | (1 << 7) | (1 << 11);
+        let ebmaj = (1 << 3) | (1 << 7) | (1 << 10) | (1 << 2);
+        assert_eq!(placement(f, 0, cmaj, 0).verdict, Verdict::Defines);
+        assert_eq!(placement(f, 3, ebmaj, 0).verdict, Verdict::Defines);
+        // And which of its notes are the chord's own, in the order they show.
+        assert_eq!(chord_tones_in(f, 0, cmaj, 0), [true, true, true, true]);
+        // One semitone up, only the shape's seventh lands on the chord - on
+        // its root, an octave of wrapping later.
+        assert_eq!(chord_tones_in(f, 0, cmaj, 1), [false, false, false, true]);
+    }
+
+    #[test]
+    fn a_kind_that_does_not_exist_still_answers() {
+        let mut rng = Rng::with_seed(7);
+        // The whole chromatic scale covers every chord from every degree, so
+        // there is no way to place it outside - and the draw must not hang.
+        let all = 0x0FFF;
+        let chord = (1 << 0) | (1 << 4) | (1 << 7) | (1 << 11);
+        let p = draw_placement(&mut rng, all, 0, chord, Some(Verdict::Outside));
+        assert_eq!(p.verdict, Verdict::Defines);
+
+        // And when the kind does exist, that is what comes back, every time.
+        let f = parse("1 b3 b5 b7").unwrap();
+        let m7b5 = (1 << 0) | (1 << 3) | (1 << 6) | (1 << 10);
+        for _ in 0..20 {
+            let p = draw_placement(&mut rng, f, 0, m7b5, Some(Verdict::Outside));
+            assert_eq!(p.verdict, Verdict::Outside, "degree {}", p.degree);
+        }
     }
 
     fn scale(name: &str, semis: &[u8]) -> ScaleDefinition {

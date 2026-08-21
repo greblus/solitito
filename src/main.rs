@@ -15,7 +15,7 @@ mod state;
 
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
@@ -74,6 +74,13 @@ fn fit_ui_to_window(ui: &AppWindow) {
     let scale = (size.width as f32 / ui.get_design_w())
         .min(size.height as f32 / ui.get_design_h())
         .clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end());
+    // Nothing to correct when the factor is the one already in force - and the
+    // pair of events below is not free: it restates the window's logical size,
+    // which is the last thing to do to a window a window manager is in the
+    // middle of resizing.
+    if (ui.window().scale_factor() - scale).abs() < f32::EPSILON {
+        return;
+    }
     ui.window()
         .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: scale });
     // Required, and not obvious: changing the scale factor does not restate the
@@ -625,6 +632,9 @@ struct SettingsSnapshot {
     show_spectrum: bool,
     audio_device: i32,
     audio_channel: i32,
+    formula_jazz_names: bool,
+    formula_exercise: i32,
+    formula_placement: i32,
     formula_notes: i32,
     formula_key: String,
     formula_random_key: bool,
@@ -658,6 +668,9 @@ impl SettingsSnapshot {
             show_spectrum: ui.get_show_spectrum(),
             audio_device: ui.get_audio_device_index(),
             audio_channel: ui.get_audio_channel_index(),
+            formula_jazz_names: ui.get_formula_jazz_names(),
+            formula_exercise: ui.get_formula_exercise(),
+            formula_placement: ui.get_formula_placement(),
             formula_notes: ui.get_formula_notes(),
             formula_key: ui.get_formula_key_text().to_string(),
             formula_random_key: ui.get_formula_random_key(),
@@ -868,6 +881,26 @@ fn main() -> Result<(), slint::PlatformError> {
         println!("Starting LIVE mode...");
     }
     
+    // How much of the context window must carry real signal before the model is
+    // asked at all, and how much before its CHORD NAME is believed.
+    //
+    // They were one number, 0.9, and that number is right for the name: the
+    // trainer only built windows INSIDE a sustained chord, so "half silence,
+    // half chord" is out of distribution. But it also meant the model was not
+    // asked at all until 43 frames - 688 ms - of unbroken sound, and playing one
+    // note at a time never gets there. The screen froze on the last chord it
+    // had, and everything downstream froze with it.
+    //
+    // Measured on notes with known onsets: at 50-70% fill the pitch head names
+    // an isolated note correctly in every frame of the measurement. So the model
+    // is asked from half a window, and the name waits for the full one.
+    //
+    // Both live here rather than inside the thread that asks: the gate on the
+    // name is on the other side of the channel, and written out as 0.9 there it
+    // was the same number in two places, free to drift apart.
+    const MIN_FILL: f32 = 0.5;
+    const MIN_FILL_CHORD: f32 = 0.9;
+
     // AI THREAD
     let analysis_for_ai = analysis_state.clone();
     let result_for_ai = ai_result_state.clone();
@@ -885,23 +918,6 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         };
         
-        // How much of the context window must carry real signal before the model
-        // is asked at all, and how much before its CHORD NAME is believed.
-        //
-        // They were one number, 0.9, and that number is right for the name: the
-        // trainer only built windows INSIDE a sustained chord, so "half silence,
-        // half chord" is out of distribution. But it also meant the model was not
-        // asked at all until 43 frames - 688 ms - of unbroken sound, and playing
-        // one note at a time never gets there. The screen froze on the last
-        // chord it had, and everything downstream froze with it.
-        //
-        // Measured on notes with known onsets: at 50-70% fill the pitch head
-        // names an isolated note correctly in every frame of the measurement.
-        // So the model is asked from half a window, and the name waits for the
-        // full one.
-        const MIN_FILL: f32 = 0.5;
-        const MIN_FILL_CHORD: f32 = 0.9;
-
         // SOLITITO_DEBUG=1 prints WHAT the model hears and WHAT it is torn between.
         // Without it a mistake shows only as a chord name, which cannot separate
         // "it does not hear the seventh" from "it hears it and ignores it".
@@ -950,7 +966,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let lang = Lang::from_setting(cfg.language);
     println!("🌍 UI language: {:?}", lang);
 
-    let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone(), None)));
+    let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone())));
     my_app.lock().unwrap().set_mode(cfg.startup_mode);
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
@@ -975,6 +991,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
         ui.set_shuffle_chords(cfg.shuffle_chords);
+        ui.set_formula_jazz_names(cfg.formula_jazz_names);
+        ui.set_formula_exercise(cfg.formula_exercise as i32);
+        ui.set_formula_placement(cfg.formula_placement as i32);
         ui.set_formula_notes(cfg.formula_notes as i32);
         ui.set_formula_key_text(cfg.formula_key.clone().into());
         ui.set_formula_random_key(cfg.formula_random_key);
@@ -1079,11 +1098,22 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     fit_ui_to_window(&ui);
+    // The size to write back on the way out. Maximising is not resizing: the
+    // window then has the screen's size, and saving that turned a maximise
+    // followed by a close into a window that opens the size of the desktop -
+    // and lost the size that had been set by hand. Only sizes seen while the
+    // window is its own are remembered.
+    let last_own_size: Rc<Cell<Option<(u32, u32)>>> = Rc::new(Cell::new(None));
     {
         let uw = ui.as_weak();
+        let own = last_own_size.clone();
         ui.on_window_resized(move || {
             if let Some(ui) = uw.upgrade() {
                 fit_ui_to_window(&ui);
+                let size = ui.window().size();
+                if !ui.window().is_maximized() && size.width > 0 && size.height > 0 {
+                    own.set(Some((size.width, size.height)));
+                }
             }
         });
     }
@@ -1093,12 +1123,23 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let uw = ui.as_weak();
         let cfg = live_cfg.clone();
+        let own = last_own_size.clone();
         ui.window().on_close_requested(move || {
             if let Some(ui) = uw.upgrade() {
+                // Closed while maximised, with no unmaximised size seen this
+                // run: the file keeps what it had rather than learning the
+                // screen's size.
                 let size = ui.window().size();
+                let size = match own.get() {
+                    Some(s) => Some(s),
+                    None if ui.window().is_maximized() => None,
+                    None => Some((size.width, size.height)),
+                };
                 let mut cfg = cfg.borrow_mut();
-                cfg.window_w = Some(size.width);
-                cfg.window_h = Some(size.height);
+                if let Some((w, h)) = size {
+                    cfg.window_w = Some(w);
+                    cfg.window_h = Some(h);
+                }
                 let dev = cfg.audio_device.clone();
                 cfg.set_gate(dev.as_deref(), ui.get_gate_db());
                 cfg.save();
@@ -1157,7 +1198,10 @@ fn main() -> Result<(), slint::PlatformError> {
     // every tick would drop whichever chord the pointer is on sixty times a
     // second. The key is in the guard because the chords are also spelled out in
     // letters, and those follow it.
-    let mut last_formula_chords: (u16, String) = (0, String::new());
+    // Mask, root and placement: a chord change can land the formula on the same
+    // root from a different degree, and then only the degree tells this row that
+    // its numerals are stale.
+    let mut last_formula_chords: (u16, String, usize) = (0, String::new(), usize::MAX);
     // Live readouts are what drive the redraw rate, and the panel is expensive to
     // redraw. Neither of these carries information at sixty frames a second: the
     // confidence figure jitters by a point between frames, and the meter is
@@ -1219,10 +1263,20 @@ fn main() -> Result<(), slint::PlatformError> {
             // itself, the key only says where to read it. Redrawing on a key
             // change would throw away the formula being practised, and the key
             // field is read letter by letter as it is typed.
+            // Changing the exercise changes what the formula is read against,
+            // so it redraws: a placement over a chord that is no longer there
+            // would be read as a key.
             let redraw = app.formula_notes != cfg.formula_notes
-                || app.formula_required != required;
+                || app.formula_required != required
+                || app.formula_exercise != cfg.formula_exercise;
+            // A different kind of placement is the same formula seen from
+            // somewhere else - the same gesture as asking for another key.
             let rekey = app.formula_random_key != cfg.formula_random_key
-                || app.formula_key_setting != cfg.formula_key;
+                || app.formula_key_setting != cfg.formula_key
+                || app.formula_placement_want != cfg.formula_placement;
+            let exercise_changed = app.formula_exercise != cfg.formula_exercise;
+            app.formula_exercise = cfg.formula_exercise;
+            app.formula_placement_want = cfg.formula_placement;
             app.formula_notes = cfg.formula_notes;
             app.formula_required = required;
             app.formula_random_key = cfg.formula_random_key;
@@ -1230,6 +1284,11 @@ fn main() -> Result<(), slint::PlatformError> {
             app.formula_in_order = cfg.formula_in_order;
             app.log_credits = cfg.debug_console;
             if app.app_mode == state::AppMode::Formulas {
+                // Over the changes the tune has to be under it before a chord
+                // can be taken from it.
+                if exercise_changed && cfg.formula_exercise == 2 {
+                    app.reload_library();
+                }
                 if redraw {
                     app.next_formula();
                 } else if rekey {
@@ -1291,8 +1350,8 @@ fn main() -> Result<(), slint::PlatformError> {
         if let Ok(mut res) = result_for_ui.lock() {
             if res.updated {
                 // A half-full window is answerable for what is SOUNDING, not for
-                // what chord it is - see MIN_FILL_CHORD.
-                let named = res.fill >= 0.9;
+                // what chord it is.
+                let named = res.fill >= MIN_FILL_CHORD;
                 let chord = res.pred.chord.clone();
                 let score = res.pred.confidence;
                 app.prev_pitches = app.last_pitches;
@@ -1426,6 +1485,95 @@ fn main() -> Result<(), slint::PlatformError> {
                 app.formula_collected.clone()
             };
             ui.set_formula_collected(ModelRc::from(Rc::new(VecModel::from(lit))));
+
+            // What the formula is being played over, when it is being played
+            // over anything: the chord, the degree of it the formula stands on,
+            // the same functions read from the chord's root, and which of them
+            // the chord owns. The count is the lesson - the word beside it is
+            // only a label on the count.
+            {
+                let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+                let jazz_names = cfg_formulas.borrow().formula_jazz_names;
+                let (chord, degree, against, own, verdict) = match &app.formula_chord {
+                    Some(c) if app.formula_exercise != 0 => {
+                        let root = c.root as usize;
+                        let mut pcs = 0u16;
+                        for i in c.quality.intervals() {
+                            pcs |= 1 << ((root + i as usize) % 12);
+                        }
+                        let word = match app.formula_verdict {
+                            Some(formulas::Verdict::Defines) => t.placement_defines,
+                            Some(formulas::Verdict::Colours) => t.placement_colours,
+                            Some(formulas::Verdict::Outside) => t.placement_outside,
+                            None => "",
+                        };
+                        let tones = pcs.count_ones();
+                        (
+                            format!("{}{}", c.root.to_string(), c.quality.to_string()),
+                            formulas::ROMAN[app.formula_degree].to_string(),
+                            {
+                                // What belongs to the chord is named by the
+                                // chord - its own third is "3" or "b3", not a
+                                // ninth of anything. What does not is a plain
+                                // function, or a tension if that is asked for.
+                                let mut own: [Option<&str>; 12] = [None; 12];
+                                let names = c.quality.interval_names();
+                                for (k, i) in c.quality.intervals().iter().enumerate() {
+                                    if let Some(n) = names.get(k) {
+                                        own[*i as usize % 12] = Some(n.as_str());
+                                    }
+                                }
+                                formulas::functions_of(app.formula_mask)
+                                    .iter()
+                                    .map(|&f| {
+                                        let semi = (f + app.formula_degree) % 12;
+                                        if let Some(n) = own[semi] {
+                                            n.to_string()
+                                        } else if jazz_names {
+                                            formulas::TENSIONS[semi].to_string()
+                                        } else {
+                                            formulas::FUNCS[semi].to_string()
+                                        }
+                                    })
+                                    .collect()
+                            },
+                            formulas::chord_tones_in(
+                                app.formula_mask,
+                                root,
+                                pcs,
+                                app.formula_degree,
+                            ),
+                            format!(
+                                "{} · {} {} {} {}",
+                                word, app.formula_hits, t.of_count, tones, t.chord_tones
+                            ),
+                        )
+                    }
+                    _ => (String::new(), String::new(), vec![], vec![], String::new()),
+                };
+                set_if_changed(ui.get_formula_chord_name(), chord.into(), |v| {
+                    ui.set_formula_chord_name(v)
+                });
+                set_if_changed(ui.get_formula_degree_name(), degree.into(), |v| {
+                    ui.set_formula_degree_name(v)
+                });
+                let label = match &app.formula_chord {
+                    Some(c) if app.formula_exercise != 0 => {
+                        format!("{}{}", t.against_chord, c.root.to_string())
+                    }
+                    _ => String::new(),
+                };
+                set_if_changed(ui.get_formula_against_label(), label.into(), |v| {
+                    ui.set_formula_against_label(v)
+                });
+                set_if_changed(ui.get_formula_verdict(), verdict.into(), |v| {
+                    ui.set_formula_verdict(v)
+                });
+                let against: Vec<SharedString> =
+                    against.into_iter().map(SharedString::from).collect();
+                ui.set_formula_against(ModelRc::from(Rc::new(VecModel::from(against))));
+                ui.set_formula_is_chord_tone(ModelRc::from(Rc::new(VecModel::from(own))));
+            }
             set_if_changed(ui.get_formula_key(), app.formula_key_name.clone().into(), |v| {
                 ui.set_formula_key(v)
             });
@@ -1493,11 +1641,23 @@ fn main() -> Result<(), slint::PlatformError> {
             // list stops saying anything.
             if last_formula_chords.0 != app.formula_mask
                 || last_formula_chords.1 != app.formula_key_name
+                || last_formula_chords.2 != app.formula_degree
             {
-                last_formula_chords = (app.formula_mask, app.formula_key_name.clone());
+                last_formula_chords = (
+                    app.formula_mask,
+                    app.formula_key_name.clone(),
+                    app.formula_degree,
+                );
                 let fits = formulas::chords_inside(app.formula_mask, 7);
-                let names: Vec<SharedString> =
-                    fits.iter().map(|f| SharedString::from(f.name())).collect();
+                // Counted from the chord under the formula when there is one,
+                // so this row agrees with the two above it.
+                let names: Vec<SharedString> = match app.formula_exercise {
+                    0 => fits.iter().map(|f| SharedString::from(f.name())).collect(),
+                    _ => fits
+                        .iter()
+                        .map(|f| SharedString::from(f.name_from(app.formula_degree)))
+                        .collect(),
+                };
                 // The same chords in letters, under the degrees - the note names
                 // under the functions, one row down.
                 let spelled: Vec<SharedString> = match formulas::parse_key(&app.formula_key_name) {
@@ -1843,6 +2003,36 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_formula_jazz_names_changed({
+            let cur = cur.clone();
+            move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.formula_jazz_names = on;
+                cur.save();
+            }
+        });
+        ui.on_formula_exercise_changed({
+            let cur = cur.clone();
+            move |v| {
+                let mut cur = cur.borrow_mut();
+                cur.formula_exercise = v.clamp(0, 2) as u8;
+                cur.save();
+            }
+        });
+    }
+    {
+        let cur = live_cfg.clone();
+        ui.on_formula_placement_changed({
+            let cur = cur.clone();
+            move |v| {
+                let mut cur = cur.borrow_mut();
+                cur.formula_placement = v.clamp(0, 3) as u8;
+                cur.save();
+            }
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_formula_notes_changed(move |n| {
             let mut cur = cur.borrow_mut();
             cur.formula_notes = n.clamp(1, 12) as usize;
@@ -1906,9 +2096,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 cur.save();
                 return;
             }
-            // Not kept yet: ask what to call it, with the formula itself as the
-            // suggestion. Typing over it is one gesture; accepting it is none.
-            ui.set_favourite_name(formulas::to_text(mask).into());
+            // Not kept yet: ask what to call it. The field opens empty so the
+            // word in it can be read, and Enter on an empty field still names
+            // it after the formula - see `on_favourite_named`.
+            ui.set_favourite_name(SharedString::new());
             ui.set_naming(true);
         });
     }
@@ -2071,6 +2262,12 @@ fn main() -> Result<(), slint::PlatformError> {
             app_weak.lock().unwrap().step_chord(delta);
         });
     }
+    {
+        let app_weak = my_app.clone();
+        ui.on_next_change(move || {
+            app_weak.lock().unwrap().next_change();
+        });
+    }
 
     let app_weak_2 = my_app.clone();
     let ui_weak_2 = ui.as_weak();
@@ -2179,6 +2376,20 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_fav_name(t.fav_name.into());
     g.set_fav_pick(t.fav_pick.into());
     g.set_fav_search(t.fav_search.into());
+    g.set_exercise(t.exercise.into());
+    g.set_exercise_key(t.exercise_key.into());
+    g.set_exercise_chord(t.exercise_chord.into());
+    g.set_exercise_changes(t.exercise_changes.into());
+    g.set_placement(t.placement.into());
+    g.set_placement_from(t.placement_from.into());
+    g.set_next_chord(t.next_chord.into());
+    g.set_placement_any(t.placement_any.into());
+    g.set_placement_defines(t.placement_defines.into());
+    g.set_placement_colours(t.placement_colours.into());
+    g.set_placement_outside(t.placement_outside.into());
+    g.set_against_chord(t.against_chord.into());
+    g.set_jazz_names(t.jazz_names.into());
+    g.set_chord_tones(t.chord_tones.into());
     g.set_fav_hint(t.fav_hint.into());
     g.set_fav_add(t.fav_add.into());
     g.set_fav_remove(t.fav_remove.into());

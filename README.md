@@ -1,11 +1,13 @@
 <!-- # Solitito — Real-Time Polyphonic Guitar Trainer -->
 
+*[Wersja polska](README_pl.md)*
+
 **Solitito** is a real-time guitar trainer written in **Rust**. It listens to your guitar
 through an audio interface (recommended) or a microphone, recognises what you are playing,
 and walks you through jazz standards, intervals, scales, arpeggios and interval formulas.
 
 Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
-DSP, inference, UI — happens locally on the CPU. No network, no cloud, no account.
+DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
 <img height="479" alt="Solitito main window" src="docs/solitito_main.png" />
@@ -52,6 +54,8 @@ chord, the app moves on to the next one.
   nearest scale you already know, with the formula's own degrees picked out of it, and the
   chords that fit inside it — point at one and the row above shows what it is built from.
   Pause turns the set blue and stops judging altogether: your turn, improvise inside it.
+  The same formula can also be planted on a chord, or carried across a whole standard —
+  see [practising with formulas](docs/formulas-practice.md) for how to work with all three.
 
 The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — possibly the most
 interesting approach to creative improvisation ever put together.
@@ -70,11 +74,12 @@ The cross on a row throws it out, and the star, filled in, drops the one on scre
 The line under the scale reads **chords that fit inside the formula** — every note of them
 is in the set, so the formula covers them without leaving it once. They are written as a
 degree in roman numerals plus a quality, the degree counted from the formula's own root:
-in the shot above, `bVIMaj7` and `bVI7` both stand on `bVI`, which in the key of C is Ab.
+in the shot above `VI`, `VIm` and `VIsus2` all stand on `VI`, which in the key of E is C#.
 
-That is `AbMaj7` (Ab C Eb **G**) and `Ab7` (Ab C Eb **Gb**) — and both appear because the
-formula holds `5` and `b5` alike, so it covers either seventh. Loop one of those chords and
-the formula is a colour for it: every note lands.
+The major and the minor triad on the same degree both appear because the formula holds `1`
+and `b2` alike — E and F, which read from C# are its major and minor third — and `7`, the
+D# that makes the sus2. Loop any of those chords and the formula is a colour for it: every
+note lands.
 
 Roman for the chords, arabic for the functions above them, so the two rows cannot be
 confused — a dominant seventh on the second degree written in arabic reads "27". Only the
@@ -148,6 +153,8 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Play the notes one at a time** | Note modes only. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, each note has to be played on its own, the CQT estimate overrules the model, and a repeated note needs a fresh attack |
 | **Random order** | The shuffle icon on the toolbar. In the note modes it shuffles the tones inside each chord; in Chords it reorders the progression, and in Scales it redraws the key after every pass |
 | **Shuffle the chords as well** | Intervals and Arpeggios only, and only with the shuffle on. Off, the progression stays as written and just the tones move — shuffled intervals walking a real progression turn into tunes. On, the chords are drawn at random too, which is the more abstract exercise |
+| **Exercise** (formulas) | *Formula in a key* is the mode as it was. *Over a chord* plants the same formula on one drawn chord, and *Over the changes* plants it on every chord of a tune in turn — the formula is the constant, the harmony moves under it |
+| **Placement** | Over a chord: which kind to draw — one that spells the chord out, one that colours it, one outside it, or any. The screen shows the formula's functions read from the chord's root, with the chord's own tones in blue, and counts them |
 | **Notes in a formula** | Formulas only: how many functions each drawn formula has, the root included |
 | **Key** (formulas) | The root to read them against, or a fresh one drawn per formula |
 | **Must contain** | Only draw formulas holding these functions, e.g. `b3 b7`. Empty draws from all 2048 |
@@ -167,247 +174,21 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 The line under `Channel` says what actually opened — device, sample rate, channel count
 and sample format. `./solitito --help` lists every option. `./solitito --devices` prints the same information for every device the backend can see, and `./solitito --bench` times one model inference — the app asks the model every 40 ms while a chord rings, so that figure is essentially the whole of its CPU load. A release build has the `windows` subsystem, so on Windows these modes write to the console that launched them; started with no console at all — from a shortcut carrying the flag — the program opens one of its own and waits for a key, so the report can be read.
 
-### What the names mean on Linux
-
-`default`, `pulse`, `pipewire` and `jack` are not devices. They are paths to a sound server, and
-under PipeWire they all arrive at whatever the desktop has set as the default source. That source
-is often a single socket exported as mono (e.g. built-in microphone), which the ALSA compatibility 
-layer then hands over as two identical channels — so the channel picker has nothing to choose between 
-and appears to do nothing. Which socket you get is decided in the desktop's own sound settings.
-
-Names like `sysdefault:CARD=U192k` are ALSA cards. The card name comes from the chipset rather
-than the model — a Behringer UMC202HD reports as `U192k`, an onboard codec usually as `Generic`.
-Picking the card gives its sockets as real separate channels, but only if the card is free:
-PipeWire normally claims it, and then every name still ends at the server.
-
-This is also why the list is sometimes short. A card can be opened once, so a card that PipeWire or
-another app is holding is missing from the scan entirely and only the four server names remain. The
-list is re-scanned whenever the settings panel opens and never loses an entry it once had, so a card
-that frees up appears without a restart. If the chosen device cannot be opened, the app says so under
-`Channel` and listens on the default — where both channels usually carry the same signal.
-
-None of this applies to Windows, where an interface appears as one stereo device and the channel
-picker means what it says.
-
-Settings live in `$XDG_CONFIG_HOME/solitito/settings.json` (falling back to `~/.config` or
-`%APPDATA%`). A missing or corrupted file falls back to defaults rather than blocking
-startup.
-
-There is also a diagnostic mode:
-
-```bash
-SOLITITO_DEBUG=1 ./solitito
-```
-
-For every prediction it prints the top three qualities and the full pitch vector expressed as
-**intervals relative to the detected root**:
-
-```
-G m7  | min7=97% sus=0% maj=0% | R96# b25 28 b382# 37 44 b56 594# b616 69 b797# 74
-```
-
-This is what separates "the model cannot hear the seventh" from "it hears it and ignores it"
-— two problems that look identical from the chord name alone and lead in opposite directions.
-
-`./solitito --probe recording.wav` answers the same kind of question about a whole recording:
-it runs the file through the live feature path with nothing gated away and prints, for every
-window, the input level, how full the model's context window was, the twelve pitch
-probabilities and the note the CQT alone reports — so "the model cannot hear it" and "the app
-never asked" stop looking alike.
-
-### Why single notes are not judged by the model alone
-
-The model is asked about 48 frames, which is 0.77 s of audio, and it answers about all of it.
-That is right for a chord you hold and wrong for a scale: measured on a scale at 0.6 s per
-note, the pitch head named the note being played in 7% of windows and the one before it in
-79%. Nothing is broken there — the model is reporting both notes it heard, because both were
-in the window.
-
-So the note modes ask a second question of a single CQT frame, which has no memory: a
-harmonic sum over the log-magnitude bins gives the pitch class sounding right now. On the same
-scale it named the current note 57% of the time and never named one that was not played. The
-remaining lag is the 8192-sample FFT window, half a second wide, which is also why notes
-shorter than about 0.4 s are still hard.
-
-By default that estimate only ADDS a way to pass, because overruling the model would cost
-something worth keeping: the pitch head is polyphonic, so strumming a whole chord walks its
-intervals one by one, which no monophonic tuner can do. **Play the notes one at a time** turns
-the estimate into the authority — then the model's window cannot credit the note before the
-one under your fingers, and a repeated note needs a fresh attack.
-
 ---
 
-## How it works
+## Read on
 
-### Signal path
+The rest of the documentation lives in `docs/`, so this page stays about what the app is and
+how to set it up.
 
-```
-audio in → resample to 16 kHz → FFT (8192) → sparse pseudo-CQT → features → ONNX model
-```
-
-1. **Resampling.** Input is resampled to 16 kHz. The CQT spans 6 octaves from C1, so the
-   highest bin sits around 2 kHz — far below the 8 kHz Nyquist limit.
-2. **Pseudo-CQT.** Instead of a real constant-Q transform, the app multiplies the FFT
-   spectrum by a precomputed kernel (144 bins, 24 per octave — quarter-tone resolution).
-   The kernel comes from `librosa.filters.constant_q`, so the app and the trainer produce
-   the same features.
-3. **Features.** 168 values per frame: 144 CQT bins + 12 chroma + 12 bass-energy bins.
-   The model sees 48 frames of history (0.77 s at a 256-sample hop).
-4. **Inference.** One forward pass every 40 ms.
-
-The CQT kernel is stored in a **sparse CSR format**. The full kernel has 4097×144 = 589,968
-weights, but they concentrate around each bin's centre frequency. Dropping everything below
-1e-4 of the peak keeps 6.9% of the weights and changes the output by 0.03% of peak
-(measured on white noise, pink noise and a guitar-like harmonic series). The weights file
-shrinks from 28 MB to 2 MB, and the audio thread does about 14× fewer multiplications per
-frame.
-
-### Model
-
-A hybrid CNN + Transformer with four output heads:
-
-| Stage | Detail |
+| | |
 |---|---|
-| Input | `[48 frames, 168 features]` |
-| CNN | Convolutional blocks with Squeeze-and-Excitation, InstanceNorm |
-| Encoder | Transformer encoder with a CLS token, 384-dim |
-| `root_logits` | 13 classes — 12 pitch classes + "Noise" |
-| `quality_logits` | 11 classes — maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
-| `pitch_logits` | 12 sigmoid outputs — which pitch classes are sounding |
-| `onset_logits` | 12 sigmoid outputs — which pitch classes were STRUCK in the last 6 frames |
-
-The three heads answer different questions and are **not** interchangeable:
-
-- `pitch_logits` is the strongest output (F1 0.909). It answers "which notes are sounding
-  right now", which is exactly what the Intervals / Scales / Arpeggios modes need.
-- `root_logits` names the tonal centre. 98.1%.
-- `quality_logits` names the chord family. This is the hard one.
-- `onset_logits` is the newest, and answers a question the other three cannot: not what is
-  sounding but what was *struck*. Sounding is not enough — an open string ringing in
-  sympathy is sounding, and so is the note before — which matters most in Formulas, where a
-  mark never expires. It was trained on its own, with the rest of the network frozen, so the
-  three heads above are bit-for-bit what they were. Measured against a real recording it is
-  the fastest answer in the app (202 ms after the strike, against 676 ms) but it spreads an
-  attack across neighbouring strings, so nothing is judged by it yet — it is read, logged
-  and being measured. An older three-head model still runs: the names of the first three
-  outputs did not change.
-
----
-
-## Training data
-
-Two sources, solving different problems.
-
-### 1. Synthetic set — exact labels
-
-Generated by `dist/dataset_generator_v2.py`. One Guitar Pro file plus the annotations,
-written directly:
-
-1. The generator lays out 394 blocks of 6 s each (3 measures at 120 BPM) covering 12 roots ×
-   {maj, min, maj7, dom7, min7, m7b5, dim7, sus4, aug} in several fretboard positions, plus
-   all 96 single notes (6 strings × 16 frets).
-2. Before generating, it **self-tests every movable shape at every fret** and checks that it
-   actually produces the declared intervals. A typo in the shape table stops generation
-   instead of silently poisoning the dataset.
-3. It writes `synth_annotations.csv` at the same time as the GP5. The generator knows which
-   measure each block occupies, so nothing has to be recovered from audio later.
-4. The guitar track is exported as a DI signal and rendered in a DAW through
-   [NAM](https://www.neuralampmodeler.com/) twice: `synth_dataset_clean.wav` (Fender Deluxe
-   Reverb clean) and `synth_dataset_eob.wav` (edge of breakup).
-5. `dataset_generator_v2.py --calibrate <wav>` measures where the first attack lands, in case
-   the DAW added silence at the start.
-6. `verify_annotations.py` compares each label against the actual audio content before
-   training.
-
-
-**The generator emits labels directly, and a  separate script verifies that the labels describe the audio.** Full procedure in
-[dist/HOW_TO_PREPARE_DATASET.md](dist/HOW_TO_PREPARE_DATASET.md).
-
-### 2. GuitarSet — real guitar
-
-[GuitarSet](https://guitarset.weebly.com/) is 360 recordings with JAMS annotations, captured
-with a hexaphonic pickup. 
-
-## Results
-
-Model `v2_take6`, measured on a source-grouped validation split with solo windows excluded:
-
-| metric | value |
-|---|---|
-| Root accuracy | **98.1%** |
-| Pitch F1 | **0.909** |
-| Exact match (root **and** quality) | **92.4%** |
-
-Per-quality accuracy at the best checkpoint: `dom7` 97%, `min7` 93%, `min` 92%, `sus` 91%,
-`maj` 89%, `maj7` 89%; `m7b5`, `dim7` and `aug` above 97%.
-
-The train–validation gap on quality is 6.5 points, so the model sits close to the ceiling its
-data allows. More epochs will not help; more varied real-guitar recordings would.
-
-The same pipeline, measured honestly at each stage:
-
-| run | change | exact match |
-|---|---|---|
-| take4 | source-grouped split — honest baseline | 44.8% |
-| take5 | solo recordings masked | 82.3% |
-| take6 | `performed` chord annotations | **92.4%** |
-
----
-
-## 📄 Custom file formats
-
-`user_songs.txt`
-
-```
-My Song Title
-Cm7 F7 BbMaj7 EbMaj7
-```
-
-`user_scales_def.txt`
-
-```
-My Scale Name
-1 b2 3 4 5 b6 7
-```
-
----
-
-## Running it
-
-Ready packages are attached to each [release](../../releases) — binary, ONNX
-Runtime, the model and the DSP weights, nothing else needed:
-
-```bash
-tar xzf solitito_linux-*.tar.gz && cd solitito_linux-* && ./solitito.sh
-```
-
-On Windows, unpack the zip and run `solitito.exe`.
-
-### From source
-
-```bash
-cargo build --release
-```
-
-The binary needs two files in its working directory. `dsp_weights.json` is in
-this repository; the model is not, because it is 29 MB:
-
-```bash
-curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
-```
-
-`./solitito --check` loads both and reports whether they are usable, which is
-also what the release workflow runs against every package it builds.
-
-The app refuses to start on an old dense `dsp_weights.json` rather than accepting
-it silently: the previous format also carried a different chroma mapping, which
-would feed the model features it was not trained on. Regenerate with
-`python dist/gen_weights.py` (needs librosa).
-
-```bash
-cargo build --release
-./target/release/solitito
-```
+| [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
+| [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, and the diagnostic modes |
+| [How it works](docs/how-it-works.md) | Signal path, the model, and why single notes are not judged by the model alone |
+| [Training data and results](docs/training-data.md) | The synthetic set, GuitarSet, and what each fix was worth |
+| [Custom file formats](docs/file-formats.md) | Your own songs and scales |
+| [Running it](docs/running.md) | Packages, and building from source |
 
 ## Detailed Project summary
 

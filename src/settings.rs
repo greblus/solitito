@@ -80,6 +80,21 @@ pub struct Settings {
     /// setting again after every switch is what a saved value is for.
     #[serde(default)]
     pub gates: HashMap<String, f32>,
+    /// Which formula exercise: 0 the formula in a key of its own (what the mode
+    /// has always been), 1 the same formula planted on one chord, 2 planted on
+    /// each chord of a tune in turn.
+    #[serde(default)]
+    pub formula_exercise: u8,
+    /// What kind of placement to draw over a chord: 0 any, 1 one that spells the
+    /// chord out, 2 one that colours it, 3 one outside it.
+    #[serde(default)]
+    pub formula_placement: u8,
+    /// Name what falls outside the chord as a tension - b9, #11, b13 - instead
+    /// of by its plain function. Off by default: the plain functions are the
+    /// language the whole mode is written in, and the jazz names are a second
+    /// vocabulary to learn.
+    #[serde(default)]
+    pub formula_jazz_names: bool,
     /// Formulas mode: how many notes each drawn formula has, the root included.
     #[serde(default = "five_notes")]
     pub formula_notes: usize,
@@ -178,6 +193,9 @@ impl Default for Settings {
             audio_device: None,
             audio_channel: 1,
             gates: HashMap::new(),
+            formula_jazz_names: false,
+            formula_exercise: 0,
+            formula_placement: 0,
             formula_notes: 5,
             formula_key: "C".to_string(),
             formula_random_key: true,
@@ -267,6 +285,14 @@ impl Settings {
     /// the draw would come back empty every time with nothing to explain it.
     fn clamp_formulas(&mut self) {
         self.formula_notes = self.formula_notes.clamp(1, 12);
+        // A file written by a newer build, or by hand: an exercise nobody
+        // implements would leave the mode drawing nothing at all.
+        if self.formula_exercise > 2 {
+            self.formula_exercise = 0;
+        }
+        if self.formula_placement > 3 {
+            self.formula_placement = 0;
+        }
         if crate::formulas::parse_key(&self.formula_key).is_none() {
             self.formula_key = key_of_c();
         }

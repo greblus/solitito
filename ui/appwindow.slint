@@ -332,6 +332,20 @@ export global Tr {
     in-out property <string> fav_name: "Name it:";
     in-out property <string> fav_pick: "Favourites: ";
     in-out property <string> fav_search: "search";
+    in-out property <string> exercise: "Exercise: ";
+    in-out property <string> exercise_key: "Formula in a key";
+    in-out property <string> exercise_chord: "Over a chord";
+    in-out property <string> exercise_changes: "Over the changes";
+    in-out property <string> placement: "Placement: ";
+    in-out property <string> placement_from: "Placed from ";
+    in-out property <string> next_chord: "next chord";
+    in-out property <string> placement_any: "any";
+    in-out property <string> placement_defines: "spells the chord out";
+    in-out property <string> placement_colours: "colours it";
+    in-out property <string> placement_outside: "outside it";
+    in-out property <string> against_chord: "Relative to ";
+    in-out property <string> jazz_names: "Name tensions the jazz way";
+    in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
     in-out property <string> fav_remove: "Drop it from the favourites";
@@ -454,6 +468,21 @@ export component AppWindow inherits Window {
     in property <[string]> formula_scale_degrees;
     in property <[bool]> formula_scale_in;
     /// Chords playable without leaving the formula, e.g. ["1m7","b36"].
+    /// The chord the formula is planted on, and where its `1` sits on that
+    /// chord - empty in the plain key exercise, which has no chord at all.
+    in property <string> formula_chord_name;
+    in property <string> formula_degree_name;
+    /// The same functions read against the chord's root, and which of them are
+    /// the chord's own tones. Parallel to `formula_functions`.
+    in property <[string]> formula_against;
+    /// "Relative to F" - the heading over that row, since without it the row
+    /// reads as a second opinion about the formula rather than as the chord's
+    /// view of it.
+    in property <string> formula_against_label;
+    in property <[bool]> formula_is_chord_tone;
+    /// "colours it · 2 of 4 chord tones", built in Rust so the wording stays
+    /// with the rest of the translations.
+    in property <string> formula_verdict;
     in property <[string]> formula_chords;
     /// The same chords in letters, e.g. ["AbMaj7"]. Empty when the names are
     /// switched off. Parallel to `formula_chords`.
@@ -526,6 +555,16 @@ export component AppWindow inherits Window {
     // --- FORMULAS OPTIONS ---
     in-out property <int> formula_notes: 5;
     callback formula_notes_changed(int);
+    /// 0 the formula in a key, 1 over one chord, 2 over the changes of a tune.
+    in-out property <int> formula_exercise: 0;
+    callback formula_exercise_changed(int);
+    /// 0 any placement, 1 one that spells the chord out, 2 colours, 3 outside.
+    in-out property <bool> formula_jazz_names: false;
+    callback formula_jazz_names_changed(bool);
+    in-out property <int> formula_placement: 0;
+    callback formula_placement_changed(int);
+    /// The next chord of the tune under the formula, over the changes.
+    callback next_change();
     in-out property <string> formula_key_text: "C";
     in-out property <bool> formula_random_key: true;
     callback formula_random_key_changed(bool);
@@ -714,9 +753,10 @@ export component AppWindow inherits Window {
             // `if`, not `visible`: a hidden element still holds its place in
             // the column, and two of them left the formulas block sitting a
             // line lower than every other mode.
-            if root.current_mode != 5 : Text {
-                // Formulas have no song yet. When they are played over standards
-                // this comes back, and so does the strip at the bottom.
+            if root.current_mode != 5 || root.formula_exercise == 2 : Text {
+                // Formulas have no song of their own - but played over the
+                // changes they borrow one, and then its name belongs here as
+                // much as it does in Chords.
                 text: root.song_title;
                 font-size: 26px;
                 color: #aaa;
@@ -735,16 +775,42 @@ export component AppWindow inherits Window {
             // FORMULAS. Plain text, like the other modes: the functions carry
             // the exercise and a frame around each would only add furniture.
             if root.current_mode == 5 : fbox := VerticalLayout {
-                spacing: 16px;
+                // Over a chord the column carries two rows and a verdict more
+                // than it does in a key, and at 16px between blocks that was
+                // taller than the window: the words under the pause ended up
+                // past the padding, all but touching the bottom edge.
+                spacing: root.formula_exercise == 0 ? 16px : 9px;
                 // The lines around the functions grow with the box too, or a
                 // wide window reads as one large row surrounded by fine print.
                 // Held well under the box's own 1.7x: these are captions.
                 property <float> zoom: min(1.35, root.box_w / root.design_w);
 
-                Text {
+                // Over a chord the chord is the heading and the key line goes:
+                // the formula is not in a key any more, it is planted on a
+                // degree of what is sounding under it.
+                if root.formula_chord_name != "" : Text {
+                    text: root.formula_chord_name;
+                    font-size: 30px * fbox.zoom;
+                    color: #ddd;
+                    horizontal-alignment: center;
+                }
+                if root.formula_chord_name != "" : Text {
+                    text: Tr.placement_from + root.formula_degree_name;
+                    font-size: 15px * fbox.zoom;
+                    color: #888;
+                    horizontal-alignment: center;
+                }
+                if root.formula_chord_name == "" : Text {
                     text: Tr.formula_key_line + " " + root.formula_key;
                     font-size: 22px * fbox.zoom;
                     color: #aaa;
+                    horizontal-alignment: center;
+                }
+
+                if root.formula_against_label != "" : Text {
+                    text: root.formula_against_label;
+                    font-size: 13px * fbox.zoom;
+                    color: #777;
                     horizontal-alignment: center;
                 }
 
@@ -772,6 +838,17 @@ export component AppWindow inherits Window {
                         property <bool> in_chord: root.formula_hover >= 0
                             && root.formula_chord_in[
                                 root.formula_hover * root.formula_functions.length + i];
+                        // Above the functions, not below them: the chord is
+                        // the heading of this screen, so what the notes are TO
+                        // the chord belongs directly under it, and the formula's
+                        // own reading stays the big row in the middle.
+                        if root.formula_against.length > i : Text {
+                            text: root.formula_against[i];
+                            font-size: max(11px, func_row.fsize * 0.4);
+                            font-weight: root.formula_is_chord_tone[i] ? 700 : 400;
+                            color: root.formula_is_chord_tone[i] ? #6aa9ff : #666;
+                            horizontal-alignment: center;
+                        }
                         Text {
                             text: f;
                             font-size: func_row.fsize;
@@ -798,6 +875,13 @@ export component AppWindow inherits Window {
                             horizontal-alignment: center;
                         }
                     }
+                }
+
+                if root.formula_verdict != "" : Text {
+                    text: root.formula_verdict;
+                    font-size: 15px * fbox.zoom;
+                    color: #aaa;
+                    horizontal-alignment: center;
                 }
 
                 // What this formula is nearly. The scale is spelled out under
@@ -896,26 +980,40 @@ export component AppWindow inherits Window {
                 // The star: keep this formula, or let go of one already kept. In the
                 // middle of the column, between what the formula IS and what to do
                 // with it, and no bigger than the shuffle it borrows its manner from.
-                if root.current_mode == 5 : HorizontalLayout {
+                if root.current_mode == 5 : VerticalLayout {
+                    spacing: 6px;
+
+                // The star hangs in the middle of the space between the chords
+                // above and the pause below, rather than sitting on top of the
+                // pause: the box takes whatever slack the column has to give,
+                // with a floor of its own, and the star is placed at its centre
+                // by hand. A layout would have stretched the star itself.
+                star_box := Rectangle {
+                    vertical-stretch: 1;
+                    min-height: 84px;
+                    HorizontalLayout {
+                    width: 100%;
+                    height: 54px;
+                    y: (star_box.height - self.height) / 2;
                     alignment: center;
                     spacing: 12px;
-                    IconToggle {
+                    // Out of the way while a name is being typed: standing
+                    // beside the field it was pushed off centre by it, and
+                    // there is nothing to click on it until the name is in.
+                    if !root.naming : IconToggle {
                         // Filled when kept, outline when not - the glyph carries the
                         // state, so the plate does not have to.
                         icon: root.formula_starred ? root.icon_star_on : root.icon_star;
                         active: false;
                         dim: !root.formula_starred;
                         invert: false;
-                        width: 34px;
-                        height: 34px;
+                        // Bigger than the toolbar icons it borrows its manner
+                        // from: those sit in a row of six and this one stands
+                        // alone in the middle of the screen.
+                        width: 54px;
+                        height: 54px;
                         toggled => { root.star_clicked(); }
                         changed hovered => { root.star_hover = self.hovered; }
-                    }
-                    if root.naming : Text {
-                        text: Tr.fav_name;
-                        color: #888;
-                        font-size: 13px;
-                        vertical-alignment: center;
                     }
                     // The scope is there for Escape alone: a LineEdit has no key
                     // callback of its own, and the text field rejects the key, so
@@ -937,6 +1035,10 @@ export component AppWindow inherits Window {
                         fav_edit := LineEdit {
                             width: 100%;
                             height: 100%;
+                            // The word sits in the field in grey and leaves the
+                            // moment anything is typed, rather than standing
+                            // beside it as a label with nothing to line up on.
+                            placeholder-text: Tr.fav_name;
                             text <=> root.favourite_name;
                             accepted => {
                                 root.favourite_named(root.favourite_name);
@@ -945,6 +1047,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                    }
 
                 // In Formulas the pause is an exercise of its own: the whole set
                 // lit and nothing judged, so the thing to do is play inside it.
@@ -953,7 +1056,7 @@ export component AppWindow inherits Window {
                 // disappearing, it pushed everything below it down - the words
                 // under the pause button slid towards the bottom edge on every
                 // pause and back again on every release.
-                if root.current_mode == 5 : Text {
+                Text {
                     // Fixed height, not just a line that is sometimes empty: an
                     // empty string is measured as no line at all, so the column
                     // still shrank and everything below it slid up and down with
@@ -969,7 +1072,7 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
-                if root.current_mode == 5 : HorizontalLayout {
+                HorizontalLayout {
                     alignment: center;
                     IconToggle {
                         icon: root.paused ? root.icon_play : root.icon_pause;
@@ -980,6 +1083,7 @@ export component AppWindow inherits Window {
                         height: 68px;
                         toggled => { root.paused = !root.paused; }
                     }
+                }
                 }
             }
 
@@ -1160,8 +1264,20 @@ export component AppWindow inherits Window {
             // Formulas have no progression to walk, but a formula stands until
             // it is asked to move, and this is the asking. The words alone: two
             // arrows either side of them said the same thing three times over.
+            //
+            // Over the changes there are two things to ask for, and they are
+            // not the same: the next chord of the tune, or another formula to
+            // carry through it.
             if root.current_mode == 5 : HorizontalLayout {
                 alignment: center;
+                spacing: 26px;
+                if root.formula_exercise == 2 : Text {
+                    text: Tr.next_chord;
+                    font-size: 15px;
+                    color: step_word.has-hover ? #6aa9ff : #4a7fd0;
+                    vertical-alignment: center;
+                    step_word := TouchArea { clicked => { root.next_change(); } }
+                }
                 Text {
                     text: Tr.formula_another;
                     font-size: 15px;
@@ -1470,10 +1586,12 @@ export component AppWindow inherits Window {
                         padding: 15px;
                         spacing: 18px;
 
-                        // Neither the fretboard trainer nor formulas read from
-                        // the library - one draws its own notes, the other its
-                        // own formulas.
-                        if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
+                        // The fretboard trainer draws its own notes and formulas
+                        // draw their own sets - except over the changes, where
+                        // the tune under the formula comes from this same list.
+                        if root.current_mode != 4
+                           && (root.current_mode != 5 || root.formula_exercise == 2)
+                           : HorizontalLayout {
                             Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
                             Dropdown {
                                     width: root.ctrl_w;
@@ -1582,6 +1700,58 @@ export component AppWindow inherits Window {
                         if root.current_mode == 5 : VerticalLayout {
                             spacing: 12px;
 
+                            // Which of the three exercises. First in the block
+                            // because the rows under it change with it: over a
+                            // chord there is no key to set, and the kind of
+                            // placement only means something once there is one.
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.exercise; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                Dropdown {
+                                    width: root.ctrl_w;
+                                    model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
+                                    // Two-way, or the pick reaches the file and
+                                    // nothing else: the view reads this property
+                                    // for what to show, and the gear watches it
+                                    // to know the panel has been touched.
+                                    current-index <=> root.formula_exercise;
+                                    selected(v) => { root.formula_exercise_changed(v); }
+                                }
+                            }
+
+                            if root.formula_exercise != 0 : HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.placement; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                Dropdown {
+                                    width: root.ctrl_w;
+                                    model: [Tr.placement_any, Tr.placement_defines,
+                                            Tr.placement_colours, Tr.placement_outside];
+                                    current-index <=> root.formula_placement;
+                                    selected(v) => { root.formula_placement_changed(v); }
+                                }
+                            }
+
+                            if root.formula_exercise != 0 : HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.formula_jazz_names;
+                                    toggled => { root.formula_jazz_names_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.jazz_names;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+
                             HorizontalLayout {
                                 alignment: start;
                                 spacing: 10px;
@@ -1595,11 +1765,14 @@ export component AppWindow inherits Window {
                                     width: 90px;
                                     model: ["1","2","3","4","5","6","7","8","9","10","11","12"];
                                     current-index: root.formula_notes - 1;
-                                    selected(v) => { root.formula_notes_changed(v + 1); }
+                                    selected(v) => {
+                                        root.formula_notes = v + 1;
+                                        root.formula_notes_changed(v + 1);
+                                    }
                                 }
                             }
 
-                            HorizontalLayout {
+                            if root.formula_exercise == 0 : HorizontalLayout {
                                 alignment: start;
                                 spacing: 10px;
                                 Text {

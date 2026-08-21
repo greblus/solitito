@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
-use crate::brain::ChordBrain;
 use crate::arpeggio;
 use crate::rng::Rng;
 use crate::fretboard::Region;
@@ -87,7 +86,6 @@ pub const FORMULA_LAP_PAUSE: f32 = 0.6;
 
 pub struct MyApp {
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
-    pub brain: Option<Arc<Mutex<ChordBrain>>>,
     
     pub song_library: Vec<Song>,
     pub scale_definitions: Vec<ScaleDefinition>,
@@ -281,6 +279,21 @@ pub struct MyApp {
     /// The formula being practised, as a bitmask of functions.
     pub formula_mask: u16,
     /// Pitch class of its root, 0 = C.
+    /// Which of the three formula exercises is running: 0 the formula in a key
+    /// of its own, 1 the same formula planted on one chord, 2 planted on every
+    /// chord of a tune in turn. See `place_over_chord`.
+    pub formula_exercise: u8,
+    /// What kind of placement to draw: 0 any, 1 defines, 2 colours, 3 outside.
+    pub formula_placement_want: u8,
+    /// The chord the formula is being played over, in exercises 1 and 2.
+    pub formula_chord: Option<Chord>,
+    /// Semitones above that chord's root where the formula's `1` sits.
+    pub formula_degree: usize,
+    /// How many of the chord's own tones the placement covers, and what that
+    /// makes it. Both for display: the count is the lesson, the word is a label
+    /// on the count.
+    pub formula_hits: u32,
+    pub formula_verdict: Option<crate::formulas::Verdict>,
     pub formula_root: usize,
     /// How that root is spelled, for the screen.
     pub formula_key_name: String,
@@ -296,7 +309,10 @@ pub struct MyApp {
 }
 
 impl MyApp {
-    pub fn new(state: Arc<Mutex<AudioAnalysis>>, brain: Option<Arc<Mutex<ChordBrain>>>) -> Self {
+    /// The model is NOT held here. It lives in the thread that asks it, and
+    /// its answers arrive through `AiResult` - a handle on this side was never
+    /// read, and holding one would invite calling it from the UI thread.
+    pub fn new(state: Arc<Mutex<AudioAnalysis>>) -> Self {
         let song_library = load_songs();
         let scale_definitions = load_all_scale_definitions();
         let arpeggio_patterns = load_arpeggio_patterns();
@@ -309,7 +325,6 @@ impl MyApp {
 
         Self {
             analysis_state: state,
-            brain,
             song_library,
             scale_definitions,
             arpeggio_patterns,
@@ -376,6 +391,12 @@ impl MyApp {
             onset_id: 0,
             credited: None,
             formula_mask: 0,
+            formula_exercise: 0,
+            formula_placement_want: 0,
+            formula_chord: None,
+            formula_degree: 0,
+            formula_hits: 0,
+            formula_verdict: None,
             formula_root: 0,
             formula_key_name: String::new(),
             formula_collected: Vec::new(),
@@ -587,8 +608,24 @@ impl MyApp {
         }
     }
 
+    /// Reads the library again for whatever mode is running.
+    ///
+    /// Public for the one caller outside: switching a formula exercise to "over
+    /// the changes" needs a tune under it before the next chord can be taken.
+    pub fn reload_library(&mut self) {
+        self.reload_library_content();
+    }
+
     fn reload_library_content(&mut self) {
         if self.app_mode == AppMode::Formulas {
+            // Over the changes the formula needs a tune under it, and that is
+            // the same library Chords reads from.
+            if self.formula_exercise == 2 && self.selected_library_idx < self.song_library.len() {
+                let song = &self.song_library[self.selected_library_idx];
+                self.song_title = song.title.clone();
+                self.chords = song.chords.clone();
+                self.current_chord_index = 0;
+            }
             self.next_formula();
             return;
         }
@@ -703,6 +740,13 @@ impl MyApp {
             self.formula_root = d.key.pitch() as usize;
             self.formula_key_name = d.key.name();
             self.formula_collected = vec![false; d.mask.count_ones() as usize];
+            // Over a chord the drawn key is thrown away again: what the formula
+            // is read against is the chord, and where its `1` sits is the
+            // placement, not a key of its own.
+            if self.formula_exercise != 0 {
+                self.take_chord(true);
+                self.place_over_chord();
+            }
             // As after a finished lap: whatever is still ringing belongs to the
             // formula that has gone.
             self.lap_hold = LAP_HOLD;
@@ -717,6 +761,116 @@ impl MyApp {
             self.success_timer = 0.0;
             self.match_status = MatchStatus::None;
         }
+    }
+
+    /// The chord under the formula, as a root and a set of pitch classes.
+    fn chord_under(&self) -> Option<(usize, u16)> {
+        let c = self.formula_chord.as_ref()?;
+        let root = c.root as usize;
+        let mut pcs = 0u16;
+        for i in c.quality.intervals() {
+            pcs |= 1 << ((root + i as usize) % 12);
+        }
+        Some((root, pcs))
+    }
+
+    /// A chord to practise over, drawn at random.
+    ///
+    /// The five qualities the app already knows, over any of the twelve roots.
+    /// Drawn rather than chosen from a tune: this exercise is about hearing one
+    /// formula land on one chord in twelve different ways, and a tune would
+    /// keep taking the chord away before that had happened.
+    fn draw_practice_chord(&mut self) -> Chord {
+        const QUALITIES: [ChordQuality; 5] = [
+            ChordQuality::Major7,
+            ChordQuality::Dominant7,
+            ChordQuality::Minor7,
+            ChordQuality::HalfDiminished,
+            ChordQuality::Diminished,
+        ];
+        Chord {
+            root: NoteName::from_index(self.rng.below(12)),
+            quality: QUALITIES[self.rng.below(QUALITIES.len())].clone(),
+        }
+    }
+
+    /// Plants the standing formula on the standing chord.
+    ///
+    /// The formula does not change - only where its `1` is put, which is the
+    /// whole of the exercise: the same set from the chord's own root spells the
+    /// chord out, and from another degree it colours it or leaves it
+    /// altogether. Everything downstream still works in
+    /// terms of `formula_root`, so a placement is just a root arrived at a
+    /// different way.
+    pub fn place_over_chord(&mut self) {
+        let Some((root, pcs)) = self.chord_under() else { return };
+        let want = match self.formula_placement_want {
+            1 => Some(crate::formulas::Verdict::Defines),
+            2 => Some(crate::formulas::Verdict::Colours),
+            3 => Some(crate::formulas::Verdict::Outside),
+            _ => None,
+        };
+        let p = crate::formulas::draw_placement(
+            &mut self.rng,
+            self.formula_mask,
+            root,
+            pcs,
+            want,
+        );
+        self.formula_degree = p.degree;
+        self.formula_hits = p.hits;
+        self.formula_verdict = Some(p.verdict);
+        self.formula_root = (root + p.degree) % 12;
+        self.formula_key_name = crate::formulas::KEY_POOL[self.formula_root].to_string();
+        for done in self.formula_collected.iter_mut() {
+            *done = false;
+        }
+        self.lap_hold = LAP_HOLD;
+        self.success_timer = 0.0;
+        self.match_status = MatchStatus::None;
+    }
+
+    /// The chord the exercise is played over, drawn or taken from the tune.
+    fn take_chord(&mut self, advance: bool) {
+        match self.formula_exercise {
+            1 => {
+                if advance || self.formula_chord.is_none() {
+                    self.formula_chord = Some(self.draw_practice_chord());
+                }
+            }
+            2 => {
+                if self.chords.is_empty() {
+                    // No tune loaded yet: one drawn chord is better than none,
+                    // and the tune takes over as soon as it arrives.
+                    if self.formula_chord.is_none() {
+                        self.formula_chord = Some(self.draw_practice_chord());
+                    }
+                    return;
+                }
+                if advance {
+                    self.current_chord_index =
+                        (self.current_chord_index + 1) % self.chords.len();
+                }
+                self.formula_chord = Some(self.chords[self.current_chord_index].clone());
+            }
+            _ => {
+                self.formula_chord = None;
+                self.formula_verdict = None;
+            }
+        }
+    }
+
+    /// The next chord of the tune, with a placement drawn on it.
+    ///
+    /// Asked for by hand, from the line under the pause: over the changes there
+    /// are two things one might want next - the next chord, or a different
+    /// formula to carry through the tune - and they are different gestures.
+    pub fn next_change(&mut self) {
+        if self.formula_exercise == 0 {
+            return;
+        }
+        self.take_chord(true);
+        self.place_over_chord();
     }
 
     /// Has the estimate been naming this class? See `EAR_VOTES`.
@@ -797,6 +951,15 @@ impl MyApp {
     /// is the same exercise. A different formula, or a different key for it,
     /// comes from the arrows or the settings.
     pub fn restart_formula(&mut self) {
+        // Over a chord a finished lap is not a repeat: the exercise is the same
+        // formula heard from somewhere else, so the placement moves. Over a
+        // tune the chord moves too, and the formula is carried across it: the
+        // constant is the set, and the harmony is what moves under it.
+        if self.formula_exercise != 0 {
+            self.take_chord(self.formula_exercise == 2);
+            self.place_over_chord();
+            return;
+        }
         for done in self.formula_collected.iter_mut() {
             *done = false;
         }
@@ -829,6 +992,11 @@ impl MyApp {
     /// start again. A key that cannot be read leaves the old one in place, as
     /// `next_formula` leaves the old formula when the filter matches nothing.
     pub fn rekey_formula(&mut self) {
+        if self.formula_exercise != 0 {
+            self.take_chord(false);
+            self.place_over_chord();
+            return;
+        }
         let key = if self.formula_random_key {
             crate::formulas::draw_key(&mut self.rng)
         } else {
@@ -1416,7 +1584,7 @@ pub(crate) mod tests {
             gate_open: false,
             frames_seen: 0,
         }));
-        let mut a = MyApp::new(analysis, None);
+        let mut a = MyApp::new(analysis);
         a.chords = vec![
             Chord { root: NoteName::C, quality: ChordQuality::Major7 },
             Chord { root: NoteName::D, quality: ChordQuality::Minor7 },
@@ -2628,6 +2796,81 @@ mod generator_tests {
             a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
             assert_eq!(a.formula_key_name, key, "the lap moved the key");
             assert_eq!(a.formula_mask, mask, "the lap moved the formula");
+        }
+    }
+
+    #[test]
+    fn over_a_chord_the_lap_moves_the_placement_and_keeps_the_chord() {
+        let mut a = app();
+        a.formula_exercise = 1;
+        a.set_mode(AppMode::Formulas as i32);
+        let chord = a.formula_chord.clone().expect("no chord to play over");
+        let mask = a.formula_mask;
+        let mut degrees = std::collections::HashSet::new();
+        for _ in 0..40 {
+            degrees.insert(a.formula_degree);
+            a.restart_formula();
+            assert_eq!(a.formula_mask, mask, "the formula moved with the placement");
+            let now = a.formula_chord.clone().unwrap();
+            assert_eq!(now.root, chord.root, "the chord moved");
+        }
+        assert!(degrees.len() > 1, "the placement never moved");
+        // And the root the exercise is read from is the chord's root plus the
+        // degree, which is what makes a placement a placement.
+        let root = a.formula_chord.as_ref().unwrap().root as usize;
+        assert_eq!(a.formula_root, (root + a.formula_degree) % 12);
+    }
+
+    #[test]
+    fn over_the_changes_the_lap_moves_the_chord() {
+        let mut a = app();
+        a.formula_exercise = 2;
+        a.set_mode(AppMode::Formulas as i32);
+        // Whatever the library gave it, the tune has to be walked in order.
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Minor7 },
+            Chord { root: NoteName::F, quality: ChordQuality::Dominant7 },
+            Chord { root: NoteName::Bf, quality: ChordQuality::Major7 },
+        ];
+        a.current_chord_index = 0;
+        let mask = a.formula_mask;
+        let mut seen = vec![];
+        for _ in 0..6 {
+            a.restart_formula();
+            seen.push(a.formula_chord.as_ref().unwrap().root);
+            assert_eq!(a.formula_mask, mask, "the formula did not survive the chord");
+        }
+        assert_eq!(
+            seen,
+            vec![NoteName::F, NoteName::Bf, NoteName::C,
+                 NoteName::F, NoteName::Bf, NoteName::C],
+            "the changes are walked in order and round again",
+        );
+    }
+
+    #[test]
+    fn asking_for_a_kind_of_placement_gets_that_kind() {
+        let mut a = app();
+        a.formula_exercise = 1;
+        a.formula_placement_want = 1; // spells the chord out
+        a.set_mode(AppMode::Formulas as i32);
+        // A chord and a formula chosen rather than drawn: over some pairs no
+        // placement spells the chord out at all, and the draw then answers with
+        // what exists rather than refusing - see `draw_placement`. That
+        // fallback is the subject of its own test; this one is about getting
+        // the kind that was asked for.
+        a.formula_mask = crate::formulas::parse("1 b3 5 b7").unwrap();
+        a.formula_collected = vec![false; 4];
+        a.formula_chord = Some(Chord { root: NoteName::C, quality: ChordQuality::Minor7 });
+        a.place_over_chord();
+        for _ in 0..30 {
+            assert_eq!(
+                a.formula_verdict,
+                Some(crate::formulas::Verdict::Defines),
+                "degree {}",
+                a.formula_degree,
+            );
+            a.restart_formula();
         }
     }
 
