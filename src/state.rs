@@ -71,6 +71,11 @@ const LAP_HOLD: f32 = 0.25;
 /// the run was rarely reached before the next note began. Four of five
 /// forgives one stray frame and still refuses a reading that cannot make up its
 /// mind: an estimate alternating between two classes reaches two, never three.
+/// How much attack the onset head has to report for a class to count as struck,
+/// when the option asking for one is on. Measured: at 0.02 two thirds of the
+/// model's false credits go and the played notes keep passing.
+const ONSET_MIN: f32 = 0.02;
+
 const EAR_VOTES: usize = 4;
 const EAR_WINDOW: usize = 5;
 
@@ -204,6 +209,19 @@ pub struct MyApp {
     /// recording, the pitch head is right about what SOUNDS in 94% of frames and
     /// still leaves 78% of notes with some class lit that nobody played - an
     /// open string ringing in sympathy is sounding, and so is the note before.
+    /// The model's two branches may only credit a class the onset head says was
+    /// STRUCK. Off by default; the option reads "credit only what was struck".
+    ///
+    /// Measured on a recording of single notes (`--probe`, 364 frames the app
+    /// would ask about): of 83 credits the model would hand out for a class
+    /// other than the one being played, two thirds carry no attack at all, and
+    /// almost all of those are the PREVIOUS note still inside the model's
+    /// 0.77 s window - which is the very thing the head was trained to tell
+    /// apart. The notes themselves keep passing on the CQT branch, which this
+    /// does not touch, so on that recording it costs nothing; an earlier
+    /// measurement of the whole crediting rule put the cost at 4 missed notes
+    /// in 49, so it is not free everywhere. Hence an option, not a default.
+    pub require_onset: bool,
     pub last_onsets: [f32; 12],
     /// The highest each class has reached over the last few ticks. The app is
     /// answered every 40 ms and a strike is over faster than that, so asking
@@ -370,6 +388,7 @@ impl MyApp {
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
             prev_pitches: [0.0; 12],
+            require_onset: false,
             last_onsets: [0.0; 12],
             onset_recent: [[0.0; 12]; ONSET_MEMORY],
             onset_age: u32::MAX,
@@ -1158,7 +1177,13 @@ impl MyApp {
         //    past. The root head below is left as a second opinion, so a note
         //    the CQT reads badly still has a way through.
         let stale = self.single_notes && self.cqt_pitch.is_some_and(|now| now != target);
-        if !stale && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
+        // The head is believed only while it has something to say: an answer
+        // older than one frame is about a note that has already gone. The
+        // threshold is low on purpose - what is separated here is "struck" from
+        // "no attack at all", not loud from quiet.
+        let struck = !self.require_onset
+            || (self.onset_age <= 1 && self.last_onsets[target] >= ONSET_MIN);
+        if !stale && struck && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
             return Some(2);
         }
 
@@ -1174,6 +1199,7 @@ impl MyApp {
             .map(|i| self.last_pitches[i] - self.prev_pitches[i])
             .fold(f32::NEG_INFINITY, f32::max);
         if !stale
+            && struck
             && had_content
             && p_target >= self.note_threshold
             && rise > 0.05
@@ -2071,6 +2097,43 @@ pub(crate) mod tests {
         assert!(
             !a.note_is_sounding(4, None, 0.0),
             "with the option on, E has to be played on its own"
+        );
+    }
+
+    /// The note before, still ringing inside the model's window, is what the
+    /// option is aimed at: the model reports it as sounding and it is, but it
+    /// was not struck.
+    #[test]
+    fn what_was_struck_can_be_asked_for() {
+        let mut a = app();
+        a.note_threshold = 0.6;
+        a.single_notes = false;
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[0] = 0.95;            // C, being played
+        a.last_pitches[10] = 0.93;           // Bb, the note before, still ringing
+        a.cqt_pitch = Some(0);
+
+        // Without the option both pass, which is the complaint.
+        assert!(a.note_is_sounding(0, None, 0.0));
+        assert!(a.note_is_sounding(10, None, 0.0));
+
+        a.require_onset = true;
+        let mut onsets = [0.0; 12];
+        onsets[0] = 0.4;                     // only C was struck
+        a.set_onsets(onsets);
+        assert!(a.note_is_sounding(0, None, 0.0), "the struck note stopped passing");
+        assert!(!a.note_is_sounding(10, None, 0.0), "the ringing note still counted");
+
+        // An answer from before this frame says nothing about now - checked
+        // with the CQT silent, since that branch credits on its own and this
+        // gate deliberately does not touch it.
+        a.cqt_pitch = None;
+        assert!(a.note_is_sounding(0, None, 0.0), "the model lost its own branch");
+        a.check_progress_with_ai(0.016, "", 0.0);
+        a.check_progress_with_ai(0.016, "", 0.0);
+        assert!(
+            !a.note_is_sounding(0, None, 0.0),
+            "a stale answer from the head was taken for a fresh attack"
         );
     }
 

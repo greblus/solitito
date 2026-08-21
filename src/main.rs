@@ -622,6 +622,7 @@ struct SettingsSnapshot {
     lock_quality: bool,
     short_verdict: bool,
     single_notes: bool,
+    require_onset: bool,
     shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
@@ -658,6 +659,7 @@ impl SettingsSnapshot {
             lock_quality: ui.get_lock_quality(),
             short_verdict: ui.get_short_verdict(),
             single_notes: ui.get_single_notes(),
+            require_onset: ui.get_require_onset(),
             shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
@@ -990,6 +992,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
+        ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_formula_jazz_names(cfg.formula_jazz_names);
         ui.set_formula_exercise(cfg.formula_exercise as i32);
@@ -1239,6 +1242,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.set_random_mode(ui.get_random_enabled());
         app.short_verdict = ui.get_short_verdict();
         app.single_notes = ui.get_single_notes();
+        app.require_onset = ui.get_require_onset();
         app.set_shuffle_chords(ui.get_shuffle_chords());
         {
             // The two text fields are read from the UI, not pushed into it -
@@ -1995,9 +1999,17 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
-        ui.on_single_notes_changed(move |on| {
+        ui.on_single_notes_changed({
+            let cur = cur.clone();
+            move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.single_notes = on;
+                cur.save();
+            }
+        });
+        ui.on_require_onset_changed(move |on| {
             let mut cur = cur.borrow_mut();
-            cur.single_notes = on;
+            cur.require_onset = on;
             cur.save();
         });
     }
@@ -2352,6 +2364,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_short_verdict_hint(t.short_verdict_hint.into());
     g.set_single_notes(t.single_notes.into());
     g.set_single_notes_hint(t.single_notes_hint.into());
+    g.set_require_onset(t.require_onset.into());
+    g.set_require_onset_hint(t.require_onset_hint.into());
     g.set_in_order(t.in_order.into());
     g.set_in_order_hint(t.in_order_hint.into());
     g.set_debug_console(t.debug_console.into());

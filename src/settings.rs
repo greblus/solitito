@@ -48,6 +48,11 @@ pub struct Settings {
     /// something the app can do and a monophonic tuner cannot.
     #[serde(default)]
     pub single_notes: bool,
+    /// Let the model credit only what the onset head heard being struck. Off by
+    /// default: it removes most of the credits that belong to the note before,
+    /// but a note whose attack the head misses then has only the CQT branch.
+    #[serde(default)]
+    pub require_onset: bool,
     /// Whether the shuffle also reorders the chords in Intervals and Arpeggios.
     /// Off by default: shuffled intervals over the written progression is the
     /// musical half of the idea, shuffling both is the experiment.
@@ -187,6 +192,7 @@ impl Default for Settings {
             language: 0,
             short_verdict: false,
             single_notes: false,
+            require_onset: false,
             shuffle_chords: false,
             show_spectrum: false,
             ai_debug: false,
