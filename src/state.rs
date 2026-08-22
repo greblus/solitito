@@ -52,11 +52,6 @@ pub enum MatchStatus {
 /// test tying the two together.
 pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 
-/// Ticks the onset head is remembered for. The model answers every 40 ms or so
-/// and a tick is 16 ms, so this has to span more than one answer or the gate
-/// would be shut for most of the ticks between them.
-const ONSET_MEMORY: usize = 16;
-
 /// How long a new lap ignores what it hears, so the last one's decay cannot
 /// walk into it. A quarter of a second: past the moment the marks clear, short
 /// enough to be over before anyone has played the next note.
@@ -223,10 +218,6 @@ pub struct MyApp {
     /// in 49, so it is not free everywhere. Hence an option, not a default.
     pub require_onset: bool,
     pub last_onsets: [f32; 12],
-    /// The highest each class has reached over the last few ticks. The app is
-    /// answered every 40 ms and a strike is over faster than that, so asking
-    /// "was it struck just now" of a single tick would miss most of them.
-    onset_recent: [[f32; 12]; ONSET_MEMORY],
     /// Ticks since the model last answered. The app asks it only once the
     /// context window is nine tenths full, which after a pause is 688 ms of
     /// playing - so between phrases this runs away and the head's answer is
@@ -390,7 +381,6 @@ impl MyApp {
             prev_pitches: [0.0; 12],
             require_onset: false,
             last_onsets: [0.0; 12],
-            onset_recent: [[0.0; 12]; ONSET_MEMORY],
             onset_age: u32::MAX,
             strict_formulas: std::env::var("SOLITITO_FORMULA_STRICT")
                 .map(|v| v != "0")
@@ -1270,9 +1260,6 @@ impl MyApp {
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         self.onset_age = self.onset_age.saturating_add(1);
-        self.onset_recent.rotate_left(1);
-        self.onset_recent[ONSET_MEMORY - 1] =
-            if self.onset_age <= 1 { self.last_onsets } else { [0.0; 12] };
 
         // Formulas have no song either: a drawn set of functions over a drawn
         // root, played in any order.

@@ -1555,7 +1555,12 @@ export component AppWindow inherits Window {
                             // from the other end: that one stops the model
                             // being asked, this one stops it answering about a
                             // note that is only still ringing.
-                            HorizontalLayout {
+                            //
+                            // Not in Formulas: that mode credits on the strict
+                            // rule, which takes the single-frame estimate alone
+                            // and never the model's branches - so this would sit
+                            // there doing nothing.
+                            if root.current_mode != 5 : HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {
@@ -1567,7 +1572,7 @@ export component AppWindow inherits Window {
                                     color: #aaa; vertical-alignment: center;
                                 }
                             }
-                            Text {
+                            if root.current_mode != 5 : Text {
                                 width: root.panel_w - 30px;
                                 text: Tr.require_onset_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
