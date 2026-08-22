@@ -14,8 +14,8 @@ adnotacje:
 1. Generator układa 394 bloki po 6 s (3 takty przy 120 BPM), obejmujące 12 prym ×
    {maj, min, maj7, dom7, min7, m7b5, dim7, sus4, aug} w kilku pozycjach na gryfie, oraz
    wszystkie 96 pojedynczych dźwięków (6 strun × 16 progów).
-2. Przed wygenerowaniem **sprawdza sam siebie: każdy przesuwalny chwyt na każdym progu** i
-   kontroluje, czy rzeczywiście daje deklarowane interwały. Literówka w tabeli chwytów
+2. Przed wygenerowaniem **sprawdza sam siebie: każdy przesuwalny akord na każdym progu** i
+   kontroluje, czy rzeczywiście daje deklarowane interwały. Literówka w tabeli akordów
    zatrzymuje generowanie, zamiast po cichu zatruwać zbiór.
 3. `synth_annotations.csv` powstaje równocześnie z plikiem GP5. Generator wie, który takt
    zajmuje każdy blok, więc niczego nie trzeba potem odzyskiwać z dźwięku.

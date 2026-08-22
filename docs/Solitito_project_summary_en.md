@@ -2,23 +2,24 @@
 
 **A real-time guitar chord recognition system**
 
-*Version 0.3.9, August 2026*
+*Version 0.5.1, August 2026*
 
 ---
 
 ## 1. System overview
 
-Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales, arpeggios and the layout of the neck.
+Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales, arpeggios, interval formulas and the layout of the neck.
 
 Recognition is performed by a neural network of 7.3 million parameters exported to the ONNX format. All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
 
-Five modes of operation are provided:
+Six modes of operation are provided:
 
 - **Chords** — complete jazz standards. Green indicates an exact match, yellow a triad or a common substitution, red a chord that was recognised but at a signal level too low to confirm.
 - **Intervals** — chord tones played individually, with a selectable set of degrees to practise.
 - **Scales** — sequential traversal of the notes defined by a scale.
 - **Arpeggios** — chord tones in sequence over a given progression.
 - **Fretboard** — a region of the neck is drawn at random, comprising a set of strings and a span of four frets, and then held; the user is asked for successive notes lying within it. The mode serves to learn the positions of the notes within a single hand position.
+- **Formulas** — a set of intervals drawn over a root and played in any order, with the option of planting that same set on a chord or carrying it across the chords of a standard. The mode is described in 8.11.
 
 Work on the project began in December 2025. This document presents the system architecture, the course of the work, and the design decisions together with their justification.
 
@@ -35,6 +36,27 @@ The project adopted the principle that every change requires justification by me
 | `probe_sources.py` | which GuitarSet chord annotation is usable? |
 | `probe_quality.py` | from which source should chord quality be derived? |
 | `inspect_jams.py` | what do the JAMS files actually contain? |
+| `latency_material.py` | generates plucks whose onsets are known exactly, as a yardstick |
+| `latency_ground_truth.py` | extracts onsets and pitches from a REAL recording, for the same measurement |
+| `latency_stats.py` | how late does the application learn what was played, and how often wrongly? |
+| `latency_rules.py` | what would each crediting rule cost on that recording? |
+
+The first five address the data and the model; the remaining four form a chain
+and are used together. Material is prepared — either synthesised, with onsets
+known by construction, or taken from a recording of real playing — the file is
+then passed through the application's own feature path with
+`./solitito --probe file.wav --step 1`, and the resulting listing is read by the
+last two scripts. `latency_stats.py` separates the three answers the application
+can hold: the model's pitch head, the single-frame estimate and the onset head.
+`latency_rules.py` replays the crediting rules over the same listing and reports,
+for each, how many credits it would hand out that nobody played and how many
+notes it would miss altogether. The table in 8.11 comes from that script.
+
+Two further tools are not probes but belong to the same set: `gen_weights.py`,
+which produces the sparse CQT kernel shared by the trainer and the application,
+and `gp5_to_arpeggio.py`, which converts a Guitar Pro file into the degree
+notation the Arpeggios mode reads. `hf_cleanup.py` clears the checkpoint
+repository before a run begins from scratch.
 
 The methodology proved effective on repeated occasions. Its converse should also be noted: **hypotheses formulated prior to measurement proved to be wrong in a systematic manner.** These cases are catalogued in Chapter 9.
 
@@ -192,9 +214,20 @@ CLS
    ├── fc_root     → 13   (12 pitch classes + "Noise")
    ├── fc_quality  → 11   (maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N)
    └── fc_pitch    → 12   (sigmoid: which pitch classes are sounding)
+
+last frame, and the frame ONSET_LOOKBACK before it
+   └── fc_onset    → 12   (sigmoid: which pitch classes were STRUCK)
 ```
 
-Total parameter count: 7,286,038.
+Total parameter count: 7,286,038; the onset head adds a further 156,156.
+
+The fourth head does not read the CLS token. Its input is assembled from four
+parts — the encoder's last frame, the difference between that frame and the one
+six frames earlier, and, taken from the raw features before the encoder sees
+them, the RISE of the CQT folded onto pitch classes together with the rise of
+the chroma. The reason is stated in one line of the trainer: an attack adds
+energy to the spectrum and a decay does not, so what grew is the quantity that
+separates a note being struck from one still ringing.
 
 ### 5.3. Division of tasks between the heads
 
@@ -205,6 +238,7 @@ The distinction between the roles of the individual heads is of central importan
 | `pitch_logits` | F1 0.909 | which notes are sounding — the basis of the Intervals, Scales, Arpeggios and Fretboard modes |
 | `root_logits` | 98.1% | the name of the root |
 | `quality_logits` | ~93% | the chord family |
+| `onset_logits` | F1 0.812 | which classes were struck, as against which are sounding |
 
 An early version of the application derived chord quality from the pitch vector using manually determined thresholds. The `probe_quality.py` probe compared three methods on the same checkpoint:
 
@@ -218,19 +252,36 @@ The head exceeds template matching against a *precisely known* set of notes by 2
 
 Design conclusion: the quality head remains a necessary component.
 
+The onset head answers a question none of the other three is able to put.
+"Sounding" is true of a string ringing on, of one resonating in sympathy, and of
+the note played immediately before — the model's window is 0.77 s wide and holds
+all of them. Measured against a recording it is the fastest answer the
+application has: 202 ms after the strike, against 676 ms for the remaining
+paths. It is also the least precise as to WHICH string was struck, since an
+attack spreads onto the neighbouring ones. Its use in the application is
+described in 8.12.
+
 ---
 
 ## 6. Training
 
 ### 6.1. Phases
 
-The training procedure comprises three phases, of which the first is of principal significance.
+The training procedure comprises four phases, of which the first is of principal significance.
 
 | phase | scope | status |
 |---|---|---|
 | 1 | main training, 120 epochs, cosine LR with warm-up | the only phase yielding improvement |
 | 2 | tuning of the pitch head threshold | corrected — it had sorted by a metric independent of the threshold |
 | 3 | head fine-tuning with the encoder frozen | **disabled** |
+| 4 | the onset head, trained alone | added later; the remaining outputs are unchanged |
+
+Phase 4 trains `fc_onset` with every other parameter frozen. The construction is
+deliberate: the phase either yields a head worth using or leaves the model
+exactly as it was, and the three earlier outputs cannot move by a decimal place.
+Its material is the note-level annotation — windows sampled around real attacks,
+by default from the solo recordings alone, which are the ones carrying
+`note_midi`. Training ends with a threshold sweep reported as F1.
 
 Phase 2 scanned thresholds over the range 0.30–0.70, optimising the `exact` figure. That figure is the conjunction of `argmax(root)` and `argmax(quality)`, and therefore took an identical value across all 41 thresholds, making the selection arbitrary. Sorting is now performed by the F1 of the pitch head, on which the threshold genuinely bears.
 
@@ -284,6 +335,11 @@ Model `v2_take6`, validated with a split by source and with solo windows exclude
 | root accuracy | **98.1%** |
 | pitch F1 | **0.909** |
 | exact match (root **and** quality) | **92.4%** |
+| onset F1 | **0.812** |
+
+The first three figures are identical in the three-head and four-head files: the
+onset head was trained with the rest of the network frozen. The fourth figure is
+taken at the threshold maximising F1 on the validation split.
 
 Accuracy by quality at the best checkpoint: `dom7` 97%, `min7` 93%, `min` 92%, `sus` 91%, `maj` 89%, `maj7` 89%; the classes `m7b5`, `dim7` and `aug` above 97%.
 
@@ -314,7 +370,19 @@ The trainer determined windows **exclusively within** the sustaining chord (`ran
 
 The observed symptom: seventh chords were recognised only during the sustain phase, that is at the first moment at which the window becomes entirely filled with the chord.
 
-The solution adopted: the application issues no query to the model until the window is 90% filled with signal.
+The solution adopted was a single threshold: the application issued no query to
+the model until the window was 90% filled with signal. That threshold is correct
+for the chord NAME and wrong for everything else. Playing one note at a time
+never fills a window to nine tenths — 43 frames, that is 688 ms of unbroken
+sound — so the model was not asked at all, the display froze on the last chord
+it had, and everything downstream froze with it.
+
+The requirement is now split in two. The model is asked from half a window
+(measured: at 50–70% fill the pitch head names an isolated note correctly in
+every frame of the measurement), and its chord name is believed only from nine
+tenths. Both thresholds are stated as constants at one place in the application,
+because the gate on the name is applied on the far side of the channel from the
+thread that asks, and written out twice they were free to drift apart.
 
 ### 8.2. Differing decay rates of chord components
 
@@ -381,7 +449,7 @@ The `Confidence` control governed two distinct quantities simultaneously, and in
 
 The noise gate previously operated on a linear RMS scale of 0–0.1, which **did not reach the noise level of a laptop microphone** (RMS 0.05–0.15 after gain). A decibel scale of −72…0 dBFS provides resolution across the required range together with coverage to full scale.
 
-The panel has since grown past what one column can hold and is divided into three tabs — the input and the gate, what is to be played and how strictly it is judged, and what the window shows. Only one tab is drawn at a time, so there is correspondingly less to redraw while playing.
+The panel has since grown past what one column can hold and is divided into four tabs — the input and the gate, how strictly what is played is judged, what is to be played, and what the window shows. The third of these holds only what belongs to the mode on screen: a song has nothing to say in Formulas and a formula nothing in Chords, so it is a different tab in each of them. Only one tab is drawn at a time, so there is correspondingly less to redraw while playing.
 
 ### 8.7. Diagnostic mode
 
@@ -459,6 +527,59 @@ reported load between the two systems proved to be a discrepancy between two cou
 between two builds: `top` reports in units of one core and the Task Manager over the whole processor,
 so 100% of a core on eight cores is the same 12.5%.
 
+
+### 8.11. Formulas, and a rule stricter than the one the note modes use
+
+The application draws a set of intervals over a root — every subset of the twelve
+chromatic functions containing the root, 2048 in all — and the exercise is to
+find them on the neck and play them in any order. A function once credited stays
+credited for the lap, which changes what a false credit costs: in the other modes
+a wrong reading delays the exercise, here it removes a function from it
+permanently.
+
+The rule was therefore measured rather than assumed. Over 49 notes of a real
+recording (`dist/latency_stats.py`):
+
+| rule | false credits | notes missed |
+|---|---|---|
+| all four paths at once, as the note modes use | 110 | 0 |
+| the single-frame CQT estimate alone | 33 | 0 |
+| the same, gated on the onset head | 15 | 4 |
+
+Of the 110, ninety-nine came from the model's pitch head — which answers "what is
+sounding", and a string ringing on or resonating in sympathy is sounding without
+having been played. Formulas therefore run on the single-frame estimate alone,
+with a vote of four of the last five audio frames; the onset gate was not adopted
+here, for the reason given in 8.12.
+
+The same mode also plants a formula on a chord: its root is placed on one of the
+chord's twelve degrees, and how much of that chord the set then covers is
+counted — every tone of the chord except its root and its perfect fifth, since
+only those establish which chord it is. This is arithmetic over two twelve-bit
+masks and is exact, which is what makes it worth showing on screen beside the
+functions.
+
+### 8.12. State carried across a boundary
+
+The model answers about 0.77 s of audio. At the moment the exercise moves on —
+the next chord, the next lap, entry into a mode — its most recent answer is still
+about what came before that boundary. The application kept that answer, and
+credited the first target of the new chord from the ringing of the old one.
+
+The symptom was reported as a property of the model: "it was better the first
+time", "recognition used to be faster". It was neither. The first chord after
+launch is clean because there is nothing to inherit; every chord after it starts
+holding the previous one. The correction is to discard what was heard at each
+such boundary — the pitch vector, the previous frame, the onset answer, the
+voting window and the last credit. Nothing is lost by discarding: the next audio
+frame is 16 ms away and the next inference 40 ms.
+
+The onset head remains available as an option — the model may credit only a class
+it also reports as struck — and is off by default. Once the boundary was
+corrected it was no longer needed for the reported symptom, and it carries a cost
+of its own: on the measurement above it removed 15 false credits at the price of
+4 notes missed altogether.
+
 ---
 
 ## 9. Hypotheses refuted by measurement
@@ -476,6 +597,9 @@ This chapter documents cases in which measurement refuted a previously held assu
 | The chroma in the distributed file is one-hot and therefore defective | `cq_to_chroma` at 24 bins per octave likewise assigns one weight per bin; the discrepancy concerned a shift |
 | Without the `ORT_DYLIB_PATH` variable the binary will use the system library | `RUNPATH=$ORIGIN` from the `.cargo/config.toml` file already addressed this |
 | The model has become worse at single notes | on isolated notes it places 0.96–0.99 on the correct class; on a scale its 0.77 s window credits the note before the one being played, in 79% of windows |
+| The onset head will make the better gate — it is the fastest answer available | on a recording it looked so: 202 ms against 676 ms. Applied live it refused far more than it caught, and on the crediting rule it traded 18 false credits for 4 notes missed |
+| A third credited while the root was played is the fifth harmonic of that root | `--probe` over 364 windows: the false credits fall on +10 and +11 semitones, that is on the PREVIOUS note still inside the window, not on a harmonic |
+| A single fresh answer from the onset head is too short a window to catch a strike | at a threshold of 0.02 the answer stays above the gate for a median of one second after the attack, and not one of 47 notes was left without a frame carrying it — the sixteen-frame memory kept for the purpose was removed |
 
 The pattern is unambiguous: **measurement results held consistently, whereas predictions formulated prior to measurement proved wrong in a systematic manner.** This justifies the adopted methodology based on probes.
 
@@ -491,7 +615,11 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 
 **Splitting the dataset by source.** It lowers the reported figures by more than ten percentage points and is justified.
 
-**Three heads with separated roles.** The note-based modes rely on the pitch vector rather than on the chord name.
+**Four heads with separated roles.** The note-based modes rely on the pitch vector rather than on the chord name; the fourth head answers for what was struck and is read, logged and offered as an option rather than being wired into the judging.
+
+**Two thresholds on the context window rather than one.** The model is asked from half a window and its chord name believed from nine tenths — a single threshold cannot serve both a held chord and a single note.
+
+**Nothing heard before a boundary survives it.** A chord change, a lap and a mode switch each discard the model's last answer, because that answer is about what came before them.
 
 **A sparse representation of the CQT kernel.** The benefit is twofold: the size of the weights file and the processing time in the audio thread.
 
@@ -533,5 +661,5 @@ These four changes moved the `Exact` figure from 44.8% to 92.4%. None of them co
 
 ---
 
-*This document describes the state as of August 2026, version 0.3.9.*
+*This document describes the state as of August 2026, version 0.5.1.*
 *Repository: https://github.com/greblus/solitito*

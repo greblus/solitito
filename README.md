@@ -223,6 +223,12 @@ The `dist/` directory contains everything used to build the dataset and train th
 | `probe_quality.py` | where chord quality should come from: the head or the pitch vector |
 | `probe_sources.py` | which GuitarSet chord annotation to use |
 | `inspect_jams.py` | what is actually inside the JAMS files |
+| `latency_material.py` | plucks with onsets known by construction, as a yardstick |
+| `latency_ground_truth.py` | onsets and pitches of a real recording, for the same measurement |
+| `latency_stats.py` | how late the app learns what was played, and how often it learns it wrong |
+| `latency_rules.py` | what each crediting rule would cost: credits nobody played, notes missed |
+| `gp5_to_arpeggio.py` | turns a Guitar Pro file into the degree notation Arpeggios reads |
+| `hf_cleanup.py` | clears the checkpoint repository before a run started from scratch |
 
 ---
 

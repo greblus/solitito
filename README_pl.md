@@ -224,7 +224,7 @@ Katalog `dist/` zawiera wszystko, czym zbudowano zbiór danych i wytrenowano mod
 
 | plik | rola |
 |---|---|
-| `dataset_generator_v2.py` | generuje plik GP5 **i** adnotacje; sam sprawdza wszystkie chwyty |
+| `dataset_generator_v2.py` | generuje plik GP5 **i** adnotacje; sam sprawdza wszystkie akordy |
 | `verify_annotations.py` | kontroluje, czy etykiety opisują dźwięk (samo numpy, bez librosy) |
 | `model_trainer.py` | trening; działa na Kaggle, punkty kontrolne na Hugging Face |
 | `gen_weights.py` | rzadkie wagi pseudo-CQT dla strony rustowej |
@@ -232,6 +232,12 @@ Katalog `dist/` zawiera wszystko, czym zbudowano zbiór danych i wytrenowano mod
 | `probe_quality.py` | skąd powinna pochodzić jakość akordu: z głowicy czy z wektora wysokości |
 | `probe_sources.py` | której adnotacji akordowej z GuitarSetu użyć |
 | `inspect_jams.py` | co naprawdę znajduje się w plikach JAMS |
+| `latency_material.py` | szarpnięcia o atakach znanych z konstrukcji, jako wzorzec |
+| `latency_ground_truth.py` | ataki i wysokości prawdziwego nagrania, do tego samego pomiaru |
+| `latency_stats.py` | jak późno aplikacja dowiaduje się, co zagrano, i jak często źle |
+| `latency_rules.py` | ile kosztuje każda reguła zaliczania: zaliczenia niegrane, dźwięki pominięte |
+| `gp5_to_arpeggio.py` | przekłada plik Guitar Pro na zapis stopniami, który czyta tryb Arpeggia |
+| `hf_cleanup.py` | czyści repozytorium punktów kontrolnych przed przebiegiem od zera |
 
 ---
 
