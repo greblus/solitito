@@ -10,13 +10,15 @@ Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyek
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
-<img height="479" alt="Okno główne Solitito" src="docs/solitito_main.png" />
-<img height="479" alt="Powiększony schemat akordu" src="docs/solitito_chord_diagrams.png" />
+<img height="320" alt="Okno główne Solitito" src="docs/solitito_main.png" />
+<img height="320" alt="Shell voicingi" src="docs/solitito_main_shell_voicings.png" />
+<img height="320" alt="Powiększony schemat akordu" src="docs/solitito_chord_diagrams.png" />
 </div>
 
 Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
 wszystkie dwanaście tonacji: czerwona kropka to pryma, kliknięcie w
-schemat powiększa go.
+schemat powiększa go. Środkowy zrzut pokazuje ten sam akord jako **shell voicingi** —
+tercja i septyma nad prymą, bez kwinty.
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
 Androida i iOS, z którego korzystam codziennie. Solo robi znacznie więcej i robi to dobrze —

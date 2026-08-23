@@ -10,13 +10,16 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
-<img height="479" alt="Solitito main window" src="docs/solitito_main.png" />
-<img height="479" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
+<img height="320" alt="Solitito main window" src="docs/solitito_main.png" />
+<img height="320" alt="Shell voicings" src="docs/solitito_main_shell_voicings.png" />
+<img height="320" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
 all twelve keys: the red dot is the root, and the shape moves. Clicking shape of chord 
-enlarges it.
+enlarges it. The middle shot shows the same chord as **shell voicings** — third and
+seventh over the root, with the fifth left out — which is the other thing the shapes
+can be drawn as.
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
 trainer I use daily. Solo does far more, and does it well — but it hears one note at a time.
