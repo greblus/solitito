@@ -1361,6 +1361,15 @@ impl MyApp {
                         if target_qual_str == "Maj7" && (ai_qual == "m" || ai_qual == "m7") && root_diff == 4 {
                             partial_match = true;
                         }
+                        // A diminished seventh is four notes a minor third
+                        // apart, so all four are equally its root: C, Eb, Gb and
+                        // A dim7 are one chord under four names. Which name the
+                        // model gives depends on the voicing, not on what was
+                        // played, so a reading three, six or nine semitones away
+                        // is the chord itself - green, not a substitution.
+                        if target_qual_str == "dim" && ai_qual == "dim" && root_diff % 3 == 0 {
+                            exact_match = true;
+                        }
                     }
                 }
                 
@@ -1894,6 +1903,44 @@ pub(crate) mod tests {
         assert_eq!(a.prev_chord_index, Some(played));
         assert_eq!(a.prev_status(), MatchStatus::Partial,
                    "a chord passed on a triad was reported as an exact match");
+    }
+
+    /// The same four notes have four names. Which one comes back depends on
+    /// the voicing, so the app cannot insist on one of them.
+    #[test]
+    fn a_diminished_seventh_is_the_same_chord_from_all_four_roots() {
+        for named in ["Eb dim", "Gb dim", "A dim"] {
+            let mut a = app();
+            a.app_mode = AppMode::Chords;
+            a.set_random_mode(false);
+            a.short_verdict = false;
+            a.transition_delay = 0.05;
+            a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Diminished }];
+            a.reset_logic_state();
+
+            for _ in 0..10 {
+                a.check_progress_with_ai(0.02, named, 0.99);
+            }
+            assert_eq!(
+                a.prev_status(),
+                MatchStatus::Exact,
+                "{named} is C dim7 played from another of its notes"
+            );
+        }
+
+        // A minor third is the interval that makes them one chord; a semitone
+        // away is a different chord and stays wrong.
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = false;
+        a.transition_delay = 0.05;
+        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Diminished }];
+        a.reset_logic_state();
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.02, "Db dim", 0.99);
+        }
+        assert_ne!(a.prev_status(), MatchStatus::Exact, "Db dim7 is not C dim7");
     }
 
     /// A shell voicing of a m7b5 is the m7 shell, note for note - the fifth is
