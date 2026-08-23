@@ -626,6 +626,8 @@ struct SettingsSnapshot {
     shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
+    show_full_shapes: bool,
+    show_shell_shapes: bool,
     ai_debug: bool,
     startup_mode: i32,
     language: i32,
@@ -663,6 +665,8 @@ impl SettingsSnapshot {
             shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
+            show_full_shapes: ui.get_show_full_shapes(),
+            show_shell_shapes: ui.get_show_shell_shapes(),
             ai_debug: ui.get_ai_debug_visible(),
             startup_mode: ui.get_startup_mode(),
             language: ui.get_language_idx(),
@@ -994,6 +998,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_single_notes(cfg.single_notes);
         ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
+        ui.set_show_diagrams(cfg.show_diagrams);
+        ui.set_show_full_shapes(cfg.show_full_shapes);
+        ui.set_show_shell_shapes(cfg.show_shell_shapes);
         ui.set_formula_jazz_names(cfg.formula_jazz_names);
         ui.set_formula_exercise(cfg.formula_exercise as i32);
         ui.set_formula_placement(cfg.formula_placement as i32);
@@ -1752,14 +1759,61 @@ fn main() -> Result<(), slint::PlatformError> {
 
             // Shapes depend on the quality alone - the diagram is movable, the
             // root only decides which fret to put it on.
-            let q_key = curr_chord.quality.to_string();
+            // The kind belongs in the key as much as the quality does: the
+            // same chord has a different row of shapes under each.
+            // Neither ticked draws nothing, which is a legitimate answer and
+            // not the same as the master switch being off: that one is about
+            // whether the row exists at all.
+            let shapes = match (ui.get_show_full_shapes(), ui.get_show_shell_shapes()) {
+                (true, true) => Some(diagrams::Shapes::Both),
+                (false, true) => Some(diagrams::Shapes::Shell),
+                (true, false) => Some(diagrams::Shapes::Full),
+                (false, false) => None,
+            };
+            let q_key = format!("{}/{:?}", curr_chord.quality.to_string(), shapes);
             if q_key != last_diagram_key {
                 last_diagram_key = q_key;
-                let imgs: Vec<slint::Image> = diagrams::for_quality(&curr_chord.quality)
-                    .iter()
-                    .filter_map(|d| slint::Image::load_from_svg_data(d.svg.as_bytes()).ok())
-                    .collect();
-                ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(imgs))));
+                let imgs: Vec<slint::Image> = match shapes {
+                    Some(kind) => diagrams::for_quality(&curr_chord.quality, kind)
+                        .iter()
+                        .filter_map(|d| slint::Image::load_from_svg_data(d.svg.as_bytes()).ok())
+                        .collect(),
+                    None => vec![],
+                };
+                // Past four, half of them go to a second row: six side by side
+                // came to 60px each at the smallest window. The split is here
+                // rather than in the UI because a Slint model cannot be sliced.
+                let per_row = if imgs.len() > 4 { imgs.len().div_ceil(2) } else { imgs.len() };
+                let rest = imgs[per_row..].to_vec();
+                let first = imgs[..per_row].to_vec();
+                ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(first))));
+                ui.set_chord_diagrams_2(ModelRc::from(Rc::new(VecModel::from(rest))));
+                // Captioned whenever the row is not the chord's own shell: a
+                // substitute taken for the chord itself is worse than no
+                // substitute at all.
+                let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+                let note = match (shapes, diagrams::shell_note(&curr_chord.quality)) {
+                    (None, _) | (Some(diagrams::Shapes::Full), _) => "",
+                    (_, diagrams::ShellNote::Own) => "",
+                    (_, diagrams::ShellNote::MinorForHalfDim) => t.shapes_substitute,
+                    (_, diagrams::ShellNote::None_) => t.shapes_no_shell,
+                };
+                // Naming the four dominants beats stating the rule that finds
+                // them. A diminished seventh is the third, fifth, seventh and
+                // flat ninth of a dominant whose root sits a semitone below any
+                // of its notes - which is four dominants, and reading that
+                // sentence is harder than reading the names.
+                let note = if note == t.shapes_no_shell {
+                    let r = curr_chord.root as usize;
+                    let names: Vec<&str> = [11usize, 2, 5, 8]
+                        .iter()
+                        .map(|d| formulas::KEY_POOL[(r + d) % 12])
+                        .collect();
+                    format!("{}{}7b9{}", note, names.join("7b9, "), t.shapes_no_shell_end)
+                } else {
+                    note.to_string()
+                };
+                ui.set_shapes_note(note.into());
                 // A shape left open would belong to the previous chord.
                 ui.set_diagram_zoom(-1);
             }
@@ -2004,6 +2058,23 @@ fn main() -> Result<(), slint::PlatformError> {
             move |on| {
                 let mut cur = cur.borrow_mut();
                 cur.single_notes = on;
+                cur.save();
+            }
+        });
+        ui.on_show_diagrams_changed({
+            let cur = cur.clone();
+            move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.show_diagrams = on;
+                cur.save();
+            }
+        });
+        ui.on_shapes_choice_changed({
+            let cur = cur.clone();
+            move |full: bool, shell: bool| {
+                let mut cur = cur.borrow_mut();
+                cur.show_full_shapes = full;
+                cur.show_shell_shapes = shell;
                 cur.save();
             }
         });
@@ -2373,6 +2444,12 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_shuffle_chords_hint(t.shuffle_chords_hint.into());
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
+    g.set_shapes_kind(t.shapes_kind.into());
+    g.set_shapes_no_shell(t.shapes_no_shell.into());
+    g.set_shapes_no_shell_end(t.shapes_no_shell_end.into());
+    g.set_shapes_substitute(t.shapes_substitute.into());
+    g.set_shapes_full(t.shapes_full.into());
+    g.set_shapes_shell(t.shapes_shell.into());
     g.set_random_hint(t.random_hint.into());
     g.set_fretboard(t.fretboard.into());
     g.set_formulas(t.formulas.into());

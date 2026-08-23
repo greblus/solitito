@@ -1341,6 +1341,13 @@ impl MyApp {
                                 ("m7", "m") => partial_match = true,     
                                 ("7", "") => partial_match = true,       
                                 ("m7b5", "dim") => partial_match = true, 
+                                // A shell voicing of a m7b5 is root, third and
+                                // seventh - the m7 shell, note for note, since
+                                // the fifth is the only place the two differ.
+                                // Refusing it would refuse the shape the app
+                                // itself draws in shell mode. Yellow, not
+                                // green: what was heard genuinely was a m7.
+                                ("m7b5", "m7") => partial_match = true,
                                 _ => {}
                             }
                         }
@@ -1887,6 +1894,42 @@ pub(crate) mod tests {
         assert_eq!(a.prev_chord_index, Some(played));
         assert_eq!(a.prev_status(), MatchStatus::Partial,
                    "a chord passed on a triad was reported as an exact match");
+    }
+
+    /// A shell voicing of a m7b5 is the m7 shell, note for note - the fifth is
+    /// the only place the two chords differ, and a shell has no fifth. The app
+    /// draws that shape in shell mode, so it has to accept hearing it.
+    #[test]
+    fn a_half_diminished_passes_on_its_shell() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = false;
+        a.transition_delay = 0.05;
+        a.chords = vec![Chord { root: NoteName::D, quality: ChordQuality::HalfDiminished }];
+        a.reset_logic_state();
+
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.02, "D m7", 0.99);
+        }
+        assert_eq!(
+            a.prev_status(),
+            MatchStatus::Partial,
+            "the shell the app itself draws was not accepted"
+        );
+
+        // And it is not mistaken for the chord: green is still only the chord.
+        let mut b = app();
+        b.app_mode = AppMode::Chords;
+        b.set_random_mode(false);
+        b.short_verdict = false;
+        b.transition_delay = 0.05;
+        b.chords = vec![Chord { root: NoteName::D, quality: ChordQuality::HalfDiminished }];
+        b.reset_logic_state();
+        for _ in 0..10 {
+            b.check_progress_with_ai(0.02, "D m7b5", 0.99);
+        }
+        assert_eq!(b.prev_status(), MatchStatus::Exact);
     }
 
     /// Shuffle used to draw a chord at each step, so there was no "next" to

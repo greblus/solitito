@@ -79,6 +79,28 @@ component Chevron inherits Path {
     commands: "M 0 0 L 9 0 L 4.5 5 Z";
 }
 
+/// One chord shape. Its own component because the shapes are drawn in two rows
+/// once there are more than four of them, and a thumbnail repeated by hand in
+/// both would drift apart at the first change.
+component ShapeThumb inherits TouchArea {
+    in property <image> shape;
+    in property <length> dw;
+
+    width: root.dw;
+    height: root.dw * 104 / 112;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        Image {
+            source: root.shape;
+            image-fit: contain;
+            width: 100%;
+            height: 100%;
+        }
+    }
+}
+
 /// Drop-down list, hand-rolled for the same reason as the tab bar. The standard
 /// ComboBox shows six rows and scrolls the rest behind a scrollbar too thin to
 /// notice, so twelve sound cards look like six; this one puts an arrow under the
@@ -320,6 +342,12 @@ export global Tr {
     in-out property <string> shuffle_chords: "Shuffle the chords as well";
     in-out property <string> shuffle_chords_hint: "";
     in-out property <string> show_diagrams: "Show chord shapes";
+    in-out property <string> shapes_kind: "Shapes: ";
+    in-out property <string> shapes_full: "full chords";
+    in-out property <string> shapes_shell: "shell voicings";
+    in-out property <string> shapes_no_shell: "";
+    in-out property <string> shapes_no_shell_end: "";
+    in-out property <string> shapes_substitute: "";
     in-out property <string> fretboard: "Fretboard";
     in-out property <string> formulas: "Formulas";
     in-out property <string> formula_notes: "Notes in a formula: ";
@@ -429,7 +457,18 @@ export component AppWindow inherits Window {
     
     // Chord shapes for the current quality, plus the root string each sits on.
     in property <[image]> chord_diagrams;
+    /// The rest of them, when there are more than four - the split is made in
+    /// Rust because a Slint model cannot be sliced.
+    in property <[image]> chord_diagrams_2;
+    /// What to say under the row when it is not the chord's own shell: either
+    /// which chord's shapes these are, or that there is no shell to draw.
+    in property <string> shapes_note;
     in-out property <bool> show_diagrams: true;
+    callback show_diagrams_changed(bool);
+    /// Which shapes to draw. Both ticked draws both; neither draws none.
+    in-out property <bool> show_full_shapes: true;
+    in-out property <bool> show_shell_shapes: false;
+    callback shapes_choice_changed(bool, bool);
     /// Index of the shape shown enlarged, -1 for none.
     in-out property <int> diagram_zoom: -1;
 
@@ -1094,29 +1133,49 @@ export component AppWindow inherits Window {
             // Chords only: the note modes already carry an interval strip here,
             // and two rows of information would fight for the same space.
             if root.current_mode == 0 && root.show_diagrams
-               && root.chord_diagrams.length > 0 : shapes := HorizontalLayout {
-                alignment: center;
+               && root.chord_diagrams.length > 0 : shapes := VerticalLayout {
                 // Solved from the width there is, as the formula rows are: n
                 // shapes and n-1 gaps of a ninth of a shape. The cap is what
                 // stops four diagrams on a wide screen from crowding out the
                 // chord name above them.
-                property <int> n: root.chord_diagrams.length;
-                property <length> dw: min(170px,
-                    (root.box_w - 70px) / (self.n + (self.n - 1) / 9));
+                //
+                // Past four they come in two rows, split on the Rust side -
+                // Slint cannot take half a model, and six shells side by side
+                // came to 60px each at the smallest window, too small to read a
+                // fret off. Half as many in a row is twice the shape, and the
+                // second row costs height this column has to spare.
+                property <int> widest: max(root.chord_diagrams.length,
+                                           root.chord_diagrams_2.length);
+                property <length> dw: min(root.chord_diagrams_2.length > 0 ? 130px : 170px,
+                    (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
-                for i in root.chord_diagrams.length : TouchArea {
-                    width: shapes.dw;
-                    height: shapes.dw * 104 / 112;
-                    clicked => { root.diagram_zoom = i; }
-                    plate := Rectangle {
-                        width: 100%;
-                        height: 100%;
-                        Image {
-                            source: root.chord_diagrams[i];
-                            image-fit: contain;
-                            width: 100%;
-                            height: 100%;
-                        }                    }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: shapes.dw / 9;
+                    for img[i] in root.chord_diagrams : ShapeThumb {
+                        shape: img;
+                        dw: shapes.dw;
+                        clicked => { root.diagram_zoom = i; }
+                    }
+                }
+                if root.chord_diagrams_2.length > 0 : HorizontalLayout {
+                    alignment: center;
+                    spacing: shapes.dw / 9;
+                    for img[i] in root.chord_diagrams_2 : ShapeThumb {
+                        shape: img;
+                        dw: shapes.dw;
+                        // The zoom index counts across both rows.
+                        clicked => { root.diagram_zoom = root.chord_diagrams.length + i; }
+                    }
+                }
+                // Said out loud, or the fallback reads as a shell voicing and
+                // the player believes they are leaving the fifth out.
+                if root.shapes_note != "" : Text {
+                    text: root.shapes_note;
+                    font-size: 12px;
+                    color: #777;
+                    horizontal-alignment: center;
                 }
             }
 
@@ -1958,9 +2017,46 @@ export component AppWindow inherits Window {
                             // to the control, which undoes the width set on it.
                             alignment: start;
                             spacing: 15px;
-                            CheckBox { checked <=> root.show_diagrams; }
+                            CheckBox {
+                                checked <=> root.show_diagrams;
+                                toggled => { root.show_diagrams_changed(self.checked); }
+                            }
                             Text {
                                 text: Tr.show_diagrams;
+                                color: #aaa; vertical-alignment: center;
+                            }
+                        }
+
+                        // Which set of shapes. Only where there is something to
+                        // draw them for: with the thumbnails off it would be a
+                        // choice about nothing. Two boxes rather than a list of
+                        // three, because "both" is not a third kind - it is the
+                        // two of them at once, and the boxes say so.
+                        if root.current_mode == 0 && root.show_diagrams : HorizontalLayout {
+                            alignment: start;
+                            spacing: 15px;
+                            Text {
+                                text: Tr.shapes_kind; color: #aaa;
+                                vertical-alignment: center; width: 185px;
+                            }
+                            CheckBox {
+                                checked <=> root.show_full_shapes;
+                                toggled => {
+                                    root.shapes_choice_changed(self.checked, root.show_shell_shapes);
+                                }
+                            }
+                            Text {
+                                text: Tr.shapes_full;
+                                color: #aaa; vertical-alignment: center;
+                            }
+                            CheckBox {
+                                checked <=> root.show_shell_shapes;
+                                toggled => {
+                                    root.shapes_choice_changed(root.show_full_shapes, self.checked);
+                                }
+                            }
+                            Text {
+                                text: Tr.shapes_shell;
                                 color: #aaa; vertical-alignment: center;
                             }
                         }
@@ -2084,7 +2180,9 @@ export component AppWindow inherits Window {
 
     // Enlarged shape. Last sibling in the root, so it draws over everything.
     // Clicking anywhere dismisses it - a shape is glanced at, not operated.
-    if root.diagram_zoom >= 0 && root.diagram_zoom < root.chord_diagrams.length : Rectangle {
+    if root.diagram_zoom >= 0
+       && root.diagram_zoom < root.chord_diagrams.length + root.chord_diagrams_2.length
+       : Rectangle {
         // Explicit full-window size: this sits outside any layout, so without it
         // the overlay would shrink to its content and stop being centred.
         x: 0;
@@ -2121,7 +2219,9 @@ export component AppWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             Image {
-                source: root.chord_diagrams[root.diagram_zoom];
+                source: root.diagram_zoom < root.chord_diagrams.length
+                    ? root.chord_diagrams[root.diagram_zoom]
+                    : root.chord_diagrams_2[root.diagram_zoom - root.chord_diagrams.length];
                 image-fit: contain;
                 width: 100%;
                 height: 100%;

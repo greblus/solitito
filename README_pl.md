@@ -170,6 +170,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Graj dźwięki po kolei** | Tylko Formuły: zbiór trzeba przejść od najniższej funkcji. Wyłączone — jest zbiorem, dowolny dźwięk w dowolnej kolejności |
 | **Debug na konsoli** | Wypisuje linię dla każdej zaliczonej funkcji wraz z tym, co usłyszano. Okno na ocenianie; w Windowsie wydanie release nie ma konsoli, na której mogłoby to wypisać |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |
+| **Schematy** | Dwa pola: pełne akordy i shell voicings — tercja i septyma nad prymą. Zaznaczone oba rysują oba, żadne nie rysuje nic. Powyżej czterech schematów rysowane są w dwóch rzędach. `m7b5` nie ma własnego shella: jego shell to co do dźwięku shell `m7`, bo różni je wyłącznie kwinta, więc to właśnie jest rysowane, z podpisem *substytut: shell m7*. Akord zmniejszony septymowy nie ma czego pominąć — cztery dźwięki co małą tercję, bez pary tercja-septyma, którą można by zachować — więc zostaje przy pełnych chwytach, z podpisem mówiącym, czym one też są: `7b9` bez prymy, o pół tonu poniżej każdego swojego dźwięku |
 | **Tryb startowy** | W jakim trybie program się otwiera |
 | **Język** | Auto (z ustawień systemu), polski, angielski. Stosowany natychmiast, bez restartu |
 | **Pewność akordu** | Jak pewny musi być model *nazwy* akordu, żeby została zaliczona (tryb Akordy) |

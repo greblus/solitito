@@ -167,6 +167,7 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Play the notes in order** | Formulas only: the set has to be walked lowest function first. Off, it is a set — any of them, in any order |
 | **Console debug** | Prints a line for every function credited, with what was heard. A window on the judging; on Windows a release build has no console to print it to |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
+| **Shapes** | Two boxes: the full grips and shell voicings — third and seventh over the root. Both ticked draws both, neither draws none. Past four shapes they are drawn in two rows. A `m7b5` has no shell of its own: its shell is the `m7` shell note for note, since the fifth is the only place the two differ, so that is what is drawn, captioned *substitute: the m7 shell*. A diminished seventh has nothing to leave out — its four notes are all a minor third apart, with no third-and-seventh pair to keep — so it keeps its full grips, captioned with what they also are: a `7b9` without its root, from a semitone below any of its notes |
 | **Startup mode** | Which mode the app opens in |
 | **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
 | **Chord confidence** | How sure the model must be of the chord *name* before it counts (Chords mode) |

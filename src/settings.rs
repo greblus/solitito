@@ -100,6 +100,18 @@ pub struct Settings {
     /// vocabulary to learn.
     #[serde(default)]
     pub formula_jazz_names: bool,
+    /// Draw the shape thumbnails under the chord name in Chords mode. Was a
+    /// UI property alone and reset to on at every launch.
+    #[serde(default = "yes")]
+    pub show_diagrams: bool,
+    /// Which shapes to draw. Both together is a legitimate answer - the row
+    /// then holds ten thumbnails where four fit comfortably, which is for
+    /// comparing them rather than playing from - and so is neither, which
+    /// draws no shapes at all.
+    #[serde(default = "yes")]
+    pub show_full_shapes: bool,
+    #[serde(default)]
+    pub show_shell_shapes: bool,
     /// Formulas mode: how many notes each drawn formula has, the root included.
     #[serde(default = "five_notes")]
     pub formula_notes: usize,
@@ -200,6 +212,9 @@ impl Default for Settings {
             audio_channel: 1,
             gates: HashMap::new(),
             formula_jazz_names: false,
+            show_diagrams: true,
+            show_full_shapes: true,
+            show_shell_shapes: false,
             formula_exercise: 0,
             formula_placement: 0,
             formula_notes: 5,
