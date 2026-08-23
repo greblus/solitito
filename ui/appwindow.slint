@@ -696,7 +696,14 @@ export component AppWindow inherits Window {
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
     property <length> box_w: root.wide_view
-        ? min(root.width, root.design_w * 17 / 10)
+        // Two and a half design widths where the shapes are drawn: at 1.7 the
+        // five-a-row case still had width binding first, so half the room a
+        // maximised window offers went to the black margins while the diagrams
+        // stayed small. The top bar is pinned at the design width, so nothing
+        // else moves with this.
+        ? min(root.width, root.current_mode == 0
+            ? root.design_w * 5 / 2
+            : root.design_w * 17 / 10)
         : root.design_w;
 
     VerticalLayout {
@@ -1146,7 +1153,12 @@ export component AppWindow inherits Window {
                 // second row costs height this column has to spare.
                 property <int> widest: max(root.chord_diagrams.length,
                                            root.chord_diagrams_2.length);
-                property <length> dw: min(root.chord_diagrams_2.length > 0 ? 130px : 170px,
+                // 190px, which is what the height allows and nothing more: the
+                // layout is 800 units tall whatever the window does - the scale
+                // factor is pinned by height on any wide screen - and of that,
+                // 396 are left between the chord name and the pause. Two rows
+                // at 190 come to 374 of them; 210 would not fit.
+                property <length> dw: min(190px,
                     (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
 
