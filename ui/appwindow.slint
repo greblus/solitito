@@ -792,7 +792,11 @@ export component AppWindow inherits Window {
         // --- MAIN PRACTICE VIEW ---
         if !root.show_settings : VerticalLayout {
             alignment: center;
-            spacing: 25px;
+            // Tighter in Chords, where the column carries the tallest thing the
+            // app draws: four gaps at 25 are 100 units, and giving 28 of them
+            // back to the shapes is worth more than the air between rows that
+            // are already large.
+            spacing: root.current_mode == 0 ? 18px : 25px;
             // The fretboard trainer shows two lines and nothing else, and a
             // centred pair of lines sits lower than the eye expects - the more
             // so since the empty interval strip stopped holding space below
@@ -1153,12 +1157,26 @@ export component AppWindow inherits Window {
                 // second row costs height this column has to spare.
                 property <int> widest: max(root.chord_diagrams.length,
                                            root.chord_diagrams_2.length);
-                // 190px, which is what the height allows and nothing more: the
-                // layout is 800 units tall whatever the window does - the scale
-                // factor is pinned by height on any wide screen - and of that,
-                // 396 are left between the chord name and the pause. Two rows
-                // at 190 come to 374 of them; 210 would not fit.
-                property <length> dw: min(190px,
+                // 190px is what the height allows and nothing more: the layout
+                // is 800 units tall whatever the window does - the scale factor
+                // is pinned by height on any wide screen - and of that, 396 are
+                // left between the chord name and the pause. Two rows at 190
+                // come to 374 of them.
+                //
+                // With the shuffle on there is also a line saying which string
+                // to start from, and that takes about 50 of those 396, which
+                // pushed the strip at the foot of the window out of sight. Two
+                // rows and that line together get 160.
+                // One size, whatever is being drawn. Both optional lines below
+                // hold their space whether they have anything to say or not, and
+                // the count no longer changes the size either - in shell mode a
+                // dim7 draws three shapes where its neighbours draw six, and
+                // sizing by the row count made the window jump on that one chord
+                // in a tune. The number is what two rows allow: 396 units
+                // between the chord name and the pause, less 51 for the
+                // suggestion and 34 for the caption, plus the 28 the column's
+                // own gaps give back at 18 - 339, and two rows at 170 take 335.
+                property <length> dw: min(170px,
                     (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
 
@@ -1183,15 +1201,32 @@ export component AppWindow inherits Window {
                 }
                 // Said out loud, or the fallback reads as a shell voicing and
                 // the player believes they are leaving the fifth out.
-                if root.shapes_note != "" : Text {
+                // Always here, empty or not. A line that comes and goes resizes
+                // the shapes above it and moves the strip below, so walking onto
+                // a chord that has a substitute made the whole window jump.
+                Text {
+                    height: 18px;
                     text: root.shapes_note;
                     font-size: 12px;
                     color: #777;
                     horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
             }
 
-            if root.start_hint != "" : Text {
+            // Chords keeps the line whether the shuffle is on or not: it is
+            // what draws the suggestion, and a row that appears with it would
+            // rescale the shapes and push the strip down every time it is
+            // switched.
+            if root.current_mode == 0 : Text {
+                height: 26px;
+                text: root.start_hint;
+                font-size: 20px;
+                color: #888;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            if root.current_mode != 0 && root.start_hint != "" : Text {
                 text: root.start_hint;
                 // In the fretboard trainer this line IS the exercise - it says
                 // where to play. Elsewhere it is a side suggestion, so it stays
