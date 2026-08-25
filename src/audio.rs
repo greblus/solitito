@@ -352,14 +352,32 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
         return None;
     }
 
-    // An octave down scores almost as well whenever the true fundamental's
-    // harmonics land on its own - the classic failure of this method. Prefer the
-    // higher candidate unless the lower one is clearly better on its own bin.
+    // Any partial can win the sum, because an impostor sitting on one of them
+    // collects the note's upper harmonics as its own: a fifth above shares the
+    // note's third and sixth, an octave shares every second one, and two octaves
+    // and a major third - the fifth harmonic - is what actually won for a third
+    // of a chromatic run of isolated plucks. The winner is therefore compared
+    // against every candidate that would explain it, lowest first, and the first
+    // one that stands up on its own bin takes it.
+    //
+    // Measured on that run: 6 of 12 correct before, 12 of 12 after, with the
+    // model naming 11 of the same 12 - so the information was in the frame all
+    // along and the sum was the thing throwing it away.
+    const IMPOSTOR_OFFSETS: [usize; 6] = [62, 56, 48, 38, 24, 14];
     let mut b = best.0;
-    if b >= 24 + F0_LOW_BIN {
-        let lower = b - 24;
-        if score_at(lower) > best.1 * 0.98 && norm_cqt[lower] > norm_cqt[b] * 1.15 {
+    for off in IMPOSTOR_OFFSETS {
+        if b < off + F0_LOW_BIN {
+            continue;
+        }
+        let lower = b - off;
+        // Looser than a plain "is it better": the bin being defended is the
+        // quieter one by construction - that is why it lost - so it has to be
+        // comparable rather than dominant. At 0.5 the rule fired too readily on
+        // a real recording and pulled readings a fifth down; 0.8 keeps the
+        // chromatic run at 12 of 12 and leaves the recording where it was.
+        if score_at(lower) > best.1 * 0.9 && norm_cqt[lower] > norm_cqt[b] * 0.8 {
             b = lower;
+            break;
         }
     }
 
@@ -372,7 +390,9 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
     // every time the root was struck.
     let mut pos = b as f32;
     if b > 0 && b + 1 < CQT_BINS {
-        let (l, c, r) = (score_at(b - 1), best.1, score_at(b + 1));
+        // score_at(b), not best.1: the checks above may have moved b, and the
+        // parabola has to be the one around the bin actually chosen.
+        let (l, c, r) = (score_at(b - 1), score_at(b), score_at(b + 1));
         let denom = l - 2.0 * c + r;
         if denom.abs() > 1e-6 {
             let delta = 0.5 * (l - r) / denom;
@@ -974,6 +994,39 @@ mod fill_tests {
         }
         let (pc, _) = mono_pitch(&cqt).expect("a note with every harmonic present");
         assert_eq!(pc, 2, "D read as {}", NOTE_NAMES_TEST[pc]);
+    }
+
+    /// A weak fundamental does not hand the note to one of its own partials.
+    ///
+    /// On a low string the fundamental is often quieter than the partials above
+    /// it, and an impostor sitting on one of those collects the rest of the
+    /// series: a fifth above shares the note's third and sixth, and two octaves
+    /// and a major third - the fifth harmonic - shares what is above that.
+    /// Measured on a chromatic run of isolated plucks, the estimate named a
+    /// fifth or a third above for six notes of twelve.
+    #[test]
+    fn a_quiet_fundamental_keeps_its_note() {
+        // A2: semitone 21 above C1, so bin 42.
+        const A2: usize = 42;
+        for impostor in [14usize, 56] {
+            let mut cqt = vec![0.0f32; CQT_BINS];
+            for (h, off) in HARMONIC_OFFSETS.iter().enumerate() {
+                let idx = A2 + off;
+                if idx < CQT_BINS {
+                    // The fundamental at a fraction of its own partials, which
+                    // is what a low string actually looks like.
+                    cqt[idx] = if h == 0 { 0.45 } else { 1.0 };
+                }
+            }
+            // And the impostor's bin carrying something of its own, as it would
+            // from the note's spread.
+            if A2 + impostor < CQT_BINS {
+                cqt[A2 + impostor] = 0.5;
+            }
+            let (pc, _) = mono_pitch(&cqt).expect("a note with its harmonics present");
+            assert_eq!(pc, 9, "A read as {} with an impostor {impostor} bins up",
+                       NOTE_NAMES_TEST[pc]);
+        }
     }
 
     const NOTE_NAMES_TEST: [&str; 12] = [
