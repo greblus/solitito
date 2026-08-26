@@ -25,9 +25,11 @@ the estimate into the authority — then the model's window cannot credit the no
 one under your fingers.
 
 Whatever is asked for twice in a row — the same note twice in an arpeggio, a scale closing on
-its root — has to be played twice. What is still ringing from the time before matches the
-moment it is asked for again, so passing needs a fresh strike: the attack head's answer for
-the note in question has to cross 0.60.
+its root, the same chord written twice in a song — has to be played twice. What is still
+ringing from the time before matches the moment it is asked for again, so passing needs a
+fresh strike: the attack head's answer for the note in question has to cross 0.60. A chord
+asks for two such strikes on its own notes — measured, a single one fires by itself under a
+chord that is merely ringing, and two do not.
 
 The envelope detector answers this only for a model that has no attack head at all. It
 counts attacks on any string, so in a run of different notes it moves on every one of them:
@@ -120,10 +122,11 @@ The three heads answer different questions and are **not** interchangeable:
   three heads above are bit-for-bit what they were. Measured against a real recording it is
   the fastest answer in the app (202 ms after the strike, against 676 ms) but it spreads an
   attack across neighbouring strings, so it does not decide *what* was played. What it does
-  decide is whether something was struck **again**: a note asked for twice in a row needs its
-  own strike, and the envelope detector cannot supply one — its level is the RMS of a 512 ms
-  window, so a second pluck of a ringing string barely moves it. Measured on generated
-  material the envelope caught 2 re-plucks of 6; the head caught all six. An older three-head
-  model still runs: the names of the first three outputs did not change.
+  decide is whether something was struck **again**: a note or a chord asked for twice in a
+  row needs its own strike, and the envelope detector cannot supply one — its level is the
+  RMS of a 512 ms window, so a second pluck of a ringing string barely moves it. Measured on
+  generated material the envelope caught 2 re-plucks of 6 and 2 re-strums of 6; the head
+  caught all six of each, with nothing fired while a chord merely rang on. An older three-head model still runs: the names of the first three
+  outputs did not change.
 
 ---

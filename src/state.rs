@@ -89,6 +89,13 @@ const ONSET_AGAIN: f32 = 0.60;
 const ONSET_LOW: f32 = 0.10;
 const ONSET_REARM: f32 = 0.3;
 
+/// How many strikes on a chord's own notes count as strumming it again. One is
+/// not enough: on the measured material a single class fired by itself while
+/// the chord merely rang, and the repeat passed untouched. Two never did, and
+/// a strum supplies two or more anyway - it caught all six re-strums, 0.20 to
+/// 0.33 s after the strings were hit.
+const CHORD_STRIKES: u32 = 2;
+
 /// How long the attack head may still be answering about a pluck already
 /// credited. Measured: its answer arrives 0.2 to 0.5 s after the string is hit,
 /// which is after the estimate has named the note and the step has been
@@ -172,6 +179,10 @@ pub struct MyApp {
     /// take it back. Wrong chords still fail, because their best reading after
     /// the attack is a different chord.
     pub short_verdict: bool,
+    /// The panel is drawing shell voicings and nothing else. Shells leave out
+    /// the fifth, so a chord told apart from another only by its fifth cannot
+    /// be asked for in full - see the m7b5 arm of the match below.
+    pub shells_only: bool,
     /// The chord shown before this one, so the strip along the bottom can show
     /// what was just played. `None` until something has been.
     pub prev_chord_index: Option<usize>,
@@ -362,6 +373,11 @@ pub struct MyApp {
     /// Kept across a chord and across a lap - the string goes on ringing over
     /// both - and cleared when the exercise itself is reset.
     pub credited: [Option<Credit>; 12],
+    /// What the strike counters and the envelope's attack count read when the
+    /// current chord became the target. A chord that repeats in the
+    /// progression is still ringing from the pass before and would pass again
+    /// untouched; comparing against this asks for a fresh strum.
+    chord_heard_at: ([u32; 12], u64),
 
     // --- Formulas mode ---
     /// The formula being practised, as a bitmask of functions.
@@ -435,6 +451,7 @@ impl MyApp {
             
             match_status: MatchStatus::None,
             short_verdict: false,
+            shells_only: false,
             prev_chord_index: None,
             prev_status: MatchStatus::None,
             
@@ -484,6 +501,7 @@ impl MyApp {
             single_notes: false,
             onset_id: 0,
             credited: [None; 12],
+            chord_heard_at: ([0; 12], 0),
             formula_mask: 0,
             formula_exercise: 0,
             formula_placement_want: 0,
@@ -791,6 +809,7 @@ impl MyApp {
         self.ear_window = [None; EAR_WINDOW];
         self.cqt_run_pitch = None;
         self.cqt_run = 0;
+        self.chord_heard_at = (self.strike_id, self.onset_id);
     }
 
     pub fn reset_logic_state(&mut self) {
@@ -1458,11 +1477,19 @@ impl MyApp {
                                 ("m7b5", "dim") => partial_match = true, 
                                 // A shell voicing of a m7b5 is root, third and
                                 // seventh - the m7 shell, note for note, since
-                                // the fifth is the only place the two differ.
-                                // Refusing it would refuse the shape the app
-                                // itself draws in shell mode. Yellow, not
-                                // green: what was heard genuinely was a m7.
-                                ("m7b5", "m7") => partial_match = true,
+                                // the fifth is the only place the two differ,
+                                // and the shell leaves the fifth out. With
+                                // shells the only shapes on screen, that grip is
+                                // what the app asked for, so playing it is a
+                                // pass and not a substitution: green. Yellow
+                                // otherwise, where the full shape is drawn with
+                                // its flat fifth and a m7 means the fifth was
+                                // missed. Heard as plain m when the seventh dies
+                                // away, exactly as an ordinary m7 is.
+                                ("m7b5", "m7") | ("m7b5", "m") if self.shells_only => {
+                                    exact_match = true
+                                }
+                                ("m7b5", "m7") | ("m7b5", "m") => partial_match = true,
                                 _ => {}
                             }
                         }
@@ -1494,6 +1521,18 @@ impl MyApp {
                 // and no decay afterwards to undo it. Nothing runs away, because
                 // advancing changes the target and the chord still ringing stops
                 // matching it.
+                // A chord asked for twice in a row has to be played twice.
+                // Without this the ring of the pass before matches the moment
+                // the target is set and the progression runs itself.
+                if (exact_match || partial_match)
+                    && self.chord_repeats(target_chord)
+                    && !self.chord_struck_since(&all_targets)
+                {
+                    self.match_status = MatchStatus::None;
+                    self.success_timer = 0.0;
+                    return;
+                }
+
                 if self.short_verdict && exact_match && !is_weak_signal {
                     self.match_status = MatchStatus::Exact;
                     if !self.paused {
@@ -1715,6 +1754,35 @@ impl MyApp {
             semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: STRIKE_SETTLE,
         });
+    }
+
+    /// True when the chord now being asked for is the one just left behind -
+    /// two of the same in a row in the song, or a progression of one chord.
+    /// Its notes are still ringing, so matching proves nothing.
+    fn chord_repeats(&self, target: &Chord) -> bool {
+        match self.prev_chord_index {
+            Some(p) => {
+                p < self.chords.len()
+                    && self.chords[p].root == target.root
+                    && self.chords[p].quality == target.quality
+            }
+            None => false,
+        }
+    }
+
+    /// Whether the strings have been hit since this chord became the target:
+    /// either the envelope heard an attack, or the attack head counted
+    /// `CHORD_STRIKES` of them on the chord's own notes. See `strike_id`.
+    fn chord_struck_since(&self, classes: &[usize]) -> bool {
+        let (strikes, onset) = self.chord_heard_at;
+        if !self.onset_head_seen {
+            return self.onset_id != onset;
+        }
+        let struck: u32 = classes
+            .iter()
+            .map(|c| self.strike_id[c % 12].wrapping_sub(strikes[c % 12]))
+            .sum();
+        struck >= CHORD_STRIKES
     }
 
     fn advance_chord(&mut self) {
@@ -2039,6 +2107,73 @@ pub(crate) mod tests {
                    "one chord ringing moved the song on more than once");
     }
 
+    /// Two of the same chord in a row: the first pass is earned, the second has
+    /// to be strummed again. The ring of the first would otherwise match the
+    /// target the instant it is set.
+    #[test]
+    fn the_same_chord_twice_has_to_be_played_twice() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+        ];
+        a.reset_logic_state();
+
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_eq!(a.current_chord_index, 1, "the first strum did not pass");
+
+        // The same chord keeps ringing, unplayed.
+        for _ in 0..40 {
+            a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        }
+        assert_eq!(a.current_chord_index, 1, "the ring passed the repeat by itself");
+
+        // Struck again: the attack head answers for the chord's own notes.
+        let mut v = [0.0; 12];
+        for c in [0, 4, 7, 11] { v[c] = 0.9; }     // C E G B
+        a.set_onsets(v);
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_ne!(a.current_chord_index, 1, "a real second strum was refused");
+    }
+
+    /// One note of the chord speaking up is not a strum. Measured on the
+    /// generated strums, a single class fired by itself while a chord merely
+    /// rang on; two never did.
+    #[test]
+    fn one_note_speaking_up_is_not_a_strum() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+        ];
+        a.reset_logic_state();
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        let after_first = a.current_chord_index;
+        assert_eq!(after_first, 1, "the first strum did not pass");
+
+        let mut one = [0.0; 12];
+        one[4] = 0.9;                              // E alone
+        a.set_onsets(one);
+        for _ in 0..20 { a.check_progress_with_ai(0.02, "C Maj7", 0.99); }
+        assert_eq!(a.current_chord_index, after_first, "one note passed as a strum");
+
+        let mut two = [0.0; 12];
+        two[0] = 0.05; two[4] = 0.05; two[7] = 0.05;
+        a.set_onsets(two);                         // everything falls back
+        two[0] = 0.9; two[7] = 0.9;
+        a.set_onsets(two);
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        assert_ne!(a.current_chord_index, after_first, "two notes struck did not pass");
+    }
+
     /// The answer for a class under a ringing chord hovers instead of falling
     /// to nothing, so re-arming is measured against the strike before it.
     #[test]
@@ -2058,6 +2193,50 @@ pub(crate) mod tests {
         v[pc] = 0.85;                              // struck again
         a.set_onsets(v);
         assert_eq!(a.strike_id[pc], first + 1, "the second strike was missed");
+    }
+
+    /// A m7b5 has no shell of its own: the shell is root, seventh and third,
+    /// and the flat fifth is the one note it leaves out. With shells the only
+    /// shapes on screen, the m7 shell IS the shape asked for.
+    #[test]
+    fn the_shell_of_a_half_diminished_passes_as_itself() {
+        for (shells_only, want) in [(true, MatchStatus::Exact), (false, MatchStatus::Partial)] {
+            let mut a = app();
+            a.app_mode = AppMode::Chords;
+            a.set_random_mode(false);
+            a.short_verdict = false;
+            a.shells_only = shells_only;
+            a.chords = vec![Chord { root: NoteName::A, quality: ChordQuality::HalfDiminished }];
+            a.reset_logic_state();
+            for _ in 0..40 { a.check_progress_with_ai(0.02, "A m7", 0.99); }
+            assert_eq!(a.prev_status(), want, "shells_only = {shells_only}");
+        }
+    }
+
+    /// The strike has to be one of the chord's own notes. Something else being
+    /// plucked nearby does not pass the repeat.
+    #[test]
+    fn a_strike_elsewhere_does_not_pass_the_repeat() {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = true;
+        a.transition_delay = 0.25;
+        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Major7 }];
+        a.reset_logic_state();
+
+        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        let after_first = a.current_chord_index;
+
+        let mut v = [0.0; 12];
+        v[1] = 0.9;                                 // Db, in no C Maj7
+        a.set_onsets(v);
+        let onset = a.onset_id;                     // and the envelope heard nothing
+        a.onset_id = onset;
+        for _ in 0..40 {
+            a.check_progress_with_ai(0.02, "C Maj7", 0.99);
+        }
+        assert_eq!(a.current_chord_index, after_first, "a stray note passed the chord");
     }
 
     /// Passing has to be visible, and on the right chord. Advancing changes

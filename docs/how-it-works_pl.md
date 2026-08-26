@@ -25,10 +25,12 @@ monofoniczny. Opcja **Graj dźwięki pojedynczo** czyni z estymaty rozstrzygają
 wtedy okno modelu nie może zaliczyć dźwięku poprzedzającego ten pod palcami.
 
 Cokolwiek jest wymagane dwa razy z rzędu — ten sam dźwięk dwukrotnie w arpeggiu, skala
-kończąca się powtórzoną prymą — musi zostać zagrane dwa razy. To, co wciąż brzmi z
-poprzedniego razu, pasuje w chwili, w której program prosi o to ponownie, więc zaliczenie
-wymaga świeżego uderzenia: odpowiedź głowicy ataków dla danego dźwięku musi przekroczyć
-0,60.
+kończąca się powtórzoną prymą, ten sam akord zapisany dwa razy w utworze — musi zostać
+zagrane dwa razy. To, co wciąż brzmi z poprzedniego razu, pasuje w chwili, w której program
+prosi o to ponownie, więc zaliczenie wymaga świeżego uderzenia: odpowiedź głowicy ataków dla
+danego dźwięku musi przekroczyć 0,60. Akord wymaga dwóch takich uderzeń na własnych
+dźwiękach — zmierzone: pojedyncze potrafi odezwać się samo pod akordem, który tylko
+wybrzmiewa, dwa nie zdarzyły się ani razu.
 
 Wykrywacz obwiedni odpowiada na to pytanie wyłącznie w modelu, który nie ma głowicy ataków.
 Liczy on uderzenia na dowolnej strunie, więc w przebiegu z różnych dźwięków przesuwa się przy
@@ -122,11 +124,12 @@ Głowice odpowiadają na różne pytania i **nie** są wymienne:
   reszcie sieci, więc trzy powyższe głowice są co do bitu tym, czym były. Mierzona na
   prawdziwym nagraniu okazała się najszybszą odpowiedzią w programie (202 ms po uderzeniu
   wobec 676 ms), ale rozmywa atak na sąsiednie struny, więc nie rozstrzyga o tym, *co*
-  zostało zagrane. Rozstrzyga natomiast, czy coś zostało uderzone **ponownie**: dźwięk
-  wymagany dwa razy z rzędu potrzebuje własnego uderzenia, a wykrywacz obwiedni nie potrafi
-  go dostarczyć — jego poziom to RMS okna 512 ms, więc drugie szarpnięcie brzmiącej struny
-  prawie go nie podnosi. Zmierzone na materiale generowanym: obwiednia złapała 2 powtórzenia
-  z 6, głowica wszystkie sześć. Starszy, trójgłowicowy model
+  zostało zagrane. Rozstrzyga natomiast, czy coś zostało uderzone **ponownie**: dźwięk albo
+  akord wymagany dwa razy z rzędu potrzebuje własnego uderzenia, a wykrywacz obwiedni nie
+  potrafi go dostarczyć — jego poziom to RMS okna 512 ms, więc drugie szarpnięcie brzmiącej
+  struny prawie go nie podnosi. Zmierzone na materiale generowanym: obwiednia złapała 2
+  powtórzenia z 6 i 2 powtórzone uderzenia akordu z 6, głowica wszystkie sześć z każdych,
+  nie odzywając się ani razu, gdy akord tylko wybrzmiewał. Starszy, trójgłowicowy model
   wciąż działa: nazwy trzech pierwszych wyjść się nie zmieniły.
 
 ---

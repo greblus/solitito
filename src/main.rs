@@ -1254,6 +1254,7 @@ fn main() -> Result<(), slint::PlatformError> {
         app.transition_delay = ui.get_delay();
         app.set_random_mode(ui.get_random_enabled());
         app.short_verdict = ui.get_short_verdict();
+        app.shells_only = ui.get_show_shell_shapes() && !ui.get_show_full_shapes();
         app.single_notes = ui.get_single_notes();
         app.require_onset = ui.get_require_onset();
         // The extra step changes the length of the run, so the strip and the
