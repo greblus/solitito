@@ -22,8 +22,50 @@ Domyślnie ta estymata jedynie **dodaje** drogę zaliczenia, ponieważ przegłos
 kosztowałoby coś, co warto zachować: głowica wysokości jest polifoniczna, więc uderzenie
 całego akordu przechodzi jego interwały jeden po drugim, czego nie potrafi żaden tuner
 monofoniczny. Opcja **Graj dźwięki pojedynczo** czyni z estymaty rozstrzygającą instancję —
-wtedy okno modelu nie może zaliczyć dźwięku poprzedzającego ten pod palcami, a powtórzony
-dźwięk wymaga nowego ataku.
+wtedy okno modelu nie może zaliczyć dźwięku poprzedzającego ten pod palcami.
+
+Cokolwiek jest wymagane dwa razy z rzędu — ten sam dźwięk dwukrotnie w arpeggiu, skala
+kończąca się powtórzoną prymą — musi zostać zagrane dwa razy. To, co wciąż brzmi z
+poprzedniego razu, pasuje w chwili, w której program prosi o to ponownie, więc zaliczenie
+wymaga świeżego uderzenia: odpowiedź głowicy ataków dla danego dźwięku musi przekroczyć
+0,60.
+
+Wykrywacz obwiedni odpowiada na to pytanie wyłącznie w modelu, który nie ma głowicy ataków.
+Liczy on uderzenia na dowolnej strunie, więc w przebiegu z różnych dźwięków przesuwa się przy
+każdym z nich: w `1 2 3 4 5 6 7 1` sześć dźwięków między prymami uchodziłoby za ponowne
+uderzenie pierwszej prymy. Każdy dźwięk pamiętany jest osobno z pokrewnego powodu — pamięć o
+jednym poprzednim zapomniałaby o pierwszej prymie na długo przed tym, nim przyjdzie pora na
+ostatnią.
+
+Dźwięk wymagany po raz drugi — zamykająca `1` w `1 2 3 4 5 6 7 1`, stopień oznaczony w polu
+interwałów apostrofem, arpeggio wracające tam, gdzie się zaczęło — potrzebuje czegoś więcej
+niż samej głowicy ataków, bo głowica rozlewa uderzenie na dźwięki, których nikt nie grał. Gdy
+grane jest sześć stopni nad prymą, pryma zbiera własne uderzenia: dwa na przebiegu testowym,
+a w szybkim przebiegu głowica nie dała dla zamykającej prymy ani jednego.
+
+Rozstrzygają to dwie rzeczy. Estymata czyta wysokość bezwzględną, nie samą nazwę dźwięku,
+więc dźwięk brzmiący o sześć albo więcej półtonów od miejsca, w którym czytała go przy
+zaliczeniu, to inna zagrana struna — zamykająca pryma wobec wciąż brzmiącej otwierającej. To
+dowód sam w sobie i nie potrzebuje ataku; na przebiegu testowym obie prymy odczytane zostały
+o oktawę od siebie, 0,29 s po szarpnięciu struny. Nie może być natomiast wymogiem: przebieg
+zamknięty w tej samej oktawie, w której się zaczął, nie spełniłby go nigdy, choćby zagrać go
+pięć razy. W przeciwnym razie musi więc przesunąć się własny licznik uderzeń dźwięku, a tam,
+gdzie gra się po jednym dźwięku, estymata nie może przy tym czytać innego dźwięku. Ta druga
+połowa jest tym, czego licznik uderzeń sam nie dostarcza: wszystkie przypadkowe zapalenia
+wypadają wtedy, gdy estymata czyta dźwięk faktycznie zagrany, więc przestają przechodzić.
+
+Z opóźnienia głowicy wynika jeszcze jedno. Jej odpowiedź przychodzi 0,2 do 0,5 s po
+uderzeniu struny, czyli *po* tym, jak estymata nazwała dźwięk i krok został na nim zaliczony
+— więc to uderzenie dopiero nadejdzie, gdy następny krok poprosi o ten sam dźwięk, i
+odpowie właśnie jemu. Dlatego zaliczenie przez pół sekundy nadąża za licznikiem swojego
+dźwięku, dopóki estymata wciąż go czyta. Szarpnięcie nie przekaże własnego spóźnionego
+uderzenia następnemu krokowi.
+
+Odbezpieczanie jest względne. Pod uderzonym i pozostawionym akordem odpowiedź głowicy dla
+dźwięku nie opada do zera, lecz wisi — na mierzonym materiale między 0,11 a 0,29 przez całą
+sekundę — więc stały próg nigdy by się nie odbezpieczył i kolejnego uderzenia nie dałoby się
+w ogóle zobaczyć. Dźwięk jest odbezpieczony, gdy jego odpowiedź spadnie poniżej trzech
+dziesiątych szczytu, który zaliczył poprzednie uderzenie.
 
 ---
 
@@ -79,8 +121,12 @@ Głowice odpowiadają na różne pytania i **nie** są wymienne:
   Formułach, gdzie zaliczenie nigdy nie wygasa. Trenowana była osobno, przy zamrożonej
   reszcie sieci, więc trzy powyższe głowice są co do bitu tym, czym były. Mierzona na
   prawdziwym nagraniu okazała się najszybszą odpowiedzią w programie (202 ms po uderzeniu
-  wobec 676 ms), ale rozmywa atak na sąsiednie struny, więc nic nie jest jeszcze na jej
-  podstawie sądzone — jest odczytywana, zapisywana i mierzona. Starszy, trójgłowicowy model
+  wobec 676 ms), ale rozmywa atak na sąsiednie struny, więc nie rozstrzyga o tym, *co*
+  zostało zagrane. Rozstrzyga natomiast, czy coś zostało uderzone **ponownie**: dźwięk
+  wymagany dwa razy z rzędu potrzebuje własnego uderzenia, a wykrywacz obwiedni nie potrafi
+  go dostarczyć — jego poziom to RMS okna 512 ms, więc drugie szarpnięcie brzmiącej struny
+  prawie go nie podnosi. Zmierzone na materiale generowanym: obwiednia złapała 2 powtórzenia
+  z 6, głowica wszystkie sześć. Starszy, trójgłowicowy model
   wciąż działa: nazwy trzech pierwszych wyjść się nie zmieniły.
 
 ---

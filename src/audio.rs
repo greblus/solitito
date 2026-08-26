@@ -75,6 +75,9 @@ pub struct AudioAnalysis {
     /// alone - see `mono_pitch`. `None` while the gate is shut. The model cannot
     /// answer this: it looks at 0.77 s and note practice moves faster than that.
     pub cqt_pitch: Option<usize>,
+    /// The same reading as an absolute semitone from the lowest CQT bin, so a
+    /// note can be told from itself an octave down.
+    pub cqt_semitone: Option<usize>,
     /// Whether the last frame carried signal. Cleared state downstream hangs on
     /// this: a pitch vector nobody refreshes stays true forever otherwise.
     pub gate_open: bool,
@@ -403,8 +406,11 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
             }
         }
     }
+    // The absolute semitone, counted from the lowest CQT bin, not the pitch
+    // class: the octave is what tells a note struck again from the same note
+    // still ringing an octave below it. Callers wanting a class take `% 12`.
     let semitone = (pos / BINS_PER_SEMITONE as f32).round() as usize;
-    Some((semitone % 12, best.1))
+    Some((semitone, best.1))
 }
 
 /// What the input stream actually opened with.
@@ -640,14 +646,15 @@ pub fn start_audio_stream(
                             if let Some((pc, s)) = heard {
                                 println!(
                                     "ucho {:<3} wynik={s:.2}{}",
-                                    crate::NOTE_NAMES[pc],
+                                    crate::NOTE_NAMES[pc % 12],
                                     if s >= MONO_MIN_SCORE { "" } else { "   << pod bramka" },
                                 );
                             }
                         }
-                        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(pc, _)| pc);
+                        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n);
                         if let Ok(mut state) = shared_state.lock() {
-                            state.cqt_pitch = mono;
+                            state.cqt_pitch = mono.map(|n| n % 12);
+                            state.cqt_semitone = mono;
                             state.gate_open = true;
                             let mut frame = Vec::with_capacity(TOTAL_FEATURES);
                             frame.extend_from_slice(&cqt);
@@ -664,6 +671,7 @@ pub fn start_audio_stream(
                     } else if let Ok(mut state) = shared_state.lock() {
                         // In silence push an empty frame to advance the history
                         state.cqt_pitch = None;
+                        state.cqt_semitone = None;
                         state.gate_open = false;
                         state.push_silence();
                         for x in &mut state.spectrum_visual { *x *= 0.7; }
@@ -870,6 +878,7 @@ mod fill_tests {
             noise_gate: 0.0,
             input_level: 0.0,
             cqt_pitch: None,
+            cqt_semitone: None,
             gate_open: false,
             frames_seen: 0,
         }
@@ -942,7 +951,7 @@ mod fill_tests {
                 cqt[idx] = 1.0;
             }
         }
-        let (pc, _) = mono_pitch(&cqt).expect("a note with a fundamental present");
+        let (pc, _) = mono_pitch(&cqt).map(|(n, s)| (n % 12, s)).expect("a note with a fundamental present");
         assert_eq!(pc, 6, "F# was named {}", NOTE_NAMES_TEST[pc]);
     }
 
@@ -969,7 +978,7 @@ mod fill_tests {
                 cqt[idx + 1] = 1.0;
             }
         }
-        let (pc, score) = mono_pitch(&cqt).expect("a note with every harmonic present");
+        let (pc, score) = mono_pitch(&cqt).map(|(n, s)| (n % 12, s)).expect("a note with every harmonic present");
         assert_eq!(pc, 6, "named {} instead of F#", NOTE_NAMES_TEST[pc]);
         assert!(score >= GATE, "scored {score:.2}, under the gate of {GATE}");
     }
@@ -992,7 +1001,7 @@ mod fill_tests {
                 cqt[idx + 1] = 0.5;
             }
         }
-        let (pc, _) = mono_pitch(&cqt).expect("a note with every harmonic present");
+        let (pc, _) = mono_pitch(&cqt).map(|(n, s)| (n % 12, s)).expect("a note with every harmonic present");
         assert_eq!(pc, 2, "D read as {}", NOTE_NAMES_TEST[pc]);
     }
 
@@ -1023,7 +1032,7 @@ mod fill_tests {
             if A2 + impostor < CQT_BINS {
                 cqt[A2 + impostor] = 0.5;
             }
-            let (pc, _) = mono_pitch(&cqt).expect("a note with its harmonics present");
+            let (pc, _) = mono_pitch(&cqt).map(|(n, s)| (n % 12, s)).expect("a note with its harmonics present");
             assert_eq!(pc, 9, "A read as {} with an impostor {impostor} bins up",
                        NOTE_NAMES_TEST[pc]);
         }

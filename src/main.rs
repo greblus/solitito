@@ -582,8 +582,10 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
             let struck: String =
                 p.onsets.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
             let cqt = match last_cqt.as_ref().and_then(|c| audio::mono_pitch(c)) {
-                Some((pc, s)) => format!("{:>3} {:.2}", NOTE_NAMES[pc], s),
-                None => "  -     ".to_string(),
+                // The octave too: what tells a note struck again from the same
+                // note still ringing below it is which one the estimate reads.
+                Some((n, s)) => format!("{:>3}{} {:.2}", NOTE_NAMES[n % 12], n / 12, s),
+                None => "  -      ".to_string(),
             };
             println!(
                 "{:6.2} {:6.1} {:4.0}% {} |{}  {}  {} {:.2}{}",
@@ -626,6 +628,7 @@ struct SettingsSnapshot {
     shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
+    scale_repeat_root: bool,
     show_full_shapes: bool,
     show_shell_shapes: bool,
     ai_debug: bool,
@@ -665,6 +668,7 @@ impl SettingsSnapshot {
             shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
+            scale_repeat_root: ui.get_scale_repeat_root(),
             show_full_shapes: ui.get_show_full_shapes(),
             show_shell_shapes: ui.get_show_shell_shapes(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -734,6 +738,7 @@ fn main() -> Result<(), slint::PlatformError> {
         noise_gate: db_to_lin(default_gate_db),
         input_level: 0.0,
         cqt_pitch: None,
+        cqt_semitone: None,
         gate_open: false,
         frames_seen: 0,
     }));
@@ -999,6 +1004,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
+        ui.set_scale_repeat_root(cfg.scale_repeat_root);
         ui.set_show_full_shapes(cfg.show_full_shapes);
         ui.set_show_shell_shapes(cfg.show_shell_shapes);
         ui.set_formula_jazz_names(cfg.formula_jazz_names);
@@ -1250,6 +1256,12 @@ fn main() -> Result<(), slint::PlatformError> {
         app.short_verdict = ui.get_short_verdict();
         app.single_notes = ui.get_single_notes();
         app.require_onset = ui.get_require_onset();
+        // The extra step changes the length of the run, so the strip and the
+        // marks have to be rebuilt when it is switched.
+        if app.scale_repeat_root != ui.get_scale_repeat_root() {
+            app.scale_repeat_root = ui.get_scale_repeat_root();
+            app.reset_logic_state();
+        }
         app.set_shuffle_chords(ui.get_shuffle_chords());
         {
             // The two text fields are read from the UI, not pushed into it -
@@ -2061,6 +2073,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 cur.save();
             }
         });
+        ui.on_scale_repeat_root_changed({
+            let cur = cur.clone();
+            move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.scale_repeat_root = on;
+                cur.save();
+            }
+        });
         ui.on_show_diagrams_changed({
             let cur = cur.clone();
             move |on| {
@@ -2444,6 +2464,8 @@ fn apply_language(ui: &AppWindow, lang: Lang) {
     g.set_shuffle_chords_hint(t.shuffle_chords_hint.into());
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
+    g.set_repeat_root(t.repeat_root.into());
+    g.set_repeat_root_hint(t.repeat_root_hint.into());
     g.set_shapes_kind(t.shapes_kind.into());
     g.set_shapes_no_shell(t.shapes_no_shell.into());
     g.set_shapes_no_shell_end(t.shapes_no_shell_end.into());

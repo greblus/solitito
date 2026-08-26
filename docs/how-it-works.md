@@ -22,7 +22,49 @@ By default that estimate only ADDS a way to pass, because overruling the model w
 something worth keeping: the pitch head is polyphonic, so strumming a whole chord walks its
 intervals one by one, which no monophonic tuner can do. **Play the notes one at a time** turns
 the estimate into the authority — then the model's window cannot credit the note before the
-one under your fingers, and a repeated note needs a fresh attack.
+one under your fingers.
+
+Whatever is asked for twice in a row — the same note twice in an arpeggio, a scale closing on
+its root — has to be played twice. What is still ringing from the time before matches the
+moment it is asked for again, so passing needs a fresh strike: the attack head's answer for
+the note in question has to cross 0.60.
+
+The envelope detector answers this only for a model that has no attack head at all. It
+counts attacks on any string, so in a run of different notes it moves on every one of them:
+in `1 2 3 4 5 6 7 1` the six notes between the two roots would have counted as the first
+root being struck again. Every note is remembered separately for a related reason —
+remembering only the note before would have forgotten the first root long before the last
+one is due.
+
+A note asked for a second time — the closing `1` of `1 2 3 4 5 6 7 1`, a degree the interval
+box marks with `'`, an arpeggio that comes back to where it began — needs more than the
+attack head alone, because the head spreads an attack over notes nobody played. While the
+six degrees above the root are played, the root collects strikes of its own: two of them on
+the test run, and in a fast run the head produced no strike for the closing root at all.
+
+Two things can settle it. The estimate reads an absolute pitch and not just a note name, so
+a note sounding six semitones or more from where it was read when it was credited is a
+different string being played — the closing root against the opening one still ringing. That
+is proof on its own and needs no attack; on the test run the two roots were read an octave
+apart, 0.29 s after the string was hit. It cannot be a requirement, though: a run closed in
+the octave it started in would never satisfy it, however many times it was played. So
+otherwise the note's own strike counter has to have moved, and — where notes are played one
+at a time — the estimate must not be reading some other note. That second half is what the
+strike counter cannot supply on its own: the strays all land while the estimate is reading
+whatever was actually played, so they no longer pass.
+
+One more thing follows from the head's latency. Its answer arrives 0.2 to 0.5 s after the
+string is hit, which is *after* the estimate has named the note and the step has been
+credited on it — so that strike is still to come when the next step asks for the same note,
+and it would answer for it. A credit therefore keeps up with its own note's counter for half
+a second, for as long as the estimate is still reading that note. A pluck cannot pass its
+own late strike on to the step after it.
+
+Re-arming is relative. Under a strummed chord left ringing the head's answer for a note does
+not fall back to nothing but hovers — 0.11 to 0.29 for a whole second on the measured
+material — so a fixed floor would never re-arm and the next strum could not be seen at all.
+A note is armed again once its answer drops below three tenths of the peak that counted the
+strike before it.
 
 ---
 
@@ -77,8 +119,11 @@ The three heads answer different questions and are **not** interchangeable:
   mark never expires. It was trained on its own, with the rest of the network frozen, so the
   three heads above are bit-for-bit what they were. Measured against a real recording it is
   the fastest answer in the app (202 ms after the strike, against 676 ms) but it spreads an
-  attack across neighbouring strings, so nothing is judged by it yet — it is read, logged
-  and being measured. An older three-head model still runs: the names of the first three
-  outputs did not change.
+  attack across neighbouring strings, so it does not decide *what* was played. What it does
+  decide is whether something was struck **again**: a note asked for twice in a row needs its
+  own strike, and the envelope detector cannot supply one — its level is the RMS of a 512 ms
+  window, so a second pluck of a ringing string barely moves it. Measured on generated
+  material the envelope caught 2 re-plucks of 6; the head caught all six. An older three-head
+  model still runs: the names of the first three outputs did not change.
 
 ---

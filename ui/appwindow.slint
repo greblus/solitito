@@ -342,6 +342,8 @@ export global Tr {
     in-out property <string> shuffle_chords: "Shuffle the chords as well";
     in-out property <string> shuffle_chords_hint: "";
     in-out property <string> show_diagrams: "Show chord shapes";
+    in-out property <string> repeat_root: "End on the root again";
+    in-out property <string> repeat_root_hint: "";
     in-out property <string> shapes_kind: "Shapes: ";
     in-out property <string> shapes_full: "full chords";
     in-out property <string> shapes_shell: "shell voicings";
@@ -465,6 +467,9 @@ export component AppWindow inherits Window {
     in property <string> shapes_note;
     in-out property <bool> show_diagrams: true;
     callback show_diagrams_changed(bool);
+    /// Scales: end the run on the root again, an octave up.
+    in-out property <bool> scale_repeat_root: false;
+    callback scale_repeat_root_changed(bool);
     /// Which shapes to draw. Both ticked draws both; neither draws none.
     in-out property <bool> show_full_shapes: true;
     in-out property <bool> show_shell_shapes: false;
@@ -1828,6 +1833,29 @@ export component AppWindow inherits Window {
                                 // can work its own height out.
                                 width: root.panel_w - 30px;
                                 text: Tr.shuffle_chords_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                        }
+
+                        // Scales only: the run ends where it started, an octave
+                        // up. A step of its own, so it has to be played.
+                        if root.current_mode == 2 : VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.scale_repeat_root;
+                                    toggled => { root.scale_repeat_root_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.repeat_root;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                width: root.panel_w - 30px;
+                                text: Tr.repeat_root_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
                         }

@@ -104,6 +104,9 @@ pub struct Settings {
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
     pub show_diagrams: bool,
+    /// Scales: finish the run on the root again, an octave up.
+    #[serde(default)]
+    pub scale_repeat_root: bool,
     /// Which shapes to draw. Both together is a legitimate answer - the row
     /// then holds ten thumbnails where four fit comfortably, which is for
     /// comparing them rather than playing from - and so is neither, which
@@ -212,6 +215,7 @@ impl Default for Settings {
             audio_channel: 1,
             gates: HashMap::new(),
             formula_jazz_names: false,
+            scale_repeat_root: false,
             show_diagrams: true,
             show_full_shapes: true,
             show_shell_shapes: false,

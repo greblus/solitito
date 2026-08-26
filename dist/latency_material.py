@@ -88,6 +88,17 @@ for m in [43, 55]:
         t += 0.45
     t += 1.6
 
+# G. the same chord strummed again, everything left ringing. This is what a
+# song asks for when it writes the same chord twice in a row: the ring of the
+# first strum is still there when the second is due.
+t += 2.0
+for voicing in ([48, 52, 55, 59], [45, 52, 55, 60]):     # C Maj7, A m7
+    for _ in range(3):
+        for j, m in enumerate(voicing):
+            put(t + j * 0.015, m, dur=3.0, level=0.9, case="chord_repeat")
+        t += 1.2
+    t += 2.0
+
 track = track[: int((t + 3.0) * SR)]
 track *= 0.5 / np.max(np.abs(track))
 sf.write(OUT_WAV, track.astype(np.float32), SR, subtype="FLOAT")
