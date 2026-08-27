@@ -984,10 +984,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     {
         let app = my_app.lock().unwrap();
-        let titles: Vec<SharedString> = app.song_library.iter()
-            .map(|s| SharedString::from(&s.title))
-            .collect();
-        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(titles))));
+        let (items, _) = library_lists(&app, lang);
+        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
         // Per device: the same room and the same fingers give levels tens of
         // decibels apart through an interface and through a laptop microphone.
         ui.set_gate_db(
@@ -1027,7 +1025,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_icon_star_on(svg_icon(ICON_STAR_ON));
         ui.set_icon_pause(svg_icon(ICON_PAUSE));
         ui.set_icon_play(svg_icon(ICON_PLAY));
-        apply_language(&ui, lang);
+        // `app` above is the same lock: taking it again here deadlocked the
+        // start-up, and the window never appeared.
+        apply_language(&ui, lang, Some(&app));
         ui.set_interval_input_text(app.intervals_input.clone().into()); 
     }
 
@@ -1188,8 +1188,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let app_clone = my_app.clone();
     let result_for_ui = ai_result_state.clone();
     
-    let keys_list: Vec<SharedString> = vec!["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
-        .into_iter().map(SharedString::from).collect();
 
     // Chord quality latch - see the `latch` module docs.
     let mut chord_latch = ChordLatch::default();
@@ -1482,7 +1480,14 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
 
-        set_if_changed(ui.get_song_title(), app.song_title.clone().into(), |v| ui.set_song_title(v));
+        // In Scales the title IS a scale name, and it is kept in the language
+        // the definition file wrote it in - see `library_lists`.
+        let shown_title = if app.app_mode == AppMode::Scales {
+            i18n::scale_name(Lang::from_setting(ui.get_language_idx()), &app.song_title).to_string()
+        } else {
+            app.song_title.clone()
+        };
+        set_if_changed(ui.get_song_title(), shown_title.into(), |v| ui.set_song_title(v));
         
         // Scales in random mode redraw the key on their own; push it to the
         // combo, but only on a real change so it does not fight the user
@@ -1952,7 +1957,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let app_weak = my_app.clone();
     let ui_weak_cb = ui.as_weak();
-    let keys_list_clone = keys_list.clone();
     
     // Saved immediately - there is no "Save" button, so the setting has to survive
     // closing the window without an extra step.
@@ -2314,6 +2318,7 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let cur = live_cfg.clone();
         let uw = ui.as_weak();
+        let app_for_lang = my_app.clone();
         ui.on_language_changed(move |idx| {
             {
                 let mut cur = cur.borrow_mut();
@@ -2322,7 +2327,8 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             // Strings are swapped immediately; no restart needed.
             if let Some(ui) = uw.upgrade() {
-                apply_language(&ui, Lang::from_setting(idx));
+                let app = app_for_lang.lock().unwrap();
+                apply_language(&ui, Lang::from_setting(idx), Some(&app));
             }
         });
     }
@@ -2336,20 +2342,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
         let (label, sec_label) = mode_labels(&t, app.app_mode);
-        let (items, sec_items): (Vec<SharedString>, Vec<SharedString>) = match app.app_mode {
-            AppMode::Scales => (
-                app.scale_definitions.iter().map(|s| SharedString::from(&s.name)).collect(),
-                keys_list_clone.clone(),
-            ),
-            AppMode::Arpeggios => (
-                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect(),
-                app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect(),
-            ),
-            _ => (
-                app.song_library.iter().map(|s| SharedString::from(&s.title)).collect(),
-                vec![],
-            ),
-        };
+        let (items, sec_items) = library_lists(&app, Lang::from_setting(ui.get_language_idx()));
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
         ui.set_current_item_index(0);
@@ -2418,13 +2411,57 @@ fn mode_labels(t: &i18n::Strings, mode: AppMode) -> (&'static str, &'static str)
     }
 }
 
-fn apply_language(ui: &AppWindow, lang: Lang) {
+/// The twelve keys, as the second combo lists them in Scales.
+fn keys_list() -> Vec<SharedString> {
+    ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+        .into_iter()
+        .map(SharedString::from)
+        .collect()
+}
+
+/// What the two combos hold in the current mode, in the current language.
+///
+/// Scale names are translated here rather than in `MyApp`: the state keeps the
+/// name the definition file gave, which is what a user's own scale is matched
+/// and saved by. Only the screen changes language.
+fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedString>) {
+    let scales = || -> Vec<SharedString> {
+        app.scale_definitions
+            .iter()
+            .map(|s| SharedString::from(i18n::scale_name(lang, &s.name)))
+            .collect()
+    };
+    let songs = || -> Vec<SharedString> {
+        app.song_library.iter().map(|s| SharedString::from(&s.title)).collect()
+    };
+    match app.app_mode {
+        AppMode::Scales => (scales(), keys_list()),
+        AppMode::Arpeggios => (
+            songs(),
+            app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect(),
+        ),
+        _ => (songs(), vec![]),
+    }
+}
+
+fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     let t = i18n::strings(lang);
-    // Not everything on screen goes through the Tr global: these three are
-    // built in Rust and stayed in whatever language they were made in.
+    // Not everything on screen goes through the Tr global: these are built in
+    // Rust and stayed in whatever language they were made in.
     let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()));
     ui.set_library_label(label.into());
     ui.set_secondary_label(sec_label.into());
+    // The scale names among them: they are the library list in Scales, so the
+    // list is dealt again in the new language, and the choice standing in it
+    // kept - rebuilding a model resets the index.
+    if let Some(app) = app {
+        let (items, sec_items) = library_lists(app, lang);
+        let (chosen, sec_chosen) = (ui.get_current_item_index(), ui.get_current_secondary_index());
+        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
+        ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
+        ui.set_current_item_index(chosen);
+        ui.set_current_secondary_index(sec_chosen);
+    }
     let channels = ui.get_audio_channels().row_count() as i32;
     let chosen = ui.get_audio_channel_index();
     ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
