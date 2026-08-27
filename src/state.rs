@@ -547,6 +547,19 @@ impl MyApp {
         } else {
             for token in user_tokens {
                  let (token, octave) = split_octave(token);
+                 // An exact name wins wherever it sits, and is looked for
+                 // across the whole set before anything else. The loose rules
+                 // below answer "the third of this chord, whatever it is" for a
+                 // token the set spells differently - but they were being asked
+                 // first, name by name, so in a scale holding both `#2` and `3`
+                 // the token `3` stopped at `#2` and took it. Ten of the
+                 // twenty-six built-in scales walked a step twice that way and
+                 // never asked for the one it had swallowed: the altered scale
+                 // read 1 b2 #2 #2 b5 #5 b7, and Bebop Dominant ended b7 b7.
+                 if let Some(idx) = all_names.iter().position(|n| n == token) {
+                     indices.push(Step { degree: idx, octave });
+                     continue;
+                 }
                  for (idx, name) in all_names.iter().enumerate() {
                     let is_match = if token == name { true } else {
                         match token {
@@ -2786,6 +2799,51 @@ pub(crate) mod tests {
         a.sync_audio_settings();
         assert_eq!(a.last_pitches, [0.0; 12], "stale pitches survived the gate closing");
         assert_eq!(a.prev_pitches, [0.0; 12]);
+    }
+
+    /// Every built-in scale asks for its own notes, in its own order.
+    ///
+    /// The reported case: the altered scale showed `1 b2 #2 #2 b5 #5 b7` - the
+    /// major third asked for as `#2`, and the note itself never asked for at
+    /// all. Ten of the twenty-six scales were walking a step twice like that,
+    /// wherever they spell both an altered degree and its natural neighbour.
+    #[test]
+    fn a_scale_walks_the_degrees_it_is_written_with() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        let scales = crate::model::load_all_scale_definitions();
+        assert!(scales.len() >= 20, "the built-in scales did not load");
+        for def in scales {
+            let written: Vec<String> = def.names.clone();
+            a.intervals_input = written.join(" ");
+            let chord = Chord {
+                root: NoteName::C,
+                quality: ChordQuality::CustomScale(def.clone()),
+            };
+            let walked: Vec<usize> =
+                a.get_active_indices(&chord).iter().map(|s| s.degree).collect();
+            assert_eq!(
+                walked,
+                (0..written.len()).collect::<Vec<_>>(),
+                "{} walks {:?} of {:?}",
+                def.name,
+                walked.iter().map(|&i| &written[i]).collect::<Vec<_>>(),
+                written
+            );
+        }
+    }
+
+    /// And the loose rules still answer for a token the set spells otherwise:
+    /// `3` over a minor seventh is its flat third, not nothing at all.
+    #[test]
+    fn a_plain_degree_still_finds_the_one_the_chord_has() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.intervals_input = "1 3 5 7".to_string();
+        let chord = Chord { root: NoteName::C, quality: ChordQuality::Minor7 };
+        let walked: Vec<usize> =
+            a.get_active_indices(&chord).iter().map(|s| s.degree).collect();
+        assert_eq!(walked, vec![0, 1, 2, 3], "b3 and b7 stopped answering for 3 and 7");
     }
 
     /// The scale run ends where it started, when the option asks for it.
