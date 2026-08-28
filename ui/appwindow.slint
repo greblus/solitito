@@ -744,13 +744,12 @@ export component AppWindow inherits Window {
         // maximised window offers went to the black margins while the diagrams
         // stayed small. The top bar is pinned at the design width, so nothing
         // else moves with this.
-        // Arpeggios on the neck take the whole window: nothing about that
-        // drawing wants a margin, and its height follows from the width.
-        ? (root.current_mode == 3
-            ? root.width
-            : min(root.width, root.current_mode == 0
-                ? root.design_w * 5 / 2
-                : root.design_w * 17 / 10))
+        // Arpeggios on the neck and the chord shapes take the window, less a
+        // margin: at full width the drawings run into the frame, and a picture
+        // touching the edge of its window reads as cut off rather than large.
+        ? (root.current_mode == 3 || root.current_mode == 0
+            ? root.width * 92 / 100
+            : min(root.width, root.design_w * 17 / 10))
         : root.design_w;
 
     VerticalLayout {
@@ -1223,7 +1222,19 @@ export component AppWindow inherits Window {
                 // between the chord name and the pause, less 51 for the
                 // suggestion and 34 for the caption, plus the 28 the column's
                 // own gaps give back at 18 - 339, and two rows at 170 take 335.
-                property <length> dw: min(170px,
+                //
+                // 170 is what the DESIGN height allows; a taller window allows
+                // more, and on a maximised one the shapes were staying small
+                // while several hundred logical pixels went to black margins.
+                // The room a window adds over the design height goes to the two
+                // rows, half each, and the floor stays at 170 so nothing shrinks
+                // on a short one.
+                // 170 is what TWO rows allow. One row has the other row's
+                // height as well, so it may be twice as tall - which is what
+                // lets a wide window draw six shapes across it at full size
+                // instead of six small ones stacked in two.
+                property <length> head_room: root.chord_diagrams_2.length > 0 ? 170px : 340px;
+                property <length> dw: min(self.head_room,
                     (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
 
@@ -1353,7 +1364,7 @@ export component AppWindow inherits Window {
                 // `root.width` overflowed to the right and the long phrases
                 // came out pushed off centre.
                 property <length> box_h: min(root.height / 3, 380px);
-                property <length> box_w: min(parent.width - 16px, self.box_h * root.tab_aspect);
+                property <length> box_w: min(parent.width, self.box_h * root.tab_aspect);
                 Image {
                     source: root.tab_image;
                     image-fit: contain;

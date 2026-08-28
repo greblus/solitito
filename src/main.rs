@@ -1870,7 +1870,38 @@ fn main() -> Result<(), slint::PlatformError> {
                 (true, false) => Some(diagrams::Shapes::Full),
                 (false, false) => None,
             };
-            let q_key = format!("{}/{:?}", curr_chord.quality.to_string(), shapes);
+            // One row or two, and that depends on the room the window has:
+            // the UI is scaled by min(w/design_w, h/design_h), so a wide screen
+            // spends its slack on WIDTH alone - the logical height is the design
+            // height whatever the window does. Six shapes in one row across
+            // that width are larger than six in two rows, and the second row's
+            // worth of height is freed as well.
+            // The box the shapes are laid in, which is the window less its
+            // margin - the same number the UI divides up, so the choice below
+            // is made on the room the shapes will actually get.
+            let logical_w =
+                ui.window().size().width as f32 / ui.window().scale_factor() * 0.92;
+            // Whichever draws them LARGER, which is not always one row: six
+            // across a 900-wide window come to 127 units each, against 149 in
+            // two rows of three. The arithmetic is the UI's own - `(box_w - 70)
+            // divided by the shapes in the widest row plus their gaps` - capped
+            // by what the height allows: 170 for two rows, twice that for one.
+            let size_for = |per_row: usize, cap: f32| {
+                let n = per_row as f32;
+                ((logical_w - 70.0) / (n + (n - 1.0) / 9.0)).min(cap)
+            };
+            let count = match shapes {
+                Some(kind) => diagrams::for_quality(&curr_chord.quality, kind).len(),
+                None => 0,
+            };
+            let one_row = count <= 4
+                || size_for(count, 340.0) >= size_for(count.div_ceil(2), 170.0);
+            let q_key = format!(
+                "{}/{:?}/{}",
+                curr_chord.quality.to_string(),
+                shapes,
+                one_row
+            );
             if q_key != last_diagram_key {
                 last_diagram_key = q_key;
                 let imgs: Vec<slint::Image> = match shapes {
@@ -1883,7 +1914,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Past four, half of them go to a second row: six side by side
                 // came to 60px each at the smallest window. The split is here
                 // rather than in the UI because a Slint model cannot be sliced.
-                let per_row = if imgs.len() > 4 { imgs.len().div_ceil(2) } else { imgs.len() };
+                // A window wide enough takes them all in one row instead.
+                let per_row = if imgs.len() > 4 && !one_row {
+                    imgs.len().div_ceil(2)
+                } else {
+                    imgs.len()
+                };
                 let rest = imgs[per_row..].to_vec();
                 let first = imgs[..per_row].to_vec();
                 ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(first))));
