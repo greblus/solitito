@@ -157,6 +157,12 @@ Full Two Octaves, Leading Tone
 
 Triplet Sequence Up-Down
 1 3 5 3 5 7 5 7 1' 7 1' 3' 1' 3' 5' 3' 5' 3' 5' 7' 5' 7' 1'' 3'' 1'' 7' 5' 7' 5' 3' 5' 3' 1' 3' 1' 7 1' 7 5 7 5 7 5 3 5 3 1
+
+Minor arpeggio
+1 3 5 7 1' 3' 5' 7' 1'' 3'' 1'' 7' 5' 3' 1' 7 5 3 1
+
+Two Octaves Down from the Root
+1 7, 5, 3, 1, 7,, 5,, 3,,
 "#;
 
 const BUILTIN_SCALES_DEF: &str = r#"

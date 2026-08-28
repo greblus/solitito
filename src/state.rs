@@ -2801,6 +2801,33 @@ pub(crate) mod tests {
         assert_eq!(a.prev_pitches, [0.0; 12]);
     }
 
+    /// Every token of every arpeggio pattern is a chord tone the mode can ask
+    /// for. A typo drops the step silently - the phrase just comes out shorter
+    /// than it was written - so the count is what is checked. Some patterns run
+    /// one way only, so where they end is not.
+    #[test]
+    fn the_arpeggio_patterns_are_playable_as_written() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        let chord = Chord { root: NoteName::C, quality: ChordQuality::Minor7 };
+        for pattern in crate::model::load_arpeggio_patterns() {
+            if pattern.name == crate::model::GENERATOR_NAME {
+                continue;                       // built fresh every pass
+            }
+            let written = pattern.names.join(" ");
+            a.intervals_input = written.clone();
+            let steps = a.get_active_indices(&chord);
+            assert_eq!(
+                steps.len(),
+                pattern.names.len(),
+                "{}: {} of {} tokens are playable - {written}",
+                pattern.name,
+                steps.len(),
+                pattern.names.len()
+            );
+        }
+    }
+
     /// Every built-in scale asks for its own notes, in its own order.
     ///
     /// The reported case: the altered scale showed `1 b2 #2 #2 b5 #5 b7` - the
