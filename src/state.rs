@@ -106,6 +106,15 @@ const CHORD_STRIKES: u32 = 2;
 /// counter instead.
 const STRIKE_SETTLE: f32 = 0.5;
 
+/// What the studies can be read over, in the order the settings list them.
+pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
+    ("m7", ChordQuality::Minor7),
+    ("Maj7", ChordQuality::Major7),
+    ("7", ChordQuality::Dominant7),
+    ("m7b5", ChordQuality::HalfDiminished),
+    ("dim7", ChordQuality::Diminished),
+];
+
 const EAR_VOTES: usize = 4;
 const EAR_WINDOW: usize = 5;
 
@@ -150,6 +159,8 @@ pub struct MyApp {
     /// Which arpeggio pattern was chosen, kept across mode switches. Leaving the
     /// mode used to throw the choice away and drop you back on the first pattern.
     saved_arpeggio_index: usize,
+    /// And the key it stood in - see `set_mode`.
+    saved_arpeggio_key: usize,
     
     pub song_title: String,
     pub chords: Vec<Chord>,
@@ -222,6 +233,20 @@ pub struct MyApp {
     /// everything is not. In Chords there is nothing else for the switch to
     /// mean, so there it stays on.
     pub shuffle_chords: bool,
+    /// Arpeggios: 0 the studies, played in a key of their own with no tune
+    /// under them; 1 over the changes, an arpeggio per chord of the song.
+    ///
+    /// The two are different exercises and were one before: a long study
+    /// walked over a progression restarts mid-phrase at every chord, which is
+    /// neither the study nor the changes.
+    pub arp_exercise: usize,
+    /// Over the changes: which way each chord's arpeggio runs. 0 up, 1 down,
+    /// 2 alternating from down, 3 alternating from up - the four the studies
+    /// are written in.
+    pub arp_direction: usize,
+    /// The studies: which chord they are read over. An index into
+    /// `ARP_QUALITIES`.
+    pub arp_quality: usize,
     /// Permutation of `active_indices`, regenerated whenever the chord changes.
     /// Reshuffling every frame would make the target jump around; the order has
     /// to stay fixed for as long as the chord is being played.
@@ -436,6 +461,7 @@ impl MyApp {
             selected_library_idx: 0,
             secondary_index: 0,
             saved_arpeggio_index: 0,
+            saved_arpeggio_key: 0,
             
             song_title: start_song.title,
             chords: start_song.chords,
@@ -466,6 +492,9 @@ impl MyApp {
             paused: false,
             random_mode: false,
             shuffle_chords: false,
+            arp_exercise: 0,
+            arp_direction: 0,
+            arp_quality: 0,
             step_order: vec![],
             start_hint: None,
             play_order: Vec::new(),
@@ -519,7 +548,44 @@ impl MyApp {
         }
     }
     
+    /// Two octaves of a chord's own tones, running one way.
+    ///
+    /// Ascending is the k-th tone above the root; descending is the k-th tone
+    /// BELOW it, which is the shape the studies use over the changes - `1 7, 5,
+    /// 3, 1, 7,, 5,, 3,,` and not the ascending phrase read backwards. The
+    /// first ends where the ear expects a line to end; the second lands on the
+    /// root and stops the sentence dead.
+    fn changes_run(&self, chord: &Chord, descending: bool) -> Vec<Step> {
+        let tones = chord.quality.interval_names().len().max(1);
+        (0..tones * 2)
+            .map(|k| {
+                if descending {
+                    let degree = (tones - k % tones) % tones;
+                    let octave = -(((k + tones - 1) / tones) as i8);
+                    Step { degree, octave: if k % tones == 0 { -((k / tones) as i8) } else { octave } }
+                } else {
+                    Step { degree: k % tones, octave: (k / tones) as i8 }
+                }
+            })
+            .collect()
+    }
+
+    /// Which way the arpeggio runs over the chord now due.
+    fn changes_descending(&self) -> bool {
+        match self.arp_direction {
+            0 => false,
+            1 => true,
+            2 => self.play_pos % 2 == 0,
+            _ => self.play_pos % 2 == 1,
+        }
+    }
+
     pub fn get_active_indices(&self, chord: &Chord) -> Vec<Step> {
+        // Over the changes there is no written phrase to read: the arpeggio is
+        // built for the chord and for where it falls in the progression.
+        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 1 {
+            return self.changes_run(chord, self.changes_descending());
+        }
         let all_names = chord.quality.interval_names(); 
         let user_tokens: Vec<&str> = self.intervals_input.split_whitespace().collect();
         let mut indices = Vec::new();
@@ -673,10 +739,17 @@ impl MyApp {
     /// Nothing happens for the hand-written patterns, so the two kinds live in
     /// the same list without a second code path.
     fn regenerate_arpeggio(&mut self) {
-        if self.app_mode != AppMode::Arpeggios {
+        // Only where a phrase is chosen at all. Over the changes it is built
+        // for each chord, and there is no entry in a list to be the generator.
+        if self.app_mode != AppMode::Arpeggios || self.arp_exercise != 0 {
             return;
         }
-        let is_generator = self.arpeggio_patterns.get(self.secondary_index)
+        // The phrase is the FIRST combo in the studies - the second one holds
+        // the key. Reading the pattern list at the key's index instead drew a
+        // fresh random phrase whenever the key happened to land on the
+        // generator's row: the title said one study and the neck showed
+        // another.
+        let is_generator = self.arpeggio_patterns.get(self.selected_library_idx)
             .map(|p| p.name == crate::model::GENERATOR_NAME)
             .unwrap_or(false);
         if is_generator {
@@ -711,20 +784,26 @@ impl MyApp {
             self.intervals_input = self.saved_intervals_input.clone();
         }
 
-        if self.app_mode == AppMode::Arpeggios {
-            self.saved_arpeggio_index = self.secondary_index;
+        // Leaving Arpeggios: remember the study and the key it stood in, so
+        // coming back lands where it was left. Only in the studies - over the
+        // changes the first combo holds a tune, and a tune's row is not a
+        // phrase's row.
+        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
+            self.saved_arpeggio_index = self.selected_library_idx;
+            self.saved_arpeggio_key = self.secondary_index;
         }
 
         self.app_mode = new_mode;
         self.selected_library_idx = 0;
-        // Scales use this for the key and start from C; Arpeggios use it for the
-        // pattern, and coming back should land on the one you picked - which for
-        // the generator means a freshly built phrase, not the first fixed one.
-        self.secondary_index = if new_mode == AppMode::Arpeggios {
-            self.saved_arpeggio_index
-        } else {
-            0
-        };
+        self.secondary_index = 0;
+        // The arpeggio studies come back to the phrase and the key they were
+        // left in - which for the generator means a freshly built phrase, not
+        // the first fixed one. Scales start from C.
+        if new_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
+            self.selected_library_idx =
+                self.saved_arpeggio_index.min(self.arpeggio_patterns.len().saturating_sub(1));
+            self.secondary_index = self.saved_arpeggio_key;
+        }
         self.reload_library_content();
     }
 
@@ -769,18 +848,33 @@ impl MyApp {
                     self.chords = song.chords.clone();
                 }
             }
+            AppMode::Arpeggios if self.arp_exercise == 0 => {
+                // A study stands on its own: one chord, in the key chosen or
+                // drawn, and the phrase is whichever study is selected.
+                let quality = ARP_QUALITIES
+                    .get(self.arp_quality)
+                    .map(|(_, q)| q.clone())
+                    .unwrap_or(ChordQuality::Minor7);
+                let root = NoteName::from_index(self.secondary_index.min(11));
+                self.chords = vec![Chord { root, quality }];
+                if self.selected_library_idx < self.arpeggio_patterns.len() {
+                    let pattern = &self.arpeggio_patterns[self.selected_library_idx];
+                    self.song_title = pattern.name.clone();
+                    self.intervals_input = pattern.names.join(" ");
+                } else {
+                    self.song_title = String::new();
+                    self.intervals_input = "1 3 5 7".to_string();
+                }
+            }
             AppMode::Arpeggios => {
+                // Over the changes the phrase is not chosen but built, one
+                // arpeggio per chord, running the way `arp_direction` says.
                 if self.selected_library_idx < self.song_library.len() {
                     let song = &self.song_library[self.selected_library_idx];
                     self.song_title = song.title.clone();
                     self.chords = song.chords.clone();
                 }
-                if self.secondary_index < self.arpeggio_patterns.len() {
-                    let pattern = &self.arpeggio_patterns[self.secondary_index];
-                    self.intervals_input = pattern.names.join(" ");
-                } else {
-                    self.intervals_input = "1 3 5 7".to_string(); 
-                }
+                self.intervals_input = String::new();
             }
             AppMode::Scales => {
                 if self.selected_library_idx < self.scale_definitions.len() {
@@ -1809,7 +1903,12 @@ impl MyApp {
         // Scales hold a single "chord" - the whole scale - so the list has one
         // entry and the index never moves. Advancing there means a new KEY:
         // finish the scale, get another one somewhere else on the neck.
-        if self.random_mode && self.app_mode == AppMode::Scales && !self.chords.is_empty() {
+        // The same in the arpeggio studies: they hold one chord and no
+        // progression, so a finished pass means a new key, exactly as a
+        // finished scale does.
+        let key_exercise = self.app_mode == AppMode::Scales
+            || (self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0);
+        if self.random_mode && key_exercise && !self.chords.is_empty() {
             let current = self.chords[0].root as usize;
             let next = self.rng.below_excluding(12, current);
             self.chords[0].root = NoteName::from_index(next);
@@ -2054,16 +2153,44 @@ pub(crate) mod tests {
         assert_eq!(a.chords[0].root as usize, key, "the key moved with randomisation off");
     }
 
-    /// Only Scales redraw the key - in Arpeggios secondary_index selects the
-    /// PATTERN, and moving it would silently switch the exercise.
+    /// Over the changes the second combo is not a key and must not be moved:
+    /// the progression already says which chord comes next.
     #[test]
-    fn arpeggios_do_not_have_their_secondary_index_hijacked() {
+    fn the_changes_exercise_keeps_its_second_combo() {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 1;
         a.set_random_mode(true);
         let sec = a.secondary_index;
         for _ in 0..20 { a.advance_chord(); }
-        assert_eq!(a.secondary_index, sec, "the arpeggio pattern was changed behind our back");
+        assert_eq!(a.secondary_index, sec, "something moved the combo behind our back");
+    }
+
+    /// A study has one chord and no progression, so a finished pass means a new
+    /// key - the same as a finished scale, and the same switch decides it.
+    #[test]
+    fn a_study_draws_a_new_key_when_a_pass_ends() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.reload_library();
+        assert!(!a.chords.is_empty(), "the study has no chord to stand on");
+        a.set_random_mode(true);
+        let key = a.chords[0].root as usize;
+        let mut moved = false;
+        for _ in 0..20 {
+            a.advance_chord();
+            if a.chords[0].root as usize != key {
+                moved = true;
+                break;
+            }
+        }
+        assert!(moved, "the key never moved between passes");
+
+        a.set_random_mode(false);
+        let held = a.chords[0].root as usize;
+        for _ in 0..20 { a.advance_chord(); }
+        assert_eq!(a.chords[0].root as usize, held, "the key moved with randomisation off");
     }
 
     /// Pause must stop progression WITHOUT stopping the feedback - the whole
@@ -2801,6 +2928,152 @@ pub(crate) mod tests {
         assert_eq!(a.prev_pitches, [0.0; 12]);
     }
 
+    /// Every study is written out exactly as it is played in its source.
+    ///
+    /// The phrases below were read out of the Guitar Pro files note by note and
+    /// turned into degrees against each one's own chord; this test is what
+    /// keeps the table honest. The reported case was a study picked by name and
+    /// drawn short: the minor one runs two octaves AND a third, so its last
+    /// three notes sit on the top string - 5 8 5 in A - and a table entry that
+    /// turned round at the seventh had none there at all.
+    #[test]
+    fn a_book_study_is_written_out_as_it_is_played() {
+        let studies = [
+            (
+                "Minor (Two Octaves and a Third)",
+                "1 3 5 7 1' 3' 5' 7' 1'' 3'' 1'' 7' 5' 3' 1' 7 5 3 1",
+            ),
+            (
+                "Major (Leading Tone)",
+                "1 3 5 7 1' 3' 5' 7' 1'' 7' 5' 3' 1' 7 5 3 1 7, 1",
+            ),
+            (
+                "Dominant (Approach from Below)",
+                "1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1",
+            ),
+            (
+                "Broken Thirds (Up-Down)",
+                "1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1",
+            ),
+            (
+                "Triplets (Up-Down)",
+                "1 3 5 3 5 7 5 7 1' 7 1' 3' 1' 3' 5' 3' 5' 3' 5' 7' 5' 7' 1'' 3'' 1'' 7' 5' 7' \
+                 5' 3' 5' 3' 1' 3' 1' 7 1' 7 5 7 5 7 5 3 5 3 1",
+            ),
+        ];
+        let patterns = crate::model::load_arpeggio_patterns();
+        for (name, written) in studies {
+            let want: Vec<&str> = written.split_whitespace().collect();
+            let found = patterns
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is not in the list at all"));
+            assert_eq!(
+                found.names, want,
+                "{name} is not what is played in the source"
+            );
+        }
+    }
+
+    /// And the minor study reaches the top string, which is the whole of what
+    /// tells it from a two-octave run: its last climb is the third above the
+    /// second root.
+    #[test]
+    fn the_minor_study_reaches_the_top_string() {
+        let patterns = crate::model::load_arpeggio_patterns();
+        let study = patterns
+            .iter()
+            .find(|p| p.name == "Minor (Two Octaves and a Third)")
+            .expect("the minor study is missing");
+        let steps = crate::model::steps_of(&study.names);
+        let spots = crate::tab::place(9, &[0, 3, 7, 10], &steps);   // A m7
+        let top: Vec<i32> = spots.iter().filter(|s| s.string == 5).map(|s| s.fret).collect();
+        assert_eq!(top, vec![5, 8, 5], "the top string does not read 5 8 5");
+    }
+
+    /// The study on screen is the study that was chosen, in every key.
+    ///
+    /// The reported case: with the key on A - the tenth row of the key list,
+    /// and the generator sits in the tenth row of the PATTERN list - the phrase
+    /// was quietly replaced by a freshly generated one, so the name above said
+    /// "Up-Down, Approach from Below" while the neck showed something else
+    /// entirely, two octaves shorter and never reaching the top string.
+    #[test]
+    fn a_study_plays_the_phrase_it_names() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        let patterns = a.arpeggio_patterns.clone();
+        for (i, pattern) in patterns.iter().enumerate() {
+            if pattern.name == crate::model::GENERATOR_NAME {
+                continue;                       // that one is meant to change
+            }
+            for key in 0..12 {
+                a.item_selected(i as i32);
+                a.secondary_item_selected(key);
+                assert_eq!(
+                    a.intervals_input,
+                    pattern.names.join(" "),
+                    "{} in key {key} was swapped for something else",
+                    pattern.name
+                );
+                assert_eq!(a.song_title, pattern.name, "the name above does not match");
+                assert_eq!(a.chords[0].root as usize, key as usize, "the key was not taken");
+            }
+        }
+    }
+
+    /// Over the changes the phrase is built, and the descending one is the
+    /// shape the studies use: from the root DOWNWARDS through the chord's own
+    /// tones, not the ascending phrase read backwards.
+    #[test]
+    fn the_changes_run_matches_the_studies() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 1;
+        let chord = Chord { root: NoteName::D, quality: ChordQuality::Dominant7 };
+
+        a.arp_direction = 0;
+        let up: Vec<(usize, i8)> =
+            a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
+        assert_eq!(
+            up,
+            vec![(0, 0), (1, 0), (2, 0), (3, 0), (0, 1), (1, 1), (2, 1), (3, 1)],
+            "1 3 5 7 1' 3' 5' 7'"
+        );
+
+        a.arp_direction = 1;
+        let down: Vec<(usize, i8)> =
+            a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
+        assert_eq!(
+            down,
+            vec![(0, 0), (3, -1), (2, -1), (1, -1), (0, -1), (3, -2), (2, -2), (1, -2)],
+            "1 7, 5, 3, 1, 7,, 5,, 3,,"
+        );
+    }
+
+    /// Alternating: one chord one way, the next the other, from whichever side
+    /// the option starts on.
+    #[test]
+    fn alternating_turns_the_run_round_at_every_chord() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 1;
+        a.set_random_mode(false);
+        let chord = a.chords[a.current_chord_index].clone();
+        let is_down = |a: &MyApp, c: &Chord| a.get_active_indices(c)[1].octave < 0;
+
+        a.arp_direction = 2;                    // from the descending one
+        assert!(is_down(&a, &chord), "the first chord did not start downwards");
+        a.play_pos = 1;
+        assert!(!is_down(&a, &chord), "the second chord did not turn round");
+
+        a.arp_direction = 3;                    // and the other way about
+        assert!(is_down(&a, &chord), "starting up, the second chord runs down");
+        a.play_pos = 0;
+        assert!(!is_down(&a, &chord), "the first chord did not start upwards");
+    }
+
     /// Every token of every arpeggio pattern is a chord tone the mode can ask
     /// for. A typo drops the step silently - the phrase just comes out shorter
     /// than it was written - so the count is what is checked. Some patterns run
@@ -3277,10 +3550,12 @@ mod generator_tests {
 
     fn pick_generator(a: &mut MyApp) {
         a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
         let idx = a.arpeggio_patterns.iter()
             .position(|p| p.name == crate::model::GENERATOR_NAME)
             .expect("generator entry missing from the arpeggio list");
-        a.secondary_item_selected(idx as i32);
+        // The phrase is the first combo in the studies; the second holds the key.
+        a.item_selected(idx as i32);
     }
 
     /// The generator sits last, after the hand-written phrases.
@@ -3337,7 +3612,7 @@ mod generator_tests {
             a.set_mode(AppMode::Chords as i32);
             a.set_mode(AppMode::Arpeggios as i32);
             assert_eq!(
-                a.arpeggio_patterns[a.secondary_index].name,
+                a.arpeggio_patterns[a.selected_library_idx].name,
                 crate::model::GENERATOR_NAME,
                 "the generator selection was lost on the way back"
             );
@@ -3350,12 +3625,12 @@ mod generator_tests {
     fn a_fixed_pattern_survives_the_round_trip() {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
-        a.secondary_item_selected(1);
+        a.item_selected(1);
         let name = a.arpeggio_patterns[1].name.clone();
         let phrase = a.intervals_input.clone();
         a.set_mode(AppMode::Scales as i32);
         a.set_mode(AppMode::Arpeggios as i32);
-        assert_eq!(a.arpeggio_patterns[a.secondary_index].name, name);
+        assert_eq!(a.arpeggio_patterns[a.selected_library_idx].name, name);
         assert_eq!(a.intervals_input, phrase, "a fixed pattern changed on the way back");
     }
 

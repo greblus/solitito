@@ -136,7 +136,28 @@ pub struct Song {
 // Two octaves, not one. A single-octave four-note arpeggio is a finger
 // exercise; jazz practice runs the shape through the range and turns it over.
 // Degrees carry an octave marker - see `split_octave`.
+/// The three chord-quality studies come first: they are the ones the app was
+/// built around, and the ones a player reaches for. Each is written out exactly
+/// as it is played in its source - `a_book_study_is_written_out_as_it_is_played`
+/// checks every one against the phrase read out of the file it came from. The
+/// plain up and down runs are not studies; they are the simplest thing to hand
+/// a beginner, and the changes exercise builds its own.
 pub const ARPEGGIOS_PATTERNS_DEF: &str = r#"
+Minor (Two Octaves and a Third)
+1 3 5 7 1' 3' 5' 7' 1'' 3'' 1'' 7' 5' 3' 1' 7 5 3 1
+
+Major (Leading Tone)
+1 3 5 7 1' 3' 5' 7' 1'' 7' 5' 3' 1' 7 5 3 1 7, 1
+
+Dominant (Approach from Below)
+1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1
+
+Broken Thirds (Up-Down)
+1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1
+
+Triplets (Up-Down)
+1 3 5 3 5 7 5 7 1' 7 1' 3' 1' 3' 5' 3' 5' 3' 5' 7' 5' 7' 1'' 3'' 1'' 7' 5' 7' 5' 3' 5' 3' 1' 3' 1' 7 1' 7 5 7 5 7 5 3 5 3 1
+
 Two Octaves Up-Down
 1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1
 
@@ -145,21 +166,6 @@ Two Octaves Up
 
 Two Octaves Down
 7' 5' 3' 1' 7 5 3 1
-
-Broken Thirds Up-Down
-1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1
-
-Up-Down, Approach from Below
-1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1
-
-Full Two Octaves, Leading Tone
-1 3 5 7 1' 3' 5' 7' 1'' 7' 5' 3' 1' 7 5 3 1 7, 1
-
-Triplet Sequence Up-Down
-1 3 5 3 5 7 5 7 1' 7 1' 3' 1' 3' 5' 3' 5' 3' 5' 7' 5' 7' 1'' 3'' 1'' 7' 5' 7' 5' 3' 5' 3' 1' 3' 1' 7 1' 7 5 7 5 7 5 3 5 3 1
-
-Minor arpeggio
-1 3 5 7 1' 3' 5' 7' 1'' 3'' 1'' 7' 5' 3' 1' 7 5 3 1
 
 Two Octaves Down from the Root
 1 7, 5, 3, 1, 7,, 5,, 3,,
@@ -372,6 +378,26 @@ pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
         scales.extend(parse_scale_definitions(&user_content));
     }
     scales
+}
+
+/// The degree tokens of a written phrase as steps, the way the note modes read
+/// them: which chord tone, and how many octaves off the root.
+pub fn steps_of(names: &[String]) -> Vec<Step> {
+    names
+        .iter()
+        .filter_map(|token| {
+            let (base, octave) = split_octave(token);
+            let degree = match base {
+                "1" | "8" => 0,
+                "3" => 1,
+                "5" => 2,
+                "7" => 3,
+                "9" => 4,
+                _ => return None,
+            };
+            Some(Step { degree, octave })
+        })
+        .collect()
 }
 
 pub fn load_arpeggio_patterns() -> Vec<ScaleDefinition> {

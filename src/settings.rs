@@ -104,6 +104,28 @@ pub struct Settings {
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
     pub show_diagrams: bool,
+    /// Arpeggios: 0 the studies in a key of their own, 1 over the changes of a
+    /// tune. Two exercises, not one setting of the same: a long study walked
+    /// over a progression restarts mid-phrase at every chord.
+    #[serde(default)]
+    pub arp_exercise: usize,
+    /// Over the changes: 0 up, 1 down, 2 alternating from down, 3 alternating
+    /// from up.
+    #[serde(default)]
+    pub arp_direction: usize,
+    /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
+    #[serde(default)]
+    pub arp_quality: usize,
+    /// Arpeggios: draw the phrase on the neck instead of naming its degrees in
+    /// a line. Off by default - the line is the smaller thing on screen, and
+    /// the octave markers it carries are exactly what the drawing replaces.
+    #[serde(default)]
+    pub tab_view: bool,
+    /// Write the fret number in each dot of the tablature instead of the
+    /// degree. Off by default: the degrees are what the app teaches, and the
+    /// frets are the crutch for reading a shape onto the neck.
+    #[serde(default)]
+    pub tab_frets: bool,
     /// Scales: finish the run on the root again, an octave up.
     #[serde(default)]
     pub scale_repeat_root: bool,
@@ -217,6 +239,11 @@ impl Default for Settings {
             formula_jazz_names: false,
             scale_repeat_root: false,
             show_diagrams: true,
+            arp_exercise: 0,
+            arp_direction: 0,
+            arp_quality: 0,
+            tab_view: false,
+            tab_frets: false,
             show_full_shapes: true,
             show_shell_shapes: false,
             formula_exercise: 0,

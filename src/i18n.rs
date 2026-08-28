@@ -99,6 +99,20 @@ pub struct Strings {
     pub show_diagrams: &'static str,
     pub repeat_root: &'static str,
     pub repeat_root_hint: &'static str,
+    pub tab_view: &'static str,
+    pub tab_view_hint: &'static str,
+    pub tab_frets: &'static str,
+    pub tab_frets_hint: &'static str,
+    pub arp_exercise: &'static str,
+    pub arp_study: &'static str,
+    pub arp_changes: &'static str,
+    pub arp_quality: &'static str,
+    pub arp_direction: &'static str,
+    pub arp_up: &'static str,
+    pub arp_down: &'static str,
+    pub arp_alt_down: &'static str,
+    pub arp_alt_up: &'static str,
+    pub select_study: &'static str,
     pub shapes_kind: &'static str,
     pub shapes_full: &'static str,
     pub shapes_shell: &'static str,
@@ -209,6 +223,20 @@ pub const EN: Strings = Strings {
     show_diagrams: "Show chord shapes",
     repeat_root: "End on the root again",
     repeat_root_hint: "Scales only: 1 2 3 4 5 6 7 1, the last one an octave up. It is a step of its own and has to be played.",
+    arp_exercise: "Exercise",
+    arp_study: "Study in a key",
+    arp_changes: "Over the changes",
+    arp_quality: "Chord",
+    arp_direction: "Direction",
+    arp_up: "Ascending",
+    arp_down: "Descending",
+    arp_alt_down: "Alternating, from descending",
+    arp_alt_up: "Alternating, from ascending",
+    select_study: "Study",
+    tab_frets: "Fret numbers instead of degrees",
+    tab_frets_hint: "In the drawing only, and only where it is drawn. The root keeps its colour either way.",
+    tab_view: "Draw the arpeggio on the neck",
+    tab_view_hint: "Tablature with the degree inside each dot instead of the line of names. Which string a dot sits on is the octave, so nothing needs an apostrophe. What you have played lights green either way.",
     shapes_kind: "Shapes: ",
     shapes_full: "full chords",
     shapes_shell: "shell voicings",
@@ -311,6 +339,20 @@ pub const PL: Strings = Strings {
     show_diagrams: "Wyświetlaj schematy akordów",
     repeat_root: "Kończ powtórzoną prymą",
     repeat_root_hint: "Tylko Skale: 1 2 3 4 5 6 7 1, ostatnia oktawę wyżej. To osobny krok i trzeba go zagrać.",
+    arp_exercise: "Ćwiczenie",
+    arp_study: "Studium w tonacji",
+    arp_changes: "Ogrywanie zmian",
+    arp_quality: "Akord",
+    arp_direction: "Kierunek",
+    arp_up: "Wznoszące",
+    arp_down: "Opadające",
+    arp_alt_down: "Naprzemiennie, od opadającego",
+    arp_alt_up: "Naprzemiennie, od wznoszącego",
+    select_study: "Studium",
+    tab_frets: "Numery progów zamiast stopni",
+    tab_frets_hint: "Tylko na rysunku i tylko tam, gdzie jest rysowany. Pryma zachowuje swój kolor tak czy owak.",
+    tab_view: "Rysuj arpeggio na gryfie",
+    tab_view_hint: "Tabulatura ze stopniem w każdym kółku zamiast linii nazw. To, na której strunie leży kółko, jest oktawą, więc apostrofy przestają być potrzebne. Zagrane zapala się na zielono tak samo w obu widokach.",
     shapes_kind: "Schematy: ",
     shapes_full: "pełne akordy",
     shapes_shell: "shell voicings",
@@ -444,6 +486,28 @@ mod tests {
 /// literature use, and translating them at the point of display keeps the file
 /// format and the indices into it untouched. A name not in the table is passed
 /// through - a user's own scale in `user_scales_def.txt` stays as written.
+/// Arpeggio patterns by name, the same way scales are translated: the name in
+/// the table stays English, because that is what a saved setting and a user's
+/// own pattern are matched by, and only the screen changes language.
+pub fn arpeggio_name(lang: Lang, name: &str) -> &str {
+    if lang != Lang::Pl {
+        return name;
+    }
+    match name {
+        "Two Octaves Up-Down" => "Dwie oktawy w górę i w dół",
+        "Two Octaves Up" => "Dwie oktawy w górę",
+        "Two Octaves Down" => "Dwie oktawy w dół",
+        "Two Octaves Down from the Root" => "Dwie oktawy w dół od prymy",
+        "Minor (Two Octaves and a Third)" => "Molowe (dwie oktawy i tercja)",
+        "Major (Leading Tone)" => "Durowe (dźwięk prowadzący)",
+        "Dominant (Approach from Below)" => "Dominantowe (dojście od dołu)",
+        "Broken Thirds (Up-Down)" => "Łamane tercje (w górę i w dół)",
+        "Triplets (Up-Down)" => "Triolowe (w górę i w dół)",
+        "Generator (new phrase each pass)" => "Generator (nowa fraza za każdym razem)",
+        other => other,
+    }
+}
+
 pub fn scale_name(lang: Lang, name: &str) -> &str {
     if lang != Lang::Pl {
         return name;

@@ -12,6 +12,7 @@ mod latch;
 mod rng;
 mod settings;
 mod state;
+mod tab;
 
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
@@ -457,6 +458,13 @@ fn help_text() -> String {
          \x20                       probabilities, and the note the CQT alone reports\n\
          \x20       --gate DB       noise gate for the probe, in dBFS (default -34)\n\
          \x20       --boost GAIN    apply the bass boost, as the settings panel would\n\
+         \x20     --tab [NAME] [ROOT] [QUALITY]\n\
+         \x20                       an arpeggio phrase as tablature, written to stdout as SVG:\n\
+         \x20                       degrees in the dots, one line per string. NAME matches a\n\
+         \x20                       pattern by part of its name (default: all of them), ROOT and\n\
+         \x20                       QUALITY default to A and m7. A fourth argument lights\n\
+         \x20                       that many notes green, as playing them would; --frets\n\
+         \x20                       writes fret numbers in the dots instead of degrees\n\
          \n\
          Running:\n\
          \x20     --file FILE.wav   drive the trainer from a recording instead of the input\n\
@@ -628,6 +636,11 @@ struct SettingsSnapshot {
     shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
+    tab_view: bool,
+    tab_frets: bool,
+    arp_exercise: i32,
+    arp_direction: i32,
+    arp_quality: i32,
     scale_repeat_root: bool,
     show_full_shapes: bool,
     show_shell_shapes: bool,
@@ -668,6 +681,11 @@ impl SettingsSnapshot {
             shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
+            tab_view: ui.get_tab_view(),
+            tab_frets: ui.get_tab_frets(),
+            arp_exercise: ui.get_arp_exercise(),
+            arp_direction: ui.get_arp_direction(),
+            arp_quality: ui.get_arp_quality(),
             scale_repeat_root: ui.get_scale_repeat_root(),
             show_full_shapes: ui.get_show_full_shapes(),
             show_shell_shapes: ui.get_show_shell_shapes(),
@@ -757,7 +775,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // One of the reporting flags: borrow (or open) a console first, or the
     // report goes nowhere on a Windows release build.
     let flagged = |f: &str| args.iter().any(|a| a == f);
-    let reporting = ["--help", "-h", "--devices", "--check", "--bench", "--probe"];
+    let reporting = ["--help", "-h", "--devices", "--check", "--bench", "--probe", "--tab"];
     let console = if reporting.iter().any(|f| flagged(f)) {
         attach_console()
     } else {
@@ -784,6 +802,39 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // --probe FILE.wav: what the model hears in a recording, window by window.
     //
+    // The arpeggio phrases as tablature, without starting the window: the
+    // shapes are a table of degrees and the drawing is what says whether the
+    // table is right, so it has to be readable from a terminal like the rest.
+    if let Some(i) = args.iter().position(|a| a == "--tab") {
+        let wanted = args.get(i + 1).cloned().unwrap_or_default();
+        let root = args.get(i + 2).map(|s| s.as_str()).unwrap_or("A").to_string();
+        let quality = args.get(i + 3).map(|s| s.as_str()).unwrap_or("m7").to_string();
+        // How many of the phrase to light green, for looking at the marks
+        // without playing the thing.
+        let played: usize = args.get(i + 4).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let frets = flagged("--frets");
+        let intervals: &[u8] = match quality.as_str() {
+            "maj7" => &[0, 4, 7, 11],
+            "7" => &[0, 4, 7, 10],
+            "m7b5" => &[0, 3, 6, 10],
+            "dim" => &[0, 3, 6, 9],
+            _ => &[0, 3, 7, 10],
+        };
+        let root_pc = NOTE_NAMES.iter().position(|n| *n == root).unwrap_or(9);
+        for pattern in model::load_arpeggio_patterns() {
+            if !wanted.is_empty() && !pattern.name.to_lowercase().contains(&wanted.to_lowercase()) {
+                continue;
+            }
+            let steps = model::steps_of(&pattern.names);
+            let spots = tab::place(root_pc, intervals, &steps);
+            eprintln!("{} · {root} {quality}", pattern.name);
+            let done: Vec<bool> = (0..spots.len()).map(|i| i < played).collect();
+            println!("{}", tab::svg(&spots, &done, frets));
+        }
+        keep_console_open(console);
+        return Ok(());
+    }
+
     // The same feature path as the live stream, but with nothing gated away and
     // nothing thrown at the screen - so a question like "is it the model that
     // cannot hear single notes, or does the app never ask?" can be answered from
@@ -978,7 +1029,15 @@ fn main() -> Result<(), slint::PlatformError> {
     println!("🌍 UI language: {:?}", lang);
 
     let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone())));
-    my_app.lock().unwrap().set_mode(cfg.startup_mode);
+    {
+        // Before the first library is read: which arpeggio exercise is running
+        // decides what the library IS - the studies or the tunes.
+        let mut app = my_app.lock().unwrap();
+        app.arp_exercise = cfg.arp_exercise;
+        app.arp_direction = cfg.arp_direction;
+        app.arp_quality = cfg.arp_quality;
+        app.set_mode(cfg.startup_mode);
+    }
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
@@ -1002,6 +1061,11 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
+        ui.set_tab_view(cfg.tab_view);
+        ui.set_tab_frets(cfg.tab_frets);
+        ui.set_arp_exercise(cfg.arp_exercise as i32);
+        ui.set_arp_direction(cfg.arp_direction as i32);
+        ui.set_arp_quality(cfg.arp_quality as i32);
         ui.set_scale_repeat_root(cfg.scale_repeat_root);
         ui.set_show_full_shapes(cfg.show_full_shapes);
         ui.set_show_shell_shapes(cfg.show_shell_shapes);
@@ -1204,6 +1268,10 @@ fn main() -> Result<(), slint::PlatformError> {
     // swaps the whole strip, and that is a restart too - without this the first
     // slide into place would crawl at the page-turn speed.
     let mut last_interval_len: i32 = 0;
+    // What the tablature strip was last drawn for. Rebuilding it means parsing
+    // an SVG, which is not a thing to do sixty times a second for a picture
+    // that changes when a note is played.
+    let mut last_tab: String = String::new();
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
@@ -1252,7 +1320,16 @@ fn main() -> Result<(), slint::PlatformError> {
         app.transition_delay = ui.get_delay();
         app.set_random_mode(ui.get_random_enabled());
         app.short_verdict = ui.get_short_verdict();
+        app.arp_exercise = ui.get_arp_exercise().max(0) as usize;
         app.shells_only = ui.get_show_shell_shapes() && !ui.get_show_full_shapes();
+        if app.app_mode == state::AppMode::Arpeggios {
+            let quality = ui.get_arp_quality().max(0) as usize;
+            app.arp_direction = ui.get_arp_direction().max(0) as usize;
+            if app.arp_quality != quality {
+                app.arp_quality = quality;
+                app.reload_library();
+            }
+        }
         app.single_notes = ui.get_single_notes();
         app.require_onset = ui.get_require_onset();
         // The extra step changes the length of the run, so the strip and the
@@ -1482,10 +1559,15 @@ fn main() -> Result<(), slint::PlatformError> {
 
         // In Scales the title IS a scale name, and it is kept in the language
         // the definition file wrote it in - see `library_lists`.
-        let shown_title = if app.app_mode == AppMode::Scales {
-            i18n::scale_name(Lang::from_setting(ui.get_language_idx()), &app.song_title).to_string()
-        } else {
-            app.song_title.clone()
+        let lang_here = Lang::from_setting(ui.get_language_idx());
+        let shown_title = match app.app_mode {
+            AppMode::Scales => i18n::scale_name(lang_here, &app.song_title).to_string(),
+            // In a study the title IS the phrase's name; over the changes it is
+            // the tune's, which is not ours to translate.
+            AppMode::Arpeggios if app.arp_exercise == 0 => {
+                i18n::arpeggio_name(lang_here, &app.song_title).to_string()
+            }
+            _ => app.song_title.clone(),
         };
         set_if_changed(ui.get_song_title(), shown_title.into(), |v| ui.set_song_title(v));
         
@@ -1901,6 +1983,35 @@ fn main() -> Result<(), slint::PlatformError> {
                 set_if_changed(ui.get_interval_step(), step, |v| ui.set_interval_step(v));
                 ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
+
+                // The same phrase again, drawn on the neck: which string each
+                // degree falls on, and the ones already played lit green. Only
+                // in Arpeggios - a scale has no shape a hand takes in one
+                // position, and the fretboard trainer draws its own region.
+                if app.app_mode == AppMode::Arpeggios && ui.get_tab_view() {
+                    let done: Vec<bool> = app.collected_notes.clone();
+                    let signature = format!(
+                        "{}|{}|{}|{:?}|{}",
+                        curr_chord.root as usize,
+                        curr_chord.quality.to_string(),
+                        app.intervals_input,
+                        done,
+                        ui.get_tab_frets()
+                    );
+                    if signature != last_tab {
+                        last_tab = signature;
+                        let spots = tab::place(
+                            curr_chord.root as usize,
+                            &curr_chord.quality.intervals(),
+                            &active_indices,
+                        );
+                        ui.set_tab_aspect(tab::aspect(spots.len()));
+                        ui.set_tab_image(svg_icon(&tab::svg(&spots, &done, ui.get_tab_frets())));
+                    }
+                } else if !last_tab.is_empty() {
+                    last_tab.clear();
+                    ui.set_tab_image(slint::Image::default());
+                }
             }
             
         }
@@ -2086,6 +2197,70 @@ fn main() -> Result<(), slint::PlatformError> {
                 cur.save();
             }
         });
+        {
+            let cur = live_cfg.clone();
+            let app = my_app.clone();
+            let uw = ui.as_weak();
+            // The exercise decides what the two combos hold, so they are dealt
+            // again the moment it changes - and the exercise itself has to
+            // reach the state before the lists are built from it.
+            ui.on_arp_exercise_changed(move |idx| {
+                {
+                    let mut cur = cur.borrow_mut();
+                    cur.arp_exercise = idx.max(0) as usize;
+                    cur.save();
+                }
+                let mut app = app.lock().unwrap();
+                app.arp_exercise = idx.max(0) as usize;
+                app.selected_library_idx = 0;
+                app.reload_library();
+                if let Some(ui) = uw.upgrade() {
+                    let lang = Lang::from_setting(ui.get_language_idx());
+                    let t = i18n::strings(lang);
+                    let (label, sec_label) = mode_labels(&t, app.app_mode, app.arp_exercise == 0);
+                    let (items, sec_items) = library_lists(&app, lang);
+                    ui.set_library_label(label.into());
+                    ui.set_secondary_label(sec_label.into());
+                    ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
+                    ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
+                    ui.set_current_item_index(0);
+                    ui.set_current_secondary_index(app.secondary_index as i32);
+                    ui.set_interval_input_text(app.intervals_input.clone().into());
+                }
+            });
+        }
+        {
+            let cur = live_cfg.clone();
+            ui.on_arp_direction_changed(move |idx| {
+                let mut cur = cur.borrow_mut();
+                cur.arp_direction = idx.max(0) as usize;
+                cur.save();
+            });
+        }
+        {
+            let cur = live_cfg.clone();
+            ui.on_arp_quality_changed(move |idx| {
+                let mut cur = cur.borrow_mut();
+                cur.arp_quality = idx.max(0) as usize;
+                cur.save();
+            });
+        }
+        {
+            let cur = live_cfg.clone();
+            ui.on_tab_frets_changed(move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.tab_frets = on;
+                cur.save();
+            });
+        }
+        {
+            let cur = live_cfg.clone();
+            ui.on_tab_view_changed(move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.tab_view = on;
+                cur.save();
+            });
+        }
         ui.on_show_diagrams_changed({
             let cur = cur.clone();
             move |on| {
@@ -2341,7 +2516,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_interval_input_text(app.intervals_input.clone().into());
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-        let (label, sec_label) = mode_labels(&t, app.app_mode);
+        let (label, sec_label) = mode_labels(&t, app.app_mode, app.arp_exercise == 0);
         let (items, sec_items) = library_lists(&app, Lang::from_setting(ui.get_language_idx()));
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
@@ -2403,10 +2578,11 @@ fn main() -> Result<(), slint::PlatformError> {
 /// Wanted in two places - when the mode changes and when the language does -
 /// and it used to be built only in the first, from a language captured at
 /// startup. Switching to English left "Utwór" standing over an English panel.
-fn mode_labels(t: &i18n::Strings, mode: AppMode) -> (&'static str, &'static str) {
+fn mode_labels(t: &i18n::Strings, mode: AppMode, arp_study: bool) -> (&'static str, &'static str) {
     match mode {
         AppMode::Scales => (t.select_scale, t.key_root),
-        AppMode::Arpeggios => (t.select_song, t.pattern),
+        AppMode::Arpeggios if arp_study => (t.select_study, t.key_root),
+        AppMode::Arpeggios => (t.select_song, ""),
         _ => (t.select_song, ""),
     }
 }
@@ -2436,10 +2612,16 @@ fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedStrin
     };
     match app.app_mode {
         AppMode::Scales => (scales(), keys_list()),
-        AppMode::Arpeggios => (
-            songs(),
-            app.arpeggio_patterns.iter().map(|s| SharedString::from(&s.name)).collect(),
+        // A study picks the phrase and the key it stands in; over the changes
+        // the tune brings its own chords and the direction is a setting.
+        AppMode::Arpeggios if app.arp_exercise == 0 => (
+            app.arpeggio_patterns
+                .iter()
+                .map(|s| SharedString::from(i18n::arpeggio_name(lang, &s.name)))
+                .collect(),
+            keys_list(),
         ),
+        AppMode::Arpeggios => (songs(), vec![]),
         _ => (songs(), vec![]),
     }
 }
@@ -2448,7 +2630,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     let t = i18n::strings(lang);
     // Not everything on screen goes through the Tr global: these are built in
     // Rust and stayed in whatever language they were made in.
-    let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()));
+    let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()), ui.get_arp_exercise() == 0);
     ui.set_library_label(label.into());
     ui.set_secondary_label(sec_label.into());
     // The scale names among them: they are the library list in Scales, so the
@@ -2495,6 +2677,19 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_single_notes_hint(t.single_notes_hint.into());
     g.set_require_onset(t.require_onset.into());
     g.set_require_onset_hint(t.require_onset_hint.into());
+    g.set_arp_exercise(t.arp_exercise.into());
+    g.set_arp_study(t.arp_study.into());
+    g.set_arp_changes(t.arp_changes.into());
+    g.set_arp_quality(t.arp_quality.into());
+    g.set_arp_direction(t.arp_direction.into());
+    g.set_arp_up(t.arp_up.into());
+    g.set_arp_down(t.arp_down.into());
+    g.set_arp_alt_down(t.arp_alt_down.into());
+    g.set_arp_alt_up(t.arp_alt_up.into());
+    g.set_tab_frets(t.tab_frets.into());
+    g.set_tab_frets_hint(t.tab_frets_hint.into());
+    g.set_tab_view(t.tab_view.into());
+    g.set_tab_view_hint(t.tab_view_hint.into());
     g.set_in_order(t.in_order.into());
     g.set_in_order_hint(t.in_order_hint.into());
     g.set_debug_console(t.debug_console.into());

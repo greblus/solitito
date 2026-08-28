@@ -144,7 +144,11 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | Setting | Description |
 |---|---|
 | **Song / Scale** | Chooses the progression or scale for the current mode |
-| **Pattern** | Arpeggios only: which phrase to walk. The last entry is a generator that builds a fresh one after every pass |
+| **Study** | Arpeggios, in the study exercise: which phrase to walk. The three chord-quality studies come first, then the broken thirds and triplets, then plain two-octave runs, and last a generator that builds a fresh phrase after every pass. The second combo beside it holds the key |
+| **Exercise** (arpeggios) | *Study in a key* stands on one chord — its quality is set below, its key beside the study, and the shuffle draws a new key after every pass. *Over the changes* takes the chords from a tune and builds one arpeggio per chord |
+| **Direction** | Over the changes: ascending, descending, or alternating from either side. Descending is the shape the studies use — from the root **downwards** through the chord's own tones, not the ascending phrase read backwards |
+| **Draw the arpeggio on the neck** | Tablature with the degree inside each dot in place of the line of names. Which string a dot sits on is the octave, so nothing needs an apostrophe; what has been played lights green either way |
+| **Fret numbers instead of degrees** | In that drawing only. The root keeps its colour |
 | **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
 | **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
 | **Show AI Debug in Main Window** | Shows the raw prediction on the main screen |

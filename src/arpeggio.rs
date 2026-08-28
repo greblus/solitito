@@ -179,14 +179,20 @@ pub fn build(recipe: &Recipe) -> Vec<String> {
 
 /// A fresh phrase, drawn from the same vocabulary as the bundled ones.
 pub fn random(rng: &mut Rng) -> Vec<String> {
-    let step = match rng.below(4) {
+    // Broken fourths are in the vocabulary but not in the draw: up three rungs
+    // is a seventh, and a phrase built of sevenths is a reading exercise rather
+    // than something a hand falls into. The three rules below are the ones the
+    // studies are actually written in.
+    let step = match rng.below(3) {
         0 => Step::Straight,
         1 => Step::BrokenThirds,
-        2 => Step::Triplets,
-        _ => Step::BrokenFourths,
+        _ => Step::Triplets,
     };
     // Triplets triple the note count, so keep their range shorter or the strip
     // runs to a dozen pages.
+    // Two octaves, or a little over. Three octaves cannot be held in one hand
+    // position, so the phrase would spend itself shifting up the neck instead
+    // of being played.
     let top = if step == Step::Triplets { 5 + rng.below(2) } else { 7 + rng.below(2) };
     let tail = match rng.below(3) {
         0 => Tail::None,

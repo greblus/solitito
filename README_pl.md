@@ -146,7 +146,11 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | Ustawienie | Opis |
 |---|---|
 | **Utwór / Skala** | Wybiera progresję albo skalę dla bieżącego trybu |
-| **Wzorzec** | Tylko Arpeggia: którą frazę przechodzić. Ostatnia pozycja to generator budujący świeżą po każdym przejściu |
+| **Studium** | Arpeggia, w ćwiczeniu ze studiami: którą frazę przechodzić. Najpierw trzy studia w jakościach akordu, potem łamane tercje i triole, dalej zwykłe przebiegi dwuoktawowe, a na końcu generator budujący świeżą frazę po każdym przejściu. Pole obok trzyma tonację |
+| **Ćwiczenie** (arpeggia) | *Studium w tonacji* stoi na jednym akordzie — jego jakość ustawiasz niżej, tonację obok studium, a losowanie dobiera nową po każdym przejściu. *Ogrywanie zmian* bierze akordy z utworu i buduje po jednym arpeggiu na akord |
+| **Kierunek** | Przy ogrywaniu zmian: wznoszące, opadające albo naprzemiennie z każdej ze stron. Opadające to kształt ze studiów — od prymy **w dół** przez składniki akordu, a nie fraza wznosząca czytana od tyłu |
+| **Rysuj arpeggio na gryfie** | Tabulatura ze stopniem w każdym kółku zamiast linii nazw. To, na której strunie leży kółko, jest oktawą, więc apostrofy przestają być potrzebne; zagrane zapala się na zielono w obu widokach |
+| **Numery progów zamiast stopni** | Tylko na tym rysunku. Pryma zachowuje swój kolor |
 | **Tonacja** | Tylko Skale: tonika. Przy włączonej kolejności losowej losowana od nowa po każdym przejściu |
 | **Interwały** | Które stopnie ćwiczyć. `1 3 5` dla triad, `1 3 5 7` dla akordów septymowych, `1 3` dla voicingów szkieletowych. `3` obejmuje tercję wielką i małą, `5` kwintę czystą i zmniejszoną, zależnie od jakości akordu |
 | **Pokazuj predykcję AI w oknie głównym** | Wyświetla surową odpowiedź modelu na ekranie głównym |
