@@ -121,9 +121,14 @@ zostawiony za sobą zachowuje kolor, na jaki zasłużył — zielony przy trafie
 gdy przeszedł triadą albo zamianą — więc zaliczenie pozostaje czytelne po tym, jak program już
 poszedł dalej.
 
-Przełącznik losowania miesza kolejność. W trybach nutowych miesza składniki wewnątrz każdego
-akordu, osobne ustawienie dokłada do tego losową kolejność akordów.
-W Akordach zmienia kolejność standardu, w Skalach losuje tonikę od nowa. Przycisk
+Przełącznik losowania miesza kolejność. W Interwałach miesza składniki wewnątrz każdego
+akordu, a osobne ustawienie dokłada do tego losową kolejność akordów; w Akordach zmienia
+kolejność standardu. W Skalach i Arpeggiach nie rusza kolejności w ogóle — skala niegrana po
+kolei nie jest skalą, a rozdane losowo studium nie jest tym studium. Losuje tam **tonację**.
+Skala zaczyna się przy tym od losowanej struny po każdym przejściu, niezależnie od tego
+przełącznika, i tym samym losowaniem idzie w górę albo w dół: kształt jest wszędzie ten sam,
+jedno miejsce na gryfie ćwiczone w kółko nie jest tym ćwiczeniem, a skala znana tylko w górę
+jest znana w połowie. Przycisk
 pauzy zatrzymuje progresję, podczas gdy kolory dalej mówią, czy akord jest właściwy, więc
 można usiąść nad jednym akordem i się go porządnie nauczyć. Przy pauzie strzałki po bokach paska
 przechodzą tam i z powrotem po progresji, co pozwala wrócić do akordu, który już minął.

@@ -258,6 +258,11 @@ pub struct MyApp {
     /// See `reroll`: the fret the first grip of an Intervals exercise is taken
     /// near.
     pub voicing_anchor: i32,
+    /// And the string a scale is started from - an index into `START_STRINGS`,
+    /// the three a scale is worth starting on.
+    pub scale_start: usize,
+    /// Whether this pass of the scale runs downwards. Drawn with the string.
+    pub scale_descending: bool,
     /// Which string to suggest starting from (index into `START_STRINGS`), or
     /// None for no hint. The app CANNOT verify it - the model outputs 12 pitch
     /// classes with no position or octave - so this is a suggestion the player
@@ -512,6 +517,8 @@ impl MyApp {
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
+            scale_start: 0,
+            scale_descending: false,
             start_hint: None,
             play_order: Vec::new(),
             play_pos: 0,
@@ -670,6 +677,13 @@ impl MyApp {
             indices.push(Step { degree: indices[0].degree, octave: indices[0].octave + 1 });
         }
 
+        // Down as often as up: a scale known in one direction is half known -
+        // the fingers learn the climb and the ear never hears the descent. The
+        // way is drawn with the string it starts from, once per pass.
+        if self.app_mode == AppMode::Scales && self.scale_descending {
+            indices.reverse();
+        }
+
         if indices.is_empty() {
              if !all_names.is_empty() { vec![Step { degree: 0, octave: 0 }] } else { vec![] }
         } else {
@@ -682,12 +696,12 @@ impl MyApp {
     /// so the highlight still runs left to right instead of jumping around.
     pub fn ordered_active_indices(&self, chord: &Chord) -> Vec<Step> {
         let active = self.get_active_indices(chord);
-        // An arpeggio is a PHRASE, and a phrase dealt in a random order is not
-        // that phrase any more - a study written to climb in broken thirds
-        // comes back as a list of notes. In the other note modes the set is a
-        // set and the shuffle means something; here it means a new key, a new
-        // string to start from, and over the changes a shuffled progression.
-        if self.app_mode == AppMode::Arpeggios {
+        // A phrase dealt in a random order is not that phrase any more - a
+        // study written to climb in broken thirds comes back as a list of
+        // notes, and a scale that is not walked in order is not a scale. In
+        // both, what the shuffle means is the KEY and where on the neck to
+        // take it; in Intervals the set really is a set, and there it scatters.
+        if matches!(self.app_mode, AppMode::Arpeggios | AppMode::Scales) {
             return active;
         }
         // The permutation goes stale when the user edits the interval list; the
@@ -802,6 +816,14 @@ impl MyApp {
         // exercise does not always start from the same place on the neck. Only
         // the first one - after that the voices are led from the grip before.
         self.voicing_anchor = 1 + self.rng.below(9) as i32;
+        // And which string a scale starts from, drawn after every pass whether
+        // the shuffle is on or not: the shape is the same everywhere, and
+        // starting it from the same string every time practises one place on
+        // the neck rather than the scale. The shuffle adds the KEY to that.
+        self.scale_start = self.rng.below(START_STRINGS.len());
+        // And which way it runs. A scale known upwards is half known: the
+        // fingers learn the climb and the ear never hears the descent.
+        self.scale_descending = self.rng.below(2) == 1;
         self.step_order = (0..n).collect();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
@@ -3112,6 +3134,7 @@ pub(crate) mod tests {
             .position(|d| d.name.starts_with("Altered"))
             .expect("the altered scale is missing");
         a.item_selected(altered as i32);
+        a.scale_start = 0;
         let chord = a.chords[0].clone();
         let steps = a.get_active_indices(&chord);
         let spots = crate::tab::place(
@@ -3125,32 +3148,80 @@ pub(crate) mod tests {
         assert!(!labels.contains(&"♭3".to_string()), "a degree was respelled: {labels:?}");
     }
 
-    /// What the shuffle does in Scales: the degrees come in a drawn order, not
-    /// 1 2 3 4 5 6 7 - the run is a set of notes to find, not a line to climb.
+    /// What the shuffle does in Scales: it draws the key and where on the neck
+    /// to take it, and leaves the degrees in order. A scale not walked in
+    /// order is not a scale.
     #[test]
-    fn the_shuffle_scatters_a_scale() {
+    fn the_shuffle_moves_a_scale_without_scattering_it() {
         let mut a = app();
         a.set_mode(AppMode::Scales as i32);
         let chord = a.chords[0].clone();
         let written = a.get_active_indices(&chord);
         assert!(written.len() >= 5, "the scale is too short to tell");
-        let mut scattered = false;
-        for _ in 0..20 {
-            a.set_random_mode(false);
-            a.set_random_mode(true);
-            if a.ordered_active_indices(&chord) != written {
-                scattered = true;
-                break;
-            }
-        }
-        assert!(scattered, "the shuffle left the scale in its written order");
 
-        a.set_random_mode(false);
+        a.set_random_mode(true);
+        // No permutation: whatever the pass drew, the strip is the written run
+        // - the same list `get_active_indices` gives, forwards or backwards.
         assert_eq!(
             a.ordered_active_indices(&chord),
-            written,
-            "switched off, the scale is walked as written"
+            a.get_active_indices(&chord),
+            "the shuffle dealt the scale out of order"
         );
+        let _ = &written;
+
+        // The key moves between passes, and so does the string it starts from.
+        let key = a.chords[0].root as usize;
+        let mut keys = false;
+        let mut strings = std::collections::HashSet::new();
+        for _ in 0..20 {
+            a.advance_chord();
+            keys |= a.chords[0].root as usize != key;
+            strings.insert(a.scale_start);
+        }
+        assert!(keys, "the key never moved");
+        assert!(strings.len() > 1, "the scale always started from the same string");
+    }
+
+    /// Up or down, drawn with the string: a scale known in one direction only
+    /// is half known.
+    #[test]
+    fn a_scale_runs_both_ways() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        let chord = a.chords[0].clone();
+        let mut ways = std::collections::HashSet::new();
+        for _ in 0..20 {
+            a.advance_chord();
+            let steps = a.get_active_indices(&chord);
+            ways.insert(steps.first().unwrap().degree < steps.last().unwrap().degree);
+        }
+        assert_eq!(ways.len(), 2, "the scale only ever ran one way");
+
+        // Whichever way, it is the written run and not a shuffled one.
+        a.scale_descending = true;
+        let down = a.get_active_indices(&chord);
+        a.scale_descending = false;
+        let up = a.get_active_indices(&chord);
+        let mut reversed = down.clone();
+        reversed.reverse();
+        assert_eq!(reversed, up, "the descent is not the climb turned round");
+    }
+
+    /// And without the shuffle the string still moves, while the key stays: the
+    /// shape is the same everywhere, so where it is taken is the exercise.
+    #[test]
+    fn a_scale_starts_from_a_drawn_string_even_unshuffled() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        a.set_random_mode(false);
+        let key = a.chords[0].root as usize;
+        let mut strings = std::collections::HashSet::new();
+        for _ in 0..20 {
+            a.advance_chord();
+            strings.insert(a.scale_start);
+            assert_eq!(a.chords[0].root as usize, key, "the key moved unasked");
+        }
+        assert!(strings.len() > 1, "the scale always started from the same string");
     }
 
     /// Renders a scale on the neck to stdout, for looking at it. Ignored in
@@ -3512,6 +3583,7 @@ pub(crate) mod tests {
     fn a_scale_walks_the_degrees_it_is_written_with() {
         let mut a = app();
         a.set_mode(AppMode::Scales as i32);
+        a.scale_descending = false;              // the written order, not a pass
         let scales = crate::model::load_all_scale_definitions();
         assert!(scales.len() >= 20, "the built-in scales did not load");
         for def in scales {
@@ -3552,6 +3624,7 @@ pub(crate) mod tests {
     fn a_scale_can_end_on_its_root_again() {
         let mut a = app();
         a.set_mode(AppMode::Scales as i32);
+        a.scale_descending = false;              // the closing root is the top one
         let chord = a.chords[0].clone();
         let plain = a.get_active_indices(&chord);
         a.scale_repeat_root = true;

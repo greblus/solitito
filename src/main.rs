@@ -2187,18 +2187,20 @@ fn main() -> Result<(), slint::PlatformError> {
                                 app.voicing_anchor,
                             )
                         } else {
-                            // A scale is taken wherever the hand lands: the
-                            // shape is the same in every position, so the
-                            // position is drawn. An arpeggio study keeps the
-                            // one its source is written in.
-                            let anchor = (app.app_mode == AppMode::Scales)
-                                .then_some(app.voicing_anchor);
-                            tab::place_near(
+                            // A scale starts from a drawn string, after every
+                            // pass: the shape is the same everywhere, and one
+                            // place on the neck practised over and over is not
+                            // the exercise. An arpeggio study keeps the
+                            // position its source is written in.
+                            let from = (app.app_mode == AppMode::Scales)
+                                .then_some(app.scale_start);
+                            tab::place_from(
                                 curr_chord.root as usize,
                                 &curr_chord.quality.intervals(),
                                 &active_indices,
                                 &curr_chord.quality.interval_names(),
-                                anchor,
+                                None,
+                                from,
                             )
                         };
                         last_voicing = if voiced { spots.clone() } else { Vec::new() };

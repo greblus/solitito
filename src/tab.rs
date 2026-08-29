@@ -92,6 +92,22 @@ pub fn place_near(
     names: &[String],
     anchor: Option<i32>,
 ) -> Vec<Spot> {
+    place_from(root_pc, intervals, steps, names, anchor, None)
+}
+
+/// The same, and starting from a given string where one is asked for.
+///
+/// A scale is the same shape in every position AND on every pair of strings it
+/// will fit; drawing the string it starts on is what stops the exercise from
+/// being one place on the neck practised over and over.
+pub fn place_from(
+    root_pc: usize,
+    intervals: &[u8],
+    steps: &[Step],
+    names: &[String],
+    anchor: Option<i32>,
+    start_string: Option<usize>,
+) -> Vec<Spot> {
     let written: Vec<i32> = steps
         .iter()
         .filter_map(|s| intervals.get(s.degree).map(|&i| i as i32 + 12 * s.octave as i32))
@@ -121,11 +137,28 @@ pub fn place_near(
             else {
                 continue;
             };
-            // Where the caller named a fret, that is the last word between two
-            // positions the hand finds equally easy.
-            let cost = match anchor {
-                Some(a) => (cost.0, cost.1, (fret - a).abs()),
-                None => cost,
+            // Where the caller named a string to start from, that comes
+            // first: it is the shape's place on the neck, not a preference
+            // between two equal ones. A fret named instead is the last word
+            // between two positions the hand finds equally easy.
+            let cost = match (start_string, anchor) {
+                (Some(want), _) => {
+                    // The BOTTOM of the shape, not the note played first: a
+                    // scale run downwards starts at its top, and "starting from
+                    // the A string" is about where the shape sits.
+                    let from = spots
+                        .iter()
+                        .min_by_key(|s| TUNING[s.string] + s.fret)
+                        .map(|s| s.string)
+                        .unwrap_or(0);
+                    (
+                        (from as i32 - want as i32).unsigned_abs() as usize,
+                        cost.0 as i32,
+                        cost.1,
+                    )
+                }
+                (None, Some(a)) => (cost.0, cost.1, (fret - a).abs()),
+                (None, None) => cost,
             };
             if best.as_ref().is_none_or(|(b, _)| cost < *b) {
                 best = Some((cost, spots));

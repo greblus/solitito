@@ -119,9 +119,14 @@ Bottom part of main window shows the chord just played and the next one, after t
 The chord left behind keeps the colour it earned — green for an exact match, yellow if a triad
 or a substitution got it through — so a pass stays readable after the app has moved on. 
 
-A shuffle toggle randomises the order. In the note modes it shuffles the tones inside each
-chord and leaves the progression as written — shuffled intervals walking a real progression
-turn into tunes, where shuffling both is an experiment; a separate setting adds the chords.
+A shuffle toggle randomises the order. In Intervals it shuffles the tones inside each chord
+and leaves the progression as written — shuffled intervals walking a real progression turn
+into tunes, where shuffling both is an experiment; a separate setting adds the chords. In
+Scales and Arpeggios it does not touch the order at all: a scale not walked in order is not a
+scale, and a study dealt at random is not that study. There it draws the KEY instead. A scale
+also starts from a drawn string after every pass, shuffle or no shuffle, and runs up or down
+as the same draw decides — the shape is the same everywhere, one place on the neck practised
+over and over is not the exercise, and a scale known upwards only is half known.
 In Chords it reorders the standard, and in Scales it redraws the key. A pause button freezes progression while the colours keep
 reporting whether the chord is right, so you can sit on one shape and work it out; while
 paused, arrows either side of the strip step back and forth through the progression, for
