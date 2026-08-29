@@ -152,7 +152,7 @@ Major (Leading Tone)
 Dominant (Approach from Below)
 1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1
 
-Broken Thirds (Up-Down)
+Skipping Notes (Fifths and Fourths)
 1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1
 
 Triplets (Up-Down)
@@ -398,6 +398,23 @@ pub fn steps_of(names: &[String]) -> Vec<Step> {
             Some(Step { degree, octave })
         })
         .collect()
+}
+
+/// The chord a study is written over, as an index into `ARP_QUALITIES`.
+///
+/// The three named for a quality are played over it in the source: the minor
+/// study over `m7`, the major one over `Maj7`, the dominant one over `7`.
+/// Picking one therefore sets the chord as well - the shape on the neck is the
+/// book's phrase only when it is read over the chord it was written for. The
+/// rest name no quality and set none; a study is a sequence of degrees, and any
+/// of them can be heard over any chord on purpose.
+pub fn study_quality(name: &str) -> Option<usize> {
+    match name.split_whitespace().next()? {
+        "Minor" => Some(0),
+        "Major" => Some(1),
+        "Dominant" => Some(2),
+        _ => None,
+    }
 }
 
 pub fn load_arpeggio_patterns() -> Vec<ScaleDefinition> {

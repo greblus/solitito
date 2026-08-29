@@ -501,7 +501,7 @@ pub fn arpeggio_name(lang: Lang, name: &str) -> &str {
         "Minor (Two Octaves and a Third)" => "Molowe (dwie oktawy i tercja)",
         "Major (Leading Tone)" => "Durowe (dźwięk prowadzący)",
         "Dominant (Approach from Below)" => "Dominantowe (dojście od dołu)",
-        "Broken Thirds (Up-Down)" => "Łamane tercje (w górę i w dół)",
+        "Skipping Notes (Fifths and Fourths)" => "Z pominięciem dźwięków (kwinty i kwarty)",
         "Triplets (Up-Down)" => "Triolowe (w górę i w dół)",
         "Generator (new phrase each pass)" => "Generator (nowa fraza za każdym razem)",
         other => other,

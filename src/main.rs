@@ -2026,11 +2026,16 @@ fn main() -> Result<(), slint::PlatformError> {
                 // position, and the fretboard trainer draws its own region.
                 if app.app_mode == AppMode::Arpeggios && ui.get_tab_view() {
                     let done: Vec<bool> = app.collected_notes.clone();
+                    // Built from the steps ACTUALLY drawn, not from the text
+                    // they were read out of: anything that reorders them - the
+                    // shuffle, once - left the picture standing while the strip
+                    // of names above it had already moved, and the change only
+                    // showed up later when something else forced a redraw.
                     let signature = format!(
-                        "{}|{}|{}|{:?}|{}",
+                        "{}|{}|{:?}|{:?}|{}",
                         curr_chord.root as usize,
                         curr_chord.quality.to_string(),
-                        app.intervals_input,
+                        active_indices,
                         done,
                         ui.get_tab_frets()
                     );
@@ -2579,9 +2584,27 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let app_weak_2 = my_app.clone();
     let ui_weak_2 = ui.as_weak();
+    let cfg_item = live_cfg.clone();
     ui.on_item_selected(move |index| {
         let mut app = app_weak_2.lock().unwrap();
         let ui = ui_weak_2.unwrap();
+        // A study named for a chord is written over that chord - see
+        // `model::study_quality`. Picking it and then having to set the chord
+        // by hand was a trap: the name promised a quality the app did not set,
+        // and the shape on the neck was the phrase read over something else.
+        if app.app_mode == AppMode::Arpeggios && app.arp_exercise == 0 {
+            if let Some(q) = app
+                .arpeggio_patterns
+                .get(index.max(0) as usize)
+                .and_then(|p| model::study_quality(&p.name))
+            {
+                app.arp_quality = q;
+                ui.set_arp_quality(q as i32);
+                let mut cfg = cfg_item.borrow_mut();
+                cfg.arp_quality = q;
+                cfg.save();
+            }
+        }
         app.item_selected(index);
         if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
              ui.set_interval_input_text(app.intervals_input.clone().into());

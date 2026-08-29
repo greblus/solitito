@@ -663,6 +663,14 @@ impl MyApp {
     /// so the highlight still runs left to right instead of jumping around.
     pub fn ordered_active_indices(&self, chord: &Chord) -> Vec<Step> {
         let active = self.get_active_indices(chord);
+        // An arpeggio is a PHRASE, and a phrase dealt in a random order is not
+        // that phrase any more - a study written to climb in broken thirds
+        // comes back as a list of notes. In the other note modes the set is a
+        // set and the shuffle means something; here it means a new key, a new
+        // string to start from, and over the changes a shuffled progression.
+        if self.app_mode == AppMode::Arpeggios {
+            return active;
+        }
         // The permutation goes stale when the user edits the interval list; the
         // length check catches that and falls back to the plain order.
         if !self.random_mode || self.step_order.len() != active.len() {
@@ -2952,7 +2960,7 @@ pub(crate) mod tests {
                 "1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1",
             ),
             (
-                "Broken Thirds (Up-Down)",
+                "Skipping Notes (Fifths and Fourths)",
                 "1 5 3 7 5 1' 7 3' 1' 5' 3' 7' 5' 1'' 7' 3'' 1'' 5' 7' 3' 5' 1' 3' 7 1' 5 7 3 5 1",
             ),
             (
@@ -2989,6 +2997,43 @@ pub(crate) mod tests {
         let spots = crate::tab::place(9, &[0, 3, 7, 10], &steps);   // A m7
         let top: Vec<i32> = spots.iter().filter(|s| s.string == 5).map(|s| s.fret).collect();
         assert_eq!(top, vec![5, 8, 5], "the top string does not read 5 8 5");
+    }
+
+    /// A phrase keeps its order. The shuffle means a new key and a new string
+    /// to start from - not the notes of a written study dealt at random, which
+    /// is no longer that study.
+    #[test]
+    fn the_shuffle_does_not_reorder_an_arpeggio() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.item_selected(0);
+        let chord = a.chords[0].clone();
+        let written = a.get_active_indices(&chord);
+        a.set_random_mode(true);
+        assert_eq!(
+            a.ordered_active_indices(&chord),
+            written,
+            "the shuffle dealt the study a new order"
+        );
+    }
+
+    /// And the studies named for a chord know which one: the phrase is the
+    /// book's only when it is read over the chord it was written for.
+    #[test]
+    fn a_study_named_for_a_chord_names_the_right_one() {
+        use crate::model::study_quality;
+        assert_eq!(study_quality("Minor (Two Octaves and a Third)"), Some(0));
+        assert_eq!(study_quality("Major (Leading Tone)"), Some(1));
+        assert_eq!(study_quality("Dominant (Approach from Below)"), Some(2));
+        // The rest name no quality, and must not set one.
+        assert_eq!(study_quality("Skipping Notes (Fifths and Fourths)"), None);
+        assert_eq!(study_quality("Triplets (Up-Down)"), None);
+        assert_eq!(study_quality("Two Octaves Up-Down"), None);
+        // The index has to mean what the settings list means by it.
+        for (i, want) in [(0, "m7"), (1, "Maj7"), (2, "7")] {
+            assert_eq!(ARP_QUALITIES[i].0, want, "the quality list moved under it");
+        }
     }
 
     /// The study on screen is the study that was chosen, in every key.

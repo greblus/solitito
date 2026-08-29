@@ -9,9 +9,14 @@
 //!
 //! ```text
 //! Two Octaves Up-Down   0 1 2 3 4 5 6 7          +1 each time
-//! Broken Thirds         0 2 1 3 2 4 3 5          +2, -1, +2, -1
-//! Triplet Sequence      0 1 2  1 2 3  2 3 4      threes, each starting a rung up
+//! Skipping Notes        0 2 1 3 2 4 3 5          +2, -1, +2, -1
+//! Triplets              0 1 2  1 2 3  2 3 4      threes, each starting a rung up
 //! ```
+//!
+//! The rungs are not what is HEARD. Skipping a rung of a seventh chord sounds
+//! as a fifth or a fourth - measured on the study it comes from, four of each
+//! going up - which is what the source calls it, and why the rules below are
+//! named for the skip rather than for an interval.
 //!
 //! So a generator needs three choices: which step rule, how far up, and how to
 //! come back down. The tests check that the rules reproduce the hand-written
@@ -31,12 +36,17 @@ const RUNGS: [&str; 4] = ["1", "3", "5", "7"];
 pub enum Step {
     /// One rung at a time: a plain arpeggio.
     Straight,
-    /// Up two, back one. The classic broken-thirds shape.
-    BrokenThirds,
+    /// Up two rungs, back one: a chord tone skipped each time, which sounds as
+    /// fifths and fourths.
+    SkipOne,
     /// Overlapping groups of three, each starting one rung higher.
+    ///
+    /// Triplets, as the source groups them - which the Guitar Pro file it was
+    /// read from does not say: there the notes are plain eighths and there is
+    /// no tuplet in the file at all. The name follows the book, not the export.
     Triplets,
-    /// Up three, back two - wider skips, still climbing.
-    BrokenFourths,
+    /// Up three rungs, back two - two tones skipped, which sounds as sevenths.
+    SkipTwo,
 }
 
 impl Step {
@@ -45,7 +55,7 @@ impl Step {
         let mut out = Vec::new();
         match self {
             Step::Straight => out.extend(0..=top),
-            Step::BrokenThirds => {
+            Step::SkipOne => {
                 let mut p = 0usize;
                 let mut up = true;
                 while p <= top {
@@ -61,7 +71,7 @@ impl Step {
                     out.extend([start, start + 1, start + 2]);
                 }
             }
-            Step::BrokenFourths => {
+            Step::SkipTwo => {
                 let mut p = 0usize;
                 let mut up = true;
                 while p <= top {
@@ -88,8 +98,8 @@ impl Step {
         let mut out = Vec::new();
         match self {
             Step::Straight => out.extend((0..=start).rev()),
-            Step::BrokenThirds | Step::BrokenFourths => {
-                let (down, up) = if self == Step::BrokenThirds { (2, 1) } else { (3, 2) };
+            Step::SkipOne | Step::SkipTwo => {
+                let (down, up) = if self == Step::SkipOne { (2, 1) } else { (3, 2) };
                 let mut p = start as isize;
                 let mut going_down = true;
                 while p >= 0 {
@@ -179,13 +189,13 @@ pub fn build(recipe: &Recipe) -> Vec<String> {
 
 /// A fresh phrase, drawn from the same vocabulary as the bundled ones.
 pub fn random(rng: &mut Rng) -> Vec<String> {
-    // Broken fourths are in the vocabulary but not in the draw: up three rungs
-    // is a seventh, and a phrase built of sevenths is a reading exercise rather
+    // Skipping two rungs is in the vocabulary but not in the draw: it sounds
+    // as sevenths, and a phrase built of sevenths is a reading exercise rather
     // than something a hand falls into. The three rules below are the ones the
     // studies are actually written in.
     let step = match rng.below(3) {
         0 => Step::Straight,
-        1 => Step::BrokenThirds,
+        1 => Step::SkipOne,
         _ => Step::Triplets,
     };
     // Triplets triple the note count, so keep their range shorter or the strip
@@ -227,10 +237,10 @@ mod tests {
         assert_eq!(got, "1 3 5 7 1' 3' 5' 7'");
     }
 
-    /// arp1, straight from the user's Guitar Pro file.
+    /// The skipping study, straight from the file it came from.
     #[test]
-    fn reproduces_broken_thirds() {
-        let got = joined(&Recipe { step: Step::BrokenThirds, shape: Shape::UpDown,
+    fn reproduces_the_skipping_study() {
+        let got = joined(&Recipe { step: Step::SkipOne, shape: Shape::UpDown,
                                    tail: Tail::None, top: 9 });
         assert_eq!(
             got,
@@ -254,7 +264,8 @@ mod tests {
         assert_eq!(got, "1 3 5 7 1' 3' 5' 7' 5' 3' 1' 7 5 3 1 7, 5, 7, 1");
     }
 
-    /// Triplets climb in overlapping threes, as in arp2.
+    /// The threes overlap, each starting a rung above the last - the second
+    /// study, note for note.
     #[test]
     fn triplets_climb_in_overlapping_threes() {
         let up = Step::Triplets.ascend(5);
