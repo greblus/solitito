@@ -52,6 +52,16 @@ akord, przechodzi do następnego.
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu.
+<div align="center">
+<img height="360" alt="Gryf" src="docs/solitito_fretboard.png" />
+<img height="360" alt="Interwały jako chwyt" src="docs/solitito_intervals.png" />
+</div>
+
+<div align="center">
+<img height="360" alt="Skala na podstrunnicy" src="docs/solitito_scales.png" />
+<img height="360" alt="Studium arpeggiowe jako tabulatura" src="docs/solitito_arpeggios_tab.png" />
+</div>
+
 - **Formuły** — zbiór interwałów wylosowany nad prymą, grany w dowolnej kolejności. Każda
   funkcja/interwał zapala się, gdy zabrzmi, a zbiór jest zaliczany, kiedy zapalą się wszystkie; pod
   spodem najbliższa skala, którą już znasz, z wyróżnionymi stopniami formuły, oraz akordy

@@ -53,6 +53,17 @@ chord, the app moves on to the next one.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass.
+
+<div align="center">
+<img height="360" alt="Fretboard trainer" src="docs/solitito_fretboard.png" />
+<img height="360" alt="Intervals as a grip" src="docs/solitito_intervals.png" />
+</div>
+
+<div align="center">
+<img height="360" alt="A scale on the neck" src="docs/solitito_scales.png" />
+<img height="360" alt="An arpeggio study as tablature" src="docs/solitito_arpeggios_tab.png" />
+</div>
+
 - **Formulas** — a set of intervals drawn over a root, played in any order. Each function
   lights up as it sounds, and the set is finished when all of them have; underneath, the
   nearest scale you already know, with the formula's own degrees picked out of it, and the
