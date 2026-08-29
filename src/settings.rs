@@ -116,11 +116,14 @@ pub struct Settings {
     /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
     #[serde(default)]
     pub arp_quality: usize,
-    /// Arpeggios: draw the phrase on the neck instead of naming its degrees in
-    /// a line. Off by default - the line is the smaller thing on screen, and
-    /// the octave markers it carries are exactly what the drawing replaces.
-    #[serde(default)]
-    pub tab_view: bool,
+    /// How the exercise is shown: 0 the line of degree names, 1 tablature, 2
+    /// the neck itself. A new key rather than the old `tab_view`, which was a
+    /// switch and is now a choice of three.
+    ///
+    /// Tablature by default: the line of names is the smaller thing on screen,
+    /// but it says nothing about where the fingers go.
+    #[serde(default = "tablature")]
+    pub preview: usize,
     /// Write the fret number in each dot of the tablature instead of the
     /// degree. Off by default: the degrees are what the app teaches, and the
     /// frets are the crutch for reading a shape onto the neck.
@@ -211,6 +214,10 @@ fn key_of_c() -> String {
     "C".to_string()
 }
 
+fn tablature() -> usize {
+    1
+}
+
 fn yes() -> bool {
     true
 }
@@ -242,7 +249,7 @@ impl Default for Settings {
             arp_exercise: 0,
             arp_direction: 0,
             arp_quality: 0,
-            tab_view: false,
+            preview: 1,
             tab_frets: false,
             show_full_shapes: true,
             show_shell_shapes: false,

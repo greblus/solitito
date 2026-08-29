@@ -116,6 +116,19 @@ reporting whether the chord is right, so you can sit on one shape and work it ou
 paused, arrows either side of the strip step back and forth through the progression, for
 going back to a chord that has already gone by.
 
+### The pictures are for the beginning
+
+Every note mode can be shown three ways: a line of degree names, tablature, or the neck
+itself — and, if you want, with fret numbers in the dots instead of degrees. The pictures
+help while the intervals are still new: they say where the fingers go, and the fret numbers
+help further still, for when a shape has to be found on the neck before its degrees mean
+anything.
+
+The idea is to stop using them. What this app is for is hearing intervals, not memorising
+shapes: reading `1 ♭3 5 ♭7` off a diagram is playing a box, hearing it is playing music. As
+the degrees become familiar, switch back to the line of names, and later practise without
+the pictures at all.
+
 ---
 
 ## ⚙️ Settings
@@ -147,7 +160,7 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Study** | Arpeggios, in the study exercise: which phrase to walk. The shuffle switch draws the phrase instead: it selects the generator, and switching it off puts the chosen study back — an arpeggio is a phrase, so there is nothing in it to shuffle. The three chord-quality studies come first, then the broken thirds and triplets, then plain two-octave runs, and last a generator that builds a fresh phrase after every pass. The second combo beside it holds the key |
 | **Exercise** (arpeggios) | *Study in a key* stands on one chord — its quality is set below, its key beside the study, and the shuffle draws a new key after every pass. *Over the changes* takes the chords from a tune and builds one arpeggio per chord |
 | **Direction** | Over the changes: ascending, descending, or alternating from either side. Descending is the shape the studies use — from the root **downwards** through the chord's own tones, not the ascending phrase read backwards |
-| **Draw the exercise on the neck** | Intervals, Scales and Arpeggios: tablature with the degree inside each dot in place of the line of names. Each dot carries the degree as the exercise writes it, so a scale spelling its altered second `#2` reads `♯2` on the neck too. In Intervals the set is drawn as a GRIP: a chord box like the shape diagrams, strings across and frets down, with the position beside it — a strip has the ORDER of the notes on its horizontal axis, which says nothing about where the fingers go. The voices are led from the chord before, so the fingers barely move from one to the next. With the shuffle on there is no line to lead: the chords come in a drawn order and each grip is taken where the neck offers it. Which string a dot sits on is the octave, so nothing needs an apostrophe; what has been played lights green either way |
+| **View** | Three ways to show the exercise: the line of degree names, tablature, or the neck itself. Tablature by default. A phrase — a scale or an arpeggio — is drawn on the neck it is played on, with the note due ringed in white and the places already played green; the picture is the size of a hand however long the phrase is, so a thirty-note study stays readable. A scale is drawn in a position drawn at random — the shape is the same everywhere, and the point is to know it wherever the hand lands. In the fretboard trainer the picture is the REGION: the strings named down the left, the ones out of play dimmed, the frets in play, and — once something is played — every place inside it where the note that sounded lies: green if it is the one asked for, red if it is not. Nothing is drawn before that; where the note lies is the exercise. Each dot carries the degree as the exercise writes it, so a scale spelling its altered second `#2` reads `♯2` on the neck too. In Intervals the set is drawn as a GRIP: a chord box like the shape diagrams, strings across and frets down, with the position beside it — a strip has the ORDER of the notes on its horizontal axis, which says nothing about where the fingers go. The voices are led from the chord before, so the fingers barely move from one to the next. With the shuffle on there is no line to lead: the chords come in a drawn order and each grip is taken where the neck offers it. Which string a dot sits on is the octave, so nothing needs an apostrophe; what has been played lights green either way |
 | **Fret numbers instead of degrees** | In that drawing only. The root keeps its colour |
 | **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
 | **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |

@@ -362,6 +362,11 @@ pub struct MyApp {
     /// Print a line for every function credited. The panel's own switch; the
     /// environment can force it either way while something is being chased.
     pub log_credits: bool,
+    /// What the estimate has been saying, and for how many audio frames. A
+    /// drawing that follows every frame flickers on noise; one that waits for a
+    /// reading to hold does not. See `steady_note`.
+    steady_pitch: Option<usize>,
+    steady_for: u32,
     /// The same reading as an absolute semitone, for telling a note from itself
     /// an octave down. See `octave_is_answered`.
     pub cqt_semitone: Option<usize>,
@@ -529,6 +534,8 @@ impl MyApp {
             last_ai_conf: 0.0,
             formula_in_order: false,
             log_credits: false,
+            steady_pitch: None,
+            steady_for: 0,
             cqt_pitch: None,
             cqt_semitone: None,
             cqt_run_pitch: None,
@@ -961,6 +968,31 @@ impl MyApp {
         self.cqt_run_pitch = None;
         self.cqt_run = 0;
         self.chord_heard_at = (self.strike_id, self.onset_id);
+    }
+
+    /// One audio frame's reading, as the sync below takes it. Test seam: the
+    /// real path reads it from the shared state under a lock.
+    #[cfg(test)]
+    fn feed_estimate(&mut self, frame: u64, pitch: Option<usize>) {
+        if frame != self.audio_frames {
+            if pitch.is_some() && pitch == self.steady_pitch {
+                self.steady_for = self.steady_for.saturating_add(1);
+            } else {
+                self.steady_pitch = pitch;
+                self.steady_for = 1;
+            }
+        }
+        self.cqt_pitch = pitch;
+        self.audio_frames = frame;
+    }
+
+    /// What is sounding, once it has been saying so for long enough to believe.
+    ///
+    /// Three audio frames is 48 ms - short enough that an answer still feels
+    /// immediate, long enough that a single stray reading from the room does
+    /// not paint the neck.
+    pub fn steady_note(&self) -> Option<usize> {
+        (self.steady_for >= 3).then_some(self.steady_pitch).flatten()
     }
 
     pub fn reset_logic_state(&mut self) {
@@ -1987,6 +2019,19 @@ impl MyApp {
             state.noise_gate = self.noise_gate;
             state.bass_boost_enabled = self.bass_boost_enabled;
             state.bass_boost_gain = self.bass_boost_gain;
+            // How long the single-frame estimate has been saying the same
+            // thing. Counted for every mode, not only Formulas, because a
+            // reading that has held for a few frames is the difference between
+            // a note played and the room answering back - see the fretboard
+            // drawing, which flickered on every stray reading before this.
+            if state.frames_seen != self.audio_frames {
+                if state.cqt_pitch.is_some() && state.cqt_pitch == self.steady_pitch {
+                    self.steady_for = self.steady_for.saturating_add(1);
+                } else {
+                    self.steady_pitch = state.cqt_pitch;
+                    self.steady_for = 1;
+                }
+            }
             self.cqt_pitch = state.cqt_pitch;
             self.cqt_semitone = state.cqt_semitone;
             self.onset_id = state.onset_id;
@@ -3060,6 +3105,60 @@ pub(crate) mod tests {
         let labels: Vec<String> = spots.iter().map(|s| s.label()).collect();
         assert!(labels.contains(&"♯2".to_string()), "the neck reads {labels:?}");
         assert!(!labels.contains(&"♭3".to_string()), "a degree was respelled: {labels:?}");
+    }
+
+    /// What the shuffle does in Scales: the degrees come in a drawn order, not
+    /// 1 2 3 4 5 6 7 - the run is a set of notes to find, not a line to climb.
+    #[test]
+    fn the_shuffle_scatters_a_scale() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        let chord = a.chords[0].clone();
+        let written = a.get_active_indices(&chord);
+        assert!(written.len() >= 5, "the scale is too short to tell");
+        let mut scattered = false;
+        for _ in 0..20 {
+            a.set_random_mode(false);
+            a.set_random_mode(true);
+            if a.ordered_active_indices(&chord) != written {
+                scattered = true;
+                break;
+            }
+        }
+        assert!(scattered, "the shuffle left the scale in its written order");
+
+        a.set_random_mode(false);
+        assert_eq!(
+            a.ordered_active_indices(&chord),
+            written,
+            "switched off, the scale is walked as written"
+        );
+    }
+
+    /// A drawing follows a reading that has held, not every frame: at a
+    /// microphone, with something playing in the room, the neck flickered.
+    #[test]
+    fn a_stray_reading_does_not_reach_the_drawing() {
+        let mut a = app();
+        assert_eq!(a.steady_note(), None, "nothing has been heard yet");
+
+        // One frame of a note is not a note.
+        for (frame, pitch) in [(1u64, Some(3usize)), (2, Some(7)), (3, Some(3))] {
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, pitch);
+            assert_eq!(a.steady_note(), None, "a single frame reached the drawing");
+        }
+        // Three frames of the same one is.
+        for frame in 4..=6u64 {
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(9));
+        }
+        assert_eq!(a.steady_note(), Some(9), "a reading that held did not count");
+
+        // And it lets go as soon as something else is heard.
+        a.audio_frames = 6;
+        a.feed_estimate(7, Some(2));
+        assert_eq!(a.steady_note(), None, "the old reading outlived what replaced it");
     }
 
     /// A phrase keeps its order, whichever phrase is showing: the notes of a

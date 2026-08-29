@@ -344,8 +344,12 @@ export global Tr {
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> repeat_root: "End on the root again";
     in-out property <string> repeat_root_hint: "";
-    in-out property <string> tab_view: "Draw the arpeggio on the neck";
-    in-out property <string> tab_view_hint: "";
+    in-out property <string> preview: "View";
+    in-out property <string> preview_hint: "";
+    in-out property <string> preview_names: "Line of intervals";
+    in-out property <string> preview_tab: "Tablature";
+    in-out property <string> preview_neck: "On the neck";
+    in-out property <string> preview_note_names: "Note names";
     in-out property <string> tab_frets: "Fret numbers instead of degrees";
     in-out property <string> tab_frets_hint: "";
     in-out property <string> arp_exercise: "Exercise";
@@ -505,8 +509,9 @@ export component AppWindow inherits Window {
     /// the drawing and the picture scales with the window instead of sitting in
     /// a fixed 150px band.
     in property <float> tab_aspect: 3.5;
-    in-out property <bool> tab_view: false;
-    callback tab_view_changed(bool);
+    /// How the exercise is drawn: 0 the line of names, 1 tablature, 2 the neck.
+    in-out property <int> preview: 1;
+    callback preview_changed(int);
     in-out property <bool> tab_frets: false;
     callback tab_frets_changed(bool);
     /// Arpeggios: 0 a study in a key, 1 over the changes of a tune. The two
@@ -611,9 +616,10 @@ export component AppWindow inherits Window {
 
     /// Mode buttons go through this rather than calling `mode_changed` directly.
     function pick_mode(m: int) {
-        // The fretboard trainer has no settings of its own, so Practice is not
-        // there to land on; General is the nearest tab that still applies.
-        if (root.show_settings) { root.settings_tab = m == 4 ? 1 : 2; }
+        // Practice is where the settings of the mode you are in live, so that
+        // is where a mode change lands - the fretboard trainer included, which
+        // has its own view to choose now.
+        if (root.show_settings) { root.settings_tab = 2; }
         root.mode_changed(m);
     }
     
@@ -735,8 +741,8 @@ export component AppWindow inherits Window {
     // the design width it came out a third of the height it could be.
     property <bool> wide_view: !root.show_settings
         && (root.current_mode == 5
-            || (root.tab_view && root.tab_image.width > 0
-                && root.current_mode >= 1 && root.current_mode <= 3)
+            || (root.preview > 0 && root.tab_image.width > 0
+                && root.current_mode >= 1 && root.current_mode <= 4)
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
     property <length> box_w: root.wide_view
@@ -748,7 +754,7 @@ export component AppWindow inherits Window {
         // Arpeggios on the neck and the chord shapes take the window, less a
         // margin: at full width the drawings run into the frame, and a picture
         // touching the edge of its window reads as cut off rather than large.
-        ? ((root.current_mode >= 1 && root.current_mode <= 3) || root.current_mode == 0
+        ? ((root.current_mode >= 1 && root.current_mode <= 4) || root.current_mode == 0
             ? root.width * 92 / 100
             : min(root.width, root.design_w * 17 / 10))
         : root.design_w;
@@ -813,17 +819,11 @@ export component AppWindow inherits Window {
                 width: 34px;
                 height: 34px;
                 toggled => {
-                    // Formulas keep everything worth changing on the Practice
-                    // tab, so the gear goes straight there. The fretboard
-                    // trainer has no such tab, so a Practice left over from
-                    // another mode would open onto nothing.
-                    if (!root.show_settings && root.current_mode == 5) {
-                        root.settings_tab = 2;
-                    }
-                    if (!root.show_settings && root.current_mode == 4
-                        && root.settings_tab == 2) {
-                        root.settings_tab = 1;
-                    }
+                    // The gear opens on Practice, always: it is the tab of the
+                    // mode you are in, and landing on whichever tab was left
+                    // open last time meant hunting for the setting you came
+                    // for. Audio and the rest are one click away.
+                    if (!root.show_settings) { root.settings_tab = 2; }
                     root.show_settings = !root.show_settings;
                 }
             }
@@ -1313,7 +1313,7 @@ export component AppWindow inherits Window {
             // Not while the arpeggio is being drawn on the neck instead: the
             // two say the same thing, and the drawing says the octaves better.
             if root.current_mode != 0 && root.current_mode != 4 && root.current_mode != 5
-                && !root.tab_view : Rectangle {
+                && root.preview == 0 : Rectangle {
                 height: 65px;
                 clip: true;
 
@@ -1354,8 +1354,8 @@ export component AppWindow inherits Window {
             // a third of the height - six strings and a row of labels need the
             // room, and a fixed band left the drawing in a corner of a
             // maximised window.
-            if root.tab_view && root.tab_image.width > 0
-                && root.current_mode >= 1 && root.current_mode <= 3 : HorizontalLayout {
+            if root.preview > 0 && root.tab_image.width > 0
+                && root.current_mode >= 1 && root.current_mode <= 4 : HorizontalLayout {
                 alignment: center;
                 // Bounded three ways: the window's width, a quarter of its
                 // height, and 260px. The last two keep the footer on screen in
@@ -1537,7 +1537,7 @@ export component AppWindow inherits Window {
                 // Nothing on it in the fretboard trainer: the note is drawn from
                 // the region and judged on its own, so an empty tab is all it
                 // would offer.
-                if root.current_mode != 4 : TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
+                TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
                 TabButton { text: Tr.tab_app; selected: root.settings_tab == 3; clicked => { root.settings_tab = 3; } }
             }
             if root.settings_tab == 0 : ScrollView {
@@ -1978,29 +1978,44 @@ export component AppWindow inherits Window {
                         // Wherever there is a phrase to draw: the note modes.
                         // Chords have their shapes and the fretboard trainer
                         // draws its own region.
-                        if root.current_mode == 1 || root.current_mode == 2
-                            || root.current_mode == 3 : VerticalLayout {
+                        if root.current_mode >= 1 && root.current_mode <= 4 : VerticalLayout {
                             spacing: 4px;
                             HorizontalLayout {
                                 alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.tab_view;
-                                    toggled => { root.tab_view_changed(self.checked); }
-                                }
+                                spacing: 10px;
                                 Text {
-                                    text: Tr.tab_view;
-                                    color: #aaa; vertical-alignment: center;
+                                    text: Tr.preview; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                // The fretboard trainer has two: a note is a
+                                // note, and tablature - which is an order of
+                                // notes - has nothing to say about one.
+                                if root.current_mode == 4 : Dropdown {
+                                    width: root.ctrl_w;
+                                    model: [Tr.preview_note_names, Tr.preview_neck];
+                                    // One-way and set by hand, because the two
+                                    // entries are 0 and 2 of the same setting.
+                                    current-index: root.preview == 0 ? 0 : 1;
+                                    selected(v) => {
+                                        root.preview = v == 0 ? 0 : 2;
+                                        root.preview_changed(root.preview);
+                                    }
+                                }
+                                if root.current_mode != 4 : Dropdown {
+                                    width: root.ctrl_w;
+                                    model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
+                                    current-index <=> root.preview;
+                                    selected(v) => { root.preview_changed(v); }
                                 }
                             }
                             Text {
                                 width: root.panel_w - 30px;
-                                text: Tr.tab_view_hint;
+                                text: Tr.preview_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
                             // Only worth offering once there is a drawing to
                             // put the numbers in.
-                            if root.tab_view : HorizontalLayout {
+                            if root.preview > 0 : HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {
@@ -2012,7 +2027,7 @@ export component AppWindow inherits Window {
                                     color: #aaa; vertical-alignment: center;
                                 }
                             }
-                            if root.tab_view : Text {
+                            if root.preview > 0 : Text {
                                 width: root.panel_w - 30px;
                                 text: Tr.tab_frets_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;

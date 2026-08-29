@@ -465,7 +465,8 @@ fn help_text() -> String {
          \x20                       QUALITY default to A and m7. A fourth argument lights\n\
          \x20                       that many notes green, as playing them would; --frets\n\
          \x20                       writes fret numbers in the dots instead of degrees;\n\
-         \x20                       --grip draws it as a chord box, and NAME may be a\n\
+         \x20                       --grip draws it as a chord box, --neck draws it on the\n\
+         \x20                       neck with the note due ringed, and NAME may be a\n\
          \x20                       phrase typed out, e.g. --tab \"1 3 7\" C m7 --grip\n\
          \n\
          Running:\n\
@@ -638,7 +639,7 @@ struct SettingsSnapshot {
     shuffle_chords: bool,
     random_enabled: bool,
     show_diagrams: bool,
-    tab_view: bool,
+    preview: i32,
     tab_frets: bool,
     arp_exercise: i32,
     arp_direction: i32,
@@ -683,7 +684,7 @@ impl SettingsSnapshot {
             shuffle_chords: ui.get_shuffle_chords(),
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
-            tab_view: ui.get_tab_view(),
+            preview: ui.get_preview(),
             tab_frets: ui.get_tab_frets(),
             arp_exercise: ui.get_arp_exercise(),
             arp_direction: ui.get_arp_direction(),
@@ -845,7 +846,15 @@ fn main() -> Result<(), slint::PlatformError> {
             let spots = tab::place(root_pc, &intervals, &steps, &names);
             eprintln!("{} · {root} {quality}", pattern.name);
             let done: Vec<bool> = (0..spots.len()).map(|i| i < played).collect();
-            if as_grip {
+            if flagged("--region") {
+                // The fretboard trainer's picture: strings in play bright, the
+                // rest dim, and the note revealed only when asked for.
+                let strings: Vec<usize> = (0..3).collect();
+                let marks: Vec<(usize, i32)> = if played > 0 { vec![(0, 8), (1, 8)] } else { vec![] };
+                println!("{}", tab::region(&strings, 7, 10, &marks, &root, played > 1));
+            } else if flagged("--neck") {
+                println!("{}", tab::neck(&spots, &done, played, frets));
+            } else if as_grip {
                 let voiced = tab::place_voiced(
                     root_pc,
                     &intervals,
@@ -1089,7 +1098,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
-        ui.set_tab_view(cfg.tab_view);
+        ui.set_preview(cfg.preview as i32);
         ui.set_tab_frets(cfg.tab_frets);
         ui.set_arp_exercise(cfg.arp_exercise as i32);
         ui.set_arp_direction(cfg.arp_direction as i32);
@@ -1866,8 +1875,47 @@ fn main() -> Result<(), slint::PlatformError> {
                 Some(pc) => model::NoteName::from_index(pc).to_string().to_string(),
                 None => "...".to_string(),
             };
-            set_if_changed(ui.get_chord_name(), name.into(), |v| ui.set_chord_name(v));
+            set_if_changed(ui.get_chord_name(), name.clone().into(), |v| ui.set_chord_name(v));
             set_if_changed(ui.get_start_hint(), app.region.describe().into(), |v| ui.set_start_hint(v));
+            // The region drawn on the neck, and the ANSWER in it: where the
+            // note that is sounding lies, green if it is the one asked for and
+            // red if it is not. Nothing before that - drawing the target first
+            // would turn the mode into copying a picture.
+            if ui.get_preview() > 0 {
+                let strings: Vec<usize> = app.region.strings.strings().to_vec();
+                let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
+                // Only a reading that has held: at the mic, with something
+                // playing in the room, following every frame turned the neck
+                // into a disco.
+                let heard = app.steady_note();
+                let right = heard.is_some() && heard == app.fret_target.map(|pc| pc % 12);
+                let played = heard.map(|pc| model::NoteName::from_index(pc).to_string().to_string());
+                let marks: Vec<(usize, i32)> = match heard {
+                    Some(pc) => strings
+                        .iter()
+                        .flat_map(|&string| {
+                            (from..=to).filter_map(move |fret| {
+                                let sounding =
+                                    (tab::TUNING[string] + fret).rem_euclid(12) as usize;
+                                (sounding == pc % 12).then_some((string, fret))
+                            })
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                let label = played.unwrap_or_default();
+                let signature = format!("{strings:?}|{from}|{to}|{marks:?}|{label}|{right}");
+                if signature != last_tab {
+                    last_tab = signature;
+                    ui.set_tab_aspect(tab::region_aspect(from, to));
+                    ui.set_tab_image(svg_icon(&tab::region(
+                        &strings, from, to, &marks, &label, right,
+                    )));
+                }
+            } else if !last_tab.is_empty() {
+                last_tab.clear();
+                ui.set_tab_image(slint::Image::default());
+            }
             ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
                 MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
                 _ => Color::from_rgb_u8(255, 255, 255),
@@ -1891,7 +1939,10 @@ fn main() -> Result<(), slint::PlatformError> {
             // Nothing to suggest where the grip is drawn: the picture already
             // says which strings to take, and a line saying "start from the A"
             // under a diagram that shows it is noise.
-            let drawn_grip = app.app_mode == AppMode::Intervals && ui.get_tab_view();
+            // Nor in Scales: the drawing says which string every note is on,
+            // so a line naming one of them says less than the picture does.
+            let drawn_grip = ui.get_preview() > 0
+                && matches!(app.app_mode, AppMode::Intervals | AppMode::Scales);
             let hint = match app.start_hint {
                 Some(i) if i < state::START_STRINGS.len() && !drawn_grip => {
                     i18n::strings(lang).start_from.replace("{}", state::START_STRINGS[i])
@@ -2071,7 +2122,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     app.app_mode,
                     AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
                 );
-                if drawable && ui.get_tab_view() {
+                if drawable && ui.get_preview() > 0 {
                     let done: Vec<bool> = app.collected_notes.clone();
                     // Built from the steps ACTUALLY drawn, not from the text
                     // they were read out of: anything that reorders them - the
@@ -2087,7 +2138,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         ui.get_tab_frets(),
                         app.voicing_anchor,
                         app.random_mode
-                    );
+                    ) + &format!("|{}|{}", app.current_note_step, ui.get_preview());
                     if signature != last_tab {
                         last_tab = signature;
                         // Intervals are a GRIP, not a phrase: three or four
@@ -2111,11 +2162,18 @@ fn main() -> Result<(), slint::PlatformError> {
                                 app.voicing_anchor,
                             )
                         } else {
-                            tab::place(
+                            // A scale is taken wherever the hand lands: the
+                            // shape is the same in every position, so the
+                            // position is drawn. An arpeggio study keeps the
+                            // one its source is written in.
+                            let anchor = (app.app_mode == AppMode::Scales)
+                                .then_some(app.voicing_anchor);
+                            tab::place_near(
                                 curr_chord.root as usize,
                                 &curr_chord.quality.intervals(),
                                 &active_indices,
                                 &curr_chord.quality.interval_names(),
+                                anchor,
                             )
                         };
                         last_voicing = if voiced { spots.clone() } else { Vec::new() };
@@ -2123,15 +2181,34 @@ fn main() -> Result<(), slint::PlatformError> {
                         // the horizontal axis is the neck in one and the order
                         // of the notes in the other, and a grip drawn on the
                         // strip says nothing about where the fingers go.
+                        // A grip gets a chord box, a phrase gets the neck it
+                        // is played on. The strip is kept for nothing now: at
+                        // thirty notes it was thirty columns wide and the dots
+                        // too small to read, while the neck is the size of a
+                        // hand however long the phrase is - what moves along it
+                        // is the ring around the note due.
+                        // Tablature or the neck, as the setting asks - and a
+                        // grip has only the one drawing, a chord box.
+                        let strip = ui.get_preview() == 1;
                         let (svg, aspect) = if voiced {
                             (
                                 tab::grip(&spots, &done, ui.get_tab_frets()),
                                 tab::grip_aspect(),
                             )
-                        } else {
+                        } else if strip {
                             (
                                 tab::svg(&spots, &done, ui.get_tab_frets()),
                                 tab::aspect(spots.len()),
+                            )
+                        } else {
+                            (
+                                tab::neck(
+                                    &spots,
+                                    &done,
+                                    app.current_note_step,
+                                    ui.get_tab_frets(),
+                                ),
+                                tab::neck_aspect(&spots),
                             )
                         };
                         ui.set_tab_aspect(aspect);
@@ -2150,7 +2227,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // over from the note modes was turning up under them.
         if !matches!(
             app.app_mode,
-            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
+            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard
         ) && !last_tab.is_empty()
         {
             last_tab.clear();
@@ -2396,9 +2473,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         {
             let cur = live_cfg.clone();
-            ui.on_tab_view_changed(move |on| {
+            ui.on_preview_changed(move |idx| {
                 let mut cur = cur.borrow_mut();
-                cur.tab_view = on;
+                cur.preview = idx.max(0) as usize;
                 cur.save();
             });
         }
@@ -2847,8 +2924,12 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_arp_alt_up(t.arp_alt_up.into());
     g.set_tab_frets(t.tab_frets.into());
     g.set_tab_frets_hint(t.tab_frets_hint.into());
-    g.set_tab_view(t.tab_view.into());
-    g.set_tab_view_hint(t.tab_view_hint.into());
+    g.set_preview(t.preview.into());
+    g.set_preview_hint(t.preview_hint.into());
+    g.set_preview_names(t.preview_names.into());
+    g.set_preview_tab(t.preview_tab.into());
+    g.set_preview_neck(t.preview_neck.into());
+    g.set_preview_note_names(t.preview_note_names.into());
     g.set_in_order(t.in_order.into());
     g.set_in_order_hint(t.in_order_hint.into());
     g.set_debug_console(t.debug_console.into());

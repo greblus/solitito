@@ -118,6 +118,18 @@ pauzy zatrzymuje progresję, podczas gdy kolory dalej mówią, czy akord jest w�
 można usiąść nad jednym akordem i się go porządnie nauczyć. Przy pauzie strzałki po bokach paska
 przechodzą tam i z powrotem po progresji, co pozwala wrócić do akordu, który już minął.
 
+### Rysunki są pomocą na początek
+
+Każdy tryb nutowy można pokazać na trzy sposoby: linią nazw stopni, tabulaturą albo samą
+podstrunnicą — a jeśli chcesz, z numerami progów w kółkach zamiast stopni. Rysunki pomagają,
+dopóki interwały są nowe: mówią, gdzie idą palce, a numery progów pomagają jeszcze bardziej,
+gdy kształt trzeba najpierw znaleźć na gryfie, zanim jego stopnie zaczną cokolwiek znaczyć.
+
+Chodzi o to, żeby z nich w końcu zrezygnować. Ten program jest od słyszenia interwałów, a nie
+od zapamiętywania kształtów: kto odczytuje `1 ♭3 5 ♭7` ze schematu, gra box, a kto to słyszy,
+gra muzykę. Gdy stopnie wejdą w krew, przełącz widok z powrotem na linię nazw, a później ćwicz
+w ogóle bez rysunków.
+
 ---
 
 ## ⚙️ Ustawienia
@@ -149,7 +161,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Studium** | Arpeggia, w ćwiczeniu ze studiami: którą frazę przechodzić. Przełącznik losowania losuje samą frazę: wybiera generator, a wyłączenie wraca do wskazanego studium — arpeggio jest frazą, więc nie ma w nim czego tasować. Najpierw trzy studia w jakościach akordu, potem łamane tercje i triole, dalej zwykłe przebiegi dwuoktawowe, a na końcu generator budujący świeżą frazę po każdym przejściu. Pole obok trzyma tonację |
 | **Ćwiczenie** (arpeggia) | *Studium w tonacji* stoi na jednym akordzie — jego jakość ustawiasz niżej, tonację obok studium, a losowanie dobiera nową po każdym przejściu. *Ogrywanie zmian* bierze akordy z utworu i buduje po jednym arpeggiu na akord |
 | **Kierunek** | Przy ogrywaniu zmian: wznoszące, opadające albo naprzemiennie z każdej ze stron. Opadające to kształt ze studiów — od prymy **w dół** przez składniki akordu, a nie fraza wznosząca czytana od tyłu |
-| **Rysuj ćwiczenie na gryfie** | Interwały, Skale i Arpeggia: tabulatura ze stopniem w każdym kółku zamiast linii nazw. W kółku stoi stopień w pisowni ćwiczenia, więc skala zapisująca podwyższoną sekundę jako `#2` czyta się na gryfie jako `♯2`. W Interwałach zbiór rysowany jest jako **chwyt**: schemat jak przy akordach, struny w poprzek i progi w dół, z pozycją obok — pasek ma na osi poziomej kolejność dźwięków, a to nie mówi nic o tym, gdzie idą palce. Głosy prowadzone są od poprzedniego akordu, więc palce ledwie się ruszają. Przy włączonym losowaniu nie ma czego prowadzić: akordy idą w wylosowanej kolejności, a każdy chwyt brany jest tam, gdzie gryf go daje. To, na której strunie leży kółko, jest oktawą, więc apostrofy przestają być potrzebne; zagrane zapala się na zielono w obu widokach |
+| **Widok** | Trzy sposoby pokazania ćwiczenia: linia nazw stopni, tabulatura albo sama podstrunnica. Domyślnie tabulatura. Fraza — skala albo arpeggio — rysowana jest na podstrunnicy, z białym pierścieniem wokół dźwięku, który jest teraz na kolei, i zielenią na miejscach już zagranych; obrazek ma rozmiar ręki niezależnie od długości frazy, więc studium na trzydzieści dźwięków pozostaje czytelne. Skala rysowana jest w losowanej pozycji — kształt jest wszędzie ten sam, a rzecz w tym, żeby go znać tam, gdzie ręka akurat stanie. W Gryfie obrazkiem jest **region**: struny podpisane z lewej, te poza grą przygaszone, progi w grze, a po zagraniu — każde miejsce wewnątrz regionu, gdzie leży dźwięk, który zabrzmiał: zielone, jeśli to ten, o który program prosi, czerwone, jeśli nie. Przed zagraniem nie ma tam nic, bo szukanie miejsca jest właśnie ćwiczeniem. W kółku stoi stopień w pisowni ćwiczenia, więc skala zapisująca podwyższoną sekundę jako `#2` czyta się na gryfie jako `♯2`. W Interwałach zbiór rysowany jest jako **chwyt**: schemat jak przy akordach, struny w poprzek i progi w dół, z pozycją obok — pasek ma na osi poziomej kolejność dźwięków, a to nie mówi nic o tym, gdzie idą palce. Głosy prowadzone są od poprzedniego akordu, więc palce ledwie się ruszają. Przy włączonym losowaniu nie ma czego prowadzić: akordy idą w wylosowanej kolejności, a każdy chwyt brany jest tam, gdzie gryf go daje. To, na której strunie leży kółko, jest oktawą, więc apostrofy przestają być potrzebne; zagrane zapala się na zielono w obu widokach |
 | **Numery progów zamiast stopni** | Tylko na tym rysunku. Pryma zachowuje swój kolor |
 | **Tonacja** | Tylko Skale: tonika. Przy włączonej kolejności losowej losowana od nowa po każdym przejściu |
 | **Interwały** | Które stopnie ćwiczyć. `1 3 5` dla triad, `1 3 5 7` dla akordów septymowych, `1 3` dla voicingów szkieletowych. `3` obejmuje tercję wielką i małą, `5` kwintę czystą i zmniejszoną, zależnie od jakości akordu |
