@@ -478,11 +478,14 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         }
         drawn.push(place);
         let is_current = here.contains(&current);
-        // Green once the place has been played, not once every visit to it is
-        // done: an up-and-down phrase comes back to each finger, so waiting for
-        // the second visit would leave the whole neck blue until the last note.
-        let been_here = here.iter().any(|&j| done.get(j).copied().unwrap_or(false));
-        let fill = if been_here {
+        // Green from the first time it is played. The other reading - green
+        // only once the phrase has no visit left to that place - is truer to
+        // the marks, but it leaves the whole climb of an up-and-down phrase
+        // colourless, with the ring alone moving. Feedback on the way up is
+        // worth more than the distinction, and the ring is what says where the
+        // player is on the way back.
+        let played = here.iter().any(|&j| done.get(j).copied().unwrap_or(false));
+        let fill = if played {
             GREEN
         } else if spot.is_root() {
             RED

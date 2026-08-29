@@ -3155,6 +3155,30 @@ pub(crate) mod tests {
 
     /// Renders a scale on the neck to stdout, for looking at it. Ignored in
     /// normal runs; `cargo test -- --ignored --nocapture the_scale_picture`.
+    /// Where each step of a study lands, for reading a screenshot back.
+    /// `cargo test --release -- --ignored --nocapture the_study_places`
+    #[test]
+    #[ignore]
+    fn the_study_places() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.item_selected(0);
+        a.secondary_item_selected(0);             // C
+        let chord = a.chords[0].clone();
+        let steps = a.get_active_indices(&chord);
+        let spots = crate::tab::place_near(
+            chord.root as usize,
+            &chord.quality.intervals(),
+            &steps,
+            &chord.quality.interval_names(),
+            None,
+        );
+        for (i, spot) in spots.iter().enumerate() {
+            println!("krok {i:2}: struna {} próg {:2}  {}", spot.string, spot.fret, spot.label());
+        }
+    }
+
     #[test]
     #[ignore]
     fn the_scale_picture() {
@@ -3172,6 +3196,79 @@ pub(crate) mod tests {
         );
         let done: Vec<bool> = (0..spots.len()).map(|i| i < 2).collect();
         println!("{}", crate::tab::neck(&spots, &done, 2, false));
+    }
+
+    /// The reported stall, with the attack head silent throughout: the study
+    /// asks for the flat seventh at step 7, three other notes are played, and
+    /// step 11 asks for it again. Without something to say the note had gone
+    /// quiet in between, the phrase could not get past that step.
+    #[test]
+    fn a_phrase_gets_past_a_note_it_has_already_used() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.item_selected(0);
+        a.note_threshold = 0.5;
+        let seventh = 10usize;                    // over the default m7
+
+        a.cqt_pitch = Some(seventh);
+        a.credit_class(seventh, 0);
+        assert!(!a.struck_since_credit(seventh), "the same pluck counted twice");
+
+        // Three other notes, each held steadily, and no attack reported at all.
+        let mut frame = 0u64;
+        for pc in [0usize, 3, 0] {
+            for _ in 0..4 {
+                frame += 1;
+                a.audio_frames = frame - 1;
+                a.feed_estimate(frame, Some(pc));
+            }
+            a.check_progress_with_ai(0.3, "Noise", 0.0);
+        }
+        assert!(
+            a.struck_since_credit(seventh),
+            "the phrase could not come back to a note it had used"
+        );
+    }
+
+    /// An arpeggio played through, note by note, finishes and starts again.
+    #[test]
+    fn an_arpeggio_played_through_comes_round() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.set_random_mode(false);
+        a.item_selected(0);                       // the minor study
+        a.note_threshold = 0.5;
+        let chord = a.chords[0].clone();
+        let steps = a.get_active_indices(&chord);
+        let all = chord.get_target_indices();
+        assert!(steps.len() > 8, "the phrase is too short to tell");
+
+        let mut frame = 0u64;
+        for (n, step) in steps.iter().enumerate() {
+            let pc = all[step.degree] % 12;
+            // Played: the string struck, the estimate on it, the model too.
+            let mut v = [0.0; 12];
+            v[pc] = 0.9;
+            a.set_onsets(v);
+            a.set_onsets([0.0; 12]);
+            a.last_pitches = [0.0; 12];
+            a.last_pitches[pc] = 1.0;
+            for _ in 0..4 {
+                frame += 1;
+                a.audio_frames = frame - 1;
+                a.feed_estimate(frame, Some(pc));
+            }
+            for _ in 0..10 {
+                a.check_progress_with_ai(0.1, "Noise", 0.0);
+            }
+            let expected = if n + 1 == steps.len() { 0 } else { n + 1 };
+            assert_eq!(
+                a.current_note_step, expected,
+                "step {n} of {} did not count", steps.len()
+            );
+        }
     }
 
     /// A note asked for again, after something else has been played, counts
