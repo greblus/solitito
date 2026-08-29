@@ -2014,8 +2014,10 @@ export component AppWindow inherits Window {
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
                             // Only worth offering once there is a drawing to
-                            // put the numbers in.
-                            if root.preview > 0 : HorizontalLayout {
+                            // put the numbers in - and not in the fretboard
+                            // trainer, whose dots carry a note name and never a
+                            // degree.
+                            if root.preview > 0 && root.current_mode != 4 : HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {
@@ -2027,7 +2029,7 @@ export component AppWindow inherits Window {
                                     color: #aaa; vertical-alignment: center;
                                 }
                             }
-                            if root.preview > 0 : Text {
+                            if root.preview > 0 && root.current_mode != 4 : Text {
                                 width: root.panel_w - 30px;
                                 text: Tr.tab_frets_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;

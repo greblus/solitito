@@ -865,7 +865,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 );
                 println!("{}", tab::grip(&voiced, &done, frets));
             } else {
-                println!("{}", tab::svg(&spots, &done, frets));
+                println!("{}", tab::svg(&spots, &done, played, frets));
             }
         }
         keep_console_open(console);
@@ -1311,6 +1311,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut last_tab: String = String::new();
     // The grip drawn last, so the next one can lead its voices from it.
     let mut last_voicing: Vec<tab::Spot> = Vec::new();
+    // The fretboard trainer's last answer: which note was played, and whether
+    // it was the one asked for at the time.
+    let mut last_answer: Option<(usize, bool)> = None;
+    // The note the answer above was settled on, so it is settled once.
+    let mut last_heard: Option<usize> = None;
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
@@ -1887,8 +1892,24 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Only a reading that has held: at the mic, with something
                 // playing in the room, following every frame turned the neck
                 // into a disco.
+                // What was played last, kept until something else is played: a
+                // mark that vanished with the note gave the player nothing to
+                // look at after the string stopped ringing.
+                //
+                // The verdict is settled when the note ARRIVES and then left
+                // alone. Judging it every frame turned a right answer red the
+                // moment the trainer moved on: the string was still ringing,
+                // and against the note now being asked for it was wrong.
                 let heard = app.steady_note();
-                let right = heard.is_some() && heard == app.fret_target.map(|pc| pc % 12);
+                if heard.is_some() && heard != last_heard {
+                    let pc = heard.unwrap_or(0);
+                    last_answer = Some((pc, Some(pc) == app.fret_target.map(|t| t % 12)));
+                }
+                last_heard = heard.or(last_heard);
+                let (heard, right) = match last_answer {
+                    Some((pc, was_right)) => (Some(pc), was_right),
+                    None => (None, false),
+                };
                 let played = heard.map(|pc| model::NoteName::from_index(pc).to_string().to_string());
                 let marks: Vec<(usize, i32)> = match heard {
                     Some(pc) => strings
@@ -1939,10 +1960,14 @@ fn main() -> Result<(), slint::PlatformError> {
             // Nothing to suggest where the grip is drawn: the picture already
             // says which strings to take, and a line saying "start from the A"
             // under a diagram that shows it is noise.
-            // Nor in Scales: the drawing says which string every note is on,
-            // so a line naming one of them says less than the picture does.
+            // Nor in Scales or Arpeggios: the drawing says which string every
+            // note is on, so a line naming one of them says less than the
+            // picture does.
             let drawn_grip = ui.get_preview() > 0
-                && matches!(app.app_mode, AppMode::Intervals | AppMode::Scales);
+                && matches!(
+                    app.app_mode,
+                    AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
+                );
             let hint = match app.start_hint {
                 Some(i) if i < state::START_STRINGS.len() && !drawn_grip => {
                     i18n::strings(lang).start_from.replace("{}", state::START_STRINGS[i])
@@ -2197,7 +2222,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             )
                         } else if strip {
                             (
-                                tab::svg(&spots, &done, ui.get_tab_frets()),
+                                tab::svg(&spots, &done, app.current_note_step, ui.get_tab_frets()),
                                 tab::aspect(spots.len()),
                             )
                         } else {

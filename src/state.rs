@@ -134,6 +134,10 @@ pub struct Credit {
     /// Seconds left in which the head may still be answering about the pluck
     /// this credit was earned on - see `STRIKE_SETTLE`.
     pub settle: f32,
+    /// Whether something else has been heard, steadily, since this note was
+    /// credited. Then the note has stopped sounding and anything heard from it
+    /// afterwards is a fresh pluck - whether or not the attack head noticed.
+    pub left: bool,
 }
 
 /// Ticks the tests feed before expecting the vote to carry.
@@ -159,9 +163,6 @@ pub struct MyApp {
     /// Which arpeggio pattern was chosen, kept across mode switches. Leaving the
     /// mode used to throw the choice away and drop you back on the first pattern.
     saved_arpeggio_index: usize,
-    /// The study showing before the shuffle swapped it for the generator, so
-    /// switching back returns to it. See `set_random_mode`.
-    study_before_shuffle: usize,
     /// And the key it stood in - see `set_mode`.
     saved_arpeggio_key: usize,
     
@@ -277,6 +278,9 @@ pub struct MyApp {
     pub region: Region,
     /// Pitch class currently asked for, or None before the first draw.
     pub fret_target: Option<usize>,
+    /// The notes asked for lately, so the next one is not one of them. See
+    /// `next_fret_target`.
+    recent_targets: Vec<usize>,
     rng: Rng,
     pub chord_history: VecDeque<(String, f32)>,
     /// Probabilities of the 12 pitch classes from the last window. The note modes
@@ -472,7 +476,6 @@ impl MyApp {
             selected_library_idx: 0,
             secondary_index: 0,
             saved_arpeggio_index: 0,
-            study_before_shuffle: 0,
             saved_arpeggio_key: 0,
             
             song_title: start_song.title,
@@ -514,6 +517,7 @@ impl MyApp {
             play_pos: 0,
             region: Region::default(),
             fret_target: None,
+            recent_targets: Vec::new(),
             rng: Rng::default(),
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
@@ -720,30 +724,12 @@ impl MyApp {
             self.prev_chord_index = None;
             self.prev_status = MatchStatus::None;
             self.reroll();
-            // In the arpeggio studies the shuffle has nothing to shuffle: a
-            // phrase dealt in a random order is not that phrase any more. What
-            // it can mean there is drawing the PHRASE itself, so it picks the
-            // generator - a new one built after every pass, over a new key -
-            // and switching it off returns the study that was showing.
-            if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
-                let generator = self
-                    .arpeggio_patterns
-                    .iter()
-                    .position(|p| p.name == crate::model::GENERATOR_NAME);
-                match (on, generator) {
-                    (true, Some(gen)) => {
-                        if self.selected_library_idx != gen {
-                            self.study_before_shuffle = self.selected_library_idx;
-                        }
-                        self.item_selected(gen as i32);
-                    }
-                    (false, _) => {
-                        let back = self.study_before_shuffle;
-                        self.item_selected(back as i32);
-                    }
-                    _ => {}
-                }
-            }
+            // In the arpeggio studies the shuffle has nothing to shuffle - a
+            // phrase dealt in a random order is not that phrase - so what it
+            // means there is the KEY: a new one after every pass, which
+            // `advance_chord` draws. The study itself is the player's choice
+            // and is left alone; the generator is a row in the list for anyone
+            // who wants a new phrase as well.
         }
     }
 
@@ -1570,8 +1556,17 @@ impl MyApp {
     /// Draws the next fretboard target. The region is untouched - it is fixed
     /// for the session and only changes when the player changes the settings.
     pub fn next_fret_target(&mut self) {
-        let prev = self.fret_target;
-        self.fret_target = self.region.draw(&mut self.rng, prev);
+        if let Some(prev) = self.fret_target {
+            self.recent_targets.push(prev);
+        }
+        // Three back. A region carries a handful of pitch classes, so avoiding
+        // only the note just asked for brought the same few round in a circle -
+        // and a note asked for again while it is still ringing has to be struck
+        // afresh before it counts, which reads as the trainer sticking.
+        while self.recent_targets.len() > 3 {
+            self.recent_targets.remove(0);
+        }
+        self.fret_target = self.region.draw_avoiding(&mut self.rng, &self.recent_targets);
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
     }
@@ -1609,9 +1604,16 @@ impl MyApp {
                 self.success_timer = 0.0;
                 self.match_status = MatchStatus::None;
             }
-            if self.success_timer > self.transition_delay {
+            // The same short hold the note modes use, not the chord one. A
+            // chord is held while the ear settles on a NAME; a single note is
+            // right the moment it is recognised, and asking it to hold for the
+            // chord delay meant a plucked note decaying out of the estimate's
+            // reach before the timer got there - it lit green, dropped back to
+            // nothing, and the trainer never moved on.
+            let hold = 0.12;
+            if self.success_timer > hold {
                 if self.paused {
-                    self.success_timer = self.transition_delay;
+                    self.success_timer = hold;
                 } else {
                     self.credit_class(target, 0);
                     self.next_fret_target();
@@ -1894,6 +1896,10 @@ impl MyApp {
         let Some(c) = self.credited[pc] else {
             return true;
         };
+        // The note stopped sounding and came back: a new pluck by any reading.
+        if c.left {
+            return true;
+        }
         if let (Some(now), Some(then)) = (self.cqt_semitone, c.semitone) {
             if now % 12 == pc && (now >= then + 6 || now + 6 <= then) {
                 return true;
@@ -1917,6 +1923,9 @@ impl MyApp {
     /// same note.
     fn settle_credits(&mut self, dt: f32) {
         let (now, strikes) = (self.cqt_pitch, self.strike_id);
+        // Steady, not any frame: the estimate flickers onto a ringing note for
+        // a frame at a time, and a flicker is not the note stopping.
+        let elsewhere = self.steady_note();
         for (c, credit) in self.credited.iter_mut().enumerate() {
             if let Some(cr) = credit {
                 if cr.settle > 0.0 {
@@ -1924,6 +1933,14 @@ impl MyApp {
                     if now == Some(c) {
                         cr.strike = strikes[c];
                     }
+                }
+                // Something else has been sounding since: this note has gone
+                // quiet, and what is heard from it next is a new pluck. Without
+                // this a note asked for again a few steps later could not be
+                // credited at all when the attack head missed the pluck - the
+                // fretboard trainer stuck on a note that was plainly right.
+                if cr.settle <= 0.0 && elsewhere.is_some_and(|other| other != c) {
+                    cr.left = true;
                 }
             }
         }
@@ -1936,6 +1953,7 @@ impl MyApp {
             octave,
             semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: STRIKE_SETTLE,
+            left: false,
         });
     }
 
@@ -2094,7 +2112,7 @@ pub(crate) mod tests {
     /// MyApp needs the shared audio state; nothing here touches it.
     /// A credit as the tests write one: the two counters, nothing heard.
     fn credit(onset: u64, strike: u32) -> Credit {
-        Credit { onset, strike, octave: 0, semitone: None, settle: 0.0 }
+        Credit { onset, strike, octave: 0, semitone: None, settle: 0.0, left: false }
     }
 
     pub(crate) fn app() -> MyApp {
@@ -3135,6 +3153,55 @@ pub(crate) mod tests {
         );
     }
 
+    /// Renders a scale on the neck to stdout, for looking at it. Ignored in
+    /// normal runs; `cargo test -- --ignored --nocapture the_scale_picture`.
+    #[test]
+    #[ignore]
+    fn the_scale_picture() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        a.set_random_mode(true);
+        let chord = a.chords[0].clone();
+        let steps = a.ordered_active_indices(&chord);
+        let spots = crate::tab::place_near(
+            chord.root as usize,
+            &chord.quality.intervals(),
+            &steps,
+            &chord.quality.interval_names(),
+            Some(a.voicing_anchor),
+        );
+        let done: Vec<bool> = (0..spots.len()).map(|i| i < 2).collect();
+        println!("{}", crate::tab::neck(&spots, &done, 2, false));
+    }
+
+    /// A note asked for again, after something else has been played, counts
+    /// when it is played - even where the attack head missed the pluck.
+    ///
+    /// The reported case: the fretboard trainer lighting green on a note that
+    /// was plainly right and never moving on. The note had been credited a few
+    /// steps earlier, the head did not report the new attack, and the rule that
+    /// stops one pluck counting twice refused it for ever.
+    #[test]
+    fn a_note_that_went_quiet_counts_when_it_comes_back() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        let pc = 4usize;
+        a.cqt_pitch = Some(pc);
+        a.credit_class(pc, 0);
+        assert!(!a.struck_since_credit(pc), "an unstruck repeat counted at once");
+
+        // Something else, steadily, and then silence: the note has gone.
+        for frame in 1..=4u64 {
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(9));
+        }
+        a.check_progress_with_ai(0.6, "Noise", 0.0);   // past the settling window
+        assert!(
+            a.struck_since_credit(pc),
+            "the note stayed uncreditable after it stopped sounding"
+        );
+    }
+
     /// A drawing follows a reading that has held, not every frame: at a
     /// microphone, with something playing in the room, the neck flickered.
     #[test]
@@ -3178,37 +3245,36 @@ pub(crate) mod tests {
         );
     }
 
-    /// What the shuffle does mean there: it draws the PHRASE. A study has an
-    /// order to keep, so the switch picks the generator - a new phrase after
-    /// every pass, over a new key - and switching it off puts the study back.
+    /// What the shuffle means there: the KEY. The study is the player's choice
+    /// and the switch does not touch it.
     #[test]
-    fn the_shuffle_swaps_a_study_for_the_generator() {
+    fn the_shuffle_moves_the_key_and_leaves_the_study() {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
         a.arp_exercise = 0;
         a.item_selected(2);
         let study = a.arpeggio_patterns[2].name.clone();
+        let key = a.chords[0].root as usize;
 
         a.set_random_mode(true);
-        assert_eq!(
-            a.arpeggio_patterns[a.selected_library_idx].name,
-            crate::model::GENERATOR_NAME,
-            "the shuffle did not reach for the generator"
-        );
-
-        a.set_random_mode(false);
         assert_eq!(
             a.arpeggio_patterns[a.selected_library_idx].name, study,
-            "switching it off did not put the study back"
+            "the shuffle changed the study"
         );
 
-        // And over the changes it leaves the phrase alone: there the arpeggio
-        // is built per chord and the shuffle means the progression.
-        a.arp_exercise = 1;
-        a.reload_library();
-        let before = a.selected_library_idx;
-        a.set_random_mode(true);
-        assert_eq!(a.selected_library_idx, before, "the tune was swapped for a phrase");
+        let mut moved = false;
+        for _ in 0..20 {
+            a.advance_chord();
+            if a.chords[0].root as usize != key {
+                moved = true;
+                break;
+            }
+        }
+        assert!(moved, "the key never moved between passes");
+        assert_eq!(
+            a.arpeggio_patterns[a.selected_library_idx].name, study,
+            "a pass changed the study"
+        );
     }
 
     /// And the studies named for a chord know which one: the phrase is the
@@ -3775,7 +3841,10 @@ mod fretboard_mode_tests {
         a.last_pitches = [0.0; 12];
         a.last_pitches[target] = 1.0;
         a.note_threshold = 0.5;
-        a.transition_delay = 0.05;
+        // The trainer holds for a fixed 0.12 s, as the note modes do - the
+        // chord delay is not its measure.
+        a.check_progress_with_ai(0.1, "Noise", 0.0);
+        assert_eq!(a.fret_target, Some(target), "credited before the hold was up");
         a.check_progress_with_ai(0.1, "Noise", 0.0);
         assert_ne!(a.fret_target, Some(target), "a played note did not advance");
     }

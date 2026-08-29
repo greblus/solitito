@@ -128,18 +128,26 @@ impl Region {
     /// Returns `None` only for an empty region, which the constructors make
     /// impossible - a span of at least one fret always yields pitch classes.
     pub fn draw(&self, rng: &mut Rng, previous: Option<usize>) -> Option<usize> {
+        self.draw_avoiding(rng, previous.as_slice())
+    }
+
+    /// The same, keeping clear of several notes rather than one.
+    ///
+    /// A region holds a handful of pitch classes, so avoiding only the note
+    /// just asked for still brought the same three or four round in a tight
+    /// circle - and a note asked for again while it is still ringing cannot be
+    /// credited until it is struck afresh, which reads as the trainer sticking.
+    pub fn draw_avoiding(&self, rng: &mut Rng, avoid: &[usize]) -> Option<usize> {
         let pcs = self.pitch_classes();
-        match pcs.len() {
-            0 => None,
-            1 => Some(pcs[0]),
-            n => {
-                let prev_pos = previous.and_then(|p| pcs.iter().position(|&x| x == p));
-                let idx = match prev_pos {
-                    Some(i) => rng.below_excluding(n, i),
-                    None => rng.below(n),
-                };
-                Some(pcs[idx])
-            }
+        if pcs.is_empty() {
+            return None;
+        }
+        // Never avoid so much that nothing is left to draw.
+        let free: Vec<usize> = pcs.iter().copied().filter(|p| !avoid.contains(p)).collect();
+        let pool = if free.is_empty() { &pcs } else { &free };
+        match pool.len() {
+            1 => Some(pool[0]),
+            n => Some(pool[rng.below(n)]),
         }
     }
 }

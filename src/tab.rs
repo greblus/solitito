@@ -496,8 +496,8 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         let ring = if is_current {
             format!(
                 "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
-                 stroke-width=\"4\" stroke=\"#ffffff\"></circle>",
-                r = DOT_R + 6.0,
+                 stroke-width=\"5\" stroke=\"#ffffff\"></circle>",
+                r = DOT_R + 7.0,
             )
         } else {
             String::new()
@@ -627,7 +627,11 @@ pub fn grip_aspect() -> f32 {
 /// `frets` writes the fret number in each dot instead of the degree - ordinary
 /// tablature, for reading a shape onto the neck rather than hearing what it is.
 /// The colours do not change with it: the root stays the root.
-pub fn svg(spots: &[Spot], done: &[bool], frets: bool) -> String {
+///
+/// `current` is the step due now, ringed in white as it is on the neck. Without
+/// it a shuffled scale gave the player no way of knowing which note was being
+/// asked for - the dots are in the drawn order, and the order is the point.
+pub fn svg(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String {
     let n = spots.len().max(1) as f32;
     let w = MARGIN_X * 2.0 + (n - 1.0) * STEP_X;
     let h = MARGIN_Y * 2.0 + STRING_GAP * 5.0;
@@ -655,6 +659,13 @@ pub fn svg(spots: &[Spot], done: &[bool], frets: bool) -> String {
         };
         // A ring of background under the dot, so the string line does not run
         // through the label.
+        if i == current {
+            s.push_str(&format!(
+                "<circle r=\"{ring}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
+                 stroke-width=\"4\" stroke=\"#ffffff\"></circle>",
+                ring = DOT_R + 6.0,
+            ));
+        }
         s.push_str(&format!(
             "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" stroke-width=\"0\"></circle>\
              <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
@@ -810,13 +821,13 @@ mod tests {
             vec!["1", "♭3", "5", "♭7"]
         );
         assert!(spots[0].is_root() && !spots[1].is_root());
-        let out = svg(&spots, &[], false);
+        let out = svg(&spots, &[], usize::MAX, false);
         assert!(out.starts_with("<svg") && out.ends_with("</svg>"));
         assert_eq!(out.matches("<circle").count(), 4, "one dot per note");
         assert_eq!(out.matches("<line").count(), 6, "six strings");
         assert!(out.contains(RED), "the root is not marked");
         // And a step played lights green, root or not.
-        let lit = svg(&spots, &[true, true, false, false], false);
+        let lit = svg(&spots, &[true, true, false, false], usize::MAX, false);
         assert_eq!(lit.matches(GREEN).count(), 2, "the played steps are not lit");
         assert!(!lit.contains(RED), "the root stayed red after it was played");
 
@@ -824,7 +835,7 @@ mod tests {
         // the placer's business - see the tests above - so what is checked here
         // is that numbers are what gets written, and that the root is still
         // marked by colour when its degree is no longer on the dot.
-        let numbered = svg(&spots, &[], true);
+        let numbered = svg(&spots, &[], usize::MAX, true);
         for spot in &spots {
             assert!(
                 numbered.contains(&format!(">{}<", spot.fret)),
