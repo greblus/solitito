@@ -464,7 +464,9 @@ fn help_text() -> String {
          \x20                       pattern by part of its name (default: all of them), ROOT and\n\
          \x20                       QUALITY default to A and m7. A fourth argument lights\n\
          \x20                       that many notes green, as playing them would; --frets\n\
-         \x20                       writes fret numbers in the dots instead of degrees\n\
+         \x20                       writes fret numbers in the dots instead of degrees;\n\
+         \x20                       --grip draws it as a chord box, and NAME may be a\n\
+         \x20                       phrase typed out, e.g. --tab \"1 3 7\" C m7 --grip\n\
          \n\
          Running:\n\
          \x20     --file FILE.wav   drive the trainer from a recording instead of the input\n\
@@ -813,23 +815,49 @@ fn main() -> Result<(), slint::PlatformError> {
         // without playing the thing.
         let played: usize = args.get(i + 4).and_then(|v| v.parse().ok()).unwrap_or(0);
         let frets = flagged("--frets");
-        let intervals: &[u8] = match quality.as_str() {
-            "maj7" => &[0, 4, 7, 11],
-            "7" => &[0, 4, 7, 10],
-            "m7b5" => &[0, 3, 6, 10],
-            "dim" => &[0, 3, 6, 9],
-            _ => &[0, 3, 7, 10],
+        let as_grip = flagged("--grip");
+        let chord_quality = match quality.as_str() {
+            "maj7" => model::ChordQuality::Major7,
+            "7" => model::ChordQuality::Dominant7,
+            "m7b5" => model::ChordQuality::HalfDiminished,
+            "dim" => model::ChordQuality::Diminished,
+            _ => model::ChordQuality::Minor7,
         };
+        let intervals = chord_quality.intervals();
+        let names = chord_quality.interval_names();
         let root_pc = NOTE_NAMES.iter().position(|n| *n == root).unwrap_or(9);
-        for pattern in model::load_arpeggio_patterns() {
+        // A phrase typed out instead of a pattern's name - `--tab "1 3 7"` -
+        // which is what an interval set is, and the only way to look at a grip
+        // without opening the window.
+        let typed = wanted.starts_with(|c: char| c.is_ascii_digit()).then(|| {
+            let names: Vec<String> = wanted.split_whitespace().map(String::from).collect();
+            model::ScaleDefinition {
+                name: wanted.clone(),
+                intervals: vec![],
+                names,
+            }
+        });
+        for pattern in typed.map(|p| vec![p]).unwrap_or_else(model::load_arpeggio_patterns) {
             if !wanted.is_empty() && !pattern.name.to_lowercase().contains(&wanted.to_lowercase()) {
                 continue;
             }
             let steps = model::steps_of(&pattern.names);
-            let spots = tab::place(root_pc, intervals, &steps);
+            let spots = tab::place(root_pc, &intervals, &steps, &names);
             eprintln!("{} · {root} {quality}", pattern.name);
             let done: Vec<bool> = (0..spots.len()).map(|i| i < played).collect();
-            println!("{}", tab::svg(&spots, &done, frets));
+            if as_grip {
+                let voiced = tab::place_voiced(
+                    root_pc,
+                    &intervals,
+                    &steps,
+                    &names,
+                    None,
+                    5,
+                );
+                println!("{}", tab::grip(&voiced, &done, frets));
+            } else {
+                println!("{}", tab::svg(&spots, &done, frets));
+            }
         }
         keep_console_open(console);
         return Ok(());
@@ -1272,6 +1300,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // an SVG, which is not a thing to do sixty times a second for a picture
     // that changes when a note is played.
     let mut last_tab: String = String::new();
+    // The grip drawn last, so the next one can lead its voices from it.
+    let mut last_voicing: Vec<tab::Spot> = Vec::new();
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
@@ -1318,7 +1348,16 @@ fn main() -> Result<(), slint::PlatformError> {
         app.chord_confidence = ui.get_chord_confidence();
         app.note_threshold = ui.get_note_threshold();
         app.transition_delay = ui.get_delay();
+        // The shuffle can change WHICH phrase is showing in the arpeggio
+        // studies, so the combo and the interval box follow it.
+        let study_before = app.selected_library_idx;
         app.set_random_mode(ui.get_random_enabled());
+        if app.selected_library_idx != study_before {
+            set_if_changed(ui.get_current_item_index(), app.selected_library_idx as i32, |v| {
+                ui.set_current_item_index(v)
+            });
+            ui.set_interval_input_text(app.intervals_input.clone().into());
+        }
         app.short_verdict = ui.get_short_verdict();
         app.arp_exercise = ui.get_arp_exercise().max(0) as usize;
         app.shells_only = ui.get_show_shell_shapes() && !ui.get_show_full_shapes();
@@ -1849,8 +1888,12 @@ fn main() -> Result<(), slint::PlatformError> {
             
             // Suggestion only: the model gives pitch classes with no position,
             // so nothing here is verified. Empty string hides the line.
+            // Nothing to suggest where the grip is drawn: the picture already
+            // says which strings to take, and a line saying "start from the A"
+            // under a diagram that shows it is noise.
+            let drawn_grip = app.app_mode == AppMode::Intervals && ui.get_tab_view();
             let hint = match app.start_hint {
-                Some(i) if i < state::START_STRINGS.len() => {
+                Some(i) if i < state::START_STRINGS.len() && !drawn_grip => {
                     i18n::strings(lang).start_from.replace("{}", state::START_STRINGS[i])
                 }
                 _ => String::new(),
@@ -2021,10 +2064,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
 
                 // The same phrase again, drawn on the neck: which string each
-                // degree falls on, and the ones already played lit green. Only
-                // in Arpeggios - a scale has no shape a hand takes in one
-                // position, and the fretboard trainer draws its own region.
-                if app.app_mode == AppMode::Arpeggios && ui.get_tab_view() {
+                // degree falls on, and the ones already played lit green. Not
+                // in the fretboard trainer, which draws its own region, and not
+                // in Chords, which has its shapes.
+                let drawable = matches!(
+                    app.app_mode,
+                    AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
+                );
+                if drawable && ui.get_tab_view() {
                     let done: Vec<bool> = app.collected_notes.clone();
                     // Built from the steps ACTUALLY drawn, not from the text
                     // they were read out of: anything that reorders them - the
@@ -2032,22 +2079,63 @@ fn main() -> Result<(), slint::PlatformError> {
                     // of names above it had already moved, and the change only
                     // showed up later when something else forced a redraw.
                     let signature = format!(
-                        "{}|{}|{:?}|{:?}|{}",
+                        "{}|{}|{:?}|{:?}|{}|{}|{}",
                         curr_chord.root as usize,
                         curr_chord.quality.to_string(),
                         active_indices,
                         done,
-                        ui.get_tab_frets()
+                        ui.get_tab_frets(),
+                        app.voicing_anchor,
+                        app.random_mode
                     );
                     if signature != last_tab {
                         last_tab = signature;
-                        let spots = tab::place(
-                            curr_chord.root as usize,
-                            &curr_chord.quality.intervals(),
-                            &active_indices,
-                        );
-                        ui.set_tab_aspect(tab::aspect(spots.len()));
-                        ui.set_tab_image(svg_icon(&tab::svg(&spots, &done, ui.get_tab_frets())));
+                        // Intervals are a GRIP, not a phrase: three or four
+                        // notes taken at once, a string for each. So they are
+                        // laid out as a voicing, with the voices led from the
+                        // chord before - unless the shuffle is on, and then
+                        // there is no line to lead: the chords come in a drawn
+                        // order and each grip is taken where the neck offers
+                        // it.
+                        let voiced = app.app_mode == AppMode::Intervals
+                            && (1..=4).contains(&active_indices.len());
+                        let spots = if voiced {
+                            let prev = (!app.random_mode && !last_voicing.is_empty())
+                                .then_some(last_voicing.as_slice());
+                            tab::place_voiced(
+                                curr_chord.root as usize,
+                                &curr_chord.quality.intervals(),
+                                &active_indices,
+                                &curr_chord.quality.interval_names(),
+                                prev,
+                                app.voicing_anchor,
+                            )
+                        } else {
+                            tab::place(
+                                curr_chord.root as usize,
+                                &curr_chord.quality.intervals(),
+                                &active_indices,
+                                &curr_chord.quality.interval_names(),
+                            )
+                        };
+                        last_voicing = if voiced { spots.clone() } else { Vec::new() };
+                        // A grip is drawn as a chord box, a phrase as a strip:
+                        // the horizontal axis is the neck in one and the order
+                        // of the notes in the other, and a grip drawn on the
+                        // strip says nothing about where the fingers go.
+                        let (svg, aspect) = if voiced {
+                            (
+                                tab::grip(&spots, &done, ui.get_tab_frets()),
+                                tab::grip_aspect(),
+                            )
+                        } else {
+                            (
+                                tab::svg(&spots, &done, ui.get_tab_frets()),
+                                tab::aspect(spots.len()),
+                            )
+                        };
+                        ui.set_tab_aspect(aspect);
+                        ui.set_tab_image(svg_icon(&svg));
                     }
                 } else if !last_tab.is_empty() {
                     last_tab.clear();
@@ -2055,6 +2143,18 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             
+        }
+
+        // A drawing belongs to the mode that made it. Chords has its shape
+        // diagrams and the fretboard trainer its region, and the picture left
+        // over from the note modes was turning up under them.
+        if !matches!(
+            app.app_mode,
+            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
+        ) && !last_tab.is_empty()
+        {
+            last_tab.clear();
+            ui.set_tab_image(slint::Image::default());
         }
 
         // Outside the branch above on purpose. It used to sit inside the "chord

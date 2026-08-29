@@ -159,6 +159,9 @@ pub struct MyApp {
     /// Which arpeggio pattern was chosen, kept across mode switches. Leaving the
     /// mode used to throw the choice away and drop you back on the first pattern.
     saved_arpeggio_index: usize,
+    /// The study showing before the shuffle swapped it for the generator, so
+    /// switching back returns to it. See `set_random_mode`.
+    study_before_shuffle: usize,
     /// And the key it stood in - see `set_mode`.
     saved_arpeggio_key: usize,
     
@@ -251,6 +254,9 @@ pub struct MyApp {
     /// Reshuffling every frame would make the target jump around; the order has
     /// to stay fixed for as long as the chord is being played.
     step_order: Vec<usize>,
+    /// See `reroll`: the fret the first grip of an Intervals exercise is taken
+    /// near.
+    pub voicing_anchor: i32,
     /// Which string to suggest starting from (index into `START_STRINGS`), or
     /// None for no hint. The app CANNOT verify it - the model outputs 12 pitch
     /// classes with no position or octave - so this is a suggestion the player
@@ -461,6 +467,7 @@ impl MyApp {
             selected_library_idx: 0,
             secondary_index: 0,
             saved_arpeggio_index: 0,
+            study_before_shuffle: 0,
             saved_arpeggio_key: 0,
             
             song_title: start_song.title,
@@ -496,6 +503,7 @@ impl MyApp {
             arp_direction: 0,
             arp_quality: 0,
             step_order: vec![],
+            voicing_anchor: 5,
             start_hint: None,
             play_order: Vec::new(),
             play_pos: 0,
@@ -705,6 +713,30 @@ impl MyApp {
             self.prev_chord_index = None;
             self.prev_status = MatchStatus::None;
             self.reroll();
+            // In the arpeggio studies the shuffle has nothing to shuffle: a
+            // phrase dealt in a random order is not that phrase any more. What
+            // it can mean there is drawing the PHRASE itself, so it picks the
+            // generator - a new one built after every pass, over a new key -
+            // and switching it off returns the study that was showing.
+            if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
+                let generator = self
+                    .arpeggio_patterns
+                    .iter()
+                    .position(|p| p.name == crate::model::GENERATOR_NAME);
+                match (on, generator) {
+                    (true, Some(gen)) => {
+                        if self.selected_library_idx != gen {
+                            self.study_before_shuffle = self.selected_library_idx;
+                        }
+                        self.item_selected(gen as i32);
+                    }
+                    (false, _) => {
+                        let back = self.study_before_shuffle;
+                        self.item_selected(back as i32);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -773,6 +805,10 @@ impl MyApp {
         } else {
             self.get_active_indices(&self.chords[self.current_chord_index]).len()
         };
+        // Where the hand takes the first grip in Intervals: drawn, so the
+        // exercise does not always start from the same place on the neck. Only
+        // the first one - after that the voices are led from the grip before.
+        self.voicing_anchor = 1 + self.rng.below(9) as i32;
         self.step_order = (0..n).collect();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
@@ -2994,28 +3030,86 @@ pub(crate) mod tests {
             .find(|p| p.name == "Minor (Two Octaves and a Third)")
             .expect("the minor study is missing");
         let steps = crate::model::steps_of(&study.names);
-        let spots = crate::tab::place(9, &[0, 3, 7, 10], &steps);   // A m7
+        let names: Vec<String> = ["1", "3", "5", "7"].iter().map(|s| s.to_string()).collect();
+        let spots = crate::tab::place(9, &[0, 3, 7, 10], &steps, &names);   // A m7
         let top: Vec<i32> = spots.iter().filter(|s| s.string == 5).map(|s| s.fret).collect();
         assert_eq!(top, vec![5, 8, 5], "the top string does not read 5 8 5");
     }
 
-    /// A phrase keeps its order. The shuffle means a new key and a new string
-    /// to start from - not the notes of a written study dealt at random, which
-    /// is no longer that study.
+    /// A scale is drawn with the degrees IT writes, not with the nearest
+    /// interval name: the altered scale spells its second `#2`, and reading
+    /// `♭3` on the neck would be a different degree of the same pitch.
+    #[test]
+    fn the_neck_spells_a_scale_the_way_the_scale_does() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        let altered = a
+            .scale_definitions
+            .iter()
+            .position(|d| d.name.starts_with("Altered"))
+            .expect("the altered scale is missing");
+        a.item_selected(altered as i32);
+        let chord = a.chords[0].clone();
+        let steps = a.get_active_indices(&chord);
+        let spots = crate::tab::place(
+            chord.root as usize,
+            &chord.quality.intervals(),
+            &steps,
+            &chord.quality.interval_names(),
+        );
+        let labels: Vec<String> = spots.iter().map(|s| s.label()).collect();
+        assert!(labels.contains(&"♯2".to_string()), "the neck reads {labels:?}");
+        assert!(!labels.contains(&"♭3".to_string()), "a degree was respelled: {labels:?}");
+    }
+
+    /// A phrase keeps its order, whichever phrase is showing: the notes of a
+    /// study dealt at random are no longer that study.
     #[test]
     fn the_shuffle_does_not_reorder_an_arpeggio() {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
         a.arp_exercise = 0;
         a.item_selected(0);
-        let chord = a.chords[0].clone();
-        let written = a.get_active_indices(&chord);
         a.set_random_mode(true);
+        let chord = a.chords[0].clone();
         assert_eq!(
             a.ordered_active_indices(&chord),
-            written,
-            "the shuffle dealt the study a new order"
+            a.get_active_indices(&chord),
+            "the shuffle dealt the phrase a new order"
         );
+    }
+
+    /// What the shuffle does mean there: it draws the PHRASE. A study has an
+    /// order to keep, so the switch picks the generator - a new phrase after
+    /// every pass, over a new key - and switching it off puts the study back.
+    #[test]
+    fn the_shuffle_swaps_a_study_for_the_generator() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.arp_exercise = 0;
+        a.item_selected(2);
+        let study = a.arpeggio_patterns[2].name.clone();
+
+        a.set_random_mode(true);
+        assert_eq!(
+            a.arpeggio_patterns[a.selected_library_idx].name,
+            crate::model::GENERATOR_NAME,
+            "the shuffle did not reach for the generator"
+        );
+
+        a.set_random_mode(false);
+        assert_eq!(
+            a.arpeggio_patterns[a.selected_library_idx].name, study,
+            "switching it off did not put the study back"
+        );
+
+        // And over the changes it leaves the phrase alone: there the arpeggio
+        // is built per chord and the shuffle means the progression.
+        a.arp_exercise = 1;
+        a.reload_library();
+        let before = a.selected_library_idx;
+        a.set_random_mode(true);
+        assert_eq!(a.selected_library_idx, before, "the tune was swapped for a phrase");
     }
 
     /// And the studies named for a chord know which one: the phrase is the

@@ -735,7 +735,8 @@ export component AppWindow inherits Window {
     // the design width it came out a third of the height it could be.
     property <bool> wide_view: !root.show_settings
         && (root.current_mode == 5
-            || (root.current_mode == 3 && root.tab_view && root.tab_image.width > 0)
+            || (root.tab_view && root.tab_image.width > 0
+                && root.current_mode >= 1 && root.current_mode <= 3)
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
     property <length> box_w: root.wide_view
@@ -747,7 +748,7 @@ export component AppWindow inherits Window {
         // Arpeggios on the neck and the chord shapes take the window, less a
         // margin: at full width the drawings run into the frame, and a picture
         // touching the edge of its window reads as cut off rather than large.
-        ? (root.current_mode == 3 || root.current_mode == 0
+        ? ((root.current_mode >= 1 && root.current_mode <= 3) || root.current_mode == 0
             ? root.width * 92 / 100
             : min(root.width, root.design_w * 17 / 10))
         : root.design_w;
@@ -1312,7 +1313,7 @@ export component AppWindow inherits Window {
             // Not while the arpeggio is being drawn on the neck instead: the
             // two say the same thing, and the drawing says the octaves better.
             if root.current_mode != 0 && root.current_mode != 4 && root.current_mode != 5
-                && !(root.current_mode == 3 && root.tab_view) : Rectangle {
+                && !root.tab_view : Rectangle {
                 height: 65px;
                 clip: true;
 
@@ -1353,7 +1354,8 @@ export component AppWindow inherits Window {
             // a third of the height - six strings and a row of labels need the
             // room, and a fixed band left the drawing in a corner of a
             // maximised window.
-            if root.current_mode == 3 && root.tab_view && root.tab_image.width > 0 : HorizontalLayout {
+            if root.tab_view && root.tab_image.width > 0
+                && root.current_mode >= 1 && root.current_mode <= 3 : HorizontalLayout {
                 alignment: center;
                 // Bounded three ways: the window's width, a quarter of its
                 // height, and 260px. The last two keep the footer on screen in
@@ -1399,8 +1401,10 @@ export component AppWindow inherits Window {
             height: 60px;
             // Only where there is a progression to walk. A scale is one item,
             // so the strip showed the same name on both sides of it, cut off at
-            // the width of the column.
-            if root.current_mode != 2 && root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
+            // the width of the column - and an arpeggio study is one chord for
+            // the same reason: what moves there is the key, not a progression.
+            if root.current_mode != 2 && root.current_mode != 4 && root.current_mode != 5
+                && !(root.current_mode == 3 && root.arp_exercise == 0) : HorizontalLayout {
                 alignment: center;
                 spacing: 26px;
 
@@ -1971,9 +1975,11 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        // Arpeggios only: the phrase as a line of names, or
-                        // drawn on the neck.
-                        if root.current_mode == 3 : VerticalLayout {
+                        // Wherever there is a phrase to draw: the note modes.
+                        // Chords have their shapes and the fretboard trainer
+                        // draws its own region.
+                        if root.current_mode == 1 || root.current_mode == 2
+                            || root.current_mode == 3 : VerticalLayout {
                             spacing: 4px;
                             HorizontalLayout {
                                 alignment: start;
