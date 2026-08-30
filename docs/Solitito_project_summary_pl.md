@@ -2,7 +2,7 @@
 
 **System rozpoznawania akordów gitarowych w czasie rzeczywistym**
 
-*Wersja 0.5.4, sierpień 2026*
+*Wersja 0.5.5, sierpień 2026*
 
 ---
 
@@ -652,5 +652,5 @@ Wymienione cztery zmiany przesunęły wskaźnik `Exact` z 44,8% na 92,4%. Żadna
 
 ---
 
-*Dokument opisuje stan na sierpień 2026, wersja 0.5.4.*
+*Dokument opisuje stan na sierpień 2026, wersja 0.5.5.*
 *Repozytorium: https://github.com/greblus/solitito*

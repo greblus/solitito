@@ -2,7 +2,7 @@
 
 **A real-time guitar chord recognition system**
 
-*Version 0.5.4, August 2026*
+*Version 0.5.5, August 2026*
 
 ---
 
@@ -662,5 +662,5 @@ These four changes moved the `Exact` figure from 44.8% to 92.4%. None of them co
 
 ---
 
-*This document describes the state as of August 2026, version 0.5.4.*
+*This document describes the state as of August 2026, version 0.5.5.*
 *Repository: https://github.com/greblus/solitito*
