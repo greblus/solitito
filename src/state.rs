@@ -261,6 +261,9 @@ pub struct MyApp {
     /// And the string a scale is started from - an index into `START_STRINGS`,
     /// the three a scale is worth starting on.
     pub scale_start: usize,
+    /// How many passes have gone by, which is what the scale's string and
+    /// direction are counted through. See `reroll`.
+    pass: usize,
     /// The string an interval grip is taken from when the voices are not being
     /// led from the chord before. Drawn per chord - see `reroll`.
     pub grip_string: usize,
@@ -522,6 +525,7 @@ impl MyApp {
             voicing_anchor: 5,
             scale_start: 0,
             scale_descending: false,
+            pass: 0,
             grip_string: 0,
             start_hint: None,
             play_order: Vec::new(),
@@ -820,14 +824,16 @@ impl MyApp {
         // exercise does not always start from the same place on the neck. Only
         // the first one - after that the voices are led from the grip before.
         self.voicing_anchor = 1 + self.rng.below(9) as i32;
-        // And which string a scale starts from, drawn after every pass whether
-        // the shuffle is on or not: the shape is the same everywhere, and
-        // starting it from the same string every time practises one place on
-        // the neck rather than the scale. The shuffle adds the KEY to that.
-        self.scale_start = self.rng.below(START_STRINGS.len());
-        // And which way it runs. A scale known upwards is half known: the
-        // fingers learn the climb and the ear never hears the descent.
-        self.scale_descending = self.rng.below(2) == 1;
+        // Which string a scale starts from and which way it runs: TAKEN IN
+        // TURN, not drawn. The shape is the same everywhere and a scale known
+        // upwards is half known, so what is wanted is coverage - and a fair
+        // coin does not give it. Twelve drawn passes came out with five
+        // descending in a row, which reads as "it only goes down"; three
+        // strings and two directions are coprime, so counting through them
+        // gives all six pairs in six passes and never twice the same in a row.
+        self.pass = self.pass.wrapping_add(1);
+        self.scale_start = self.pass % START_STRINGS.len();
+        self.scale_descending = self.pass % 2 == 1;
         // And which strings an interval grip is taken on when nothing is
         // leading it there: the bottom four can carry the lowest voice.
         self.grip_string = self.rng.below(4);
@@ -3233,29 +3239,33 @@ pub(crate) mod tests {
         let key = a.chords[0].root as usize;
         let mut keys = false;
         let mut strings = std::collections::HashSet::new();
-        for _ in 0..20 {
+        for _ in 0..6 {
             a.advance_chord();
             keys |= a.chords[0].root as usize != key;
             strings.insert(a.scale_start);
         }
         assert!(keys, "the key never moved");
-        assert!(strings.len() > 1, "the scale always started from the same string");
+        assert_eq!(strings.len(), 3, "the scale did not go through the strings");
     }
 
-    /// Up or down, drawn with the string: a scale known in one direction only
-    /// is half known.
+    /// Up and down in turn, and through the strings with them: what is wanted
+    /// is coverage, and a fair coin does not give it - twelve drawn passes came
+    /// out with five descending in a row.
     #[test]
     fn a_scale_runs_both_ways() {
         let mut a = app();
         a.set_mode(AppMode::Scales as i32);
         let chord = a.chords[0].clone();
-        let mut ways = std::collections::HashSet::new();
-        for _ in 0..20 {
+        let mut ways = Vec::new();
+        let mut pairs = std::collections::HashSet::new();
+        for _ in 0..6 {
             a.advance_chord();
             let steps = a.get_active_indices(&chord);
-            ways.insert(steps.first().unwrap().degree < steps.last().unwrap().degree);
+            ways.push(steps.first().unwrap().degree < steps.last().unwrap().degree);
+            pairs.insert((a.scale_start, a.scale_descending));
         }
-        assert_eq!(ways.len(), 2, "the scale only ever ran one way");
+        assert!(ways.windows(2).all(|w| w[0] != w[1]), "two passes ran the same way");
+        assert_eq!(pairs.len(), 6, "six passes did not cover the six ways to take it");
 
         // Whichever way, it is the written run and not a shuffled one.
         a.scale_descending = true;
@@ -3276,12 +3286,37 @@ pub(crate) mod tests {
         a.set_random_mode(false);
         let key = a.chords[0].root as usize;
         let mut strings = std::collections::HashSet::new();
-        for _ in 0..20 {
+        for _ in 0..6 {
             a.advance_chord();
             strings.insert(a.scale_start);
             assert_eq!(a.chords[0].root as usize, key, "the key moved unasked");
         }
-        assert!(strings.len() > 1, "the scale always started from the same string");
+        assert_eq!(strings.len(), 3, "the scale did not go through the strings");
+    }
+
+    /// What twenty passes of a scale actually draw.
+    /// `cargo test --release -- --ignored --nocapture the_scale_passes`
+    #[test]
+    #[ignore]
+    fn the_scale_passes() {
+        for shuffled in [false, true] {
+            let mut a = app();
+            a.set_mode(AppMode::Scales as i32);
+            a.set_random_mode(shuffled);
+            println!("--- losowanie {}", if shuffled { "wlaczone" } else { "wylaczone" });
+            for _ in 0..12 {
+                a.advance_chord();
+                let chord = a.chords[0].clone();
+                let steps = a.get_active_indices(&chord);
+                println!(
+                    "  tonacja {:<3} struna {} kierunek {:<5} pierwszy stopien {}",
+                    chord.root.to_string(),
+                    a.scale_start,
+                    if a.scale_descending { "dol" } else { "gora" },
+                    steps.first().map(|s| s.degree).unwrap_or(0),
+                );
+            }
+        }
     }
 
     /// Renders a scale on the neck to stdout, for looking at it. Ignored in

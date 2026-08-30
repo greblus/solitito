@@ -1906,8 +1906,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 // and against the note now being asked for it was wrong.
                 let heard = app.steady_note();
                 if heard.is_some() && heard != last_heard {
+                    // Only a right answer is drawn. A wrong one leaves the box
+                    // empty: the note asked for is on the screen already, and
+                    // marking every stray note on the neck was more to read
+                    // than to learn from.
                     let pc = heard.unwrap_or(0);
-                    last_answer = Some((pc, Some(pc) == app.fret_target.map(|t| t % 12)));
+                    last_answer =
+                        (Some(pc) == app.fret_target.map(|t| t % 12)).then_some((pc, true));
                 }
                 last_heard = heard.or(last_heard);
                 let (heard, right) = match last_answer {

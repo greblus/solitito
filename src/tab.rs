@@ -566,10 +566,12 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
 /// The region a fretboard exercise is asking within: the frets it covers and
 /// the strings that are in play, with the note marked once it has been found.
 ///
-/// Nothing is marked until something is played: where the note lies IS the
+/// Nothing is marked until the note asked for is played: where it lies IS the
 /// exercise, and drawing it first turns the mode into copying a picture. What
-/// is drawn is the ANSWER - green where what sounded is the note asked for, red
-/// where it is not, at every place inside the region the sounding note lies.
+/// is drawn then is the answer - the note, green, at every place inside the
+/// region it lies. A wrong note is not drawn at all: the one being asked for is
+/// on the screen already, and marking strays was more to read than to learn
+/// from. `right` is what the colour follows, for a caller that wants both.
 ///
 /// The strings are named down the left so the region is legible at a glance -
 /// brighter for the ones in play, dim for the rest of the guitar, which is
