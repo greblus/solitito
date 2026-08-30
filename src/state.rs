@@ -978,6 +978,15 @@ impl MyApp {
         self.chord_heard_at = (self.strike_id, self.onset_id);
     }
 
+    /// What the ear hears, steadily - the state three audio frames of the same
+    /// reading leave behind. Test seam.
+    #[cfg(test)]
+    fn hears(&mut self, pitch: Option<usize>) {
+        self.cqt_pitch = pitch;
+        self.steady_pitch = pitch;
+        self.steady_for = if pitch.is_some() { 3 } else { 0 };
+    }
+
     /// One audio frame's reading, as the sync below takes it. Test seam: the
     /// real path reads it from the shared state under a lock.
     #[cfg(test)]
@@ -1499,6 +1508,40 @@ impl MyApp {
     fn sounding_by(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> Option<u8> {
         let target = pc % 12;
 
+        // Played one at a time, the ear decides alone - and has to have been
+        // saying so for three frames, not one.
+        //
+        // Measured over 49 notes of a real recording: the four ways below
+        // together credited 110 things nobody played, the steady estimate alone
+        // 33, and it missed nothing. Almost all of those 110 were the model's
+        // pitch head answering about a note still ringing inside its 0.77 s
+        // window - which is exactly what this option exists to refuse. Letting
+        // the model through "unless the estimate names something else" was not
+        // enough: it says nothing when the estimate is silent, and the root
+        // head was not held back at all.
+        // Scales and arpeggios are played one note at a time by definition -
+        // nobody strums an arpeggio - so the rule is in force there whether the
+        // option is ticked or not, and the checkbox is not offered.
+        let one_at_a_time = self.single_notes
+            || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios);
+        if one_at_a_time {
+            let ear = self.steady_note();
+            if ear == Some(target) {
+                return Some(1);
+            }
+            // The ear naming ANOTHER note is a refusal; the ear saying nothing
+            // is not. A note too quiet for the estimate's score gate - a low
+            // string, the end of a phrase - would otherwise be uncreditable,
+            // which is what made this harder to play than it had been. Where
+            // the ear is silent the model may still answer, but only its pitch
+            // head and only where an attack backs it: the chord NAME never
+            // credits a note here, and that is where the notes nobody played
+            // were coming from.
+            if ear.is_some() || self.cqt_pitch.is_some() {
+                return None;
+            }
+        }
+
         // 1. One frame, one note - no window to smear across.
         if self.cqt_pitch == Some(target) {
             return Some(1);
@@ -1508,12 +1551,8 @@ impl MyApp {
         let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
 
         // 2. The model, where the target owns the window: a held note, or the
-        //    only one in it. Both model branches are suppressed when the CQT
-        //    names a DIFFERENT note: everything the model can say rests on
-        //    0.77 s of audio, and against one frame that is a claim about the
-        //    past. The root head below is left as a second opinion, so a note
-        //    the CQT reads badly still has a way through.
-        let stale = self.single_notes && self.cqt_pitch.is_some_and(|now| now != target);
+        //    only one in it.
+        let stale = false;
         // The head is believed only while it has something to say: an answer
         // older than one frame is about a note that has already gone. The
         // threshold is low on purpose - what is separated here is "struck" from
@@ -1547,7 +1586,14 @@ impl MyApp {
 
         // 4. The root head as independent confirmation - a single note is
         //    reported by the model as the root.
-        let by_root = matches!(ai_root, Some(r) if r == NoteName::from_index(target))
+        //
+        // Gated by the attack too. "Credit only what was struck" held back the
+        // two pitch-head branches and left this one open, so with a microphone
+        // in a room the model went on naming chords and this credited whatever
+        // note their root happened to be - notes nobody had played.
+        let by_root = struck
+            && !one_at_a_time
+            && matches!(ai_root, Some(r) if r == NoteName::from_index(target))
             && confidence >= self.chord_confidence;
         if by_root { Some(4) } else { None }
     }
@@ -1918,8 +1964,15 @@ impl MyApp {
         let Some(c) = self.credited[pc] else {
             return true;
         };
-        // The note stopped sounding and came back: a new pluck by any reading.
-        if c.left {
+        // The note stopped sounding and CAME BACK: something else was heard
+        // steadily since it was credited, and the single-frame estimate is
+        // reading this note again now. Both halves matter - "something else was
+        // heard" alone let a note credited a moment ago count a second time
+        // while it merely rang on under the note being played, which is the
+        // multiple-crediting this rule exists to stop. The estimate is
+        // monophonic: it names what is loudest, so it names the ringing note
+        // again only once the string is struck again.
+        if c.left && self.steady_note() == Some(pc) {
             return true;
         }
         if let (Some(now), Some(then)) = (self.cqt_semitone, c.semitone) {
@@ -3024,7 +3077,7 @@ pub(crate) mod tests {
         a.last_pitches = [0.0; 12];
         a.last_pitches[2] = 0.95;            // D, played a moment ago, still loud
         a.last_pitches[4] = 0.70;            // E, the one under the fingers now
-        a.cqt_pitch = Some(4);
+        a.hears(Some(4));
         assert!(!a.note_is_sounding(2, None, 0.0), "credited the previous note");
         assert!(a.note_is_sounding(4, None, 0.0), "did not credit the current one");
     }
@@ -3282,7 +3335,7 @@ pub(crate) mod tests {
         a.note_threshold = 0.5;
         let seventh = 10usize;                    // over the default m7
 
-        a.cqt_pitch = Some(seventh);
+        a.hears(Some(seventh));
         a.credit_class(seventh, 0);
         assert!(!a.struck_since_credit(seventh), "the same pluck counted twice");
 
@@ -3295,6 +3348,12 @@ pub(crate) mod tests {
                 a.feed_estimate(frame, Some(pc));
             }
             a.check_progress_with_ai(0.3, "Noise", 0.0);
+        }
+        // The phrase comes back to it and the player plays it.
+        for _ in 0..4 {
+            frame += 1;
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(seventh));
         }
         assert!(
             a.struck_since_credit(seventh),
@@ -3342,6 +3401,114 @@ pub(crate) mod tests {
         }
     }
 
+    /// Played one at a time, nothing but the ear counts - and it has to have
+    /// held. The model answers about 0.77 s of audio, which is where the notes
+    /// nobody played come from.
+    #[test]
+    fn one_at_a_time_believes_the_ear_alone() {
+        let mut a = app();
+        a.single_notes = true;
+        a.note_threshold = 0.5;
+        // The model is sure, loudly, and the ear says nothing: no credit.
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[7] = 1.0;
+        a.last_onsets[7] = 1.0;
+        a.onset_age = 0;
+        // The ear says nothing at all, so the model's pitch head may answer -
+        // a note too quiet for the estimate has to stay playable.
+        assert!(a.note_is_sounding(7, None, 0.0), "a quiet note became uncreditable");
+        // But the ear naming something ELSE is a refusal.
+        a.hears(Some(2));
+        assert!(!a.note_is_sounding(7, None, 0.0), "the model overruled the ear");
+        // And the chord name never credits a note here.
+        a.hears(None);
+        a.last_pitches = [0.0; 12];
+        assert!(
+            !a.note_is_sounding(7, Some(NoteName::G), 1.0),
+            "the root head credited a note nobody played"
+        );
+        // The ear, steadily: that is the whole test.
+        a.hears(Some(7));
+        assert!(a.note_is_sounding(7, None, 0.0), "the ear was not believed");
+        // One frame of it is not enough.
+        a.steady_for = 1;
+        assert!(!a.note_is_sounding(7, None, 0.0), "a single frame counted");
+    }
+
+    /// Arpeggios are one note at a time by definition, ticked or not.
+    #[test]
+    fn an_arpeggio_is_always_one_note_at_a_time() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.single_notes = false;                  // and it makes no difference
+        a.note_threshold = 0.5;
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[7] = 1.0;
+        a.last_onsets[7] = 1.0;
+        a.onset_age = 0;
+        a.hears(Some(2));                        // the ear on another note
+        assert!(!a.note_is_sounding(7, None, 0.0), "the model overruled the ear");
+        a.hears(Some(7));
+        assert!(a.note_is_sounding(7, None, 0.0), "the ear was not believed");
+    }
+
+    /// And "credit only what was struck" holds back every way in, the chord
+    /// name included: with a microphone in a room the model goes on naming
+    /// chords, and their roots were being credited as notes.
+    #[test]
+    fn the_root_head_needs_an_attack_too() {
+        let mut a = app();
+        a.single_notes = false;
+        a.require_onset = true;
+        a.note_threshold = 0.5;
+        a.onset_age = 99;                        // nothing struck for a while
+        assert!(
+            !a.note_is_sounding(7, Some(NoteName::G), 1.0),
+            "a chord name credited a note with no attack behind it"
+        );
+        a.last_onsets[7] = 1.0;
+        a.onset_age = 0;
+        assert!(
+            a.note_is_sounding(7, Some(NoteName::G), 1.0),
+            "a struck note went uncredited"
+        );
+    }
+
+    /// One pluck credits one step. A note credited a moment ago and still
+    /// ringing must not count again for the next step that asks for it - the
+    /// reported case being `3` played and `1` credited along with it.
+    #[test]
+    fn a_ringing_note_does_not_count_for_the_next_step() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        let (root, third) = (0usize, 4usize);
+
+        a.hears(Some(root));
+        a.credit_class(root, 0);
+
+        // The third is played on top; the root rings on, and the model - which
+        // is polyphonic - still reports it.
+        let mut frame = 0u64;
+        for _ in 0..6 {
+            frame += 1;
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(third));
+        }
+        a.check_progress_with_ai(0.6, "Noise", 0.0);
+        assert!(
+            !a.struck_since_credit(root),
+            "the ringing root counted again while the third was being played"
+        );
+
+        // Struck again - the estimate names it, because it is loudest now.
+        for _ in 0..4 {
+            frame += 1;
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(root));
+        }
+        assert!(a.struck_since_credit(root), "a real second pluck did not count");
+    }
+
     /// A note asked for again, after something else has been played, counts
     /// when it is played - even where the attack head missed the pluck.
     ///
@@ -3354,7 +3521,7 @@ pub(crate) mod tests {
         let mut a = app();
         a.set_mode(AppMode::Fretboard as i32);
         let pc = 4usize;
-        a.cqt_pitch = Some(pc);
+        a.hears(Some(pc));
         a.credit_class(pc, 0);
         assert!(!a.struck_since_credit(pc), "an unstruck repeat counted at once");
 
@@ -3364,6 +3531,12 @@ pub(crate) mod tests {
             a.feed_estimate(frame, Some(9));
         }
         a.check_progress_with_ai(0.6, "Noise", 0.0);   // past the settling window
+        // And now it is played again: the estimate names it, because a struck
+        // string is what is loudest.
+        for frame in 5..=8u64 {
+            a.audio_frames = frame - 1;
+            a.feed_estimate(frame, Some(pc));
+        }
         assert!(
             a.struck_since_credit(pc),
             "the note stayed uncreditable after it stopped sounding"
@@ -3732,7 +3905,7 @@ pub(crate) mod tests {
         let mut onsets;
         for (i, pc) in pcs.iter().take(steps.len() - 1).enumerate() {
             a.last_pitches[*pc] = 1.0;
-            a.cqt_pitch = Some(*pc);
+            a.hears(Some(*pc));
             a.cqt_semitone = Some(low + [0, 2, 4, 5, 7, 9, 11][i]);
             onsets = [0.0; 12];
             onsets[*pc] = 0.9;
@@ -3753,7 +3926,7 @@ pub(crate) mod tests {
 
         // Played where the run asks for it, an octave up: the estimate says so,
         // and that is enough on its own.
-        a.cqt_pitch = Some(pcs[0]);
+        a.hears(Some(pcs[0]));
         a.cqt_semitone = Some(low + 12);
         for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, 0, "playing the closing root did not end the run");
@@ -3779,7 +3952,7 @@ pub(crate) mod tests {
         // still ringing and still what the estimate reads.
         a.current_note_step = 0;
         a.last_pitches[pc] = 1.0;
-        a.cqt_pitch = Some(pc);
+        a.hears(Some(pc));
         a.cqt_semitone = Some(high);
         a.credit_class(pc, 1);
 
@@ -3816,7 +3989,7 @@ pub(crate) mod tests {
 
         a.current_note_step = steps.len() - 1;
         a.last_pitches[pc] = 1.0;
-        a.cqt_pitch = Some(pc);
+        a.hears(Some(pc));
         a.cqt_semitone = Some(low);
         a.credit_class(pc, 0);                      // credited on the opening root
 

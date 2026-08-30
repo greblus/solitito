@@ -1729,8 +1729,13 @@ export component AppWindow inherits Window {
                         }
 
                         // The other way round: a strummed chord has no notes to
-                        // take one at a time.
-                        if root.current_mode != 0 : VerticalLayout {
+                        // take one at a time - and a scale or an arpeggio has
+                        // nothing else, so there the rule is in force and not
+                        // offered. It is left to choose in Intervals, where a
+                        // strummed grip walking its tones is the point, and in
+                        // Formulas, which has its own strict switch.
+                        if root.current_mode == 1 || root.current_mode == 4
+                            || root.current_mode == 5 : VerticalLayout {
                             spacing: 4px;
                             HorizontalLayout {
                                 alignment: start;
