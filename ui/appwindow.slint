@@ -352,6 +352,9 @@ export global Tr {
     in-out property <string> preview_tab: "Tablature";
     in-out property <string> preview_neck: "On the neck";
     in-out property <string> preview_note_names: "Note names";
+    in-out property <string> preview_functions: "Interval functions";
+    in-out property <string> preview_note_names_neck: "Note names on the neck";
+    in-out property <string> preview_functions_neck: "Interval functions on the neck";
     in-out property <string> tab_frets: "Fret numbers instead of degrees";
     in-out property <string> tab_frets_hint: "";
     in-out property <string> arp_exercise: "Exercise";
@@ -2016,12 +2019,28 @@ export component AppWindow inherits Window {
                                     text: Tr.preview; color: #aaa;
                                     vertical-alignment: center; width: 185px;
                                 }
-                                // The fretboard trainer has two: a note is a
-                                // note, and tablature - which is an order of
-                                // notes - has nothing to say about one.
-                                if root.current_mode == 4 : Dropdown {
+                                // Two entries where tablature has nothing to
+                                // say: it is an ORDER of notes, and neither a
+                                // single note in the fretboard trainer nor a
+                                // grip in Intervals is one - both are drawn on
+                                // the neck whichever of the two is picked, so
+                                // offering both was a control that did nothing.
+                                if root.current_mode == 4 || root.current_mode == 1 : Dropdown {
                                     width: root.ctrl_w;
-                                    model: [Tr.preview_note_names, Tr.preview_neck];
+                                    // The fretboard trainer asks for a NOTE and
+                                    // Intervals for a function of the chord.
+                                    // Both entries say which it is: the drawing
+                                    // carries the same thing as the line, only
+                                    // on the neck - unless fret numbers are
+                                    // switched on, which is its own option.
+                                    model: [
+                                        root.current_mode == 4
+                                            ? Tr.preview_note_names
+                                            : Tr.preview_functions,
+                                        root.current_mode == 4
+                                            ? Tr.preview_note_names_neck
+                                            : Tr.preview_functions_neck,
+                                    ];
                                     // One-way and set by hand, because the two
                                     // entries are 0 and 2 of the same setting.
                                     current-index: root.preview == 0 ? 0 : 1;
@@ -2030,7 +2049,7 @@ export component AppWindow inherits Window {
                                         root.preview_changed(root.preview);
                                     }
                                 }
-                                if root.current_mode != 4 : Dropdown {
+                                if root.current_mode != 4 && root.current_mode != 1 : Dropdown {
                                     width: root.ctrl_w;
                                     model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
                                     current-index <=> root.preview;

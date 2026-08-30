@@ -2989,6 +2989,9 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_preview_tab(t.preview_tab.into());
     g.set_preview_neck(t.preview_neck.into());
     g.set_preview_note_names(t.preview_note_names.into());
+    g.set_preview_functions(t.preview_functions.into());
+    g.set_preview_note_names_neck(t.preview_note_names_neck.into());
+    g.set_preview_functions_neck(t.preview_functions_neck.into());
     g.set_in_order(t.in_order.into());
     g.set_in_order_hint(t.in_order_hint.into());
     g.set_debug_console(t.debug_console.into());
