@@ -237,8 +237,9 @@ fn lay(
 /// next should sit where the fingers barely move.
 ///
 /// `prev` is the grip before this one, and the voices are led from it. With
-/// none - the first chord, or the shuffle asking for no leading at all - the
-/// grip is taken near `anchor`, which is a fret the caller drew.
+/// none - the first chord, or voice leading switched off - the grip is taken on
+/// `from_string` and near `anchor`, both drawn by the caller, so the grips move
+/// about the neck instead of settling on the bottom strings.
 pub fn place_voiced(
     root_pc: usize,
     intervals: &[u8],
@@ -246,6 +247,7 @@ pub fn place_voiced(
     names: &[String],
     prev: Option<&[Spot]>,
     anchor: i32,
+    from_string: usize,
 ) -> Vec<Spot> {
     let notes: Vec<(usize, i32)> = steps
         .iter()
@@ -305,8 +307,14 @@ pub fn place_voiced(
                     .zip(spots.iter())
                     .map(|(a, b)| (a.fret - b.fret).abs() + (a.string as i32 - b.string as i32).abs() * 2)
                     .sum::<i32>(),
-                // Nothing to lead from: take it where the caller pointed.
-                None => (base - anchor).abs(),
+                // Nothing to lead from: take it where the caller pointed -
+                // the string first, then the fret. Without the string the
+                // lowest set of strings won every tie and a whole progression
+                // sat on the bottom of the neck.
+                None => {
+                    let low = spots.first().map(|s| s.string).unwrap_or(0) as i32;
+                    (low - from_string as i32).abs() * 24 + (base - anchor).abs()
+                }
             };
             if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                 best = Some((cost, spots));
@@ -766,7 +774,7 @@ mod tests {
     fn a_voicing_takes_a_string_for_each_note() {
         let steps: Vec<Step> = (0..3).map(|i| Step { degree: i, octave: 0 }).collect();
         for root in 0..12 {
-            let spots = place_voiced(root, &[0, 4, 10], &steps, &[], None, 5);
+            let spots = place_voiced(root, &[0, 4, 10], &steps, &[], None, 5, 0);
             assert_eq!(spots.len(), 3, "root {root}");
             let strings: Vec<usize> = spots.iter().map(|s| s.string).collect();
             let mut sorted = strings.clone();
@@ -777,6 +785,22 @@ mod tests {
             let frets: Vec<i32> = spots.iter().map(|s| s.fret).collect();
             let span = frets.iter().max().unwrap() - frets.iter().min().unwrap();
             assert!(span <= 4, "root {root}: frets {frets:?} are not one grip");
+        }
+    }
+
+    /// Taken without leading, a grip goes where the neck is asked for it - so
+    /// a progression does not settle on the bottom strings.
+    #[test]
+    fn a_grip_can_be_asked_for_higher_up() {
+        let steps: Vec<Step> = (0..3).map(|i| Step { degree: i, octave: 0 }).collect();
+        let low = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 0);
+        let high = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 3);
+        assert_eq!(low[0].string, 0, "the grip did not start where it was asked");
+        assert_eq!(high[0].string, 3, "the grip ignored the string it was given");
+        // Both are still grips: a string each, rising with the pitch.
+        for grip in [&low, &high] {
+            let strings: Vec<usize> = grip.iter().map(|s| s.string).collect();
+            assert!(strings.windows(2).all(|w| w[0] < w[1]), "{strings:?}");
         }
     }
 
@@ -791,8 +815,8 @@ mod tests {
         let mut travelled = 0;
         let mut alone = 0;
         for (root, intervals) in progression {
-            let led = place_voiced(root, &intervals, &steps, &[], prev.as_deref(), 5);
-            let by_itself = place_voiced(root, &intervals, &steps, &[], None, 5);
+            let led = place_voiced(root, &intervals, &steps, &[], prev.as_deref(), 5, 0);
+            let by_itself = place_voiced(root, &intervals, &steps, &[], None, 5, 0);
             if let Some(prev) = &prev {
                 let cost = |grip: &[Spot]| -> i32 {
                     prev.iter()

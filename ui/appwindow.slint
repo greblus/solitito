@@ -344,6 +344,8 @@ export global Tr {
     in-out property <string> show_diagrams: "Show chord shapes";
     in-out property <string> repeat_root: "End on the root again";
     in-out property <string> repeat_root_hint: "";
+    in-out property <string> voice_leading: "Lead the voices";
+    in-out property <string> voice_leading_hint: "";
     in-out property <string> preview: "View";
     in-out property <string> preview_hint: "";
     in-out property <string> preview_names: "Line of intervals";
@@ -509,6 +511,8 @@ export component AppWindow inherits Window {
     /// the drawing and the picture scales with the window instead of sitting in
     /// a fixed 150px band.
     in property <float> tab_aspect: 3.5;
+    in-out property <bool> voice_leading: true;
+    callback voice_leading_changed(bool);
     /// How the exercise is drawn: 0 the line of names, 1 tablature, 2 the neck.
     in-out property <int> preview: 1;
     callback preview_changed(int);
@@ -1985,6 +1989,26 @@ export component AppWindow inherits Window {
                         // draws its own region.
                         if root.current_mode >= 1 && root.current_mode <= 4 : VerticalLayout {
                             spacing: 4px;
+                            // Intervals only: the other modes walk a line, and
+                            // a line has no voices to lead.
+                            if root.current_mode == 1 : HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.voice_leading;
+                                    toggled => { root.voice_leading_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.voice_leading;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            if root.current_mode == 1 : Text {
+                                width: root.panel_w - 30px;
+                                text: Tr.voice_leading_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+
                             HorizontalLayout {
                                 alignment: start;
                                 spacing: 10px;

@@ -640,6 +640,7 @@ struct SettingsSnapshot {
     random_enabled: bool,
     show_diagrams: bool,
     preview: i32,
+    voice_leading: bool,
     tab_frets: bool,
     arp_exercise: i32,
     arp_direction: i32,
@@ -685,6 +686,7 @@ impl SettingsSnapshot {
             random_enabled: ui.get_random_enabled(),
             show_diagrams: ui.get_show_diagrams(),
             preview: ui.get_preview(),
+            voice_leading: ui.get_voice_leading(),
             tab_frets: ui.get_tab_frets(),
             arp_exercise: ui.get_arp_exercise(),
             arp_direction: ui.get_arp_direction(),
@@ -862,6 +864,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     &names,
                     None,
                     5,
+                    0,
                 );
                 println!("{}", tab::grip(&voiced, &done, frets));
             } else {
@@ -1099,6 +1102,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
         ui.set_preview(cfg.preview as i32);
+        ui.set_voice_leading(cfg.voice_leading);
         ui.set_tab_frets(cfg.tab_frets);
         ui.set_arp_exercise(cfg.arp_exercise as i32);
         ui.set_arp_direction(cfg.arp_direction as i32);
@@ -2163,7 +2167,13 @@ fn main() -> Result<(), slint::PlatformError> {
                         ui.get_tab_frets(),
                         app.voicing_anchor,
                         app.random_mode
-                    ) + &format!("|{}|{}", app.current_note_step, ui.get_preview());
+                    ) + &format!(
+                        "|{}|{}|{}|{}",
+                        app.current_note_step,
+                        ui.get_preview(),
+                        app.grip_string,
+                        ui.get_voice_leading()
+                    );
                     if signature != last_tab {
                         last_tab = signature;
                         // Intervals are a GRIP, not a phrase: three or four
@@ -2176,7 +2186,13 @@ fn main() -> Result<(), slint::PlatformError> {
                         let voiced = app.app_mode == AppMode::Intervals
                             && (1..=4).contains(&active_indices.len());
                         let spots = if voiced {
-                            let prev = (!app.random_mode && !last_voicing.is_empty())
+                            // Led from the grip before, unless the option is
+                            // off or the shuffle is on - then every chord is
+                            // taken where the neck is drawn to offer it, and
+                            // the grips move about instead of settling on the
+                            // bottom strings.
+                            let lead = ui.get_voice_leading() && !app.random_mode;
+                            let prev = (lead && !last_voicing.is_empty())
                                 .then_some(last_voicing.as_slice());
                             tab::place_voiced(
                                 curr_chord.root as usize,
@@ -2185,6 +2201,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                 &curr_chord.quality.interval_names(),
                                 prev,
                                 app.voicing_anchor,
+                                app.grip_string,
                             )
                         } else {
                             // A scale starts from a drawn string, after every
@@ -2495,6 +2512,14 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.on_tab_frets_changed(move |on| {
                 let mut cur = cur.borrow_mut();
                 cur.tab_frets = on;
+                cur.save();
+            });
+        }
+        {
+            let cur = live_cfg.clone();
+            ui.on_voice_leading_changed(move |on| {
+                let mut cur = cur.borrow_mut();
+                cur.voice_leading = on;
                 cur.save();
             });
         }
@@ -2951,6 +2976,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_arp_alt_up(t.arp_alt_up.into());
     g.set_tab_frets(t.tab_frets.into());
     g.set_tab_frets_hint(t.tab_frets_hint.into());
+    g.set_voice_leading(t.voice_leading.into());
+    g.set_voice_leading_hint(t.voice_leading_hint.into());
     g.set_preview(t.preview.into());
     g.set_preview_hint(t.preview_hint.into());
     g.set_preview_names(t.preview_names.into());

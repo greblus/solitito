@@ -124,6 +124,12 @@ pub struct Settings {
     /// but it says nothing about where the fingers go.
     #[serde(default = "tablature")]
     pub preview: usize,
+    /// Intervals: take each grip where the fingers have least to move from the
+    /// one before. Off, every chord is taken where the neck is drawn to offer
+    /// it, which is how a shape is learned all over the neck rather than in one
+    /// corner of it.
+    #[serde(default = "yes")]
+    pub voice_leading: bool,
     /// Write the fret number in each dot of the tablature instead of the
     /// degree. Off by default: the degrees are what the app teaches, and the
     /// frets are the crutch for reading a shape onto the neck.
@@ -250,6 +256,7 @@ impl Default for Settings {
             arp_direction: 0,
             arp_quality: 0,
             preview: 1,
+            voice_leading: true,
             tab_frets: false,
             show_full_shapes: true,
             show_shell_shapes: false,

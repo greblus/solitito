@@ -261,6 +261,9 @@ pub struct MyApp {
     /// And the string a scale is started from - an index into `START_STRINGS`,
     /// the three a scale is worth starting on.
     pub scale_start: usize,
+    /// The string an interval grip is taken from when the voices are not being
+    /// led from the chord before. Drawn per chord - see `reroll`.
+    pub grip_string: usize,
     /// Whether this pass of the scale runs downwards. Drawn with the string.
     pub scale_descending: bool,
     /// Which string to suggest starting from (index into `START_STRINGS`), or
@@ -519,6 +522,7 @@ impl MyApp {
             voicing_anchor: 5,
             scale_start: 0,
             scale_descending: false,
+            grip_string: 0,
             start_hint: None,
             play_order: Vec::new(),
             play_pos: 0,
@@ -824,6 +828,9 @@ impl MyApp {
         // And which way it runs. A scale known upwards is half known: the
         // fingers learn the climb and the ear never hears the descent.
         self.scale_descending = self.rng.below(2) == 1;
+        // And which strings an interval grip is taken on when nothing is
+        // leading it there: the bottom four can carry the lowest voice.
+        self.grip_string = self.rng.below(4);
         self.step_order = (0..n).collect();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
