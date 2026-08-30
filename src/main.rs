@@ -1076,7 +1076,15 @@ fn main() -> Result<(), slint::PlatformError> {
         app.arp_exercise = cfg.arp_exercise;
         app.arp_direction = cfg.arp_direction;
         app.arp_quality = cfg.arp_quality;
+        // Same for Formulas: whether the exercise is planted on a tune decides
+        // whether the first combo holds one, and the tune below is picked from
+        // that list.
+        app.formula_exercise = cfg.formula_exercise;
         app.set_mode(cfg.startup_mode);
+        // The standard and the scale that were being worked on. Silently
+        // ignored if the library no longer holds them - see `select_song`.
+        app.select_song(&cfg.song);
+        app.select_scale(&cfg.scale);
     }
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
@@ -1094,6 +1102,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_boost_enabled(default_boost_enabled);
         ui.set_boost_gain(default_boost_gain);
         ui.set_current_mode(app.app_mode as i32); 
+        ui.set_current_item_index(app.selected_library_idx as i32);
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
@@ -1101,7 +1110,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_require_onset(cfg.require_onset);
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
-        ui.set_preview(cfg.preview as i32);
+        // Per mode, so the app opens showing the mode it opens in the way that
+        // mode was left.
+        ui.set_preview(cfg.preview_for(cfg.startup_mode) as i32);
         ui.set_voice_leading(cfg.voice_leading);
         ui.set_tab_frets(cfg.tab_frets);
         ui.set_arp_exercise(cfg.arp_exercise as i32);
@@ -1443,7 +1454,9 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Over the changes the tune has to be under it before a chord
                 // can be taken from it.
                 if exercise_changed && cfg.formula_exercise == 2 {
+                    app.selected_library_idx = app.saved_song();
                     app.reload_library();
+                    ui.set_current_item_index(app.selected_library_idx as i32);
                 }
                 if redraw {
                     app.next_formula();
@@ -2479,7 +2492,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 let mut app = app.lock().unwrap();
                 app.arp_exercise = idx.max(0) as usize;
-                app.selected_library_idx = 0;
+                // Over the changes the first combo turns into the library of
+                // tunes, and it opens on the standard being worked on.
+                app.selected_library_idx =
+                    if app.reads_songs() { app.saved_song() } else { 0 };
                 app.reload_library();
                 if let Some(ui) = uw.upgrade() {
                     let lang = Lang::from_setting(ui.get_language_idx());
@@ -2490,7 +2506,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     ui.set_secondary_label(sec_label.into());
                     ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
                     ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
-                    ui.set_current_item_index(0);
+                    ui.set_current_item_index(app.selected_library_idx as i32);
                     ui.set_current_secondary_index(app.secondary_index as i32);
                     ui.set_interval_input_text(app.intervals_input.clone().into());
                 }
@@ -2530,10 +2546,15 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         {
             let cur = live_cfg.clone();
+            let uw = ui.as_weak();
+            // Against the mode showing now: the dropdown sits in that mode's
+            // own section of the panel, and what it sets belongs to it alone.
             ui.on_preview_changed(move |idx| {
+                let Some(ui) = uw.upgrade() else { return };
                 let mut cur = cur.borrow_mut();
-                cur.preview = idx.max(0) as usize;
-                cur.save();
+                if cur.set_preview_for(ui.get_current_mode(), idx.max(0) as usize) {
+                    cur.save();
+                }
             });
         }
         ui.on_show_diagrams_changed({
@@ -2783,11 +2804,16 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    let cfg_mode = live_cfg.clone();
     ui.on_mode_changed(move |mode_idx| {
         let mut app = app_weak.lock().unwrap();
         let ui = ui_weak_cb.unwrap();
         app.set_mode(mode_idx);
         ui.set_current_mode(mode_idx);
+        // Each mode is shown the way it was last shown. Read after the mode is
+        // set, or the dropdown in the panel would still be answering for the
+        // one being left.
+        ui.set_preview(cfg_mode.borrow().preview_for(mode_idx) as i32);
         ui.set_interval_input_text(app.intervals_input.clone().into());
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
@@ -2795,7 +2821,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let (items, sec_items) = library_lists(&app, Lang::from_setting(ui.get_language_idx()));
         ui.set_library_label(label.into());
         ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
-        ui.set_current_item_index(0);
+        // Not a hard 0 here either: a mode that reads the tunes opens on the
+        // standard being worked on, wherever it was chosen.
+        ui.set_current_item_index(app.selected_library_idx as i32);
         ui.set_secondary_label(sec_label.into());
         ui.set_secondary_items(ModelRc::from(Rc::new(VecModel::from(sec_items))));
         // Not a hard 0: returning to Arpeggios restores the pattern that was
@@ -2840,6 +2868,23 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         app.item_selected(index);
+        // A standard - and a scale - is worked on over sessions, not over a
+        // sitting. `song_title` carries whichever the mode is reading.
+        let keep = if app.reads_songs() {
+            Some(false)
+        } else if app.app_mode == AppMode::Scales {
+            Some(true)
+        } else {
+            None
+        };
+        if let Some(is_scale) = keep {
+            let mut cfg = cfg_item.borrow_mut();
+            let slot = if is_scale { &mut cfg.scale } else { &mut cfg.song };
+            if *slot != app.song_title {
+                *slot = app.song_title.clone();
+                cfg.save();
+            }
+        }
         if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
              ui.set_interval_input_text(app.intervals_input.clone().into());
         }

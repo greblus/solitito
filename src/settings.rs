@@ -116,13 +116,20 @@ pub struct Settings {
     /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
     #[serde(default)]
     pub arp_quality: usize,
-    /// How the exercise is shown: 0 the line of degree names, 1 tablature, 2
-    /// the neck itself. A new key rather than the old `tab_view`, which was a
-    /// switch and is now a choice of three.
+    /// How each mode shows its exercise: 0 the line of degree names, 1
+    /// tablature, 2 the neck itself. One entry per mode, indexed by the
+    /// `AppMode` discriminant exactly like `MODE_NAMES`.
     ///
-    /// Tablature by default: the line of names is the smaller thing on screen,
-    /// but it says nothing about where the fingers go.
-    #[serde(default = "tablature")]
+    /// Per mode rather than one setting for the app, because the answer belongs
+    /// to the exercise and not to the player: a scale is an order of notes and
+    /// reads as tablature, a grip is a hand shape and says nothing until it is
+    /// on the neck. Shared, every visit to another mode moved the choice made
+    /// here.
+    #[serde(default)]
+    pub previews: Vec<usize>,
+    /// The one setting there used to be. Read from files written before the
+    /// split, and only to seed `previews` - never written again.
+    #[serde(default = "tablature", skip_serializing)]
     pub preview: usize,
     /// Intervals: take each grip where the fingers have least to move from the
     /// one before. Off, every chord is taken where the neck is drawn to offer
@@ -185,6 +192,16 @@ pub struct Settings {
     /// scale: it says what the set can be played over.
     #[serde(default = "yes")]
     pub formula_show_chords: bool,
+    /// The tune last chosen from the library, by title. Saved by NAME and not
+    /// by row: the library is read from disk at startup, and a row number would
+    /// point at a different standard the moment one is added to it.
+    #[serde(default)]
+    pub song: String,
+    /// And the scale last worked on, by its own name, for the same reason. The
+    /// internal name, not the translated one - the language is a setting of its
+    /// own and this has to survive changing it.
+    #[serde(default)]
+    pub scale: String,
     /// Formulas kept by name, newest last.
     #[serde(default)]
     pub favourites: Vec<Favourite>,
@@ -224,6 +241,14 @@ fn tablature() -> usize {
     1
 }
 
+/// How each mode shows its exercise when nothing has been saved for it.
+/// Tablature where the exercise is a line of notes, the neck where it is a
+/// shape: Intervals hands the fingers three or four notes at once and the
+/// fretboard trainer one note whose whole point is WHERE it lies. Chords and
+/// Formulas draw neither and keep an entry only so the index stays the
+/// `AppMode` discriminant.
+pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 2, 1];
+
 fn yes() -> bool {
     true
 }
@@ -255,6 +280,7 @@ impl Default for Settings {
             arp_exercise: 0,
             arp_direction: 0,
             arp_quality: 0,
+            previews: DEFAULT_PREVIEWS.to_vec(),
             preview: 1,
             voice_leading: true,
             tab_frets: false,
@@ -271,6 +297,8 @@ impl Default for Settings {
             formula_in_order: false,
             debug_console: false,
             formula_show_chords: true,
+            song: String::new(),
+            scale: String::new(),
             favourites: Vec::new(),
             window_w: None,
             window_h: None,
@@ -323,6 +351,7 @@ impl Settings {
                         s.audio_channel = 1;
                     }
                     s.clamp_formulas();
+                    s.fill_previews();
                     println!("⚙️  Settings from {}", path.display());
                     s
                 }
@@ -370,6 +399,51 @@ impl Settings {
         }
     }
 
+    /// How a mode shows its exercise. A mode this build does not have falls
+    /// back to the default for it rather than to a fixed view.
+    pub fn preview_for(&self, mode: i32) -> usize {
+        let i = mode.max(0) as usize;
+        self.previews
+            .get(i)
+            .copied()
+            .or_else(|| DEFAULT_PREVIEWS.get(i).copied())
+            .unwrap_or(1)
+    }
+
+    /// Remembers how a mode shows its exercise. Returns whether anything
+    /// changed, so the caller can skip writing the file.
+    pub fn set_preview_for(&mut self, mode: i32, view: usize) -> bool {
+        let i = mode.max(0) as usize;
+        if i >= MODE_NAMES.len() || view > 2 {
+            return false;
+        }
+        self.fill_previews();
+        if self.previews[i] == view {
+            return false;
+        }
+        self.previews[i] = view;
+        true
+    }
+
+    /// Brings `previews` up to one entry per mode.
+    ///
+    /// A file from before the split has none, and then the single setting it
+    /// did carry stands for every mode - the app opens looking exactly as it
+    /// was left, and the choices part company from there. A hand-edited value
+    /// outside the three views would leave a mode drawing nothing.
+    fn fill_previews(&mut self) {
+        let seed = if self.preview <= 2 { self.preview } else { 1 };
+        while self.previews.len() < MODE_NAMES.len() {
+            self.previews.push(seed);
+        }
+        self.previews.truncate(MODE_NAMES.len());
+        for (i, v) in self.previews.iter_mut().enumerate() {
+            if *v > 2 {
+                *v = DEFAULT_PREVIEWS[i];
+            }
+        }
+    }
+
     pub fn save(&self) {
         let Some(path) = config_path() else { return };
         if let Some(dir) = path.parent() {
@@ -404,6 +478,47 @@ mod tests {
     fn defaults_to_chords() {
         assert_eq!(Settings::default().startup_mode, 4, "Fretboard is the default mode");
         assert_eq!(MODE_NAMES[0], "Chords");
+    }
+
+    /// The whole point of the split: what one mode is shown as does not move
+    /// when another is set.
+    #[test]
+    fn a_view_is_kept_for_each_mode() {
+        let mut s = Settings::default();
+        assert!(s.set_preview_for(2, 0), "Scales asked for the line of names");
+        assert!(s.set_preview_for(3, 2), "Arpeggios asked for the neck");
+        assert_eq!(s.preview_for(2), 0);
+        assert_eq!(s.preview_for(3), 2);
+        assert_eq!(s.preview_for(1), DEFAULT_PREVIEWS[1], "Intervals was not asked");
+        assert!(!s.set_preview_for(2, 0), "setting the same view changes nothing");
+        assert!(!s.set_preview_for(9, 1), "a mode this build has no entry for");
+        assert!(!s.set_preview_for(2, 7), "not one of the three views");
+        assert_eq!(s.preview_for(2), 0, "and neither refusal moved it");
+    }
+
+    /// A file written before the split carries one view for the whole app.
+    /// Every mode has to open showing what it showed then, or the update looks
+    /// like the settings were lost.
+    #[test]
+    fn an_old_file_hands_its_view_to_every_mode() {
+        let mut s: Settings = serde_json::from_str(r#"{"startup_mode":2,"preview":2}"#)
+            .expect("an old file still reads");
+        s.fill_previews();
+        assert_eq!(s.previews.len(), MODE_NAMES.len());
+        assert!(s.previews.iter().all(|&v| v == 2), "{:?}", s.previews);
+        // And it is not written back, so the next launch reads the split.
+        let txt = serde_json::to_string(&s).unwrap();
+        assert!(!txt.contains("\"preview\":"), "the old key is written again: {txt}");
+        assert!(txt.contains("\"previews\":"));
+    }
+
+    /// A hand-edited file, or one from a build with a fourth view.
+    #[test]
+    fn a_view_outside_the_three_falls_back() {
+        let mut s: Settings = serde_json::from_str(r#"{"startup_mode":0,"previews":[9,9,9,9,9,9]}"#)
+            .expect("reads");
+        s.fill_previews();
+        assert_eq!(s.previews, DEFAULT_PREVIEWS.to_vec());
     }
 
     #[test]

@@ -165,6 +165,16 @@ pub struct MyApp {
     saved_arpeggio_index: usize,
     /// And the key it stood in - see `set_mode`.
     saved_arpeggio_key: usize,
+    /// Which tune was chosen, kept across mode switches and saved between
+    /// sessions. A standard is worked on for weeks and read from four modes -
+    /// the chords, the intervals in them, an arpeggio over each and a formula
+    /// planted on each - and every one of those used to open on the first row
+    /// of the library.
+    saved_song_idx: usize,
+    /// And the same for the scale being worked on: Scales is its own library,
+    /// and the mode used to open on the first row of it however long you had
+    /// been on one scale.
+    saved_scale_idx: usize,
     
     pub song_title: String,
     pub chords: Vec<Chord>,
@@ -488,6 +498,8 @@ impl MyApp {
             secondary_index: 0,
             saved_arpeggio_index: 0,
             saved_arpeggio_key: 0,
+            saved_song_idx: 0,
+            saved_scale_idx: 0,
             
             song_title: start_song.title,
             chords: start_song.chords,
@@ -864,10 +876,26 @@ impl MyApp {
             self.saved_arpeggio_index = self.selected_library_idx;
             self.saved_arpeggio_key = self.secondary_index;
         }
+        // And leaving a mode that reads the tunes: the standard follows.
+        if self.reads_songs() {
+            self.saved_song_idx = self.selected_library_idx;
+        }
+        if self.app_mode == AppMode::Scales {
+            self.saved_scale_idx = self.selected_library_idx;
+        }
 
         self.app_mode = new_mode;
         self.selected_library_idx = 0;
         self.secondary_index = 0;
+        // The tune comes with. Four modes read the same library and a standard
+        // is worked on across them, so dropping back to the first row on every
+        // switch was work for the player and nothing else.
+        if self.reads_songs() {
+            self.selected_library_idx = self.saved_song();
+        }
+        if new_mode == AppMode::Scales {
+            self.selected_library_idx = self.saved_scale();
+        }
         // The arpeggio studies come back to the phrase and the key they were
         // left in - which for the generator means a freshly built phrase, not
         // the first fixed one. Scales start from C.
@@ -881,7 +909,66 @@ impl MyApp {
 
     pub fn item_selected(&mut self, index: i32) {
         self.selected_library_idx = index as usize;
+        if self.reads_songs() {
+            self.saved_song_idx = self.selected_library_idx;
+        }
+        if self.app_mode == AppMode::Scales {
+            self.saved_scale_idx = self.selected_library_idx;
+        }
         self.reload_library_content();
+    }
+
+    /// Whether the first combo holds tunes in the mode running now: the chords
+    /// of a standard, the intervals inside them, an arpeggio over each chord,
+    /// or a formula planted on each. The other exercises stand on their own and
+    /// their first combo holds a scale or a study.
+    pub fn reads_songs(&self) -> bool {
+        match self.app_mode {
+            AppMode::Chords | AppMode::Intervals => true,
+            AppMode::Arpeggios => self.arp_exercise == 1,
+            AppMode::Formulas => self.formula_exercise == 2,
+            _ => false,
+        }
+    }
+
+    /// The remembered tune's row, kept inside the library as it stands now.
+    pub fn saved_song(&self) -> usize {
+        self.saved_song_idx.min(self.song_library.len().saturating_sub(1))
+    }
+
+    /// The same for the scale.
+    pub fn saved_scale(&self) -> usize {
+        self.saved_scale_idx.min(self.scale_definitions.len().saturating_sub(1))
+    }
+
+    /// Picks the tune of this name, if the library still holds it, and says
+    /// whether it did. Called with what the settings remembered - the library
+    /// is read from disk and can lose a tune between sessions, and a name that
+    /// is gone has to leave the first row standing rather than nothing.
+    pub fn select_song(&mut self, title: &str) -> bool {
+        let Some(i) = self.song_library.iter().position(|s| s.title == title) else {
+            return false;
+        };
+        self.saved_song_idx = i;
+        if self.reads_songs() {
+            self.selected_library_idx = i;
+            self.reload_library_content();
+        }
+        true
+    }
+
+    /// The same for a scale, by the name the definitions carry - not the
+    /// translated one on screen, which changes with the language setting.
+    pub fn select_scale(&mut self, name: &str) -> bool {
+        let Some(i) = self.scale_definitions.iter().position(|d| d.name == name) else {
+            return false;
+        };
+        self.saved_scale_idx = i;
+        if self.app_mode == AppMode::Scales {
+            self.selected_library_idx = i;
+            self.reload_library_content();
+        }
+        true
     }
     
     pub fn secondary_item_selected(&mut self, index: i32) {
@@ -2229,6 +2316,64 @@ pub(crate) mod tests {
         ];
         a.reset_logic_state();
         a
+    }
+
+    /// A standard is worked on for weeks and read from four modes. Losing it
+    /// on the way to Scales and back was the app forgetting what the session
+    /// was about.
+    #[test]
+    fn the_tune_follows_from_mode_to_mode() {
+        let mut a = app();
+        if a.song_library.len() < 2 {
+            return;                       // a build with one tune has nothing to lose
+        }
+        a.set_mode(AppMode::Chords as i32);
+        a.item_selected(1);
+        let title = a.song_title.clone();
+        a.set_mode(AppMode::Scales as i32);
+        a.set_mode(AppMode::Intervals as i32);
+        assert_eq!(a.selected_library_idx, 1, "the tune snapped back to the first row");
+        assert_eq!(a.song_title, title);
+        // Arpeggios over the changes reads the same library; the studies do not,
+        // and their own row is remembered separately.
+        a.arp_exercise = 1;
+        a.set_mode(AppMode::Arpeggios as i32);
+        assert_eq!(a.song_title, title, "over the changes it is the same tune");
+    }
+
+    /// One scale is worked on for days, and Scales opened on the first row of
+    /// its library however long that had been going on.
+    #[test]
+    fn the_scale_is_kept_too() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        assert!(a.scale_definitions.len() > 2, "a library to choose from");
+        a.item_selected(2);
+        let name = a.song_title.clone();
+        a.set_mode(AppMode::Chords as i32);
+        a.set_mode(AppMode::Scales as i32);
+        assert_eq!(a.selected_library_idx, 2, "back on the first row");
+        assert_eq!(a.song_title, name);
+        // And the name is what the settings hand back, not the row.
+        let mut b = app();
+        assert!(!b.select_scale("No Such Scale"));
+        assert!(b.select_scale(&name));
+        b.set_mode(AppMode::Scales as i32);
+        assert_eq!(b.song_title, name);
+    }
+
+    /// What the settings hand back is a NAME, and the library is read from disk.
+    #[test]
+    fn a_tune_that_is_gone_leaves_the_choice_alone() {
+        let mut a = app();
+        a.set_mode(AppMode::Chords as i32);
+        let before = a.song_title.clone();
+        assert!(!a.select_song("Nothing Of The Sort"), "it cannot have been found");
+        assert_eq!(a.song_title, before);
+        assert_eq!(a.selected_library_idx, 0);
+        let known = a.song_library.last().expect("a library").title.clone();
+        assert!(a.select_song(&known));
+        assert_eq!(a.song_title, known);
     }
 
     #[test]
