@@ -118,6 +118,35 @@ pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
 const EAR_VOTES: usize = 4;
 const EAR_WINDOW: usize = 5;
 
+/// How long the single-frame estimate has to have been naming a note before it
+/// is credited, in audio frames of 16 ms - and how long a DIFFERENT note has to
+/// have been named before the one credited counts as having stopped sounding.
+///
+/// Measured on a 20 s recording of single notes, at its own level and at 6, 12
+/// and 18 dB below it, against what the estimate reads at full level. Per frame
+/// of a note actually sounding, credited correctly / named as some other note:
+///
+/// | rule          | full   | -6 dB  | -12 dB | -18 dB |
+/// |---------------|--------|--------|--------|--------|
+/// | three frames  | 88/0 % | 86/0 % | 84/1 % | 80/1 % |
+/// | two frames    | 93/0 % | 90/1 % | 87/2 % | 83/3 % |
+/// | 2 of the last 5 | 91/8 % | 90/9 % | 89/9 % | 87/12 % |
+///
+/// Two frames is the whole of the gain: it credits five points more of what is
+/// played at any level and still names almost nothing wrong. A vote over a
+/// window - which is what Formulas uses, see `EAR_VOTES` - buys no more than
+/// that and misnames one frame in ten, which is the "it credits notes I never
+/// played" this mode had before.
+///
+/// What is NOT the constraint: the estimate's own score gate. On that recording
+/// the lowest score of any reading was 0.52 against a `MONO_MIN_SCORE` of 0.50,
+/// so lowering it would have changed nothing. What does bind, before any of
+/// this, is the noise gate: at the recording's own level the default -34 dBFS
+/// passes 78 % of frames to the analyser, 6 dB softer 36 %, and 12 dB softer
+/// none at all.
+const CREDIT_TICKS: u32 = 2;
+const LEFT_TICKS: u32 = 3;
+
 /// What was true when a pitch class was last credited.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Credit {
@@ -1109,7 +1138,22 @@ impl MyApp {
     /// immediate, long enough that a single stray reading from the room does
     /// not paint the neck.
     pub fn steady_note(&self) -> Option<usize> {
-        (self.steady_for >= 3).then_some(self.steady_pitch).flatten()
+        self.held_for(LEFT_TICKS)
+    }
+
+    /// What is sounding, by the shorter measure a CREDIT is allowed to use.
+    ///
+    /// Two questions, two thresholds. "Has the target been sounding long enough
+    /// to credit" costs one wrong credit when it is wrong; "has something ELSE
+    /// taken over, so the note credited a moment ago has gone" is what stops a
+    /// repeated note being credited twice off one pluck, and loosening that
+    /// brings the repeats back. So only the first one is short.
+    fn sounding_now(&self) -> Option<usize> {
+        self.held_for(CREDIT_TICKS)
+    }
+
+    fn held_for(&self, ticks: u32) -> Option<usize> {
+        (self.steady_for >= ticks).then_some(self.steady_pitch).flatten()
     }
 
     pub fn reset_logic_state(&mut self) {
@@ -1625,10 +1669,10 @@ impl MyApp {
         let one_at_a_time = self.single_notes
             || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios);
         if one_at_a_time {
-            let ear = self.steady_note();
-            if ear == Some(target) {
+            if self.sounding_now() == Some(target) {
                 return Some(1);
             }
+            let ear = self.steady_note();
             // The ear naming ANOTHER note is a refusal; the ear saying nothing
             // is not. A note too quiet for the estimate's score gate - a low
             // string, the end of a phrase - would otherwise be uncreditable,
@@ -3754,6 +3798,31 @@ pub(crate) mod tests {
         a.audio_frames = 6;
         a.feed_estimate(7, Some(2));
         assert_eq!(a.steady_note(), None, "the old reading outlived what replaced it");
+    }
+
+    /// A note quiet enough that the estimate loses it every other frame was
+    /// uncreditable: the run of three was rarely reached, and the answer was to
+    /// play louder. See `CREDIT_TICKS` for what was measured.
+    #[test]
+    fn two_frames_are_enough_to_credit_but_not_to_take_over() {
+        let mut a = app();
+        a.app_mode = AppMode::Scales;
+        assert_eq!(a.sounding_now(), None, "nothing heard yet");
+
+        a.audio_frames = 0;
+        a.feed_estimate(1, Some(9));
+        assert_eq!(a.sounding_now(), None, "one frame is still not a note");
+
+        a.audio_frames = 1;
+        a.feed_estimate(2, Some(9));
+        assert_eq!(a.sounding_now(), Some(9), "two frames of the same reading");
+        // But the longer measure - the one that says a credited note has gone
+        // quiet - has not been reached, so a repeat cannot ride on this.
+        assert_eq!(a.steady_note(), None, "two frames must not count as taking over");
+
+        a.audio_frames = 2;
+        a.feed_estimate(3, Some(9));
+        assert_eq!(a.steady_note(), Some(9), "three frames still means what it did");
     }
 
     /// A phrase keeps its order, whichever phrase is showing: the notes of a
