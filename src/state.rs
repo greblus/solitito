@@ -2067,19 +2067,50 @@ impl MyApp {
                 // on a single ringing string, with nothing played in between. A
                 // step asking for the class just credited needs the string
                 // struck again - see `struck_since_credit`.
-                let mut answers = |me: &Self, k: usize| -> bool {
-                    let step = active_indices[k];
-                    let target = all_targets[step.degree];
-                    me.struck_since_credit(target)
-                        && me.note_is_sounding(target, ai_root, confidence)
+                // What answers for a step, and by which of the four ways - the
+                // lower the number the better the evidence, see `sounding_by`.
+                let answers = |me: &Self, k: usize| -> Option<u8> {
+                    let target = all_targets[active_indices[k].degree];
+                    if !me.struck_since_credit(target) {
+                        return None;
+                    }
+                    // Free order asks every step still wanted, so the model
+                    // gets three chances a frame to name something instead of
+                    // one - and its pitch head spreads a plucked note onto its
+                    // neighbours. Where the single-frame estimate names a class,
+                    // no OTHER class may be credited off the model that frame.
+                    // This is the test `struck_since_credit` already applies to
+                    // repeats, and it is what stopped a b3 being credited while
+                    // the root was what was played.
+                    if me.free_order()
+                        && me.cqt_pitch.is_some_and(|now| now != target % 12)
+                    {
+                        return None;
+                    }
+                    me.sounding_by(target, ai_root, confidence)
                 };
                 let answering = if self.free_order() {
-                    (0..active_indices.len()).find(|&k| {
-                        !self.collected_notes.get(k).copied().unwrap_or(false)
-                            && answers(self, k)
-                    })
+                    // The BEST answer, not the first: taking the lowest-numbered
+                    // step that answered credited whichever of them the model
+                    // happened to name, in the order they were dealt. The
+                    // estimate names one class only, so where it speaks it
+                    // decides; below it, the class the pitch head is loudest on.
+                    (0..active_indices.len())
+                        .filter(|&k| !self.collected_notes.get(k).copied().unwrap_or(false))
+                        .filter_map(|k| answers(self, k).map(|by| (k, by)))
+                        .min_by(|a, b| {
+                            let level = |k: usize| {
+                                self.last_pitches[all_targets[active_indices[k].degree] % 12]
+                            };
+                            a.1.cmp(&b.1).then_with(|| {
+                                level(b.0)
+                                    .partial_cmp(&level(a.0))
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                        })
+                        .map(|(k, _)| k)
                 } else if self.current_note_step < active_indices.len() {
-                    answers(self, self.current_note_step).then_some(self.current_note_step)
+                    answers(self, self.current_note_step).map(|_| self.current_note_step)
                 } else {
                     return;
                 };
@@ -3961,6 +3992,37 @@ pub(crate) mod tests {
             );
             assert!(!a.collected_notes[0], "it credited a step nobody played");
         }
+    }
+
+    /// The reported case: the root is played, the model's pitch head spreads
+    /// onto the b3 as well, and free order asked every step still wanted - so
+    /// whichever of them came first in the deal was credited.
+    #[test]
+    fn a_neighbour_is_not_credited_while_the_root_is_sounding() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.set_random_mode(false);
+        a.note_threshold = 0.5;
+        a.intervals_input = "1 b3 5".to_string();
+        a.reset_logic_state();
+        let chord = a.chords[a.current_chord_index].clone();
+        let steps = a.ordered_active_indices(&chord);
+        let all = chord.get_target_indices();
+        let root = all[steps[0].degree] % 12;
+        let third = all[steps[1].degree] % 12;
+        assert_ne!(root, third);
+
+        // The root is played: the estimate names it, and the head answers for
+        // the third as well - which is what it does on a real pluck.
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[root] = 1.0;
+        a.last_pitches[third] = 0.9;
+        a.hears(Some(root));
+        for _ in 0..5 {
+            a.check_progress_with_ai(0.1, "Noise", 0.0);
+        }
+        assert!(a.collected_notes[0], "the note that was played was not credited");
+        assert!(!a.collected_notes[1], "the b3 was credited off the root");
     }
 
     /// And with the option on, only the step due answers.

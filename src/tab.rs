@@ -461,14 +461,19 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
             bottom = GRIP_TOP + STRING_GAP * 5.0,
         ));
     }
-    // Which position on the neck, over the first fret - a movable shape says
-    // nothing without it.
-    out.push_str(&format!(
-        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
-        x = GRIP_LEFT + FRET_GAP * 0.5,
-        y = GRIP_TOP - 44.0,
-    ));
+    // Which position on the neck, over the first fret - but only where the
+    // dots carry fret numbers too. With degrees in them the exercise is the
+    // shape and not the place: the same three intervals are the same three
+    // intervals wherever the hand is, and a fret number is the crutch that
+    // switch exists to put down.
+    if frets {
+        out.push_str(&format!(
+            "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
+             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
+            x = GRIP_LEFT + FRET_GAP * 0.5,
+            y = GRIP_TOP - 44.0,
+        ));
+    }
     for (i, spot) in spots.iter().enumerate() {
         // Anything outside the five frets drawn is put on the nearest edge
         // rather than off the picture; `place_voiced` keeps grips inside four.
@@ -935,6 +940,27 @@ mod tests {
             (ringed - y(&spots[1])).abs() < 0.5,
             "the ring is on the wrong string: {ringed} vs {}",
             y(&spots[1])
+        );
+    }
+
+    /// The position number is a fret number like the ones in the dots, and
+    /// goes with them: with degrees showing, the exercise is the shape and not
+    /// the place.
+    #[test]
+    fn the_position_shows_only_with_the_fret_numbers() {
+        let steps: Vec<Step> = (0..3).map(|d| Step { degree: d, octave: 0 }).collect();
+        let spots = place_voiced(0, &[0, 3, 7], &steps, &[], None, 5, 0, true);
+        let done = vec![false; spots.len()];
+        // By its own type size, not by its text: a dot can carry the same
+        // number as the position, and a plain search finds that instead.
+        let positions = |svg: &str| svg.matches("font-size=\"26\"").count();
+        assert_eq!(
+            positions(&grip(&spots, &done, 0, true)), 1,
+            "the position is gone with the fret numbers on"
+        );
+        assert_eq!(
+            positions(&grip(&spots, &done, 0, false)), 0,
+            "the position is still drawn with the degrees showing"
         );
     }
 
