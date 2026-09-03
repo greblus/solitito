@@ -666,6 +666,7 @@ struct SettingsSnapshot {
     formula_show_similar: bool,
     formula_show_chords: bool,
     in_order: bool,
+    interval_in_order: bool,
     debug_console: bool,
 }
 
@@ -712,6 +713,7 @@ impl SettingsSnapshot {
             formula_show_similar: ui.get_formula_show_similar(),
             formula_show_chords: ui.get_formula_show_chords(),
             in_order: ui.get_in_order(),
+            interval_in_order: ui.get_interval_in_order(),
             debug_console: ui.get_debug_console(),
         }
     }
@@ -865,8 +867,9 @@ fn main() -> Result<(), slint::PlatformError> {
                     None,
                     5,
                     0,
+                    flagged("--close"),
                 );
-                println!("{}", tab::grip(&voiced, &done, frets));
+                println!("{}", tab::grip(&voiced, &done, played, frets));
             } else {
                 println!("{}", tab::svg(&spots, &done, played, frets));
             }
@@ -1132,6 +1135,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_formula_show_similar(cfg.formula_show_similar);
         ui.set_formula_show_chords(cfg.formula_show_chords);
         ui.set_in_order(cfg.formula_in_order);
+        ui.set_interval_in_order(cfg.interval_in_order);
         ui.set_debug_console(cfg.debug_console);
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_ai_debug_visible(cfg.ai_debug);
@@ -1326,11 +1330,9 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut last_tab: String = String::new();
     // The grip drawn last, so the next one can lead its voices from it.
     let mut last_voicing: Vec<tab::Spot> = Vec::new();
-    // The fretboard trainer's last answer: which note was played, and whether
-    // it was the one asked for at the time.
+    // The fretboard trainer's last answer: the note it credited, kept on the
+    // neck after it moves on to the next one.
     let mut last_answer: Option<(usize, bool)> = None;
-    // The note the answer above was settled on, so it is settled once.
-    let mut last_heard: Option<usize> = None;
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
@@ -1449,6 +1451,7 @@ fn main() -> Result<(), slint::PlatformError> {
             app.formula_random_key = cfg.formula_random_key;
             app.formula_key_setting = cfg.formula_key.clone();
             app.formula_in_order = cfg.formula_in_order;
+            app.interval_in_order = cfg.interval_in_order;
             app.log_credits = cfg.debug_console;
             if app.app_mode == state::AppMode::Formulas {
                 // Over the changes the tune has to be under it before a chord
@@ -1906,28 +1909,22 @@ fn main() -> Result<(), slint::PlatformError> {
             if ui.get_preview() > 0 {
                 let strings: Vec<usize> = app.region.strings.strings().to_vec();
                 let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
-                // Only a reading that has held: at the mic, with something
-                // playing in the room, following every frame turned the neck
-                // into a disco.
-                // What was played last, kept until something else is played: a
-                // mark that vanished with the note gave the player nothing to
-                // look at after the string stopped ringing.
+                // What the JUDGE credited, not a reading of its own. Marking
+                // the neck from `steady_note` - three frames of the estimate -
+                // while the judge passes a note on one frame of it, or on the
+                // model's pitch head, meant the trainer moved on from notes the
+                // drawing had never marked: right, and never lit.
                 //
-                // The verdict is settled when the note ARRIVES and then left
-                // alone. Judging it every frame turned a right answer red the
-                // moment the trainer moved on: the string was still ringing,
-                // and against the note now being asked for it was wrong.
-                let heard = app.steady_note();
-                if heard.is_some() && heard != last_heard {
-                    // Only a right answer is drawn. A wrong one leaves the box
-                    // empty: the note asked for is on the screen already, and
-                    // marking every stray note on the neck was more to read
-                    // than to learn from.
-                    let pc = heard.unwrap_or(0);
-                    last_answer =
-                        (Some(pc) == app.fret_target.map(|t| t % 12)).then_some((pc, true));
+                // Only a right answer is drawn. A wrong one leaves the box
+                // empty: the note asked for is on the screen already, and
+                // marking every stray note on the neck was more to read than to
+                // learn from. And it is kept after the trainer moves on, so
+                // there is something to look at while the next note is read.
+                if app.match_status == MatchStatus::Exact {
+                    if let Some(pc) = app.fret_target.map(|t| t % 12) {
+                        last_answer = Some((pc, true));
+                    }
                 }
-                last_heard = heard.or(last_heard);
                 let (heard, right) = match last_answer {
                     Some((pc, was_right)) => (Some(pc), was_right),
                     None => (None, false),
@@ -2220,6 +2217,14 @@ fn main() -> Result<(), slint::PlatformError> {
                                 prev,
                                 app.voicing_anchor,
                                 app.grip_string,
+                                // Shuffled, the grips are close forms only -
+                                // inversions, packed inside an octave on
+                                // neighbouring strings. With no line to lead
+                                // there is nothing holding them together, and
+                                // spread forms drawn at random read as a
+                                // different chord each time rather than as one
+                                // shape moving.
+                                app.random_mode,
                             )
                         } else {
                             // A scale starts from a drawn string, after every
@@ -2254,7 +2259,14 @@ fn main() -> Result<(), slint::PlatformError> {
                         let strip = ui.get_preview() == 1;
                         let (svg, aspect) = if voiced {
                             (
-                                tab::grip(&spots, &done, ui.get_tab_frets()),
+                                // No ring under free order: nothing is "due",
+                                // and a ring would say the opposite.
+                                tab::grip(
+                                    &spots,
+                                    &done,
+                                    app.note_due().unwrap_or(spots.len()),
+                                    ui.get_tab_frets(),
+                                ),
                                 tab::grip_aspect(),
                             )
                         } else if strip {
@@ -2652,6 +2664,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let cur = live_cfg.clone();
+        ui.on_interval_in_order_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.interval_in_order = on;
+            cur.save();
+        });
+    }
+    {
+        let cur = live_cfg.clone();
         ui.on_debug_console_changed(move |on| {
             let mut cur = cur.borrow_mut();
             cur.debug_console = on;
@@ -3038,6 +3058,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_preview_note_names_neck(t.preview_note_names_neck.into());
     g.set_preview_functions_neck(t.preview_functions_neck.into());
     g.set_in_order(t.in_order.into());
+    g.set_interval_in_order(t.interval_in_order.into());
+    g.set_interval_in_order_hint(t.interval_in_order_hint.into());
     g.set_in_order_hint(t.in_order_hint.into());
     g.set_debug_console(t.debug_console.into());
     g.set_shuffle_chords(t.shuffle_chords.into());

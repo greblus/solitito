@@ -248,6 +248,7 @@ pub fn place_voiced(
     prev: Option<&[Spot]>,
     anchor: i32,
     from_string: usize,
+    close_only: bool,
 ) -> Vec<Spot> {
     let notes: Vec<(usize, i32)> = steps
         .iter()
@@ -263,6 +264,30 @@ pub fn place_voiced(
         return place(root_pc, intervals, steps, names);
     }
 
+    // Which voice sits where. Normally the order the steps are DEALT in, so a
+    // set written 1 3 5 is stacked in that order, each voice above the one
+    // below it.
+    //
+    // That is what spread the grips out under the shuffle: a set dealt 5 1 3
+    // has to climb in that order, which is an octave and a half wide and not a
+    // grip anybody plays. Close forms instead stack the set in its written
+    // order and ROTATE it, so the note asked for first is the bass - root
+    // position and its two inversions for a triad, and the same for a shell.
+    // Measured over 12 roots x 3 qualities x 3 inversions: every triad comes
+    // out between 6 and 9 semitones wide.
+    let distinct = {
+        let mut d: Vec<usize> = notes.iter().map(|&(d, _)| d).collect();
+        d.sort_unstable();
+        d.windows(2).all(|w| w[0] != w[1])
+    };
+    let mut order: Vec<usize> = (0..notes.len()).collect();
+    if close_only && distinct {
+        order.sort_by_key(|&i| notes[i].0);
+        let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
+        order.rotate_left(lead);
+    }
+    let stack: Vec<(usize, i32)> = order.iter().map(|&i| notes[i]).collect();
+
     let mut best: Option<(i32, Vec<Spot>)> = None;
     // Every set of strings, low to high, and every hand position on the neck.
     for strings in string_sets(notes.len()) {
@@ -270,7 +295,7 @@ pub fn place_voiced(
             let mut spots = Vec::with_capacity(notes.len());
             let mut last_pitch = i32::MIN;
             let mut ok = true;
-            for (i, &(degree, pc)) in notes.iter().enumerate() {
+            for (i, &(degree, pc)) in stack.iter().enumerate() {
                 let string = strings[i];
                 // The lowest fret at or above the hand's position that plays it.
                 let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
@@ -295,9 +320,11 @@ pub fn place_voiced(
             }
             // The interval each dot carries is its degree, not its distance
             // from the bottom string - recomputed here now the grip is settled.
-            for (spot, &(degree, _)) in spots.iter_mut().zip(notes.iter()) {
+            for (spot, &(degree, _)) in spots.iter_mut().zip(stack.iter()) {
                 spot.interval = intervals.get(degree).copied().unwrap_or(0) as i32;
             }
+            // How wide the grip came out. Only close forms are scored on it.
+            let span = last_pitch - (TUNING[spots[0].string] + spots[0].fret);
             let cost = match prev {
                 // Voice leading: how far each finger has to travel. Strings
                 // count too, or a grip two strings over with the same frets
@@ -311,13 +338,27 @@ pub fn place_voiced(
                 // the string first, then the fret. Without the string the
                 // lowest set of strings won every tie and a whole progression
                 // sat on the bottom of the neck.
+                // Close forms: the narrowest placement of the stack wins and
+                // the hand position only breaks ties, so the shape still walks
+                // the neck as the anchor is drawn. Which string the bass lands
+                // on is not asked for - the rotation has already chosen which
+                // NOTE is in the bass, and asking for both left the search
+                // nothing it could satisfy.
+                None if close_only => span * 24 + (base - anchor).abs(),
                 None => {
                     let low = spots.first().map(|s| s.string).unwrap_or(0) as i32;
                     (low - from_string as i32).abs() * 24 + (base - anchor).abs()
                 }
             };
             if best.as_ref().is_none_or(|(c, _)| cost < *c) {
-                best = Some((cost, spots));
+                // Back into the order the steps were dealt in:
+                // `collected_notes` is indexed by that, so a grip handed back
+                // stacked would light the wrong dots green.
+                let mut out = vec![None; spots.len()];
+                for (spot, &i) in spots.into_iter().zip(order.iter()) {
+                    out[i] = Some(spot);
+                }
+                best = Some((cost, out.into_iter().flatten().collect()));
             }
         }
     }
@@ -387,7 +428,7 @@ pub fn aspect(notes: usize) -> f32 {
 /// and that says nothing about where the fingers go. For a grip the axis has to
 /// be the neck itself, or three notes an octave apart look the same as three
 /// notes under one hand.
-pub fn grip(spots: &[Spot], done: &[bool], frets: bool) -> String {
+pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String {
     let base = spots
         .iter()
         .map(|s| s.fret)
@@ -441,6 +482,20 @@ pub fn grip(spots: &[Spot], done: &[bool], frets: bool) -> String {
         } else {
             BLUE
         };
+        // The note due now wears a white ring, as it does on the neck.
+        //
+        // The grip used to say the order by its shape: it was stacked in the
+        // order the steps are dealt, so bottom to top WAS the order to play. A
+        // close form is not stacked that way - that is the point of it - so
+        // without this the picture no longer says which note is being asked
+        // for, and the mode asks for them one at a time.
+        if i == current {
+            out.push_str(&format!(
+                "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
+                 stroke-width=\"5\" stroke=\"#ffffff\"></circle>",
+                r = DOT_R + 7.0,
+            ));
+        }
         out.push_str(&format!(
             "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" stroke-width=\"0\"></circle>\
              <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
@@ -462,7 +517,7 @@ pub fn grip(spots: &[Spot], done: &[bool], frets: bool) -> String {
 /// the ring, not the page.
 pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String {
     if spots.is_empty() {
-        return grip(spots, done, frets);
+        return grip(spots, done, current, frets);
     }
     let lowest = spots.iter().map(|s| s.fret).min().unwrap_or(1);
     let highest = spots.iter().map(|s| s.fret).max().unwrap_or(5);
@@ -776,7 +831,7 @@ mod tests {
     fn a_voicing_takes_a_string_for_each_note() {
         let steps: Vec<Step> = (0..3).map(|i| Step { degree: i, octave: 0 }).collect();
         for root in 0..12 {
-            let spots = place_voiced(root, &[0, 4, 10], &steps, &[], None, 5, 0);
+            let spots = place_voiced(root, &[0, 4, 10], &steps, &[], None, 5, 0, false);
             assert_eq!(spots.len(), 3, "root {root}");
             let strings: Vec<usize> = spots.iter().map(|s| s.string).collect();
             let mut sorted = strings.clone();
@@ -795,8 +850,8 @@ mod tests {
     #[test]
     fn a_grip_can_be_asked_for_higher_up() {
         let steps: Vec<Step> = (0..3).map(|i| Step { degree: i, octave: 0 }).collect();
-        let low = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 0);
-        let high = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 3);
+        let low = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 0, false);
+        let high = place_voiced(0, &[0, 4, 10], &steps, &[], None, 5, 3, false);
         assert_eq!(low[0].string, 0, "the grip did not start where it was asked");
         assert_eq!(high[0].string, 3, "the grip ignored the string it was given");
         // Both are still grips: a string each, rising with the pitch.
@@ -808,6 +863,111 @@ mod tests {
 
     /// And from chord to chord the fingers barely move: that is the whole point
     /// of leading the voices rather than taking each grip on its own.
+    /// Shuffled, the grip is a close form: the set stacked in its written
+    /// order and rotated so the note asked for first is in the bass - root
+    /// position and its two inversions.
+    ///
+    /// Dealt in the shuffled order instead, a set coming out 5 1 3 has to climb
+    /// in that order. Measured over 12 roots x 3 chords x all six orders three
+    /// notes can be dealt in: 17 to 18 semitones wide before, 9 after; shells
+    /// 18 to 20 before, 10 to 11 after. Every one of them now sits inside an
+    /// octave with the fingers in four frets.
+    #[test]
+    fn a_shuffled_grip_is_a_close_form() {
+        let orders = [[0usize, 1, 2], [1, 2, 0], [2, 0, 1], [0, 2, 1], [2, 1, 0], [1, 0, 2]];
+        let sets: [[u8; 3]; 6] = [
+            [0, 4, 7], [0, 3, 7], [0, 3, 6],          // triads
+            [0, 4, 11], [0, 4, 10], [0, 3, 10],       // shells
+        ];
+        let mut checked = 0;
+        for order in orders {
+            let steps: Vec<Step> =
+                order.iter().map(|&d| Step { degree: d, octave: 0 }).collect();
+            for root in 0..12usize {
+                for iv in sets {
+                    let g = place_voiced(root, &iv, &steps, &[], None, 5, 0, true);
+                    assert_eq!(g.len(), 3, "no grip for {order:?} {iv:?}");
+                    checked += 1;
+                    let p: Vec<i32> = g.iter().map(|s| TUNING[s.string] + s.fret).collect();
+                    let (lo, hi) = (*p.iter().min().unwrap(), *p.iter().max().unwrap());
+                    assert!(hi - lo < 12, "{} semitones ({order:?} {iv:?} root {root})", hi - lo);
+                    let f: Vec<i32> = g.iter().map(|s| s.fret).collect();
+                    let stretch = f.iter().max().unwrap() - f.iter().min().unwrap();
+                    assert!(stretch <= 4, "{stretch} frets ({order:?} {iv:?} root {root})");
+                    // Each dot still belongs to the step that asked for it.
+                    for (spot, &d) in g.iter().zip(order.iter()) {
+                        assert_eq!(
+                            spot.interval, iv[d] as i32,
+                            "the grip came back stacked, not in the dealt order"
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 6 * 12 * 6);
+    }
+
+    /// A close form no longer says the order by its shape, so the picture has
+    /// to say which note is due - the mode asks for them one at a time, and
+    /// without the ring there was nothing to read it from.
+    #[test]
+    fn the_grip_rings_the_note_that_is_due() {
+        let steps: Vec<Step> = (0..3).map(|d| Step { degree: d, octave: 0 }).collect();
+        let spots = place_voiced(0, &[0, 4, 7], &steps, &[], None, 5, 0, true);
+        let done = vec![false; spots.len()];
+        let rings = |svg: &str| svg.matches("fill=\"none\"").count();
+        for step in 0..spots.len() {
+            assert_eq!(rings(&grip(&spots, &done, step, false)), 1, "step {step}");
+        }
+        // Past the last one - the lap is over - nothing is ringed.
+        assert_eq!(rings(&grip(&spots, &done, spots.len(), false)), 0);
+        // And the ring sits on the dot the step asks for, not on the lowest.
+        let one = grip(&spots, &done, 1, false);
+        let y = |s: &Spot| GRIP_TOP + (5 - s.string) as f32 * STRING_GAP;
+        let ringed = one
+            .split("fill=\"none\"")
+            .next()
+            .and_then(|head| head.rsplit("cy=\"").next())
+            .and_then(|t| t.split('"').next())
+            .and_then(|t| t.parse::<f32>().ok())
+            .expect("a ring with a position");
+        assert!(
+            (ringed - y(&spots[1])).abs() < 0.5,
+            "the ring is on the wrong string: {ringed} vs {}",
+            y(&spots[1])
+        );
+    }
+
+    /// And the shuffle still changes the shape: three inversions, not one grip
+    /// drawn over and over.
+    #[test]
+    fn the_shuffle_chooses_which_note_is_in_the_bass() {
+        let mut basses = std::collections::HashSet::new();
+        for lead in 0..3usize {
+            let mut d: Vec<usize> = (0..3).collect();
+            d.rotate_left(lead);
+            let steps: Vec<Step> =
+                d.iter().map(|&x| Step { degree: x, octave: 0 }).collect();
+            let g = place_voiced(0, &[0, 4, 7], &steps, &[], None, 5, 0, true);
+            let low = g.iter().min_by_key(|s| TUNING[s.string] + s.fret).unwrap();
+            basses.insert(low.interval);
+        }
+        assert_eq!(basses.len(), 3, "the shuffle drew the same inversion: {basses:?}");
+    }
+
+    /// The hand position is still what moves the shape along the neck - it only
+    /// stopped being the FIRST thing the search satisfies.
+    #[test]
+    fn a_close_grip_still_walks_the_neck() {
+        let steps: Vec<Step> = (0..3).map(|d| Step { degree: d, octave: 0 }).collect();
+        let mut positions = std::collections::HashSet::new();
+        for anchor in 1..=9 {
+            let g = place_voiced(0, &[0, 4, 7], &steps, &[], None, anchor, 0, true);
+            positions.insert(g.iter().map(|s| s.fret).min().unwrap_or(0));
+        }
+        assert!(positions.len() >= 2, "every position drew the same grip: {positions:?}");
+    }
+
     #[test]
     fn the_voices_are_led_from_one_chord_to_the_next() {
         let steps: Vec<Step> = (0..3).map(|i| Step { degree: i, octave: 0 }).collect();
@@ -817,8 +977,8 @@ mod tests {
         let mut travelled = 0;
         let mut alone = 0;
         for (root, intervals) in progression {
-            let led = place_voiced(root, &intervals, &steps, &[], prev.as_deref(), 5, 0);
-            let by_itself = place_voiced(root, &intervals, &steps, &[], None, 5, 0);
+            let led = place_voiced(root, &intervals, &steps, &[], prev.as_deref(), 5, 0, false);
+            let by_itself = place_voiced(root, &intervals, &steps, &[], None, 5, 0, false);
             if let Some(prev) = &prev {
                 let cost = |grip: &[Spot]| -> i32 {
                     prev.iter()
@@ -909,3 +1069,4 @@ mod tests {
         assert!(numbered.contains(RED), "the root stopped being marked");
     }
 }
+

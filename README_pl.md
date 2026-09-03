@@ -199,6 +199,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Pokazuj pasujące akordy** | Tylko Formuły: akordy grywalne bez wychodzenia ze zbioru, zapisane stopniami. Tylko najpełniejsze — nad gamą durową zostaje dokładnie siedem akordów septymowych diatonicznych |
 | **Ulubione** | Tylko Formuły: gwiazdka zapisuje formułę z ekranu pod nazwą, a wybór z listy ją przywraca. Krzyżyk na wierszu ją usuwa |
 | **Graj dźwięki po kolei** | Tylko Formuły: zbiór trzeba przejść od najniższej funkcji. Wyłączone — jest zbiorem, dowolny dźwięk w dowolnej kolejności |
+| **Graj dźwięki po kolei** (interwały) | Zbiór trzeba wziąć w kolejności rozdania, a ten dźwięk jest obrączkowany na chwycie. Wyłączone, i tak jest domyślnie: trzy dźwięki w dowolnej kolejności, z tasowaniem i bez — chwyt to trzy dźwięki pod jedną ręką i to, który palec spadnie pierwszy, nie jest ćwiczeniem. W Skalach i Arpeggiach opcji nie ma, bo tam kolejność **jest** ćwiczeniem |
 | **Debug na konsoli** | Wypisuje linię dla każdej zaliczonej funkcji wraz z tym, co usłyszano. Okno na ocenianie; w Windowsie wydanie release nie ma konsoli, na której mogłoby to wypisać |
 | **Kończ powtórzoną prymą** | Tylko Skale: przebieg czyta się 1 2 3 4 5 6 7 1, ostatnia oktawę wyżej. To osobny krok i trzeba go zagrać |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |

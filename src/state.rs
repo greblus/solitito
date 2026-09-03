@@ -106,6 +106,20 @@ const CHORD_STRIKES: u32 = 2;
 /// counter instead.
 const STRIKE_SETTLE: f32 = 0.5;
 
+/// How long the fretboard trainer keeps a note it has just credited on screen,
+/// green, before drawing the next one.
+///
+/// Without it the trainer moved on in the same breath as it passed the note:
+/// `next_fret_target` clears the verdict, so a step that passed inside one
+/// answer from the model went green and back in a single call and nothing was
+/// ever drawn green. The model answers every 40 ms at best, and `dt` is capped
+/// at 250 ms, so at 0.12 s to pass the whole verdict could live and die between
+/// two frames of the window.
+///
+/// A floor, not a fixed time: the hold setting may be longer, and 0 - which it
+/// can be set to - would put the flash back.
+const FRET_SHOW: f32 = 0.35;
+
 /// What the studies can be read over, in the order the settings list them.
 pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
     ("m7", ChordQuality::Minor7),
@@ -331,6 +345,9 @@ pub struct MyApp {
     /// The notes asked for lately, so the next one is not one of them. See
     /// `next_fret_target`.
     recent_targets: Vec<usize>,
+    /// Seconds the answered note stays on screen before the next is drawn. See
+    /// `FRET_SHOW`.
+    fret_hold: f32,
     rng: Rng,
     pub chord_history: VecDeque<(String, f32)>,
     /// Probabilities of the 12 pitch classes from the last window. The note modes
@@ -413,6 +430,14 @@ pub struct MyApp {
     last_ai_conf: f32,
     /// Play the set in the order it is written, lowest function first.
     pub formula_in_order: bool,
+    /// Intervals: the set has to be taken in the order it is dealt, lowest
+    /// step first, instead of in any order. Off by default - a grip is three
+    /// notes under one hand and which finger lands first is not the exercise.
+    pub interval_in_order: bool,
+    /// Which step the timer below is counting for. Under free order the answer
+    /// can be any step still wanted, and a timer that did not know which one it
+    /// belonged to would carry a count from one note into another.
+    answering_step: Option<usize>,
     /// Print a line for every function credited. The panel's own switch; the
     /// environment can force it either way while something is being chased.
     pub log_credits: bool,
@@ -574,6 +599,7 @@ impl MyApp {
             region: Region::default(),
             fret_target: None,
             recent_targets: Vec::new(),
+            fret_hold: 0.0,
             rng: Rng::default(),
             chord_history: VecDeque::with_capacity(20),
             last_pitches: [0.0; 12],
@@ -593,6 +619,8 @@ impl MyApp {
             last_ai_root: None,
             last_ai_conf: 0.0,
             formula_in_order: false,
+            interval_in_order: false,
+            answering_step: None,
             log_credits: false,
             steady_pitch: None,
             steady_for: 0,
@@ -947,6 +975,19 @@ impl MyApp {
         self.reload_library_content();
     }
 
+    /// Whether the set may be taken in any order. Only Intervals ever can: a
+    /// scale or an arpeggio is an order, and a chord has none to walk.
+    pub fn free_order(&self) -> bool {
+        self.app_mode == AppMode::Intervals && !self.interval_in_order
+    }
+
+    /// The step the exercise is waiting for, where it is waiting for a
+    /// particular one. `None` under free order - there is no note "due" then,
+    /// and the drawing must not ring one.
+    pub fn note_due(&self) -> Option<usize> {
+        (!self.free_order()).then_some(self.current_note_step)
+    }
+
     /// Whether the first combo holds tunes in the mode running now: the chords
     /// of a standard, the intervals inside them, an arpeggio over each chord,
     /// or a formula planted on each. The other exercises stand on their own and
@@ -1165,6 +1206,7 @@ impl MyApp {
         self.credited = [None; 12];
         self.rebuild_play_order();
         self.current_note_step = 0;
+        self.answering_step = None;
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
         self.chord_history.clear();
@@ -1383,6 +1425,17 @@ impl MyApp {
     /// model is asked only while the context window is nine tenths full, so a
     /// finished set stood there all green with no next one coming.
     pub fn tick(&mut self, dt: f32) {
+        // The fretboard trainer's show clock, for the same reason as the lap's
+        // below: it must not stop when the player does.
+        if self.app_mode == AppMode::Fretboard {
+            if self.fret_hold > 0.0 && !self.paused {
+                self.fret_hold = (self.fret_hold - dt).max(0.0);
+                if self.fret_hold == 0.0 {
+                    self.next_fret_target();
+                }
+            }
+            return;
+        }
         if self.app_mode != AppMode::Formulas {
             return;
         }
@@ -1762,6 +1815,7 @@ impl MyApp {
             fret_span: SPAN,
         };
         self.fret_target = None;
+        self.fret_hold = 0.0;
         self.next_fret_target();
     }
 
@@ -1804,6 +1858,12 @@ impl MyApp {
 
         // The fretboard trainer has no song, so it runs before the chord guard.
         if self.app_mode == AppMode::Fretboard {
+            // The note just answered is still being shown. Nothing to judge
+            // until the next one is drawn - and judging anyway would let the
+            // string still ringing answer for it.
+            if self.fret_hold > 0.0 {
+                return;
+            }
             let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
             let Some(target) = self.fret_target else { self.next_fret_target(); return; };
             // The same rule as the note modes': a note drawn twice in a row has
@@ -1828,7 +1888,14 @@ impl MyApp {
                     self.success_timer = hold;
                 } else {
                     self.credit_class(target, 0);
-                    self.next_fret_target();
+                    // Passed, but not moved on: the note stays where it is,
+                    // green, for as long as `FRET_SHOW` says. The clock for
+                    // that runs in `tick`, every frame, because this one is
+                    // called only when the model answers - and a hold timed on
+                    // answers is a hold that stops when the player does.
+                    self.match_status = MatchStatus::Exact;
+                    self.success_timer = hold;
+                    self.fret_hold = self.transition_delay.max(FRET_SHOW);
                 }
             }
             return;
@@ -1977,42 +2044,81 @@ impl MyApp {
                 // the product of root and quality confidence, so an uncertain quality
                 // would block a note that is perfectly audible. Only the pitch head
                 // matters here - F1 0.90 against ~80% for the chord name.
-                if self.current_note_step >= active_indices.len() { return; }
+                // The marks and the steps have to be the same length. They are
+                // sized together when the exercise is set up, but a setting
+                // that changes the STEPS - the closing root of a scale - can
+                // land between two of those, and then the last step has no mark
+                // to write. Resized rather than rebuilt: what has been played
+                // this lap has been played.
+                if self.collected_notes.len() != active_indices.len() {
+                    self.collected_notes.resize(active_indices.len(), false);
+                }
 
-                let internal_idx = active_indices[self.current_note_step].degree;
-                let target_note_idx = all_targets[internal_idx];
+                // Which step is being answered.
+                //
+                // A scale or an arpeggio IS an order - played out of it, it is
+                // not that scale - so there the answer can only be the step due.
+                // A grip is not: three notes under one hand, and which finger
+                // lands first is not the exercise. So Intervals takes them in
+                // any order unless the option asks otherwise, shuffled or not.
+                //
+                // One pluck still credits one step. Without that an exercise
+                // asking for the same pitch class twice runs through both steps
+                // on a single ringing string, with nothing played in between. A
+                // step asking for the class just credited needs the string
+                // struck again - see `struck_since_credit`.
+                let mut answers = |me: &Self, k: usize| -> bool {
+                    let step = active_indices[k];
+                    let target = all_targets[step.degree];
+                    me.struck_since_credit(target)
+                        && me.note_is_sounding(target, ai_root, confidence)
+                };
+                let answering = if self.free_order() {
+                    (0..active_indices.len()).find(|&k| {
+                        !self.collected_notes.get(k).copied().unwrap_or(false)
+                            && answers(self, k)
+                    })
+                } else if self.current_note_step < active_indices.len() {
+                    answers(self, self.current_note_step).then_some(self.current_note_step)
+                } else {
+                    return;
+                };
 
-                // Target pitch class (0..11); NoteName ordering matches the
-                // pitch_logits output (C, Db, D, ...).
-                // One pluck credits one step. Without this an arpeggio asking
-                // for the same pitch class twice runs through both steps on a
-                // single ringing string, with nothing played in between.
-                // A step asking for the class just credited needs the string
-                // struck again. NOT gated on "play the notes one at a time":
-                // in a strummed chord the successive steps are DIFFERENT
-                // classes, so this never fires there - it only ever refuses a
-                // repeat of the same note off one pluck.
-                let step_octave = active_indices[self.current_note_step].octave;
-                let fresh = self.struck_since_credit(target_note_idx);
-                let note_match =
-                    fresh && self.note_is_sounding(target_note_idx, ai_root, confidence);
-
-                if note_match { self.success_timer += dt; } else { self.success_timer = 0.0; }
+                // The count belongs to the step it started on: another step
+                // answering is a new answer, not a continuation of this one.
+                if let Some(k) = answering {
+                    if self.answering_step != Some(k) {
+                        self.answering_step = Some(k);
+                        self.success_timer = 0.0;
+                    }
+                    self.success_timer += dt;
+                } else {
+                    self.answering_step = None;
+                    self.success_timer = 0.0;
+                }
 
                 let note_delay = 0.12;
                 if self.paused && self.success_timer > note_delay {
                     self.success_timer = note_delay;
                 }
                 if !self.paused && self.success_timer > note_delay {
-                    if self.current_note_step < self.collected_notes.len() {
-                        self.collected_notes[self.current_note_step] = true;
-                    }
-                    self.credit_class(target_note_idx, step_octave);
-                    self.current_note_step += 1;
-                    self.success_timer = 0.0; 
-
-                    if self.current_note_step >= active_indices.len() {
-                        self.advance_chord();
+                    if let Some(k) = answering {
+                        let step = active_indices[k];
+                        if k < self.collected_notes.len() {
+                            self.collected_notes[k] = true;
+                        }
+                        self.credit_class(all_targets[step.degree], step.octave);
+                        self.answering_step = None;
+                        self.success_timer = 0.0;
+                        // Where the exercise stands: the first step still
+                        // wanted. In order that is the next one along, which is
+                        // what it always was.
+                        self.current_note_step = (0..active_indices.len())
+                            .find(|&i| !self.collected_notes.get(i).copied().unwrap_or(false))
+                            .unwrap_or(active_indices.len());
+                        if self.current_note_step >= active_indices.len() {
+                            self.advance_chord();
+                        }
                     }
                 }
             }
@@ -3825,6 +3931,63 @@ pub(crate) mod tests {
         assert_eq!(a.steady_note(), Some(9), "three frames still means what it did");
     }
 
+    /// A grip is three notes under one hand: which finger lands first is not
+    /// the exercise, so the set is taken in any order unless asked otherwise.
+    #[test]
+    fn intervals_take_the_notes_in_any_order() {
+        for shuffled in [false, true] {
+            let mut a = app();
+            a.set_mode(AppMode::Intervals as i32);
+            a.set_random_mode(shuffled);
+            a.note_threshold = 0.5;
+            assert!(a.free_order(), "free order is the default");
+            assert_eq!(a.note_due(), None, "nothing is due when any of them will do");
+
+            let chord = a.chords[a.current_chord_index].clone();
+            let steps = a.ordered_active_indices(&chord);
+            let all = chord.get_target_indices();
+            assert!(steps.len() >= 3, "a set to take out of order");
+            // The LAST step first, which in order would not be answerable yet.
+            let last = steps.len() - 1;
+            let pc = all[steps[last].degree] % 12;
+            a.last_pitches = [0.0; 12];
+            a.last_pitches[pc] = 1.0;
+            for _ in 0..5 {
+                a.check_progress_with_ai(0.1, "Noise", 0.0);
+            }
+            assert!(
+                a.collected_notes[last],
+                "the last step was not credited first (shuffled: {shuffled})"
+            );
+            assert!(!a.collected_notes[0], "it credited a step nobody played");
+        }
+    }
+
+    /// And with the option on, only the step due answers.
+    #[test]
+    fn the_option_puts_the_intervals_back_in_order() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.set_random_mode(false);
+        a.interval_in_order = true;
+        a.note_threshold = 0.5;
+        assert!(!a.free_order());
+        assert_eq!(a.note_due(), Some(0), "the picture has a note to ring");
+
+        let chord = a.chords[a.current_chord_index].clone();
+        let steps = a.ordered_active_indices(&chord);
+        let all = chord.get_target_indices();
+        let last = steps.len() - 1;
+        let pc = all[steps[last].degree] % 12;
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[pc] = 1.0;
+        for _ in 0..5 {
+            a.check_progress_with_ai(0.1, "Noise", 0.0);
+        }
+        assert!(!a.collected_notes[last], "a step out of turn was credited");
+        assert_eq!(a.current_note_step, 0, "the exercise moved off the step it asked for");
+    }
+
     /// A phrase keeps its order, whichever phrase is showing: the notes of a
     /// study dealt at random are no longer that study.
     #[test]
@@ -4285,7 +4448,10 @@ pub(crate) mod tests {
 
         // The answer lingering does not count as another strike.
         a.set_onsets(v);
-        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.1, "Noise", 0.0);
+            a.tick(0.1);
+        }
         assert_eq!(a.fret_target, Some(target), "a lingering answer counted as a new pluck");
 
         // Decayed and struck again: that is a second strike, with no help from
@@ -4293,7 +4459,10 @@ pub(crate) mod tests {
         a.set_onsets([0.0; 12]);
         a.set_onsets(v);
         assert_ne!(a.strike_id[pc], first, "the crossing was not counted");
-        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        for _ in 0..10 {
+            a.check_progress_with_ai(0.1, "Noise", 0.0);
+            a.tick(0.1);
+        }
         assert_ne!(a.fret_target, Some(target), "the second pluck did not count");
     }
 
@@ -4445,7 +4614,44 @@ mod fretboard_mode_tests {
         a.check_progress_with_ai(0.1, "Noise", 0.0);
         assert_eq!(a.fret_target, Some(target), "credited before the hold was up");
         a.check_progress_with_ai(0.1, "Noise", 0.0);
+        // Passed - and now SHOWN, green, before the next note is drawn.
+        assert_eq!(a.match_status, MatchStatus::Exact, "the verdict was not shown");
+        assert_eq!(a.fret_target, Some(target), "it moved on before anything was seen");
+        run_show_clock(&mut a);
         assert_ne!(a.fret_target, Some(target), "a played note did not advance");
+    }
+
+    /// The show clock runs in `tick`, once per UI frame, so it cannot stop when
+    /// the model does. Sixty frames is a second - more than `FRET_SHOW`.
+    fn run_show_clock(a: &mut MyApp) {
+        for _ in 0..60 {
+            a.tick(0.016);
+        }
+    }
+
+    /// The green has to survive long enough to be drawn. It used to be cleared
+    /// by `next_fret_target` in the same call that set it, so a note passed
+    /// inside one answer from the model was never green on screen at all.
+    #[test]
+    fn a_passed_note_is_shown_before_the_next_is_drawn() {
+        let mut a = app();
+        a.set_mode(AppMode::Fretboard as i32);
+        let target = a.fret_target.unwrap();
+        a.last_pitches = [0.0; 12];
+        a.last_pitches[target] = 1.0;
+        a.note_threshold = 0.5;
+        // One answer from the model, long enough to pass the hold on its own -
+        // which is the case that showed nothing.
+        a.check_progress_with_ai(0.25, "Noise", 0.0);
+        assert_eq!(a.match_status, MatchStatus::Exact);
+        assert_eq!(a.fret_target, Some(target), "the verdict was gone in the same call");
+        // And it stays through the frames that follow, model answering or not.
+        a.tick(0.016);
+        assert_eq!(a.match_status, MatchStatus::Exact, "the green did not last a frame");
+        assert_eq!(a.fret_target, Some(target));
+        run_show_clock(&mut a);
+        assert_ne!(a.fret_target, Some(target), "the trainer stuck on the note it passed");
+        assert_eq!(a.match_status, MatchStatus::None, "the next note came up green");
     }
 }
 

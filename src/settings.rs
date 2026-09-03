@@ -182,6 +182,11 @@ pub struct Settings {
     /// function first, instead of moving around inside it freely.
     #[serde(default)]
     pub formula_in_order: bool,
+    /// Intervals: the same, for the grip - the notes in the order they are
+    /// dealt. Off by default: a grip is three notes under one hand, and which
+    /// finger lands first is not what is being practised.
+    #[serde(default)]
+    pub interval_in_order: bool,
     /// Print a line for every function credited, and what was heard. Off by
     /// default: it is a developer's window on the judging, and on Windows a
     /// release build has no console to print it to.
@@ -295,6 +300,7 @@ impl Default for Settings {
             formula_note_names: true,
             formula_show_similar: true,
             formula_in_order: false,
+            interval_in_order: false,
             debug_console: false,
             formula_show_chords: true,
             song: String::new(),

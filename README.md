@@ -202,6 +202,7 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Show the chords that fit** | Formulas only: chords playable without leaving the set, written as degrees. Only the fullest — over the major scale that leaves exactly the seven diatonic sevenths |
 | **Favourites** | Formulas only: the star keeps the formula on screen under a name, and the list draws it again. A cross on a row throws it out |
 | **Play the notes in order** | Formulas only: the set has to be walked lowest function first. Off, it is a set — any of them, in any order |
+| **Play the notes in order** (Intervals) | The set has to be taken in the order it is dealt, and that note is ringed on the grip. Off, which is the default: the three notes in any order, shuffled or not — a grip is three notes under one hand, and which finger lands first is not the exercise. Not offered in Scales or Arpeggios, where the order IS the exercise |
 | **Console debug** | Prints a line for every function credited, with what was heard. A window on the judging; on Windows a release build has no console to print it to |
 | **End on the root again** | Scales only: the run reads 1 2 3 4 5 6 7 1, the last one an octave up. It is a step of its own and has to be played |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |

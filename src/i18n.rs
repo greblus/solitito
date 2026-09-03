@@ -92,6 +92,8 @@ pub struct Strings {
     pub require_onset_hint: &'static str,
     pub in_order: &'static str,
     pub in_order_hint: &'static str,
+    pub interval_in_order: &'static str,
+    pub interval_in_order_hint: &'static str,
     pub debug_console: &'static str,
     pub shuffle_chords: &'static str,
     pub shuffle_chords_hint: &'static str,
@@ -225,6 +227,9 @@ pub const EN: Strings = Strings {
     require_onset_hint: "The model may credit a note only where it also heard an attack. Removes most of the credits that belong to the previous note, still ringing inside the model's window.",
     in_order: "Play the notes in order",
     in_order_hint: "Lowest function first. Off: any of them, in any order.",
+    interval_in_order: "Play the notes in order",
+    interval_in_order_hint: "In the order they are dealt, ringed on the grip. \
+Off: the three notes in any order, shuffled or not.",
     debug_console: "Console debug",
     shuffle_chords: "Shuffle the chords as well",
     shuffle_chords_hint: "With the shuffle on. Off: the progression stays as written.",
@@ -350,6 +355,9 @@ pub const PL: Strings = Strings {
     require_onset_hint: "Model może zaliczyć dźwięk tylko tam, gdzie usłyszał też atak. Odsiewa większość zaliczeń należących do poprzedniego dźwięku, wciąż brzmiącego w oknie modelu.",
     in_order: "Graj dźwięki po kolei",
     in_order_hint: "Od najniższej funkcji. Wyłączone: dowolna, w dowolnej kolejności.",
+    interval_in_order: "Graj dźwięki po kolei",
+    interval_in_order_hint: "W kolejności rozdania, obrączkowany na chwycie. \
+Wyłączone: trzy dźwięki w dowolnej kolejności, z tasowaniem i bez.",
     debug_console: "Debug na konsoli",
     shuffle_chords: "Losuj także kolejność akordów",
     shuffle_chords_hint: "Przy włączonym losowaniu. Wyłączone: progresja jak zapisana.",

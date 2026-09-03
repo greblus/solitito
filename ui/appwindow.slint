@@ -337,6 +337,8 @@ export global Tr {
     in-out property <string> require_onset_hint: "";
     in-out property <string> in_order: "Play the notes in order";
     in-out property <string> in_order_hint: "";
+    in-out property <string> interval_in_order: "Play the notes in order";
+    in-out property <string> interval_in_order_hint: "";
     in-out property <string> debug_console: "Console debug";
     in-out property <string> random_order: "Random order";
     in-out property <string> shuffle_chords: "Shuffle the chords as well";
@@ -695,6 +697,8 @@ export component AppWindow inherits Window {
     callback require_onset_changed(bool);
     in-out property <bool> in_order: false;
     callback in_order_changed(bool);
+    in-out property <bool> interval_in_order: false;
+    callback interval_in_order_changed(bool);
     in-out property <bool> debug_console: false;
     callback debug_console_changed(bool);
 
@@ -2009,6 +2013,25 @@ export component AppWindow inherits Window {
                             if root.current_mode == 1 : Text {
                                 width: root.panel_w - 30px;
                                 text: Tr.voice_leading_hint;
+                                font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                            // Intervals only: a scale and an arpeggio ARE an
+                            // order, so there is nothing to offer there.
+                            if root.current_mode == 1 : HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.interval_in_order;
+                                    toggled => { root.interval_in_order_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.interval_in_order;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+                            if root.current_mode == 1 : Text {
+                                width: root.panel_w - 30px;
+                                text: Tr.interval_in_order_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
                             }
 
