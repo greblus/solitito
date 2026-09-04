@@ -30,7 +30,19 @@ Two things follow, and they are the whole point of the mode:
   never learned as a shape in one place.
 
 There are 2048 of them — every subset of the twelve chromatic functions that contains the
-root.
+root. That is the whole catalogue, and it takes two lines to write out:
+
+```python
+from itertools import combinations
+
+F = "1 b2 2 b3 3 4 b5 5 b6 6 b7 7".split()
+formulas = [("1", *c) for n in range(12) for c in combinations(F[1:], n)]
+
+len(formulas)  # 2048
+```
+
+2¹¹ = 2048, sorted first by the number of notes and then lexicographically in chromatic
+order.
 
 ---
 
@@ -80,9 +92,7 @@ can be switched off in Practice settings once it has done its job.
   triad uses three of your five notes and a seventh chord four, so each is a piece of the
   formula rather than the whole of it. Two things they are good for — a shape you already know
   to grab hold of inside a set you do not, and a way of playing the formula as harmony rather
-  than one note at a time. Only the fullest are listed: a chord wholly contained in another on
-  the row would say nothing new. Over a chord they are numbered from that chord, so `bVm7`
-  means "a minor seventh built on the flat fifth of the chord you are on".
+  than one note at a time. How the row is written is worth a section of its own, below.
 - **The star** keeps the formula under a name. Named formulas live in a list in Practice
   settings and can be drawn again any time; a cross on a row in that list throws one out. A
   formula is stored without a key, because a formula is key-independent — the same exercise
@@ -91,6 +101,24 @@ can be switched off in Practice settings once it has done its job.
 - **Pause** is not a halt. The whole set turns blue, nothing is judged, and the line says
   *your turn*: improvise inside the formula for as long as you like. This is where the mode
   turns from an exercise into playing.
+
+### Reading the chord row
+
+The chords are written as a degree in roman numerals plus a quality, the degree counted from
+the formula's own root. In a formula on E, `VI`, `VIm` and `VIsus2` all stand on `VI`, which
+is C#.
+
+The major and the minor triad appear on the same degree because the formula holds `1` and
+`b2` alike — E and F, which read from C# are its major and its minor third — and `7`, the D#
+that makes the sus2. Loop any of those chords and every note of the formula lands.
+
+Roman for the chords, arabic for the functions above them, so the two rows cannot be
+confused: a dominant seventh on the second degree written in arabic would read "27".
+
+Only the fullest chords are listed. One that fits inside another already on the row is played
+whenever that one is, so it would say nothing new. Over a chord the degrees are counted from
+that chord instead, so `bVm7` means a minor seventh built on the flat fifth of the chord you
+are on.
 
 ---
 

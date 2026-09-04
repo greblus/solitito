@@ -29,7 +29,20 @@ Wynikają z tego dwie rzeczy i są one bardzo istotne dla Formuł:
   wszędzie, bo nigdy nie została zapamiętana jako kształt w jednym miejscu, ale celem nie jest
   jej zapamiętanie, tylko odkrycie co robi, jak brzmi, w jakim kontekście i jak można jej używać.
   
-Jest ich 2048 — każdy podzbiór dwunastu funkcji chromatycznych zawierający prymę.
+Jest ich 2048 — każdy podzbiór dwunastu funkcji chromatycznych zawierający prymę. Cały ten
+katalog mieści się w dwóch linijkach:
+
+```python
+from itertools import combinations
+
+F = "1 b2 2 b3 3 4 b5 5 b6 6 b7 7".split()
+formulas = [("1", *c) for n in range(12) for c in combinations(F[1:], n)]
+
+len(formulas)  # 2048
+```
+
+2¹¹ = 2048, uporządkowane najpierw według liczby dźwięków, a potem leksykograficznie w
+porządku chromatycznym.
 
 ---
 
@@ -72,9 +85,7 @@ Możesz powyłączać czego w danej chwili nie potrzebujesz:
 - **Akordy pasujące do formuły** to akordy, których wszystkie dźwięki leżą w zbiorze, więc
   można zagrać każdy z nich, nie wychodząc poza formułę. Mają mniej elementów niż formuła:
   triada zużywa trzy z twoich pięciu dźwięków, akord septymowy cztery, więc każdy z nich
-  jest kawałkiem formuły, a nie nią samą.  Wypisane są tylko najpełniejsze: akord zawarty
-  w całości w innym z tego rzędu nie wnosiłby nic nowego. `bVm7` znaczy „akord molowy
-  septymowy zbudowany na obniżonej kwincie akordu, nad którym grasz".
+  jest kawałkiem formuły, a nie nią samą. Zapis tego rzędu opisuje osobna sekcja poniżej.
 - **Gwiazdka** zapisuje formułę w Ulubionych pod przypisaną nazwą. Nazwane formuły trafiają na listę w ustawieniach
   Ćwiczeń i można je stamtąd przywrócić w dowolnej chwili; krzyżyk w wierszu usuwa z ulubionych. Formuła
   zapisywana jest bez tonacji, bo jest od tonacji niezależna — inaczej to samo ćwiczenie
@@ -83,6 +94,25 @@ Możesz powyłączać czego w danej chwili nie potrzebujesz:
 - **Pauza** nie jest przerwaniem. Cały zbiór robi się niebieski, nic nie jest oceniane, a
   napis mówi *Twoja kolej*: improwizuj wewnątrz formuły tak długo, jak chcesz. To jest
   miejsce, w którym tryb z ćwiczenia zmienia się w granie.
+
+### Jak czytać rząd akordów
+
+Akordy zapisane są jako stopień cyframi rzymskimi plus jakość, a stopień liczony jest od
+prymy samej formuły. W formule na E `VI`, `VIm` i `VIsus2` stoją wszystkie na `VI`, czyli
+na C#.
+
+Triada durowa i molowa pojawiają się na tym samym stopniu, ponieważ formuła zawiera zarówno
+`1`, jak i `b2` — E oraz F, które czytane od C# są jego tercją wielką i małą — a także `7`,
+czyli D#, z którego bierze się sus2. Zapętl dowolny z tych akordów, a każdy dźwięk formuły
+pada na miejsce.
+
+Cyfry rzymskie dla akordów, arabskie dla funkcji nad nimi, żeby obu rzędów nie dało się
+pomylić: akord dominantowy septymowy na drugim stopniu zapisany po arabsku czytałby się „27".
+
+Wypisane są tylko akordy najpełniejsze. Taki, który mieści się w innym już obecnym w rzędzie,
+brzmi zawsze, gdy brzmi tamten, więc nie wnosiłby nic nowego. Przy graniu na akordzie stopnie
+liczone są od tego akordu, więc `bVm7` znaczy akord molowy septymowy zbudowany na obniżonej
+kwincie akordu, nad którym grasz.
 
 ---
 
