@@ -69,6 +69,27 @@ sekundę — więc stały próg nigdy by się nie odbezpieczył i kolejnego uder
 w ogóle zobaczyć. Dźwięk jest odbezpieczony, gdy jego odpowiedź spadnie poniżej trzech
 dziesiątych szczytu, który zaliczył poprzednie uderzenie.
 
+### Zaliczanie w Interwałach
+
+Interwały sprawdzają każdą nową ramkę audio odczytaną przez interfejs, również gdy model
+nie ma dość sygnału, żeby odpowiedzieć. Ponowne odczytanie tej samej ramki nie wydłuża
+zaliczenia, a przerwa w dostarczaniu ramek zeruje rozpoczęte potwierdzenie. Odpowiedź
+modelu wygasa po 250 ms bez aktualizacji.
+
+Linia tekstowa i podstrunnica pokazują te same zaliczone stopnie, także poza kolejnością.
+Po ostatnim dźwięku cały zestaw pozostaje zielony przez 350 ms, potem przychodzi następny
+akord. Pauza zatrzymuje to przejście; cisza go nie zatrzymuje.
+
+Wybrzmiewająca nuta nie zalicza swojego powtórzenia. Wyciszenie wejścia poniżej bramki
+przez co najmniej 200 ms pozwala ponownie zaliczyć tę samą nutę, gdy estymator usłyszy ją
+stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie. Sam brak odczytu CQT
+przy otwartej bramce nie jest takim wyciszeniem.
+
+Przy dowolnej kolejności estymator blokuje zaliczanie innych nut z samej odpowiedzi modelu.
+Wyjątkiem jest pewnie rozpoznany akord docelowy: jeśli opcja grania pojedynczo jest wyłączona,
+jego składniki mogą zaliczać się kolejno z jednego uderzenia. Każdy składnik nadal musi być
+potwierdzony przez detektor; sama nazwa akordu nie zalicza całego zestawu.
+
 ---
 
 ## Jak to działa

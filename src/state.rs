@@ -120,6 +120,11 @@ const STRIKE_SETTLE: f32 = 0.5;
 /// can be set to - would put the flash back.
 const FRET_SHOW: f32 = 0.35;
 
+/// Leave the completed interval set visible, including its last mark.
+const INTERVAL_SHOW: f32 = 0.35;
+/// A stopped inference stream must not keep answering new audio frames.
+const INTERVAL_MODEL_AGE: f32 = 0.25;
+
 /// What the studies can be read over, in the order the settings list them.
 pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
     ("m7", ChordQuality::Minor7),
@@ -438,6 +443,12 @@ pub struct MyApp {
     /// can be any step still wanted, and a timer that did not know which one it
     /// belonged to would carry a count from one note into another.
     answering_step: Option<usize>,
+    interval_hold: f32,
+    interval_model_age: f32,
+    interval_chord_confirmed: bool,
+    interval_audio_age: f32,
+    interval_silence: f32,
+    audio_gate_open: bool,
     /// Print a line for every function credited. The panel's own switch; the
     /// environment can force it either way while something is being chased.
     pub log_credits: bool,
@@ -621,6 +632,12 @@ impl MyApp {
             formula_in_order: false,
             interval_in_order: false,
             answering_step: None,
+            interval_hold: 0.0,
+            interval_model_age: INTERVAL_MODEL_AGE,
+            interval_chord_confirmed: false,
+            interval_audio_age: 0.0,
+            interval_silence: 0.0,
+            audio_gate_open: false,
             log_credits: false,
             steady_pitch: None,
             steady_for: 0,
@@ -988,6 +1005,20 @@ impl MyApp {
         (!self.free_order()).then_some(self.current_note_step)
     }
 
+    /// Both drawings and the text strip use the judge's marks, including
+    /// credits earned out of order. A cursor is not a record of what was played.
+    pub fn note_color(&self, step: usize) -> (u8, u8, u8) {
+        if self.collected_notes.get(step).copied().unwrap_or(false) {
+            (50, 255, 50)
+        } else if self.answering_step == Some(step) && self.success_timer > 0.05 {
+            (200, 255, 50)
+        } else if self.free_order() || self.note_due() == Some(step) {
+            (180, 180, 180)
+        } else {
+            (60, 60, 60)
+        }
+    }
+
     /// Whether the first combo holds tunes in the mode running now: the chords
     /// of a standard, the intervals inside them, an arpeggio over each chord,
     /// or a formula planted on each. The other exercises stand on their own and
@@ -1145,6 +1176,15 @@ impl MyApp {
         self.ear_window = [None; EAR_WINDOW];
         self.cqt_run_pitch = None;
         self.cqt_run = 0;
+        self.last_ai_root = None;
+        self.last_ai_conf = 0.0;
+        self.answering_step = None;
+        self.interval_hold = 0.0;
+        self.interval_model_age = INTERVAL_MODEL_AGE;
+        self.interval_chord_confirmed = false;
+        self.interval_audio_age = 0.0;
+        self.interval_silence = 0.0;
+        self.judged_frame = self.audio_frames;
         self.chord_heard_at = (self.strike_id, self.onset_id);
     }
 
@@ -1411,20 +1451,14 @@ impl MyApp {
         self.ear_window.iter().filter(|&&v| v == Some(pc % 12)).count() >= EAR_VOTES
     }
 
-    /// The finished lap's clock, run every frame whether the model answers or
-    /// not.
-    ///
-    /// Only this. Judging was moved here too and had to come back: the reading
-    /// is per audio frame, the UI runs on its own clock, and sampling one from
-    /// the other counted the same frame two or three times over - so a single
-    /// bad reading could fill the vote by itself. Measured on the guitar it was
-    /// both slower and less accurate, which settles it.
-    ///
-    /// The lap's clock is the exception, because it must not stop when the
-    /// player does: the judge is called only when the model answers, and the
-    /// model is asked only while the context window is nine tenths full, so a
-    /// finished set stood there all green with no next one coming.
+    /// UI clock: finished results remain visible even when audio stops.
+    /// Intervals and Formulas also judge here, but only on a new audio frame;
+    /// polling the same CQT sample twice must not count as two observations.
     pub fn tick(&mut self, dt: f32) {
+        if self.app_mode == AppMode::Intervals {
+            self.tick_intervals(dt);
+            return;
+        }
         // The fretboard trainer's show clock, for the same reason as the lap's
         // below: it must not stop when the player does.
         if self.app_mode == AppMode::Fretboard {
@@ -1477,6 +1511,69 @@ impl MyApp {
         if self.success_timer > show && !self.paused {
             self.restart_formula();
         }
+    }
+
+    fn tick_intervals(&mut self, dt: f32) {
+        self.interval_model_age += dt;
+        if self.interval_model_age >= INTERVAL_MODEL_AGE {
+            self.interval_chord_confirmed = false;
+            self.last_pitches = [0.0; 12];
+            self.prev_pitches = [0.0; 12];
+            self.last_onsets = [0.0; 12];
+            self.last_ai_root = None;
+            self.last_ai_conf = 0.0;
+        }
+        self.settle_credits(dt);
+
+        self.interval_audio_age += dt;
+        let fresh = self.audio_frames != self.judged_frame;
+        let elapsed = self.interval_audio_age.min(0.032);
+        if fresh {
+            self.judged_frame = self.audio_frames;
+            // A fresh sample after a stalled UI/audio stream does not prove
+            // the note held throughout the gap.
+            if self.interval_audio_age > 0.05 {
+                self.answering_step = None;
+                self.success_timer = 0.0;
+                self.interval_silence = 0.0;
+            }
+            self.interval_audio_age = 0.0;
+            if !self.audio_gate_open {
+                self.interval_silence += elapsed;
+                // Muting between plucks is evidence of a fresh note too. A
+                // missing CQT estimate alone is NOT silence: require the gate.
+                // Track this during the completed-set display as well.
+                if self.interval_silence >= 0.2 {
+                    for credit in self.credited.iter_mut().flatten() {
+                        credit.left = true;
+                        credit.settle = 0.0;
+                    }
+                }
+            } else {
+                self.interval_silence = 0.0;
+            }
+        }
+
+        // The completed result has its own clock. It stays visible through
+        // silence and pause, and cannot be overwritten by more predictions.
+        if self.interval_hold > 0.0 {
+            if !self.paused {
+                self.interval_hold = (self.interval_hold - dt).max(0.0);
+                if self.interval_hold == 0.0 {
+                    self.advance_chord();
+                }
+            }
+            return;
+        }
+        if !fresh {
+            return;
+        }
+        if !self.audio_gate_open {
+            self.answering_step = None;
+            self.success_timer = 0.0;
+            return;
+        }
+        self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
     }
 
     /// A fresh answer from the model's onset head.
@@ -1838,8 +1935,30 @@ impl MyApp {
     }
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
-        self.onset_age = self.onset_age.saturating_add(1);
-        self.settle_credits(dt);
+        let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
+        if self.app_mode == AppMode::Intervals {
+            // Receiving an inference result is not an audio tick. Single
+            // notes can be heard while the model has no window to answer.
+            self.last_ai_root = ai_root;
+            self.last_ai_conf = confidence;
+            self.interval_model_age = 0.0;
+            self.interval_chord_confirmed = self.chords.get(self.current_chord_index)
+                .is_some_and(|chord| {
+                    ai_root == Some(chord.root)
+                        && ai_qual == chord.quality.to_string()
+                        && confidence >= self.chord_confidence
+                });
+            self.onset_age = self.onset_age.saturating_add(1);
+            return;
+        }
+        self.check_progress(dt, ai_root, &ai_qual, confidence);
+    }
+
+    fn check_progress(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
+        if self.app_mode != AppMode::Intervals {
+            self.onset_age = self.onset_age.saturating_add(1);
+            self.settle_credits(dt);
+        }
 
         // Formulas have no song either: a drawn set of functions over a drawn
         // root, played in any order.
@@ -1849,7 +1968,6 @@ impl MyApp {
             // and the model is asked only while the window is full - which
             // playing one note at a time never manages, so waiting here meant
             // waiting for an answer that often never came.
-            let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
             self.last_ai_root = ai_root;
             self.last_ai_conf = confidence;
             let _ = dt;
@@ -1864,7 +1982,6 @@ impl MyApp {
             if self.fret_hold > 0.0 {
                 return;
             }
-            let (ai_root, _) = self.parse_ai_prediction(ai_prediction);
             let Some(target) = self.fret_target else { self.next_fret_target(); return; };
             // The same rule as the note modes': a note drawn twice in a row has
             // to be struck twice. See `strike_id`.
@@ -1903,7 +2020,6 @@ impl MyApp {
 
         if self.chords.is_empty() { return; }
         
-        let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
         let target_chord = &self.chords[self.current_chord_index];
         let target_root = target_chord.root;
 
@@ -1934,7 +2050,7 @@ impl MyApp {
                         if ai_qual == target_qual_str { 
                             exact_match = true; 
                         } else {
-                            match (target_qual_str.as_str(), ai_qual.as_str()) {
+                            match (target_qual_str.as_str(), ai_qual) {
                                 ("Maj7", "") | ("Maj7", "Maj") => partial_match = true, 
                                 ("m7", "m") => partial_match = true,     
                                 ("7", "") => partial_match = true,       
@@ -2082,8 +2198,12 @@ impl MyApp {
                     // This is the test `struck_since_credit` already applies to
                     // repeats, and it is what stopped a b3 being credited while
                     // the root was what was played.
+                    // A confidently recognised target chord is the exception:
+                    // its notes sound together, while CQT can name only one.
+                    // The pitch head still has to confirm each requested tone.
                     if me.free_order()
                         && me.cqt_pitch.is_some_and(|now| now != target % 12)
+                        && !(me.interval_chord_confirmed && !me.single_notes)
                     {
                         return None;
                     }
@@ -2148,7 +2268,12 @@ impl MyApp {
                             .find(|&i| !self.collected_notes.get(i).copied().unwrap_or(false))
                             .unwrap_or(active_indices.len());
                         if self.current_note_step >= active_indices.len() {
-                            self.advance_chord();
+                            if self.app_mode == AppMode::Intervals {
+                                self.match_status = MatchStatus::Exact;
+                                self.interval_hold = INTERVAL_SHOW;
+                            } else {
+                                self.advance_chord();
+                            }
                         }
                     }
                 }
@@ -2412,6 +2537,7 @@ impl MyApp {
             self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
         }
+        self.audio_gate_open = gate_open;
         // Nothing refreshes the pitch vector while the gate is shut - the model
         // is not even asked - so without this it keeps its last value for as
         // long as the app runs, and a note that stopped sounding minutes ago
@@ -2427,6 +2553,203 @@ impl MyApp {
 pub(crate) mod tests {
     use super::*;
     use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
+
+    // Exercise the production clock: audio continues even when inference has
+    // no full window to answer. Do not manufacture model results for CQT.
+    fn interval_audio(a: &mut MyApp, pitch: Option<usize>, frames: usize) {
+        for _ in 0..frames {
+            {
+                let mut audio = a.analysis_state.lock().unwrap();
+                audio.frames_seen += 1;
+                audio.cqt_pitch = pitch;
+                audio.gate_open = pitch.is_some();
+            }
+            a.sync_audio_settings();
+            a.tick(0.016);
+        }
+    }
+
+    #[test]
+    fn intervals_credit_audio_without_an_inference_result() {
+        for ordered in [false, true] {
+            let mut a = app();
+            a.set_mode(AppMode::Intervals as i32);
+            a.interval_in_order = ordered;
+            let chord = &a.chords[a.current_chord_index];
+            let steps = a.ordered_active_indices(chord);
+            let k = if ordered { 0 } else { steps.len() - 1 };
+            let pc = chord.get_target_indices()[steps[k].degree];
+            interval_audio(&mut a, Some(pc), 12);
+            assert!(a.collected_notes[k], "audio was waiting for the model");
+            assert_eq!(a.note_color(k), (50, 255, 50), "text hid a credit");
+            if !ordered {
+                assert_ne!(a.note_color(0), (50, 255, 50), "text invented a credit");
+            }
+        }
+    }
+
+    #[test]
+    fn intervals_show_the_complete_set_before_advancing_even_in_silence() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.transition_delay = 0.0;
+        let index = a.current_chord_index;
+        let chord = &a.chords[index];
+        let all = chord.get_target_indices();
+        let pitches: Vec<_> = a.ordered_active_indices(chord).iter()
+            .map(|s| all[s.degree]).collect();
+        for pc in pitches.into_iter().rev() {
+            interval_audio(&mut a, Some(pc), 12);
+        }
+        assert_eq!(a.current_chord_index, index, "last green mark was erased");
+        assert!(a.collected_notes.iter().all(|&done| done));
+        a.paused = true;
+        interval_audio(&mut a, None, 40);
+        assert_eq!(a.current_chord_index, index, "pause did not hold the result");
+        a.paused = false;
+        interval_audio(&mut a, None, 30);
+        assert_ne!(a.current_chord_index, index, "silence stopped the transition");
+        assert_eq!(a.prev_status(), MatchStatus::Exact);
+        assert!(a.collected_notes.iter().all(|&done| !done));
+    }
+
+    #[test]
+    fn intervals_keep_the_last_mark_when_model_results_are_arriving() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        let index = a.current_chord_index;
+        let chord = &a.chords[index];
+        let all = chord.get_target_indices();
+        let pitches: Vec<_> = a.ordered_active_indices(chord).iter()
+            .map(|s| all[s.degree]).collect();
+        for pc in pitches {
+            for _ in 0..12 {
+                a.hears(Some(pc));
+                a.check_progress_with_ai(0.016, "Noise", 0.0);
+                interval_audio(&mut a, Some(pc), 1);
+            }
+        }
+        assert_eq!(a.current_chord_index, index, "last credit vanished before drawing");
+        assert!(a.collected_notes.iter().all(|&done| done));
+        for step in 0..a.collected_notes.len() {
+            assert_eq!(a.note_color(step), (50, 255, 50));
+        }
+    }
+
+    #[test]
+    fn intervals_do_not_reuse_one_audio_frame_after_a_stall() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        let root = a.chords[a.current_chord_index].root as usize;
+        interval_audio(&mut a, Some(root), 1);
+        for _ in 0..30 { a.tick(0.016); }
+        assert!(a.collected_notes.iter().all(|&done| !done));
+        interval_audio(&mut a, Some(root), 1);
+        assert!(a.collected_notes.iter().all(|&done| !done));
+    }
+
+    #[test]
+    fn intervals_can_repeat_a_muted_note_without_an_onset_prediction() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.intervals_input = "1 1 3".into();
+        a.reset_logic_state();
+        a.onset_head_seen = true;
+        let root = a.chords[a.current_chord_index].root as usize;
+        interval_audio(&mut a, Some(root), 40);
+        assert_eq!(&a.collected_notes[..2], &[true, false], "one pluck counted twice");
+        interval_audio(&mut a, None, 16);
+        interval_audio(&mut a, Some(root), 12);
+        assert_eq!(&a.collected_notes[..2], &[true, true], "a muted repeat stayed blocked");
+    }
+
+    #[test]
+    fn intervals_do_not_confuse_a_missing_estimate_with_muting() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        let root = a.chords[a.current_chord_index].root as usize;
+        interval_audio(&mut a, Some(root), 12);
+        for _ in 0..50 {
+            a.cqt_pitch = None;
+            a.steady_pitch = None;
+            a.audio_frames += 1;
+            a.tick(0.016); // the gate stays open
+        }
+        a.hears(Some(root));
+        assert!(!a.struck_since_credit(root));
+    }
+
+    #[test]
+    fn intervals_discard_a_stale_model_answer_before_it_can_finish_a_set() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.audio_gate_open = true;
+        a.last_pitches = [0.99; 12];
+        a.check_progress_with_ai(0.016, "Noise", 0.0);
+        for _ in 0..60 {
+            a.audio_frames += 1;
+            a.tick(0.016);
+        }
+        assert_eq!(a.collected_notes.iter().filter(|&&v| v).count(), 1);
+        assert_eq!(a.interval_hold, 0.0);
+    }
+
+    #[test]
+    fn intervals_accept_a_confirmed_strum_but_not_in_single_note_mode() {
+        for single in [false, true] {
+            let mut a = app();
+            a.set_mode(AppMode::Intervals as i32);
+            a.single_notes = single;
+            let chord = a.chords[a.current_chord_index].clone();
+            let root = chord.root as usize;
+            let name = format!("{} {}", chord.root.to_string(), chord.quality.to_string());
+            for _ in 0..28 {
+                a.last_pitches = [0.0; 12];
+                for pc in chord.get_target_indices() { a.last_pitches[pc] = 0.99; }
+                a.check_progress_with_ai(0.016, &name, 0.99);
+                interval_audio(&mut a, Some(root), 1);
+            }
+            let count = a.collected_notes.iter().filter(|&&done| done).count();
+            assert_eq!(count, if single { 1 } else { a.collected_notes.len() });
+        }
+    }
+
+    #[test]
+    fn intervals_shared_note_must_be_played_again_across_a_chord_change() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::F, quality: ChordQuality::Major7 },
+        ];
+        a.current_chord_index = 0;
+        a.reset_logic_state();
+        a.onset_head_seen = true; // no artificial attack counters in this test
+        for pc in [7, 4, 0] { interval_audio(&mut a, Some(pc), 12); }
+        interval_audio(&mut a, Some(0), 40); // C rings through the transition
+        assert_eq!(a.current_chord_index, 1);
+        assert!(a.collected_notes.iter().all(|&done| !done));
+        for pc in [5, 9, 0] { interval_audio(&mut a, Some(pc), 12); }
+        assert_eq!(a.current_chord_index, 1);
+        assert!(a.collected_notes.iter().all(|&done| done), "the shared C stayed blocked");
+    }
+
+    #[test]
+    fn intervals_do_not_transfer_partial_confirmation_between_notes() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        let chord = &a.chords[a.current_chord_index];
+        let all = chord.get_target_indices();
+        let steps = a.ordered_active_indices(chord);
+        let pcs = [all[steps[0].degree], all[steps[1].degree]];
+        for _ in 0..4 {
+            for pc in pcs { interval_audio(&mut a, Some(pc), 4); }
+        }
+        assert!(a.collected_notes.iter().all(|&done| !done));
+        interval_audio(&mut a, Some(pcs[0]), 12);
+        assert!(a.collected_notes[0]);
+        assert!(!a.collected_notes[1]);
+    }
 
     /// One note played and heard: the single-frame estimate holding still on it,
     /// which is the only way into a formula's marks.
@@ -3862,7 +4185,7 @@ pub(crate) mod tests {
             a.audio_frames = frame - 1;
             a.feed_estimate(frame, Some(third));
         }
-        a.check_progress_with_ai(0.6, "Noise", 0.0);
+        a.tick(0.6);
         assert!(
             !a.struck_since_credit(root),
             "the ringing root counted again while the third was being played"
@@ -3983,8 +4306,11 @@ pub(crate) mod tests {
             let pc = all[steps[last].degree] % 12;
             a.last_pitches = [0.0; 12];
             a.last_pitches[pc] = 1.0;
-            for _ in 0..5 {
-                a.check_progress_with_ai(0.1, "Noise", 0.0);
+            for _ in 0..15 {
+                a.check_progress_with_ai(0.016, "Noise", 0.0);
+                a.audio_gate_open = true;
+                a.audio_frames += 1;
+                a.tick(0.016);
             }
             assert!(
                 a.collected_notes[last],
@@ -4018,8 +4344,11 @@ pub(crate) mod tests {
         a.last_pitches[root] = 1.0;
         a.last_pitches[third] = 0.9;
         a.hears(Some(root));
-        for _ in 0..5 {
-            a.check_progress_with_ai(0.1, "Noise", 0.0);
+        for _ in 0..15 {
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            a.audio_gate_open = true;
+            a.audio_frames += 1;
+            a.tick(0.016);
         }
         assert!(a.collected_notes[0], "the note that was played was not credited");
         assert!(!a.collected_notes[1], "the b3 was credited off the root");
@@ -4043,8 +4372,11 @@ pub(crate) mod tests {
         let pc = all[steps[last].degree] % 12;
         a.last_pitches = [0.0; 12];
         a.last_pitches[pc] = 1.0;
-        for _ in 0..5 {
-            a.check_progress_with_ai(0.1, "Noise", 0.0);
+        for _ in 0..15 {
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            a.audio_gate_open = true;
+            a.audio_frames += 1;
+            a.tick(0.016);
         }
         assert!(!a.collected_notes[last], "a step out of turn was credited");
         assert_eq!(a.current_note_step, 0, "the exercise moved off the step it asked for");

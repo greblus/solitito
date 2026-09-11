@@ -68,6 +68,26 @@ material — so a fixed floor would never re-arm and the next strum could not be
 A note is armed again once its answer drops below three tenths of the peak that counted the
 strike before it.
 
+### Crediting in Intervals
+
+Intervals checks each new audio frame observed by the UI, even when the model has too
+little signal to answer. Reading the same frame again does not extend a credit, and a gap
+in incoming frames resets the pending confirmation. Model answers expire after 250 ms
+without an update.
+
+The text strip and fretboard show the same credited steps, including notes played out of
+order. After the last note, the whole set stays green for 350 ms before the next chord.
+Pause holds that transition; silence does not.
+
+A ringing note cannot credit its own repeat. Muting the input below the gate for at least
+200 ms allows that note to count again once the estimate hears it steadily, even if the
+onset head missed the new pluck. A missing CQT estimate with the gate open is not muting.
+
+In free order, the estimate blocks other notes from passing on the model's answer alone.
+A confidently recognised target chord is the exception: with single-note playing disabled,
+its tones can pass from one strum. Each tone still needs confirmation from the detector;
+the chord name alone does not credit the whole set.
+
 ---
 
 ## How it works

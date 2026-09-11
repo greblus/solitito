@@ -1084,6 +1084,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // that list.
         app.formula_exercise = cfg.formula_exercise;
         app.set_mode(cfg.startup_mode);
+        app.require_onset = cfg.require_onset_for(cfg.startup_mode);
         // The standard and the scale that were being worked on. Silently
         // ignored if the library no longer holds them - see `select_song`.
         app.select_song(&cfg.song);
@@ -1110,7 +1111,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
-        ui.set_require_onset(cfg.require_onset);
+        ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
         // Per mode, so the app opens showing the mode it opens in the way that
@@ -2133,22 +2134,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         // octave, so 1 and 1' are checked identically.
                         let name = model::with_octave(&all_names[step.degree], step.octave);
                         ui_names.push(SharedString::from(name));
-                        if step_idx < app.current_note_step {
-                            ui_colors.push(Color::from_rgb_u8(50, 255, 50));
-                        } else if step_idx == app.current_note_step {
-                            if app.success_timer > 0.05 {
-                                    ui_colors.push(Color::from_rgb_u8(200, 255, 50));
-                            } else {
-                                    ui_colors.push(Color::from_rgb_u8(180, 180, 180));
-                            }
-                        } else {
-                            ui_colors.push(Color::from_rgb_u8(60, 60, 60));
-                        }
+                        let (r, g, b) = app.note_color(step_idx);
+                        ui_colors.push(Color::from_rgb_u8(r, g, b));
                     }
                 }
                 // Order matters: the duration binding reads interval_jump when x
                 // is recomputed, so the flag has to be in place first.
-                let step = app.current_note_step as i32;
+                // A completed set has its cursor one past the end. Keep its
+                // last page visible during the green-result hold.
+                let step = app.current_note_step.min(ui_names.len().saturating_sub(1)) as i32;
                 let len = ui_names.len() as i32;
                 let restarted = step < last_interval_step || len != last_interval_len;
                 set_if_changed(ui.get_interval_jump(), restarted, |v| ui.set_interval_jump(v));
@@ -2586,9 +2580,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 cur.save();
             }
         });
+        let uw = ui.as_weak();
         ui.on_require_onset_changed(move |on| {
+            let Some(ui) = uw.upgrade() else { return };
             let mut cur = cur.borrow_mut();
-            cur.require_onset = on;
+            cur.set_require_onset_for(ui.get_current_mode(), on);
             cur.save();
         });
     }
@@ -2834,6 +2830,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // set, or the dropdown in the panel would still be answering for the
         // one being left.
         ui.set_preview(cfg_mode.borrow().preview_for(mode_idx) as i32);
+        app.require_onset = cfg_mode.borrow().require_onset_for(mode_idx);
+        ui.set_require_onset(app.require_onset);
         ui.set_interval_input_text(app.intervals_input.clone().into());
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
