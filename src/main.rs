@@ -2133,22 +2133,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         // octave, so 1 and 1' are checked identically.
                         let name = model::with_octave(&all_names[step.degree], step.octave);
                         ui_names.push(SharedString::from(name));
-                        if step_idx < app.current_note_step {
-                            ui_colors.push(Color::from_rgb_u8(50, 255, 50));
-                        } else if step_idx == app.current_note_step {
-                            if app.success_timer > 0.05 {
-                                    ui_colors.push(Color::from_rgb_u8(200, 255, 50));
-                            } else {
-                                    ui_colors.push(Color::from_rgb_u8(180, 180, 180));
-                            }
-                        } else {
-                            ui_colors.push(Color::from_rgb_u8(60, 60, 60));
-                        }
+                        let (r, g, b) = app.note_color(step_idx);
+                        ui_colors.push(Color::from_rgb_u8(r, g, b));
                     }
                 }
                 // Order matters: the duration binding reads interval_jump when x
                 // is recomputed, so the flag has to be in place first.
-                let step = app.current_note_step as i32;
+                // A completed set has its cursor one past the end. Keep its
+                // last page visible during the green-result hold.
+                let step = app.current_note_step.min(ui_names.len().saturating_sub(1)) as i32;
                 let len = ui_names.len() as i32;
                 let restarted = step < last_interval_step || len != last_interval_len;
                 set_if_changed(ui.get_interval_jump(), restarted, |v| ui.set_interval_jump(v));
