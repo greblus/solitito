@@ -110,6 +110,12 @@ Linia tekstowa i podstrunnica pokazują te same zaliczone stopnie, także poza k
 Po ostatnim dźwięku cały zestaw pozostaje zielony przez 350 ms, potem przychodzi następny
 akord. Pauza zatrzymuje to przejście; cisza go nie zatrzymuje.
 
+Pusta struna w generowanym chwycie interwałów jest rysowana jako niewypełnione kółko po
+lewej stronie siodełka, z interwałem w środku. Wcześniej była zaciskana do pierwszego progu,
+więc etykieta stopnia była poprawna, ale leżała na fizycznie złym dźwięku. Wszystkie
+generowane chwyty trójdźwiękowe są sprawdzane względem standardowego stroju we wszystkich
+tonacjach, inwersjach, pozycjach i strunach startowych.
+
 Wybrzmiewająca nuta nie zalicza swojego powtórzenia. Wyciszenie wejścia poniżej bramki
 przez co najmniej 200 ms pozwala ponownie zaliczyć tę samą nutę, gdy estymator usłyszy ją
 stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie, o ile opcja wymagania

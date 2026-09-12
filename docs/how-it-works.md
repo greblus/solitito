@@ -108,6 +108,11 @@ The text strip and fretboard show the same credited steps, including notes playe
 order. After the last note, the whole set stays green for 350 ms before the next chord.
 Pause holds that transition; silence does not.
 
+An open string in a generated interval grip is drawn as an empty circle to the left of the
+nut, with its interval inside. Previously it was clamped into the first fret, so the degree
+label was correct but appeared over a physically wrong note. All generated three-note grips
+are checked against standard tuning across every key, inversion, anchor and starting string.
+
 A ringing note cannot credit its own repeat. Muting the input below the gate for at least
 200 ms allows that note to count again once the estimate hears it steadily, even if the
 onset head missed the new pluck if the attack option is off. With it on, the repeat still

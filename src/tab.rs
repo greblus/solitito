@@ -475,12 +475,17 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         ));
     }
     for (i, spot) in spots.iter().enumerate() {
-        // Anything outside the five frets drawn is put on the nearest edge
-        // rather than off the picture; `place_voiced` keeps grips inside four.
-        let column = ((spot.fret - base) as f32).clamp(0.0, 4.0);
-        let x = GRIP_LEFT + (column + 0.5) * FRET_GAP;
+        // An open string sits to the left of the nut. It used to be clamped
+        // into the first fret, which put a correct interval label over the
+        // wrong physical note. Fretted notes remain inside the five columns.
+        let x = if spot.fret == 0 {
+            GRIP_LEFT - DOT_R - 7.0
+        } else {
+            let column = ((spot.fret - base) as f32).clamp(0.0, 4.0);
+            GRIP_LEFT + (column + 0.5) * FRET_GAP
+        };
         let y = GRIP_TOP + (5 - spot.string) as f32 * STRING_GAP;
-        let fill = if done.get(i).copied().unwrap_or(false) {
+        let color = if done.get(i).copied().unwrap_or(false) {
             GREEN
         } else if spot.is_root() {
             RED
@@ -502,10 +507,15 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
             ));
         }
         out.push_str(&format!(
-            "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" stroke-width=\"0\"></circle>\
+            "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{circle_fill}\" \
+             stroke=\"{color}\" stroke-width=\"{stroke_width}\"></circle>\
              <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
              text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>",
-            label = if frets { spot.fret.to_string() } else { spot.label() },
+            circle_fill = if spot.fret == 0 { "none" } else { color },
+            stroke_width = if spot.fret == 0 { 5 } else { 0 },
+            // The open-string symbol always names the interval. A bare zero
+            // inside it would say less than the empty circle already says.
+            label = if frets && spot.fret != 0 { spot.fret.to_string() } else { spot.label() },
         ));
     }
     out.push_str("</svg>");
@@ -912,6 +922,83 @@ mod tests {
         assert_eq!(checked, 6 * 12 * 6);
     }
 
+    #[test]
+    fn every_generated_grip_labels_the_pitch_under_its_dot() {
+        let sets: [&[u8]; 5] = [
+            &[0, 4, 7], &[0, 3, 7], &[0, 4, 10], &[0, 3, 10], &[0, 3, 6],
+        ];
+        let orders = [
+            [0usize, 1, 2], [0, 2, 1], [1, 0, 2],
+            [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        ];
+        for root in 0..12usize {
+            for intervals in sets {
+                for order in orders {
+                    let steps: Vec<Step> = order.iter()
+                        .map(|&degree| Step { degree, octave: 0 })
+                        .collect();
+                    for anchor in 1..=9 {
+                        for from_string in 0..4 {
+                            for close_only in [false, true] {
+                                let grip = place_voiced(
+                                    root, intervals, &steps, &[], None,
+                                    anchor, from_string, close_only,
+                                );
+                                assert_eq!(grip.len(), steps.len());
+                                for (spot, step) in grip.iter().zip(steps.iter()) {
+                                    assert!((0..=17).contains(&spot.fret));
+                                    let actual = (TUNING[spot.string] + spot.fret).rem_euclid(12);
+                                    let expected = (root as i32 + intervals[step.degree] as i32)
+                                        .rem_euclid(12);
+                                    assert_eq!(
+                                        actual, expected,
+                                        "root {root}, intervals {intervals:?}, order {order:?}, \
+                                         anchor {anchor}, string {from_string}, close {close_only}: \
+                                         {:?} says {}", spot, spot.label()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_open_string_is_drawn_outside_the_nut_as_an_empty_interval_dot() {
+        let spots = vec![Spot {
+            string: 5,
+            fret: 0,
+            interval: 7,
+            name: Some("5".into()),
+        }];
+        let svg = grip(&spots, &[false], 1, true);
+        assert!(svg.contains("cx=\"23.64\""), "open dot is not left of the nut");
+        assert!(
+            svg.contains("fill=\"none\" stroke=\"rgba(74, 144, 226, 1)\" stroke-width=\"5\""),
+            "open dot is not an empty circle"
+        );
+        assert!(svg.contains(">5</text>"), "open dot lost its interval label");
+        assert!(!svg.contains(">0</text>"), "open dot shows a fret instead of an interval");
+    }
+
+    #[test]
+    fn the_open_fifth_in_the_a7_grip_is_not_drawn_on_a_fret() {
+        let steps: Vec<Step> = (0..3)
+            .map(|degree| Step { degree, octave: 0 })
+            .collect();
+        let names = vec!["1".into(), "3".into(), "5".into()];
+        let spots = place_voiced(9, &[0, 4, 7], &steps, &names, None, 1, 3, false);
+        assert_eq!((spots[0].string, spots[0].fret), (3, 2), "A root moved off G2");
+        assert_eq!((spots[2].string, spots[2].fret), (5, 0), "open E fifth moved");
+        let svg = grip(&spots, &[false; 3], 3, false);
+        assert!(
+            svg.contains("cx=\"23.64\" cy=\"88\" fill=\"none\""),
+            "the open E fifth was drawn inside the fretboard"
+        );
+    }
+
     /// A close form no longer says the order by its shape, so the picture has
     /// to say which note is due - the mode asks for them one at a time, and
     /// without the ring there was nothing to read it from.
@@ -1095,4 +1182,3 @@ mod tests {
         assert!(numbered.contains(RED), "the root stopped being marked");
     }
 }
-
