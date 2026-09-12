@@ -53,6 +53,10 @@ pub struct Settings {
     /// but a note whose attack the head misses then has only the CQT branch.
     #[serde(default)]
     pub require_onset: bool,
+    /// Intervals gates CQT as well as the model. Its own choice defaults on,
+    /// including older settings that only saved the shared model gate.
+    #[serde(default = "yes")]
+    pub interval_require_onset: bool,
     /// Whether the shuffle also reorders the chords in Intervals and Arpeggios.
     /// Off by default: shuffled intervals over the written progression is the
     /// musical half of the idea, shuffling both is the experiment.
@@ -273,6 +277,7 @@ impl Default for Settings {
             short_verdict: false,
             single_notes: false,
             require_onset: false,
+            interval_require_onset: true,
             shuffle_chords: false,
             show_spectrum: false,
             ai_debug: false,
@@ -402,6 +407,18 @@ impl Settings {
             Some(m) if m.count_ones() as usize <= self.formula_notes => {}
             _ if self.formula_required.trim().is_empty() => {}
             _ => self.formula_required = String::new(),
+        }
+    }
+
+    pub fn require_onset_for(&self, mode: i32) -> bool {
+        if mode == 1 { self.interval_require_onset } else { self.require_onset }
+    }
+
+    pub fn set_require_onset_for(&mut self, mode: i32, on: bool) {
+        if mode == 1 {
+            self.interval_require_onset = on;
+        } else {
+            self.require_onset = on;
         }
     }
 
@@ -567,6 +584,26 @@ mod tests {
         // A file written before the option existed still loads, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.single_notes);
+    }
+
+    #[test]
+    fn interval_attack_gate_defaults_on_and_remembers_its_own_choice() {
+        assert!(Settings::default().require_onset_for(1));
+        let mut s: Settings = serde_json::from_str(
+            r#"{"startup_mode":1,"require_onset":false}"#,
+        ).unwrap();
+        assert!(s.require_onset_for(1), "old settings missed the interval default");
+        for mode in [0, 2, 3, 4, 5] {
+            assert!(!s.require_onset_for(mode), "another mode's setting changed");
+        }
+        s.set_require_onset_for(1, false);
+        s.set_require_onset_for(4, true);
+        let saved = serde_json::to_string(&s).unwrap();
+        let restored: Settings = serde_json::from_str(&saved).unwrap();
+        assert!(!restored.require_onset_for(1), "an explicit opt-out was lost");
+        assert!(restored.require_onset_for(4));
+        s.set_require_onset_for(1, true);
+        assert!(s.require_onset_for(4), "intervals changed the shared option");
     }
 
     #[test]

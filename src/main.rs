@@ -723,6 +723,8 @@ impl SettingsSnapshot {
 struct AiResult {
     pred: Prediction,
     updated: bool,
+    /// Last audio frame in the history handed to the model.
+    frame: u64,
     /// How full the context window was when this was asked. The chord NAME is
     /// only believed on a full one - that is what the model was trained on -
     /// while the pitch and onset heads are read whatever it says.
@@ -1032,9 +1034,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }
 
         loop {
-            let (history, fill) = {
+            let (history, fill, frame) = {
                 let state = analysis_for_ai.lock().unwrap();
-                (state.input_history, state.history_fill())
+                (state.input_history, state.history_fill(), state.frames_seen)
             };
 
             if fill < MIN_FILL {
@@ -1053,6 +1055,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if let Ok(mut res) = result_for_ai.lock() {
                     res.pred = pred;
                     res.fill = fill;
+                    res.frame = frame;
                     res.updated = true;
                 }
             }
@@ -1084,6 +1087,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // that list.
         app.formula_exercise = cfg.formula_exercise;
         app.set_mode(cfg.startup_mode);
+        app.require_onset = cfg.require_onset_for(cfg.startup_mode);
         // The standard and the scale that were being worked on. Silently
         // ignored if the library no longer holds them - see `select_song`.
         app.select_song(&cfg.song);
@@ -1110,7 +1114,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
         ui.set_single_notes(cfg.single_notes);
-        ui.set_require_onset(cfg.require_onset);
+        ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
         // Per mode, so the app opens showing the mode it opens in the way that
@@ -1523,14 +1527,17 @@ fn main() -> Result<(), slint::PlatformError> {
             if res.updated {
                 // A half-full window is answerable for what is SOUNDING, not for
                 // what chord it is.
-                let named = res.fill >= MIN_FILL_CHORD;
+                let usable = app.accepts_model_frame(res.frame);
+                let named = usable && res.fill >= MIN_FILL_CHORD;
                 let chord = res.pred.chord.clone();
                 let score = res.pred.confidence;
-                app.prev_pitches = app.last_pitches;
-                app.last_pitches = res.pred.pitches;
-                // What was STRUCK, as against what is sounding. Zeros with a
-                // model that has no onset head, and the modes fall back.
-                app.set_onsets(res.pred.onsets);
+                if usable {
+                    app.prev_pitches = app.last_pitches;
+                    app.last_pitches = res.pred.pitches;
+                    // What was STRUCK, as against what is sounding. Zeros with a
+                    // model that has no onset head.
+                    app.set_onsets(res.pred.onsets);
+                }
 
                 // clear the flag once consumed
                 res.updated = false;
@@ -1607,7 +1614,9 @@ fn main() -> Result<(), slint::PlatformError> {
                     .min(0.25);
                 last_ai_at = Some(now);
                 let before = app.current_chord_index;
-                app.check_progress_with_ai(dt, &shown, current_confidence);
+                if usable {
+                    app.check_progress_with_ai(dt, &shown, current_confidence);
+                }
                 // SOLITITO_STRUM=1: one line per AI frame, to see whether attacks
                 // are being detected at all during real playing. The per-strum
                 // verdict can only re-arm on a new onset id.
@@ -2579,9 +2588,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 cur.save();
             }
         });
+        let uw = ui.as_weak();
         ui.on_require_onset_changed(move |on| {
+            let Some(ui) = uw.upgrade() else { return };
             let mut cur = cur.borrow_mut();
-            cur.require_onset = on;
+            cur.set_require_onset_for(ui.get_current_mode(), on);
             cur.save();
         });
     }
@@ -2827,6 +2838,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // set, or the dropdown in the panel would still be answering for the
         // one being left.
         ui.set_preview(cfg_mode.borrow().preview_for(mode_idx) as i32);
+        app.require_onset = cfg_mode.borrow().require_onset_for(mode_idx);
+        ui.set_require_onset(app.require_onset);
         ui.set_interval_input_text(app.intervals_input.clone().into());
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));

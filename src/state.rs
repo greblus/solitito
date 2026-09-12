@@ -124,6 +124,10 @@ const FRET_SHOW: f32 = 0.35;
 const INTERVAL_SHOW: f32 = 0.35;
 /// A stopped inference stream must not keep answering new audio frames.
 const INTERVAL_MODEL_AGE: f32 = 0.25;
+/// Up to two audio hops may interrupt a pending interval confirmation.
+/// Missing time never earns credit; the budget is per confirmation, not reset
+/// by each good reading, so alternating notes cannot gradually pass.
+const INTERVAL_GAP: f32 = 0.032;
 
 /// What the studies can be read over, in the order the settings list them.
 pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
@@ -370,18 +374,19 @@ pub struct MyApp {
     /// recording, the pitch head is right about what SOUNDS in 94% of frames and
     /// still leaves 78% of notes with some class lit that nobody played - an
     /// open string ringing in sympathy is sounding, and so is the note before.
-    /// The model's two branches may only credit a class the onset head says was
-    /// STRUCK. Off by default; the option reads "credit only what was struck".
+    /// The model normally credits only a class the onset head says was STRUCK.
+    /// In Intervals this also gates CQT, and the UI defaults the option on; a
+    /// confirmed new chord strum can cover a missed per-tone attack.
     ///
     /// Measured on a recording of single notes (`--probe`, 364 frames the app
     /// would ask about): of 83 credits the model would hand out for a class
     /// other than the one being played, two thirds carry no attack at all, and
     /// almost all of those are the PREVIOUS note still inside the model's
     /// 0.77 s window - which is the very thing the head was trained to tell
-    /// apart. The notes themselves keep passing on the CQT branch, which this
-    /// does not touch, so on that recording it costs nothing; an earlier
+    /// apart. Outside Intervals the notes themselves keep passing on the CQT
+    /// branch, so on that recording it costs nothing; an earlier
     /// measurement of the whole crediting rule put the cost at 4 missed notes
-    /// in 49, so it is not free everywhere. Hence an option, not a default.
+    /// in 49, so it is not free everywhere. Hence it remains optional.
     pub require_onset: bool,
     /// How many times each class has been STRUCK, by the model's onset head: a
     /// counter per class, stepped when the head's answer for it crosses upward.
@@ -448,6 +453,9 @@ pub struct MyApp {
     interval_chord_confirmed: bool,
     interval_audio_age: f32,
     interval_silence: f32,
+    interval_confirmation_gap: f32,
+    interval_start_frame: u64,
+    interval_start_strikes: [u32; 12],
     audio_gate_open: bool,
     /// Print a line for every function credited. The panel's own switch; the
     /// environment can force it either way while something is being chased.
@@ -637,6 +645,9 @@ impl MyApp {
             interval_chord_confirmed: false,
             interval_audio_age: 0.0,
             interval_silence: 0.0,
+            interval_confirmation_gap: 0.0,
+            interval_start_frame: 0,
+            interval_start_strikes: [0; 12],
             audio_gate_open: false,
             log_credits: false,
             steady_pitch: None,
@@ -1169,6 +1180,19 @@ impl MyApp {
     /// forgetting: the next audio frame is 16 ms away and the next inference
     /// 40 ms.
     fn forget_what_was_heard(&mut self) {
+        if self.app_mode == AppMode::Intervals {
+            let muted = !self.audio_gate_open && self.interval_silence >= 0.2;
+            for (pc, credit) in self.credited.iter_mut().enumerate() {
+                if let Some(credit) = credit {
+                    // The credit survives, but an attack or departure heard
+                    // BEFORE this chord was requested cannot answer it.
+                    credit.onset = self.onset_id;
+                    credit.strike = self.strike_id[pc];
+                    credit.left = muted;
+                }
+            }
+            self.chord_history.clear();
+        }
         self.last_pitches = [0.0; 12];
         self.prev_pitches = [0.0; 12];
         self.last_onsets = [0.0; 12];
@@ -1184,6 +1208,9 @@ impl MyApp {
         self.interval_chord_confirmed = false;
         self.interval_audio_age = 0.0;
         self.interval_silence = 0.0;
+        self.interval_confirmation_gap = 0.0;
+        self.interval_start_frame = self.audio_frames;
+        self.interval_start_strikes = self.strike_id;
         self.judged_frame = self.audio_frames;
         self.chord_heard_at = (self.strike_id, self.onset_id);
     }
@@ -1535,6 +1562,7 @@ impl MyApp {
             if self.interval_audio_age > 0.05 {
                 self.answering_step = None;
                 self.success_timer = 0.0;
+                self.interval_confirmation_gap = 0.0;
                 self.interval_silence = 0.0;
             }
             self.interval_audio_age = 0.0;
@@ -1571,9 +1599,22 @@ impl MyApp {
         if !self.audio_gate_open {
             self.answering_step = None;
             self.success_timer = 0.0;
+            self.interval_confirmation_gap = 0.0;
             return;
         }
         self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
+    }
+
+    /// Inference can finish after the exercise changes. Date the result by
+    /// the audio it read, rather than the moment the UI receives it. This
+    /// rejects pre-boundary results, not the old audio inside overlapping FFT
+    /// and model windows; the repeat and CQT rules still handle those.
+    pub fn accepts_model_frame(&self, frame: u64) -> bool {
+        let age = self.audio_frames.saturating_sub(frame) as f32
+            * crate::audio::HOP_LENGTH as f32 / crate::audio::TARGET_SR as f32;
+        self.app_mode != AppMode::Intervals
+            || (frame > self.interval_start_frame
+                && age < INTERVAL_MODEL_AGE)
     }
 
     /// A fresh answer from the model's onset head.
@@ -1801,6 +1842,28 @@ impl MyApp {
     /// that fills itself in.
     fn sounding_by(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> Option<u8> {
         let target = pc % 12;
+        let confirmed_strum = self.interval_confirmed_strum();
+        let struck = if !self.require_onset {
+            true
+        } else if self.app_mode == AppMode::Intervals {
+            // A probability above the low display gate is not an attack. The
+            // onset head spreads smaller answers onto harmonics and adjacent
+            // strings; using that raw value let a lingering fifth through when
+            // another tone was plucked. `strike_id` moves only on the measured
+            // 0.60 rising edge. Compare it with this round's baseline so an
+            // attack may arrive before CQT has settled on the note.
+            (self.onset_head_seen
+                && self.strike_id[target] != self.interval_start_strikes[target])
+                || confirmed_strum
+        } else {
+            self.onset_age <= 1 && self.last_onsets[target] >= ONSET_MIN
+        };
+        // In Intervals a CQT estimate of a harmonic must not bypass "only what
+        // was struck". Apply the same gate before either CQT return, including
+        // the steady-note path used when playing one note at a time.
+        if self.app_mode == AppMode::Intervals && !struck {
+            return None;
+        }
 
         // Played one at a time, the ear decides alone - and has to have been
         // saying so for three frames, not one.
@@ -1844,6 +1907,13 @@ impl MyApp {
         let p_target = self.last_pitches[target];
         let p_max = self.last_pitches.iter().cloned().fold(0.0f32, f32::max);
 
+        // A confidently named, newly strummed target chord is polyphonic
+        // evidence. Its quieter tones need not tie the loudest pitch-head
+        // output, but every requested class still has to clear the note gate.
+        if confirmed_strum && p_target >= self.note_threshold {
+            return Some(2);
+        }
+
         // 2. The model, where the target owns the window: a held note, or the
         //    only one in it.
         let stale = false;
@@ -1851,8 +1921,6 @@ impl MyApp {
         // older than one frame is about a note that has already gone. The
         // threshold is low on purpose - what is separated here is "struck" from
         // "no attack at all", not loud from quiet.
-        let struck = !self.require_onset
-            || (self.onset_age <= 1 && self.last_onsets[target] >= ONSET_MIN);
         if !stale && struck && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
             return Some(2);
         }
@@ -1945,13 +2013,52 @@ impl MyApp {
             self.interval_chord_confirmed = self.chords.get(self.current_chord_index)
                 .is_some_and(|chord| {
                     ai_root == Some(chord.root)
-                        && ai_qual == chord.quality.to_string()
+                        && self.interval_quality_matches(chord, &ai_qual)
                         && confidence >= self.chord_confidence
                 });
             self.onset_age = self.onset_age.saturating_add(1);
             return;
         }
         self.check_progress(dt, ai_root, &ai_qual, confidence);
+    }
+
+    /// Whether the chord name accounts for every interval currently requested.
+    /// A triad is enough for `1 3 5` over a seventh chord; asking for the
+    /// seventh keeps requiring the full seventh-chord name.
+    fn interval_quality_matches(&self, chord: &Chord, heard: &str) -> bool {
+        if heard == chord.quality.to_string() {
+            return true;
+        }
+        let active = self.get_active_indices(chord);
+        if active.len() < 2 {
+            return false;
+        }
+        let intervals = chord.quality.intervals();
+        let requested_are_in = |triad: &[u8]| {
+            active.iter().all(|step| {
+                intervals.get(step.degree).is_some_and(|semi| triad.contains(semi))
+            })
+        };
+        match (&chord.quality, heard) {
+            (ChordQuality::Major7 | ChordQuality::Dominant7, "") => {
+                requested_are_in(&[0, 4, 7])
+            }
+            (ChordQuality::Minor7, "m") => requested_are_in(&[0, 3, 7]),
+            (ChordQuality::HalfDiminished, "dim") => requested_are_in(&[0, 3, 6]),
+            _ => false,
+        }
+    }
+
+    /// A chord shortcut is valid only for a strum made after this round began.
+    /// This remains true with the per-note attack option off: otherwise a grip
+    /// still ringing from the previous round would immediately answer again.
+    fn interval_confirmed_strum(&self) -> bool {
+        self.app_mode == AppMode::Intervals
+            && self.interval_chord_confirmed
+            && !self.single_notes
+            && self.chords.get(self.current_chord_index).is_some_and(|chord| {
+                self.chord_struck_since(&chord.get_target_indices())
+            })
     }
 
     fn check_progress(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
@@ -2169,6 +2276,7 @@ impl MyApp {
                 if self.collected_notes.len() != active_indices.len() {
                     self.collected_notes.resize(active_indices.len(), false);
                 }
+                let confirmed_strum = self.interval_confirmed_strum();
 
                 // Which step is being answered.
                 //
@@ -2203,7 +2311,7 @@ impl MyApp {
                     // The pitch head still has to confirm each requested tone.
                     if me.free_order()
                         && me.cqt_pitch.is_some_and(|now| now != target % 12)
-                        && !(me.interval_chord_confirmed && !me.single_notes)
+                        && !confirmed_strum
                     {
                         return None;
                     }
@@ -2237,18 +2345,33 @@ impl MyApp {
 
                 // The count belongs to the step it started on: another step
                 // answering is a new answer, not a continuation of this one.
+                if self.app_mode == AppMode::Intervals
+                    && self.answering_step.is_some()
+                    && answering != self.answering_step
+                    && self.success_timer > 0.0
+                    && self.interval_confirmation_gap + dt <= INTERVAL_GAP
+                {
+                    self.interval_confirmation_gap += dt;
+                    return;
+                }
                 if let Some(k) = answering {
                     if self.answering_step != Some(k) {
                         self.answering_step = Some(k);
                         self.success_timer = 0.0;
+                        self.interval_confirmation_gap = 0.0;
                     }
                     self.success_timer += dt;
                 } else {
                     self.answering_step = None;
                     self.success_timer = 0.0;
+                    self.interval_confirmation_gap = 0.0;
                 }
 
-                let note_delay = 0.12;
+                // The chord name, a post-boundary strum and each tone's pitch
+                // probability already form a complete confirmation. Credit a
+                // grip over successive UI frames instead of holding every tone
+                // for another 120 ms in series.
+                let note_delay = if confirmed_strum { 0.0 } else { 0.12 };
                 if self.paused && self.success_timer > note_delay {
                     self.success_timer = note_delay;
                 }
@@ -2261,6 +2384,7 @@ impl MyApp {
                         self.credit_class(all_targets[step.degree], step.octave);
                         self.answering_step = None;
                         self.success_timer = 0.0;
+                        self.interval_confirmation_gap = 0.0;
                         // Where the exercise stands: the first step still
                         // wanted. In order that is the next one along, which is
                         // what it always was.
@@ -2589,6 +2713,144 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn interval_onset_gate_rejects_an_unstruck_cqt_fifth() {
+        for ordered in [false, true] {
+            for single in [false, true] {
+                let mut a = app();
+                a.app_mode = AppMode::Intervals;
+                a.interval_in_order = ordered;
+                a.single_notes = single;
+                a.require_onset = true;
+                a.intervals_input = "5".into();
+                a.reset_logic_state();
+                // C was struck, but CQT has settled on its harmonic G.
+                // Even naming the target chord must not bypass the option.
+                for _ in 0..12 {
+                    let mut onsets = [0.0; 12];
+                    onsets[0] = 0.8;
+                    a.set_onsets(onsets);
+                    a.last_pitches[7] = 0.99;
+                    a.check_progress_with_ai(0.016, "C maj7", 0.99);
+                    interval_audio(&mut a, Some(7), 1);
+                }
+                assert!(!a.collected_notes[0], "CQT bypassed the attack gate");
+
+                // Actually striking G must still finish the same exercise.
+                for _ in 0..12 {
+                    let mut onsets = [0.0; 12];
+                    onsets[7] = 0.8;
+                    a.set_onsets(onsets);
+                    a.check_progress_with_ai(0.016, "Noise", 0.0);
+                    interval_audio(&mut a, Some(7), 1);
+                }
+                assert!(a.collected_notes[0], "a struck fifth did not count");
+            }
+        }
+    }
+
+    #[test]
+    fn interval_onset_gate_remembers_a_strike_until_cqt_settles() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.require_onset = true;
+        a.reset_logic_state();
+        interval_audio(&mut a, Some(0), 12);
+        assert!(!a.collected_notes[0], "no model answer was treated as an attack");
+        let mut onsets = [0.0; 12];
+        onsets[0] = 0.8;
+        a.set_onsets(onsets);
+        a.check_progress_with_ai(0.016, "Noise", 0.0);
+        a.tick(INTERVAL_MODEL_AGE);
+        interval_audio(&mut a, Some(0), 12);
+        assert!(
+            a.collected_notes[0],
+            "the confirmed strike expired before CQT could settle"
+        );
+    }
+
+    #[test]
+    fn a_confirmed_strum_can_cover_a_missed_per_tone_attack() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.require_onset = true;
+        a.reset_logic_state();
+        let chord = a.chords[a.current_chord_index].clone();
+        let name = format!("{} {}", chord.root.to_string(), chord.quality.to_string());
+        // C and E supply the chord-wide strike. G's onset was missed, but both
+        // the chord name and pitch head confirm that it sounds in this strum.
+        for _ in 0..3 {
+            let mut onsets = [0.0; 12];
+            onsets[0] = 0.8;
+            onsets[4] = 0.8;
+            a.set_onsets(onsets);
+            for pc in chord.get_target_indices() { a.last_pitches[pc] = 0.99; }
+            a.check_progress_with_ai(0.016, &name, 0.99);
+            interval_audio(&mut a, Some(0), 1);
+        }
+        assert!(
+            a.collected_notes.iter().all(|&done| done),
+            "the chord-wide strike did not cover the missed G onset: {:?}, \
+             confirmed={}, strum={}, strikes={:?}",
+            a.collected_notes, a.interval_chord_confirmed,
+            a.interval_confirmed_strum(), a.strike_id
+        );
+    }
+
+    #[test]
+    fn a_lingering_fifth_does_not_return_after_another_note_is_struck() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.require_onset = true;
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+        ];
+        a.current_chord_index = 0;
+        a.reset_logic_state();
+
+        // The fifth was genuinely played and credited in the previous round.
+        let mut onsets = [0.0; 12];
+        onsets[7] = 0.8;
+        a.set_onsets(onsets);
+        interval_audio(&mut a, Some(7), 12);
+        a.advance_chord();
+
+        // A new root attack makes the old G cease to be the dominant CQT
+        // reading. The onset head also spreads 0.40 onto G, well over the old
+        // raw 0.02 gate but below the measured threshold for a real strike.
+        for _ in 0..12 {
+            let mut spread = [0.0; 12];
+            spread[0] = 0.8;
+            spread[7] = 0.4;
+            a.set_onsets(spread);
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            interval_audio(&mut a, Some(0), 1);
+        }
+        assert!(a.collected_notes[0]);
+
+        // The fifth is still physically ringing and becomes dominant again.
+        // It did not receive a new strike and cannot answer the new round.
+        for _ in 0..20 {
+            let mut spread = [0.0; 12];
+            spread[7] = 0.4;
+            a.set_onsets(spread);
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            interval_audio(&mut a, Some(7), 1);
+        }
+        assert!(!a.collected_notes[2], "the old fifth returned without a strike");
+
+        let mut fifth = [0.0; 12];
+        fifth[7] = 0.8;
+        a.set_onsets([0.0; 12]);
+        a.set_onsets(fifth);
+        for _ in 0..12 {
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            interval_audio(&mut a, Some(7), 1);
+        }
+        assert!(a.collected_notes[2], "a newly struck fifth stayed blocked");
+    }
+
+    #[test]
     fn intervals_show_the_complete_set_before_advancing_even_in_silence() {
         let mut a = app();
         a.set_mode(AppMode::Intervals as i32);
@@ -2703,15 +2965,86 @@ pub(crate) mod tests {
             let chord = a.chords[a.current_chord_index].clone();
             let root = chord.root as usize;
             let name = format!("{} {}", chord.root.to_string(), chord.quality.to_string());
-            for _ in 0..28 {
+            let targets = chord.get_target_indices();
+            let mut onsets = [0.0; 12];
+            for &pc in targets.iter().take(2) { onsets[pc] = 0.8; }
+            a.set_onsets(onsets);
+            let frames = if single { 28 } else { a.collected_notes.len() };
+            for _ in 0..frames {
                 a.last_pitches = [0.0; 12];
-                for pc in chord.get_target_indices() { a.last_pitches[pc] = 0.99; }
+                for &pc in &targets { a.last_pitches[pc] = 0.99; }
                 a.check_progress_with_ai(0.016, &name, 0.99);
                 interval_audio(&mut a, Some(root), 1);
             }
             let count = a.collected_notes.iter().filter(|&&done| done).count();
             assert_eq!(count, if single { 1 } else { a.collected_notes.len() });
         }
+    }
+
+    #[test]
+    fn intervals_accept_a_major_triad_over_a_seventh_chord_as_one_strum() {
+        for (quality, heard) in [
+            (ChordQuality::Major7, "C"),
+            (ChordQuality::Dominant7, "C"),
+            (ChordQuality::Minor7, "C m"),
+        ] {
+            let mut a = app();
+            a.app_mode = AppMode::Intervals;
+            a.chords = vec![Chord { root: NoteName::C, quality }];
+            a.intervals_input = "1 3 5".into();
+            a.require_onset = true;
+            a.reset_logic_state();
+            let chord = a.chords[0].clone();
+            let triad: Vec<usize> = chord.get_target_indices().into_iter().take(3).collect();
+            let mut onsets = [0.0; 12];
+            for &pc in &triad { onsets[pc] = 0.8; }
+            a.set_onsets(onsets);
+            for &pc in &triad { a.last_pitches[pc] = 0.70; }
+            a.check_progress_with_ai(0.016, heard, 0.99);
+            for _ in 0..triad.len() {
+                interval_audio(&mut a, Some(triad[0]), 1);
+            }
+            assert!(
+                a.collected_notes.iter().all(|&done| done),
+                "{} triad was not collected together", chord.quality.to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn a_triad_name_does_not_claim_a_requested_seventh() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Major7 }];
+        a.intervals_input = "1 3 5 7".into();
+        a.require_onset = false;
+        a.reset_logic_state();
+        for pc in [0, 4, 7] { a.last_pitches[pc] = 0.99; }
+        a.check_progress_with_ai(0.016, "C", 0.99);
+        assert!(!a.interval_chord_confirmed, "a triad claimed the missing seventh");
+    }
+
+    #[test]
+    fn a_ringing_triad_is_not_a_new_strum_after_the_round_boundary() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+        ];
+        a.intervals_input = "1 3 5".into();
+        // Even with the per-note option off, the chord shortcut itself needs a
+        // post-boundary strum or a held grip would answer the next round.
+        a.require_onset = false;
+        a.reset_logic_state();
+        for pc in [0, 4, 7] { a.credit_class(pc, 0); }
+        a.advance_chord();
+        for _ in 0..20 {
+            for pc in [0, 4, 7] { a.last_pitches[pc] = 0.99; }
+            a.check_progress_with_ai(0.016, "C", 0.99);
+            interval_audio(&mut a, Some(7), 1);
+        }
+        assert!(a.collected_notes.iter().all(|&done| !done));
     }
 
     #[test]
@@ -2749,6 +3082,103 @@ pub(crate) mod tests {
         interval_audio(&mut a, Some(pcs[0]), 12);
         assert!(a.collected_notes[0]);
         assert!(!a.collected_notes[1]);
+    }
+
+    #[test]
+    fn intervals_do_not_use_a_strike_from_before_the_next_chord() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+        ];
+        a.current_chord_index = 0;
+        a.reset_logic_state();
+        a.onset_head_seen = true;
+        a.hears(Some(0));
+        a.credit_class(0, 0);
+        a.tick(0.6); // original pluck's settling window has ended
+        // Another answer for C arrived while the previous chord was still
+        // being practised. It must not be a new attack in the next exercise.
+        a.strike_id[0] += 1;
+        a.advance_chord();
+        interval_audio(&mut a, Some(0), 12);
+        assert!(!a.collected_notes[0], "a pre-boundary strike answered the new chord");
+        a.strike_id[0] += 1; // now the player actually strikes it again
+        interval_audio(&mut a, Some(0), 12);
+        assert!(a.collected_notes[0], "a post-boundary strike did not count");
+    }
+
+    #[test]
+    fn intervals_do_not_carry_a_notes_return_across_the_boundary() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.hears(Some(0));
+        a.credit_class(0, 0);
+        a.credited[0].as_mut().unwrap().left = true;
+        a.credited[0].as_mut().unwrap().settle = 0.0;
+        // C is already being heard again before the new chord is requested.
+        a.advance_chord();
+        assert!(!a.struck_since_credit(0), "the old departure survived the boundary");
+    }
+
+    #[test]
+    fn intervals_a_third_survives_two_isolated_estimator_jumps() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.reset_logic_state();
+        // The C -> E probe briefly names C# and G between readings of E.
+        // E is already strong in the model; neither stray should count as
+        // playing G or erase all the confirmation earned by the third.
+        for pc in [4, 4, 4, 1, 4, 4, 4, 7, 4] {
+            interval_audio(&mut a, Some(pc), 1);
+            assert!(a.collected_notes.iter().all(|&done| !done));
+        }
+        interval_audio(&mut a, Some(4), 1);
+        assert!(a.collected_notes[1]);
+        assert!(!a.collected_notes[0]);
+        assert!(!a.collected_notes[2]);
+    }
+
+    #[test]
+    fn intervals_alternating_readings_cannot_accumulate_a_credit() {
+        let mut a = app();
+        a.app_mode = AppMode::Intervals;
+        a.reset_logic_state();
+        for _ in 0..30 {
+            interval_audio(&mut a, Some(4), 1);
+            interval_audio(&mut a, Some(7), 1);
+        }
+        assert!(a.collected_notes.iter().all(|&done| !done));
+    }
+
+    #[test]
+    fn intervals_date_predictions_by_the_audio_the_model_read() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.audio_frames = 100;
+        a.advance_chord();
+        a.audio_frames = 110;
+        assert!(!a.accepts_model_frame(99));
+        assert!(!a.accepts_model_frame(100));
+        assert!(a.accepts_model_frame(108));
+        // A long inference is also stale even if it started after the boundary.
+        a.audio_frames = 130;
+        assert!(!a.accepts_model_frame(108));
+        assert!(a.accepts_model_frame(130));
+        a.app_mode = AppMode::Chords;
+        assert!(a.accepts_model_frame(99));
+    }
+
+    #[test]
+    fn intervals_keep_muting_as_evidence_when_advancing() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.credit_class(0, 0);
+        interval_audio(&mut a, None, 16);
+        a.advance_chord();
+        a.hears(Some(0));
+        assert!(a.struck_since_credit(0), "muting before the boundary was forgotten");
     }
 
     /// One note played and heard: the single-frame estimate holding still on it,
@@ -3610,7 +4040,8 @@ pub(crate) mod tests {
         // The credit is the exception: it outlives the chord on purpose, so
         // that the same note asked for on both sides of the boundary needs the
         // string struck again. It can only refuse, never credit.
-        assert_eq!(a.credited[3], Some(credit(7, 0)), "the credit was dropped at the boundary");
+        assert_eq!(a.credited[3], Some(credit(a.onset_id, a.strike_id[3])),
+                   "the credit must survive with the new chord's attack baseline");
     }
 
     /// Entering a mode is a fresh start for the ear as well as for the exercise.

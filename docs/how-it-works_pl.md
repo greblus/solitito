@@ -71,10 +71,40 @@ dziesiątych szczytu, który zaliczył poprzednie uderzenie.
 
 ### Zaliczanie w Interwałach
 
+**Zaliczaj tylko to, co uderzone** jest w Interwałach domyślnie włączone i zapamiętywane
+osobno od wspólnego ustawienia pozostałych trybów. Starsza konfiguracja bez osobnego pola
+też zaczyna od włączonej opcji; jej świadome wyłączenie jest zapamiętywane. W Interwałach
+opcja obejmuje każdą ścieżkę wykrywania, także CQT i ustabilizowany odczyt pojedynczej nuty.
+Wcześniej CQT ją omijało, więc harmoniczna odczytana jako kwinta mogła przejść bez ataku
+dla tej kwinty. Sędzia zapisuje teraz dopiero zmierzone zbocze głowicy ataków na poziomie
+0,60, względem początku bieżącej rundy; słaba odpowiedź 0,02 nie jest dowodem uderzenia.
+To zatrzymuje powrót wybrzmiewającej kwinty, gdy atak innej nuty rozmyje się na nią słabą
+odpowiedzią. Zwykle każdy zaliczany składnik wymaga własnego potwierdzenia ataku. Wąski
+wyjątek dla potwierdzonego nowego uderzenia akordu jest opisany niżej: wspólny dowód ataku
+akordu może zastąpić przeoczone zbocze pojedynczej nuty, ale głowica wysokości nadal musi ją
+usłyszeć. Głowica ataków może je przeoczyć lub błędnie rozpoznać: ta zmiana zamyka szerokie
+obejście przez CQT, ale nie gwarantuje braku fałszywych zaliczeń. Model bez głowicy ataków
+wymaga wyłączenia tej opcji.
+
 Interwały sprawdzają każdą nową ramkę audio odczytaną przez interfejs, również gdy model
-nie ma dość sygnału, żeby odpowiedzieć. Ponowne odczytanie tej samej ramki nie wydłuża
+nie ma dość sygnału, żeby odpowiedzieć; przy włączonej opcji samo CQT nie zalicza nuty.
+Ponowne odczytanie tej samej ramki nie wydłuża
 zaliczenia, a przerwa w dostarczaniu ramek zeruje rozpoczęte potwierdzenie. Odpowiedź
 modelu wygasa po 250 ms bez aktualizacji.
+
+Potwierdzenie może przetrwać łącznie dwie brakujące ramki (32 ms), ale ich czas nie liczy
+się do zaliczenia. To budżet całego potwierdzenia: naprzemienne odczyty dwóch dźwięków nie
+zbierają punktów bez końca. W kontrolowanym przykładzie C → E, z pozostawioną brzmiącą
+prymą i cichą tercją, czas zebrania potwierdzenia skrócił się z 750 do 410 ms. Dwa głośniejsze
+warianty pozostały przy 380 i 390 ms. Wymaganie ataku w tych samych ramkach sondy pozostawiło
+wszystkie trzy czasy bez zmian. To pomiar reguły na syntetycznych szarpnięciach,
+nie gwarancja czasu rozpoznania dla dowolnej gitary.
+
+Na granicy akordu pamięć zaliczonych dźwięków zostaje, ale liczniki uderzeń zaczynają
+porównywać z chwilą tej granicy. Uderzenie usłyszane wcześniej nie odpowiada za nowy zestaw.
+Wynik modelu niesie numer ramki, którą analizował; odpowiedź o ramkach sprzed zmiany lub
+starszych niż 250 ms nie trafia do oceny, nawet jeśli właśnie dotarła do interfejsu.
+Nie usuwa to fizycznego wybrzmiewania strun ani przeszłości z nakładających się okien FFT.
 
 Linia tekstowa i podstrunnica pokazują te same zaliczone stopnie, także poza kolejnością.
 Po ostatnim dźwięku cały zestaw pozostaje zielony przez 350 ms, potem przychodzi następny
@@ -82,13 +112,18 @@ akord. Pauza zatrzymuje to przejście; cisza go nie zatrzymuje.
 
 Wybrzmiewająca nuta nie zalicza swojego powtórzenia. Wyciszenie wejścia poniżej bramki
 przez co najmniej 200 ms pozwala ponownie zaliczyć tę samą nutę, gdy estymator usłyszy ją
-stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie. Sam brak odczytu CQT
+stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie, o ile opcja wymagania
+ataku jest wyłączona. Przy włączonej powtórzenie nadal wymaga ataku. Sam brak odczytu CQT
 przy otwartej bramce nie jest takim wyciszeniem.
 
 Przy dowolnej kolejności estymator blokuje zaliczanie innych nut z samej odpowiedzi modelu.
-Wyjątkiem jest pewnie rozpoznany akord docelowy: jeśli opcja grania pojedynczo jest wyłączona,
-jego składniki mogą zaliczać się kolejno z jednego uderzenia. Każdy składnik nadal musi być
-potwierdzony przez detektor; sama nazwa akordu nie zalicza całego zestawu.
+Wyjątkiem jest pewnie rozpoznany, świeżo uderzony akord docelowy, gdy opcja grania pojedynczo
+jest wyłączona. Dla ćwiczenia `1 3 5` zgodny trójdźwięk durowy, molowy albo zmniejszony
+potwierdza te składniki również nad odpowiadającym mu akordem septymowym; ćwiczenie z
+septymą nadal wymaga nazwy pełnego akordu. Po granicy rundy muszą wystąpić co najmniej dwa
+zbocza ataku na składnikach akordu, a każda żądana nuta musi przekroczyć próg wysokości.
+Gdy warunki są zgodne, składniki zaliczają się w kolejnych klatkach interfejsu zamiast
+czekać po dodatkowe 120 ms na każdy. Sama nazwa akordu ani wybrzmiewający chwyt nie przejdą.
 
 ---
 

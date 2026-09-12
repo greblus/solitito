@@ -70,10 +70,39 @@ strike before it.
 
 ### Crediting in Intervals
 
+**Credit only what was struck** defaults on in Intervals and is saved separately from
+the shared choice in other modes. Older settings without the interval-specific field
+also start with it on; explicitly turning it off is remembered. In Intervals the option
+gates every detection path, including CQT and the steady single-note estimate. Previously
+CQT bypassed it, so a harmonic read as a fifth could pass without an attack for that fifth.
+The judge now records only the onset head's measured 0.60 rising edge, relative to the
+start of the current round; its low 0.02 response is insufficient evidence. This prevents
+a lingering fifth from returning after another note's attack has weakly spread onto it.
+Normally each credited tone needs its own attack evidence. A confirmed new chord strum has
+the narrow fallback described below: chord-wide attack evidence can cover a missed per-tone
+edge while the pitch head still has to hear that tone. The onset head can miss or
+misidentify attacks, so this closes the broad CQT bypass rather than guaranteeing no false
+credits. A model without an onset head requires turning this option off.
+
 Intervals checks each new audio frame observed by the UI, even when the model has too
-little signal to answer. Reading the same frame again does not extend a credit, and a gap
+little signal to answer; with the attack option on, CQT alone cannot earn credit.
+Reading the same frame again does not extend a credit, and a gap
 in incoming frames resets the pending confirmation. Model answers expire after 250 ms
 without an update.
+
+A pending confirmation tolerates a total of two missing audio frames (32 ms), but missing
+time earns no credit. The budget applies to the whole confirmation, so alternating notes
+cannot accumulate credits indefinitely. In a controlled C → E example with the root left
+ringing and a quiet third, collecting confirmation took 410 ms instead of 750 ms. Two louder
+variants remained at 380 and 390 ms. Requiring attack evidence in these same probe frames
+kept all three times unchanged. This measures the rule on synthetic plucks, rather than
+guaranteeing recognition times for any guitar.
+
+At a chord boundary the credited notes remain remembered, but attack counters are compared
+against their values at that boundary. An earlier strike cannot answer the new exercise.
+Model results carry the number of the audio frame they analysed; results from before the
+boundary or from audio older than 250 ms do not reach the judge even if they just arrived.
+This does not remove strings still ringing or the past inside overlapping FFT windows.
 
 The text strip and fretboard show the same credited steps, including notes played out of
 order. After the last note, the whole set stays green for 350 ms before the next chord.
@@ -81,12 +110,17 @@ Pause holds that transition; silence does not.
 
 A ringing note cannot credit its own repeat. Muting the input below the gate for at least
 200 ms allows that note to count again once the estimate hears it steadily, even if the
-onset head missed the new pluck. A missing CQT estimate with the gate open is not muting.
+onset head missed the new pluck if the attack option is off. With it on, the repeat still
+needs attack evidence. A missing CQT estimate with the gate open is not muting.
 
 In free order, the estimate blocks other notes from passing on the model's answer alone.
-A confidently recognised target chord is the exception: with single-note playing disabled,
-its tones can pass from one strum. Each tone still needs confirmation from the detector;
-the chord name alone does not credit the whole set.
+A confidently recognised, newly strummed target chord is the exception when single-note
+playing is disabled. For an exercise asking for `1 3 5`, a matching major, minor or
+diminished triad also confirms those tones over the corresponding seventh chord; asking
+for the seventh still requires the full chord name. At least two chord-tone attack edges
+must follow the round boundary, and every requested tone must clear the pitch threshold.
+Once those conditions agree, the tones are credited over successive UI frames instead of
+waiting another 120 ms for each one. The chord name or a ringing grip alone cannot pass.
 
 ---
 
