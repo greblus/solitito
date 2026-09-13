@@ -126,10 +126,31 @@ Przy dowolnej kolejności estymator blokuje zaliczanie innych nut z samej odpowi
 Wyjątkiem jest pewnie rozpoznany, świeżo uderzony akord docelowy, gdy opcja grania pojedynczo
 jest wyłączona. Dla ćwiczenia `1 3 5` zgodny trójdźwięk durowy, molowy albo zmniejszony
 potwierdza te składniki również nad odpowiadającym mu akordem septymowym; ćwiczenie z
-septymą nadal wymaga nazwy pełnego akordu. Po granicy rundy muszą wystąpić co najmniej dwa
-zbocza ataku na składnikach akordu, a każda żądana nuta musi przekroczyć próg wysokości.
+septymą nadal wymaga nazwy pełnego akordu. Po granicy rundy muszą wystąpić ataki co najmniej
+dwóch różnych składników w odstępie najwyżej sześciu ramek audio (96 ms), a każda żądana
+nuta musi przekroczyć próg wysokości. Powtarzane ataki prymy nie odblokowują innych nut.
+Interwały zachowują okres ochrony przed spóźnionym atakiem przy chwilowym przejściu CQT
+na harmoniczną; wcześniejsze odblokowanie powtórzeń dotyczy tylko Skal i Arpeggiów.
 Gdy warunki są zgodne, składniki zaliczają się w kolejnych klatkach interfejsu zamiast
 czekać po dodatkowe 120 ms na każdy. Sama nazwa akordu ani wybrzmiewający chwyt nie przejdą.
+
+### Zaliczanie w Skalach i Arpeggiach
+
+Skale i Arpeggia używają tego samego zegara ramek audio co Interwały, zachowując ścisłą
+kolejność zapisu i potwierdzenie każdej nuty przez 120 ms. Aktualny odczyt CQT może więc
+przesunąć frazę bez oczekiwania na kolejną inferencję modelu. Łącznie dwie brakujące ramki
+CQT są tolerowane, ale ich czas nie powiększa potwierdzenia.
+
+Każdy następny krok rozpoczyna nową granicę dla modelu. Opóźniona inferencja sprzed tego
+kroku ani zapamiętana odpowiedź głowicy wysokości dla poprzedniej nuty nie mogą go zaliczyć;
+dowód modelu wygasa też po 250 ms. Powtórzona klasa wysokości nadal wymaga opuszczenia
+poprzedniej nuty albo ponownego uderzenia. Stabilne usłyszenie innej nuty kończy okres
+przypisywania spóźnionego ataku, dzięki czemu szybkie arpeggio może wrócić do tej samej
+klasy po przejściu przez inne składniki. Nie ma tu skrótu przez nazwę akordu. Opcjonalna
+bramka ataku jest domyślnie wyłączona, pozwalając grać legato i przy przeoczonych atakach.
+Zasady pojedynczych nut i kolejności zapisu są widoczne jako stałe, zaznaczone opcje.
+Edytowalne ustawienia nutowe są zapamiętywane osobno dla każdego trybu. Formuły zachowują
+dotychczasowy detektor i niezależne ograniczenia kolejności, pojedynczych nut oraz ataków.
 
 ---
 

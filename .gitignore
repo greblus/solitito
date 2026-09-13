@@ -3,6 +3,7 @@
 .claude
 .venv/
 dist/.venv/
+AGENTS.md
 
 # Audio - renders and DI exports. Hundreds of MB, generated, not versioned.
 # (GitHub rejects files >100 MB, and history would keep them forever.)

@@ -1113,7 +1113,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_startup_mode(cfg.startup_mode);
         ui.set_language_idx(cfg.language);
         ui.set_short_verdict(cfg.short_verdict);
-        ui.set_single_notes(cfg.single_notes);
+        ui.set_single_notes(cfg.single_notes_for(cfg.startup_mode));
         ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
         ui.set_shuffle_chords(cfg.shuffle_chords);
         ui.set_show_diagrams(cfg.show_diagrams);
@@ -2477,9 +2477,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let cur = live_cfg.clone();
         ui.on_single_notes_changed({
             let cur = cur.clone();
+            let uw = ui.as_weak();
             move |on| {
+                let Some(ui) = uw.upgrade() else { return };
                 let mut cur = cur.borrow_mut();
-                cur.single_notes = on;
+                cur.set_single_notes_for(ui.get_current_mode(), on);
                 cur.save();
             }
         });
@@ -2840,6 +2842,8 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_preview(cfg_mode.borrow().preview_for(mode_idx) as i32);
         app.require_onset = cfg_mode.borrow().require_onset_for(mode_idx);
         ui.set_require_onset(app.require_onset);
+        app.single_notes = cfg_mode.borrow().single_notes_for(mode_idx);
+        ui.set_single_notes(app.single_notes);
         ui.set_interval_input_text(app.intervals_input.clone().into());
         // The language as it is now, not as it was at startup.
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
@@ -3204,6 +3208,5 @@ mod db_tests {
         assert!(lin_to_db(1e-9).is_finite());
     }
 }
-
 
 

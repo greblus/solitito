@@ -57,6 +57,10 @@ pub struct Settings {
     /// including older settings that only saved the shared model gate.
     #[serde(default = "yes")]
     pub interval_require_onset: bool,
+    #[serde(default)]
+    pub mode_single_notes: [Option<bool>; 6],
+    #[serde(default)]
+    pub mode_require_onset: [Option<bool>; 6],
     /// Whether the shuffle also reorders the chords in Intervals and Arpeggios.
     /// Off by default: shuffled intervals over the written progression is the
     /// musical half of the idea, shuffling both is the experiment.
@@ -278,6 +282,8 @@ impl Default for Settings {
             single_notes: false,
             require_onset: false,
             interval_require_onset: true,
+            mode_single_notes: [None; 6],
+            mode_require_onset: [None; 6],
             shuffle_chords: false,
             show_spectrum: false,
             ai_debug: false,
@@ -411,14 +417,26 @@ impl Settings {
     }
 
     pub fn require_onset_for(&self, mode: i32) -> bool {
-        if mode == 1 { self.interval_require_onset } else { self.require_onset }
+        self.mode_require_onset.get(mode as usize).copied().flatten()
+            .unwrap_or_else(|| if mode == 1 { self.interval_require_onset }
+                else if matches!(mode, 2 | 3 | 5) { false }
+                else { self.require_onset })
     }
 
     pub fn set_require_onset_for(&mut self, mode: i32, on: bool) {
-        if mode == 1 {
-            self.interval_require_onset = on;
-        } else {
-            self.require_onset = on;
+        if let Some(value) = self.mode_require_onset.get_mut(mode as usize) {
+            *value = Some(on);
+        }
+    }
+
+    pub fn single_notes_for(&self, mode: i32) -> bool {
+        matches!(mode, 2 | 3) || self.mode_single_notes.get(mode as usize)
+            .copied().flatten().unwrap_or(self.single_notes)
+    }
+
+    pub fn set_single_notes_for(&mut self, mode: i32, on: bool) {
+        if let Some(value) = self.mode_single_notes.get_mut(mode as usize) {
+            *value = Some(on);
         }
     }
 
@@ -604,6 +622,22 @@ mod tests {
         assert!(restored.require_onset_for(4));
         s.set_require_onset_for(1, true);
         assert!(s.require_onset_for(4), "intervals changed the shared option");
+    }
+
+    #[test]
+    fn note_options_are_saved_independently_for_each_mode() {
+        let mut s = Settings::default();
+        s.set_single_notes_for(1, true);
+        s.set_require_onset_for(5, true);
+        let restored: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(restored.single_notes_for(1));
+        assert!(restored.single_notes_for(2));
+        assert!(restored.single_notes_for(3));
+        assert!(!restored.single_notes_for(5));
+        assert!(restored.require_onset_for(5));
+        assert!(!restored.require_onset_for(2));
+        assert!(!restored.require_onset_for(3));
+        assert!(restored.require_onset_for(1));
     }
 
     #[test]

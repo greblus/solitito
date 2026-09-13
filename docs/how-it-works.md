@@ -122,10 +122,31 @@ In free order, the estimate blocks other notes from passing on the model's answe
 A confidently recognised, newly strummed target chord is the exception when single-note
 playing is disabled. For an exercise asking for `1 3 5`, a matching major, minor or
 diminished triad also confirms those tones over the corresponding seventh chord; asking
-for the seventh still requires the full chord name. At least two chord-tone attack edges
-must follow the round boundary, and every requested tone must clear the pitch threshold.
+for the seventh still requires the full chord name. Attacks on at least two different
+chord tones must follow the round boundary within six audio hops (96 ms) of one another,
+and every requested tone must clear the pitch threshold. Repeated root attacks do not
+unlock the other tones. Intervals retains its late-attack settling period when the CQT
+estimate briefly moves to a harmonic; the early rearming used by melodic sequences is
+limited to Scales and Arpeggios.
 Once those conditions agree, the tones are credited over successive UI frames instead of
 waiting another 120 ms for each one. The chord name or a ringing grip alone cannot pass.
+
+### Crediting in Scales and Arpeggios
+
+Scales and arpeggios use the same audio-frame clock as Intervals, while retaining their
+strict written order and 120 ms per-note confirmation. A current CQT reading can therefore
+advance the phrase without waiting for the next model inference. A total of two missing
+CQT frames is tolerated without adding their time to the confirmation.
+
+Each next step starts a new model boundary. A delayed inference from before that step and a
+cached pitch-head answer for the preceding note cannot answer it; model evidence also
+expires after 250 ms. Repeated pitch classes still require the previous note to have been
+left or struck again. Hearing another note steadily ends the late-onset settling period, so
+a fast arpeggio can return to the same pitch class after crossing other tones. No chord-name
+shortcut is used. The optional attack gate defaults off, allowing legato and attacks the
+onset head misses. The single-note and written-order rules are shown as fixed, checked
+options. Editable note options are saved independently per mode. Formulas keeps its
+existing detector and offers independent order, single-note and attack restrictions.
 
 ---
 

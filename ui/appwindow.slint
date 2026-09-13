@@ -1745,14 +1745,14 @@ export component AppWindow inherits Window {
                         // offered. It is left to choose in Intervals, where a
                         // strummed grip walking its tones is the point, and in
                         // Formulas, which has its own strict switch.
-                        if root.current_mode == 1 || root.current_mode == 4
-                            || root.current_mode == 5 : VerticalLayout {
+                        if root.current_mode >= 1 : VerticalLayout {
                             spacing: 4px;
                             HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {
                                     checked <=> root.single_notes;
+                                    enabled: root.current_mode != 2 && root.current_mode != 3;
                                     toggled => { root.single_notes_changed(self.checked); }
                                 }
                                 Text {
@@ -1775,7 +1775,7 @@ export component AppWindow inherits Window {
                             // rule, which takes the single-frame estimate alone
                             // and never the model's branches - so this would sit
                             // there doing nothing.
-                            if root.current_mode != 5 : HorizontalLayout {
+                            HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {
@@ -1787,10 +1787,15 @@ export component AppWindow inherits Window {
                                     color: #aaa; vertical-alignment: center;
                                 }
                             }
-                            if root.current_mode != 5 : Text {
+                            Text {
                                 width: root.panel_w - 30px;
                                 text: Tr.require_onset_hint;
                                 font-size: 12px; color: #777; wrap: word-wrap;
+                            }
+                            if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
+                                spacing: 15px;
+                                CheckBox { checked: true; enabled: false; }
+                                Text { text: Tr.in_order; color: #aaa; }
                             }
                         }
 
