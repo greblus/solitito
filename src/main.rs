@@ -9,6 +9,7 @@ mod formulas;
 mod fretboard;
 mod i18n;
 mod latch;
+mod probe_audio;
 mod rng;
 mod settings;
 mod state;
@@ -525,18 +526,11 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
         _ => anyhow::bail!("only 16-bit integer or 32-bit float WAV is read here"),
     };
 
-    // First channel and a linear resample to 16 kHz - the same two steps the
-    // stream callback does, so the features are the ones the app would see.
+    // First channel and linear resampling, as in the stream callback. The
+    // whole-file position uses f64 so long probes retain their time axis.
     let mono: Vec<f32> = raw.chunks(ch).map(|f| f[0]).collect();
-    let ratio = spec.sample_rate as f32 / TARGET_SR as f32;
-    let mut sig: Vec<f32> = Vec::with_capacity((mono.len() as f32 / ratio) as usize + 8);
-    let mut read = 0.0f32;
-    while read + 1.0 < mono.len() as f32 {
-        let i = read as usize;
-        let f = read - i as f32;
-        sig.push(mono[i] + f * (mono[i + 1] - mono[i]));
-        read += ratio;
-    }
+    anyhow::ensure!(spec.sample_rate > 0, "WAV sample rate must be nonzero");
+    let sig = probe_audio::resample(&mono, spec.sample_rate, TARGET_SR);
 
     let mut analyzer = audio::CqtAnalyzer::new("dsp_weights.json")?;
     let mut brain = ChordBrain::new(&model_path())?;
@@ -3196,6 +3190,5 @@ mod db_tests {
         assert!(lin_to_db(1e-9).is_finite());
     }
 }
-
 
 
