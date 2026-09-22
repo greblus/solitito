@@ -182,9 +182,9 @@ pub struct Credit {
     /// Seconds left in which the head may still be answering about the pluck
     /// this credit was earned on - see `STRIKE_SETTLE`.
     pub settle: f32,
-    /// Whether something else has been heard, steadily, since this note was
-    /// credited. Then the note has stopped sounding and anything heard from it
-    /// afterwards is a fresh pluck - whether or not the attack head noticed.
+    /// Whether another class has dominated CQT since this credit, or the gate
+    /// has stayed closed. This is a repeat heuristic, not proof that this
+    /// individual string stopped ringing under the other notes.
     pub left: bool,
 }
 
@@ -2370,14 +2370,11 @@ impl MyApp {
         let Some(c) = self.credited[pc] else {
             return true;
         };
-        // The note stopped sounding and CAME BACK: something else was heard
-        // steadily since it was credited, and the single-frame estimate is
-        // reading this note again now. Both halves matter - "something else was
-        // heard" alone let a note credited a moment ago count a second time
-        // while it merely rang on under the note being played, which is the
-        // multiple-crediting this rule exists to stop. The estimate is
-        // monophonic: it names what is loudest, so it names the ringing note
-        // again only once the string is struck again.
+        // CQT returned after another class dominated it. This fallback helps
+        // when the onset head misses a pluck, but cannot distinguish a new
+        // pluck from an old note becoming loudest again as another decays.
+        // onset_replay contains the repeated-Bm7 counterexample. Keep it
+        // separate from evidence supplied by the class's own strike counter.
         if c.left && self.steady_note() == Some(pc) {
             return true;
         }
@@ -2415,11 +2412,9 @@ impl MyApp {
                         cr.strike = strikes[c];
                     }
                 }
-                // Something else has been sounding since: this note has gone
-                // quiet, and what is heard from it next is a new pluck. Without
-                // this a note asked for again a few steps later could not be
-                // credited at all when the attack head missed the pluck - the
-                // fretboard trainer stuck on a note that was plainly right.
+                // Another class has taken over CQT. This enables the fallback
+                // above; it does not establish per-string silence. Removing
+                // it requires checking missed onsets as well as false credits.
                 if cr.settle <= 0.0 && elsewhere.is_some_and(|other| other != c) {
                     cr.left = true;
                 }
@@ -2550,6 +2545,10 @@ impl MyApp {
 }
 
 #[cfg(test)]
+#[path = "onset_replay.rs"]
+mod onset_replay;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::audio::{CTX_FRAMES, TOTAL_FEATURES};
@@ -2567,6 +2566,66 @@ pub(crate) mod tests {
             a.sync_audio_settings();
             a.tick(0.016);
         }
+    }
+
+    // Diagnostic contract for the planned onset work. An ideal onset head
+    // must be sufficient to reject a ringing root reappearing in CQT after
+    // the louder fifth decays. No detector noise is injected in this replay.
+    fn ideal_onset_root_fifth_root(repluck_root: bool) -> MyApp {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.require_onset = true;
+        a.interval_in_order = true;
+        a.intervals_input = "1 5 1".into();
+        a.reset_logic_state();
+        let root = a.chords[a.current_chord_index].root as usize;
+        let fifth = (root + 7) % 12;
+        let mut onset = [0.0; 12];
+        onset[root] = 0.9;
+        a.set_onsets(onset);
+        interval_audio(&mut a, Some(root), 12);
+        assert_eq!(&a.collected_notes[..], &[true, false, false]);
+        a.set_onsets([0.0; 12]);
+        interval_audio(&mut a, Some(root), 40);
+        onset = [0.0; 12];
+        onset[fifth] = 0.9;
+        a.set_onsets(onset);
+        interval_audio(&mut a, Some(fifth), 12);
+        assert_eq!(&a.collected_notes[..], &[true, true, false]);
+        a.set_onsets([0.0; 12]);
+        interval_audio(&mut a, Some(fifth), 40);
+        if repluck_root {
+            onset = [0.0; 12];
+            onset[root] = 0.9;
+            a.set_onsets(onset);
+        }
+        interval_audio(&mut a, Some(root), 12);
+        a
+    }
+
+    #[test]
+    fn ideal_onset_accepts_a_genuinely_replucked_root() {
+        let a = ideal_onset_root_fifth_root(true);
+        assert_eq!(&a.collected_notes[..], &[true, true, true]);
+    }
+
+    #[test]
+    #[ignore = "known policy gap: CQT return bypasses a new per-pitch onset; diagnostic only"]
+    fn ideal_onset_rejects_a_ringing_root_returning_after_the_fifth() {
+        let a = ideal_onset_root_fifth_root(false);
+        assert_eq!(&a.collected_notes[..], &[true, true, false]);
+    }
+
+    #[test]
+    #[ignore = "known policy gap: sounding_by branch 1 precedes require_onset; diagnostic only"]
+    fn ideal_onset_rejects_cqt_without_an_attack() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.require_onset = true;
+        a.onset_head_seen = true;
+        a.set_onsets([0.0; 12]);
+        a.cqt_pitch = Some(0);
+        assert_eq!(a.sounding_by(0, None, 0.0), None);
     }
 
     #[test]
