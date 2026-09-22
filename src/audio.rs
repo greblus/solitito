@@ -784,6 +784,10 @@ fn sparse_cqt_mag(
 }
 
 #[cfg(test)]
+#[path = "onset_feature_probe.rs"]
+mod onset_feature_probe;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

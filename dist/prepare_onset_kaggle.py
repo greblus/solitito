@@ -527,4 +527,3 @@ if __name__ == "__main__":
     status = main([] if "ipykernel" in sys.modules else None)
     if status:
         raise SystemExit(status)
-

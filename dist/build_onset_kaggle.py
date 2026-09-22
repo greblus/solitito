@@ -107,7 +107,7 @@ def build(directory):
                        for target in node.targets):
                     chunks.append(ast.get_source_segment(source, node))
     chunks.append(RUNNER)
-    return "\n\n".join(chunks) + "\n"
+    return "\n\n".join(chunks).rstrip() + "\n"
 
 
 if __name__ == "__main__":
