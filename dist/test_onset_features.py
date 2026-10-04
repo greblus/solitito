@@ -41,7 +41,8 @@ class FeatureAuditTests(unittest.TestCase):
         # excluding the trainer's top-level installation/authentication code.
         tree = ast.parse(trainer.read_text())
         nodes = []
-        for node in tree.body:
+        factory, = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "chord_runtime"]
+        for node in factory.body:
             if isinstance(node, ast.Assign):
                 try:
                     ast.literal_eval(node.value)

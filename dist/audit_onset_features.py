@@ -24,7 +24,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from onset_contrasts import pluck
+from prepare_onset_data import GENERATOR_VERSION, pluck
 from onset_events import sha256
 
 SR, HOP = 16000, 256
@@ -32,17 +32,20 @@ SR, HOP = 16000, 256
 
 def load_trainer_extractor(path):
     tree = ast.parse(path.read_text())
+    # Take7 keeps the chord DSP inside a factory; do not execute the trainer.
+    factories = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "chord_runtime"]
+    body = factories[0].body if factories else tree.body
     required = {"SR", "HOP_LENGTH", "CTX_FRAMES", "MIN_NOTE", "N_BINS", "BINS_PER_OCTAVE",
                 "BASS_BOOST_ENABLED", "BASS_BOOST_BINS", "BASS_BOOST_GAIN"}
     namespace = {"np": np, "librosa": librosa}
-    for node in tree.body:
+    for node in body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             if name in required:
                 namespace[name] = ast.literal_eval(node.value)
     if not required <= namespace.keys():
         raise ValueError("Trainer feature constants changed; review the audit")
-    function, = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "process_audio_file"]
+    function, = [n for n in body if isinstance(n, ast.FunctionDef) and n.name == "process_audio_file"]
     successful = [n for n in ast.walk(function) if isinstance(n, ast.Return) and
                   isinstance(n.value, ast.Tuple) and isinstance(n.value.elts[0], ast.Name) and
                   n.value.elts[0].id == "feat"]
@@ -86,7 +89,7 @@ def write_pairs(output):
             for j, midi in enumerate(midis):
                 sample = round((start + j * .016) * SR)
                 excitation = 2026092200 + index * 100 + j + (10 if role == "attack" else 0)
-                dest[sample:] += pluck(midi, (end - sample) / SR, SR, excitation) * (level if role == "attack" else 1.)
+                dest[sample:] += pluck(midi, end - sample, SR, excitation, .998, .003) * (level if role == "attack" else 1.)
         struck = hold + attack
         gain = .5 / max(np.max(np.abs(hold)), np.max(np.abs(struck)))
         paths = {}
@@ -140,6 +143,8 @@ def measure(binary, output):
     output.mkdir(parents=True, exist_ok=False)
     extract = load_trainer_extractor(trainer)
     report = {"ok": False, "purpose": "development DSP audit, not detection accuracy",
+              "generator": GENERATOR_VERSION,
+              "generator_sha256": sha256(repo / "dist/prepare_onset_data.py"),
               "binary_sha256": sha256(binary), "trainer_sha256": sha256(trainer),
               "audio_rs_sha256": sha256(repo / "src/audio.rs"),
               "dsp_sha256": sha256(repo / "dsp_weights.json"),

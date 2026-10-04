@@ -24,3 +24,15 @@ cache_*/
 /onsets.csv
 __pycache__/
 *.pyc
+
+# Local onset measurements and scratch exports
+/dist/crediting_measurements/
+/training_summary.json.txt
+/:memory:.ses
+*.pt
+
+# Optional standalone scripts for historical onset experiments. Regenerate with
+# build_train_onset_kaggle.py or build_audit_onset_real_kaggle.py.
+/dist/train_onset_kaggle.py
+/dist/resume_onset_kaggle.py
+/dist/audit_onset_real_kaggle.py
