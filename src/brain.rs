@@ -1,5 +1,5 @@
-use anyhow::Result;
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use anyhow::{ensure, Result};
+use ort::session::Session;
 use ort::value::Value;
 
 const FEATURE_SIZE: usize = 168;
@@ -83,13 +83,16 @@ impl ChordBrain {
     pub fn new(model_path: &str) -> Result<Self> {
         println!("🧠 Model: {}", model_path);
 
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_file(model_path)?;
-
-        let has_onset = session.outputs.iter().any(|o| o.name == "onset_logits");
-        println!("   onset head: {}", if has_onset { "yes" } else { "no" });
+        let (session, combined) = crate::onnx_model::load(model_path, crate::onnx_model::Branch::Chords)?;
+        ensure!(!combined || crate::rise::enabled(),
+            "Take7 uses Rise; unset SOLITITO_ONSET=legacy or select a take6 model with SOLITITO_MODEL");
+        ensure!(session.inputs.len() == 1 && session.inputs[0].name == "features"
+            && ["root_logits", "quality_logits", "pitch_logits"].iter()
+                .all(|name| session.outputs.iter().any(|o| o.name == *name)),
+            "Not a chord model: {model_path}");
+        let has_onset = !combined && session.outputs.iter().any(|o| o.name == "onset_logits");
+        if combined { println!("   take7: chord branch (Rise runs independently)"); }
+        println!("   legacy onset head: {}", if has_onset { "yes" } else { "no" });
 
         Ok(Self { session, has_onset })
     }
@@ -107,9 +110,12 @@ impl ChordBrain {
         let (_, root_t) = outputs["root_logits"].try_extract_tensor::<f32>()?;
         let (_, qual_t) = outputs["quality_logits"].try_extract_tensor::<f32>()?;
         let (_, pitch_t) = outputs["pitch_logits"].try_extract_tensor::<f32>()?;
+        ensure!(root_t.len() == 13 && qual_t.len() == 11 && pitch_t.len() == 12,
+            "Invalid chord output dimensions");
         let mut onsets = [0.0f32; 12];
         if self.has_onset {
             let (_, onset_t) = outputs["onset_logits"].try_extract_tensor::<f32>()?;
+            ensure!(onset_t.len() == 12, "Invalid legacy onset output dimensions");
             for (i, slot) in onsets.iter_mut().enumerate() {
                 *slot = 1.0 / (1.0 + (-onset_t[i]).exp());
             }

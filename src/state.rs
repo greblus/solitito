@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
 use crate::arpeggio;
@@ -393,6 +394,14 @@ pub struct MyApp {
     /// a credit gate is that the class is already known - the question is only
     /// "again?", not "which one".
     pub strike_id: [u32; 12],
+    rise_active: bool,
+    rise_trace: bool,
+    rise_generation: u64,
+    rise_frame: u64,
+    rise_judged_frame: u64,
+    rise_after: Instant,
+    rise_events: [Option<Instant>; 12],
+    rise_last_ids: [u64; 12],
     /// Whether a class has been quiet enough since its last counted strike for
     /// the next rise to count as a new one.
     onset_armed: [bool; 12],
@@ -617,6 +626,14 @@ impl MyApp {
             prev_pitches: [0.0; 12],
             require_onset: false,
             strike_id: [0; 12],
+            rise_active: false,
+            rise_trace: std::env::var("SOLITITO_ONSET_TRACE").is_ok(),
+            rise_generation: 0,
+            rise_frame: 0,
+            rise_judged_frame: 0,
+            rise_after: Instant::now(),
+            rise_events: [None; 12],
+            rise_last_ids: [0; 12],
             onset_armed: [true; 12],
             onset_head_seen: false,
             onset_peak: [1.0; 12],
@@ -1169,6 +1186,7 @@ impl MyApp {
     /// forgetting: the next audio frame is 16 ms away and the next inference
     /// 40 ms.
     fn forget_what_was_heard(&mut self) {
+        self.clear_rise_events();
         self.last_pitches = [0.0; 12];
         self.prev_pitches = [0.0; 12];
         self.last_onsets = [0.0; 12];
@@ -1376,6 +1394,7 @@ impl MyApp {
     /// terms of `formula_root`, so a placement is just a root arrived at a
     /// different way.
     pub fn place_over_chord(&mut self) {
+        self.clear_rise_events();
         let Some((root, pcs)) = self.chord_under() else { return };
         let want = match self.formula_placement_want {
             1 => Some(crate::formulas::Verdict::Defines),
@@ -1455,6 +1474,25 @@ impl MyApp {
     /// Intervals and Formulas also judge here, but only on a new audio frame;
     /// polling the same CQT sample twice must not count as two observations.
     pub fn tick(&mut self, dt: f32) {
+        if self.rise_trace && self.rise_required() && self.rise_frame != self.rise_judged_frame {
+            let wanted: Vec<_> = self.chords.get(self.current_chord_index).map(|chord| {
+                let pitches = chord.get_target_indices();
+                self.ordered_active_indices(chord).iter().map(|step| pitches[step.degree]).collect()
+            }).unwrap_or_default();
+            eprintln!("RISE_JUDGE mode={:?} generation={} frame={} chord={} step={} wanted={wanted:?} collected={:?} fret={:?} formula_pcs={:?} pending={:?} paused={} dt={dt:.4}",
+                self.app_mode, self.rise_generation, self.rise_frame, self.current_chord_index,
+                self.current_note_step, self.collected_notes, self.fret_target,
+                if self.app_mode == AppMode::Formulas { self.formula_pitches() } else { Vec::new() },
+                self.rise_events.map(|event| event.map(|at| at.elapsed().as_secs_f64())), self.paused);
+        }
+        if self.paused && self.rise_active { self.clear_rise_events(); }
+        if self.rise_required() && matches!(self.app_mode,
+            AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard)
+            && self.rise_frame != self.rise_judged_frame
+        {
+            self.rise_judged_frame = self.rise_frame;
+            self.check_progress(dt.min(0.032), None, "", 0.0);
+        }
         if self.app_mode == AppMode::Intervals {
             self.tick_intervals(dt);
             return;
@@ -1480,7 +1518,9 @@ impl MyApp {
         self.lap_hold = (self.lap_hold - dt).max(0.0);
         // One reading per new audio frame - no more, or the same frame votes
         // twice; no less, or the judging waits on the model.
-        if self.audio_frames != self.judged_frame {
+        if (self.rise_required() && self.rise_frame != self.rise_judged_frame)
+            || (!self.rise_required() && self.audio_frames != self.judged_frame) {
+            self.rise_judged_frame = self.rise_frame;
             self.judged_frame = self.audio_frames;
             self.ear_window.rotate_left(1);
             self.ear_window[EAR_WINDOW - 1] = self.cqt_pitch;
@@ -1526,10 +1566,13 @@ impl MyApp {
         self.settle_credits(dt);
 
         self.interval_audio_age += dt;
-        let fresh = self.audio_frames != self.judged_frame;
+        let fresh = if self.rise_required() {
+            self.rise_frame != self.rise_judged_frame
+        } else { self.audio_frames != self.judged_frame };
         let elapsed = self.interval_audio_age.min(0.032);
         if fresh {
             self.judged_frame = self.audio_frames;
+            self.rise_judged_frame = self.rise_frame;
             // A fresh sample after a stalled UI/audio stream does not prove
             // the note held throughout the gap.
             if self.interval_audio_age > 0.05 {
@@ -1568,7 +1611,7 @@ impl MyApp {
         if !fresh {
             return;
         }
-        if !self.audio_gate_open {
+        if !self.audio_gate_open && !self.rise_required() {
             self.answering_step = None;
             self.success_timer = 0.0;
             return;
@@ -1610,6 +1653,7 @@ impl MyApp {
     /// is the same exercise. A different formula, or a different key for it,
     /// comes from the arrows or the settings.
     pub fn restart_formula(&mut self) {
+        self.clear_rise_events();
         // Over a chord a finished lap is not a repeat: the exercise is the same
         // formula heard from somewhere else, so the placement moves. Over a
         // tune the chord moves too, and the formula is carried across it: the
@@ -1635,6 +1679,7 @@ impl MyApp {
     /// No key travels with it: a formula is the same exercise in all twelve, and
     /// the key on screen is the one the options chose.
     pub fn load_formula(&mut self, mask: u16) {
+        self.clear_rise_events();
         if mask == 0 {
             return;
         }
@@ -1758,7 +1803,7 @@ impl MyApp {
             // Loose (the default): the rule the note modes use, any of the four
             // ways in at once. It credited 110 things nobody played over 49
             // notes, against 33 for this one.
-            if self.strict_formulas && (branch != 1 || !self.ear_says(pc)) {
+            if self.strict_formulas && !self.rise_required() && (branch != 1 || !self.ear_says(pc)) {
                 continue;
             }
             self.credit_class(pc, 0);
@@ -1801,6 +1846,9 @@ impl MyApp {
     /// that fills itself in.
     fn sounding_by(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> Option<u8> {
         let target = pc % 12;
+        if self.rise_required() {
+            return self.rise_pending(target).then_some(5);
+        }
 
         // Played one at a time, the ear decides alone - and has to have been
         // saying so for three frames, not one.
@@ -1936,6 +1984,10 @@ impl MyApp {
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
+        if self.rise_required() && matches!(self.app_mode,
+            AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard) {
+            return; // Their clock is the fast detector, never a second AI tick.
+        }
         if self.app_mode == AppMode::Intervals {
             // Receiving an inference result is not an audio tick. Single
             // notes can be heard while the model has no window to answer.
@@ -2201,7 +2253,7 @@ impl MyApp {
                     // A confidently recognised target chord is the exception:
                     // its notes sound together, while CQT can name only one.
                     // The pitch head still has to confirm each requested tone.
-                    if me.free_order()
+                    if !me.rise_required() && me.free_order()
                         && me.cqt_pitch.is_some_and(|now| now != target % 12)
                         && !(me.interval_chord_confirmed && !me.single_notes)
                     {
@@ -2367,6 +2419,7 @@ impl MyApp {
     /// a model with no attack head - the older three-head one.
     fn struck_since_credit(&self, pc: usize) -> bool {
         let pc = pc % 12;
+        if self.rise_required() { return self.rise_pending(pc); }
         let Some(c) = self.credited[pc] else {
             return true;
         };
@@ -2423,6 +2476,17 @@ impl MyApp {
     }
 
     fn credit_class(&mut self, pc: usize, octave: i8) {
+        if self.rise_trace && self.rise_required() {
+            eprintln!("RISE_CREDIT mode={:?} generation={} frame={} pc={} event_frame={} single={} age_ms={:?}",
+                self.app_mode, self.rise_generation, self.rise_frame, pc % 12,
+                self.rise_last_ids[pc % 12], self.one_at_a_time(),
+                self.rise_events[pc % 12].map(|at| at.elapsed().as_secs_f64() * 1000.0));
+        }
+        if self.rise_required() && self.one_at_a_time() {
+            self.clear_rise_events();
+        } else {
+            self.rise_events[pc % 12] = None;
+        }
         self.credited[pc % 12] = Some(Credit {
             onset: self.onset_id,
             strike: self.strike_id[pc % 12],
@@ -2507,7 +2571,82 @@ impl MyApp {
         self.update_collected_notes_size();
     }
 
+    pub fn rise_enabled(&self) -> bool { self.rise_active }
+
+    pub fn set_note_policy(&mut self, single: bool, require_onset: bool) {
+        if self.rise_active && (single != self.single_notes || require_onset != self.require_onset) {
+            self.clear_rise_events();
+            self.answering_step = None;
+            self.success_timer = 0.0;
+        }
+        self.single_notes = single;
+        self.require_onset = require_onset;
+    }
+
+    fn rise_required(&self) -> bool { self.rise_active && self.require_onset }
+
+    fn clear_rise_events(&mut self) {
+        if self.rise_trace && self.rise_events.iter().any(Option::is_some) {
+            eprintln!("RISE_CLEAR mode={:?} generation={} frame={} step={} pending={:?}",
+                self.app_mode, self.rise_generation, self.rise_frame, self.current_note_step,
+                self.rise_events.map(|event| event.is_some()));
+        }
+        self.rise_after = Instant::now();
+        self.rise_events = [None; 12];
+    }
+
+    fn rise_pending(&self, pc: usize) -> bool {
+        self.rise_events[pc % 12].is_some_and(|at|
+            at > self.rise_after && at.elapsed() <= crate::rise::EVENT_LIFETIME)
+    }
+
+    fn receive_rise(&mut self, event: crate::rise::Event) {
+        if self.rise_trace {
+            let reason = if event.frame <= self.rise_last_ids[event.pc] { "duplicate" }
+                else if event.at <= self.rise_after { "before_boundary" }
+                else if event.at.elapsed() > crate::rise::EVENT_LIFETIME { "expired" }
+                else if self.paused { "paused" } else { "accepted" };
+            eprintln!("RISE_EVENT generation={} frame={} pc={} reason={reason} age_ms={:.1}",
+                self.rise_generation, event.frame, event.pc, event.at.elapsed().as_secs_f64() * 1000.0);
+        }
+        if event.frame <= self.rise_last_ids[event.pc] { return; }
+        self.rise_last_ids[event.pc] = event.frame;
+        if event.at > self.rise_after && event.at.elapsed() <= crate::rise::EVENT_LIFETIME
+            && !self.paused {
+            self.strike_id[event.pc] = self.strike_id[event.pc].wrapping_add(1);
+            self.rise_events[event.pc] = Some(event.at);
+        }
+    }
+
     pub fn sync_audio_settings(&mut self) {
+        let rise = self.analysis_state.lock().ok().map(|mut state| {
+            let rise = &mut state.rise;
+            (rise.enabled, rise.generation, rise.frame, rise.probabilities, rise.invalidated_at,
+             rise.events.drain(..).collect::<Vec<_>>())
+        });
+        if let Some((enabled, generation, frame, probabilities, invalidated_at, events)) = rise {
+            if generation != self.rise_generation || enabled != self.rise_active {
+                self.clear_rise_events();
+                self.rise_generation = generation;
+                self.rise_last_ids = [0; 12];
+                self.rise_judged_frame = 0;
+                self.answering_step = None;
+                self.success_timer = 0.0;
+            }
+            if let Some(at) = invalidated_at.filter(|at| *at > self.rise_after) {
+                self.rise_events = [None; 12];
+                self.rise_after = at;
+                self.answering_step = None;
+                self.success_timer = 0.0;
+            }
+            self.rise_active = enabled;
+            self.rise_frame = frame;
+            if enabled {
+                self.onset_head_seen = true;
+                self.last_onsets = probabilities;
+                for event in events { self.receive_rise(event); }
+            }
+        }
         let mut gate_open = false;
         if let Ok(mut state) = self.analysis_state.lock() {
             state.noise_gate = self.noise_gate;
@@ -2855,6 +2994,7 @@ pub(crate) mod tests {
 
     pub(crate) fn app() -> MyApp {
         let analysis = Arc::new(Mutex::new(AudioAnalysis {
+            rise: crate::rise::Mailbox::default(),
             cqt_semitone: None,
             input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
             frame_live: [false; CTX_FRAMES],
@@ -5684,3 +5824,7 @@ mod generator_tests {
         assert!(masks.len() > 1, "the arrows never changed the formula");
     }
 }
+
+#[cfg(test)]
+#[path = "rise_credit_tests.rs"]
+mod rise_credit_tests;

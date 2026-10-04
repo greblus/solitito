@@ -53,6 +53,7 @@ struct DspConfig {
 }
 
 pub struct AudioAnalysis {
+    pub rise: crate::rise::Mailbox,
     pub input_history: [[f32; TOTAL_FEATURES]; CTX_FRAMES],
     /// Whether each history frame carries signal (true) or is silence pushed in
     /// by the noise gate (false). Parallel to `input_history`.
@@ -546,6 +547,7 @@ pub fn start_audio_stream(
     };
     
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+    let mut rise_input = crate::rise::start(shared_state.clone(), mic_sr)?;
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
     // Attack detection: an energy jump above a slowly creeping envelope.
@@ -568,6 +570,7 @@ pub fn start_audio_stream(
             for f in data.chunks(channels) {
                 mono.push(f.get(pick).copied().unwrap_or(0.0));
             }
+            if let Some(rise) = &mut rise_input { rise.push(&mono); }
             input_acc.extend_from_slice(&mono);
 
             while read_pos + 1.0 < input_acc.len() as f32 {
@@ -724,33 +727,52 @@ pub fn start_audio_stream(
 }
 
 pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<()> {
-    let reader = hound::WavReader::open(path)?;
-    let spec = reader.spec();
-    let samples: Vec<f32> = if spec.bits_per_sample == 16 {
-        reader.into_samples::<i16>().map(|s| s.unwrap_or(0) as f32 / 32768.0).collect()
-    } else {
-        reader.into_samples::<f32>().map(|s| s.unwrap_or(0.0)).collect()
-    };
-
+    let (mono, rate) = crate::rise::read_wav(&path)?;
+    let samples = crate::rise::Resampler::default().push(&mono, rate);
+    let mut rise = crate::rise::start(shared_state.clone(), TARGET_SR)?;
+    let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     thread::spawn(move || {
-        let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
-        let mut pos = 0;
-        
-        while pos + FFT_SIZE < samples.len() {
+        for end in (HOP_LENGTH..=samples.len()).step_by(HOP_LENGTH) {
             let start = Instant::now();
-            let chunk = &samples[pos..pos+FFT_SIZE];
-            let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
-            
-            if let Ok(mut state) = shared_state.lock() {
-                let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-                frame.extend_from_slice(&cqt);
-                frame.extend_from_slice(&chroma);
-                frame.extend_from_slice(&bass);
-                state.push_frame(&frame);
+            if let Some(rise) = &mut rise { rise.push(&samples[end-HOP_LENGTH..end]); }
+            if end >= FFT_SIZE {
+                let chunk = &samples[end-FFT_SIZE..end];
+                let level = (chunk.iter().map(|x| x*x).sum::<f32>() / FFT_SIZE as f32).sqrt();
+                let (gate, boost, gain) = match shared_state.lock() {
+                    Ok(s) => (s.noise_gate, s.bass_boost_enabled, s.bass_boost_gain),
+                    Err(_) => return,
+                };
+                if level > gate {
+                    let amplified: Vec<_> = chunk.iter().map(|x| x * INPUT_GAIN).collect();
+                    let (cqt, chroma, bass, visual) = analyzer.compute_cqt_chroma(&amplified, boost, gain);
+                    if let Ok(mut state) = shared_state.lock() {
+                        state.input_level = level;
+                        state.cqt_semitone = mono_pitch(&cqt).filter(|(_, score)| *score >= MONO_MIN_SCORE).map(|(n, _)| n);
+                        state.cqt_pitch = state.cqt_semitone.map(|n| n % 12);
+                        state.gate_open = true;
+                        let frame: Vec<_> = cqt.into_iter().chain(chroma.iter().copied()).chain(bass).collect();
+                        state.push_frame(&frame);
+                        state.spectrum_visual.copy_from_slice(&visual);
+                        state.chroma_sum.copy_from_slice(&chroma);
+                    }
+                } else if let Ok(mut state) = shared_state.lock() {
+                    state.input_level = level;
+                    state.cqt_pitch = None;
+                    state.cqt_semitone = None;
+                    state.gate_open = false;
+                    state.push_silence();
+                }
             }
-            pos += HOP_LENGTH;
-            let sleep = Duration::from_secs_f32(HOP_LENGTH as f32 / TARGET_SR as f32);
-            if sleep > start.elapsed() { thread::sleep(sleep - start.elapsed()); }
+            if let Some(left) = Duration::from_millis(16).checked_sub(start.elapsed()) {
+                thread::sleep(left);
+            }
+        }
+        if let Ok(mut state) = shared_state.lock() {
+            state.gate_open = false;
+            state.cqt_pitch = None;
+            state.cqt_semitone = None;
+            state.input_level = 0.0;
+            state.rise.events.clear();
         }
     });
     Ok(())
@@ -871,6 +893,7 @@ mod fill_tests {
 
     fn empty() -> AudioAnalysis {
         AudioAnalysis {
+            rise: crate::rise::Mailbox::default(),
             input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
             frame_live: [false; CTX_FRAMES],
             onset_id: 0,

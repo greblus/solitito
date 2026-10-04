@@ -4,6 +4,8 @@ mod model;
 mod arpeggio;
 mod audio;
 mod brain;
+mod onnx_model;
+mod rise;
 mod diagrams;
 mod formulas;
 mod fretboard;
@@ -114,6 +116,7 @@ fn open_input(
     // Dropped before opening the next: some backends refuse a second stream on
     // a device that already has one.
     holder.borrow_mut().take();
+    if let Ok(mut state) = state.lock() { state.rise.invalidate(); }
     match start_audio_stream(state.clone(), device, channel) {
         Ok((stream, info)) => {
             let mut line = format!(
@@ -474,6 +477,8 @@ fn help_text() -> String {
          \x20     --file FILE.wav   drive the trainer from a recording instead of the input\n\
          \n\
          Environment:\n\
+         \x20 SOLITITO_ONSET=legacy use the original onset head (rise is the default)\n\
+         \x20 SOLITITO_ONSET_MODEL  override the Rise model (take7 uses its own branch)\n\
          \x20 SOLITITO_DEBUG=1      print the model's reading of every window while playing\n\
          \x20 SOLITITO_STRUM=1      print the strum trace: attack, what was heard, the verdict\n\
          \n\
@@ -497,11 +502,8 @@ fn model_path() -> String {
     if let Ok(p) = std::env::var("SOLITITO_MODEL") {
         return p;
     }
-    // The onset model first: it carries the three older outputs unchanged under
-    // their old names, so nothing that reads them notices, and it adds the head
-    // that says what was STRUCK. Falls back to the plain file where that one
-    // has not been fetched.
-    for name in ["best_model_v2_take6_onset.onnx", "best_model_v2_take6.onnx"] {
+    // Prefer the combined take7 export, then retain the older model fallbacks.
+    for name in ["best_model_v2_take7.onnx", "best_model_v2_take6_onset.onnx", "best_model_v2_take6.onnx"] {
         if std::path::Path::new(name).exists() {
             return name.to_string();
         }
@@ -746,6 +748,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let default_boost_gain = 5.0;
 
     let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
+        rise: rise::Mailbox::default(),
         input_history: [[0.0; 168]; 48],
         frame_live: [false; 48],
         onset_id: 0,
@@ -953,9 +956,20 @@ fn main() -> Result<(), slint::PlatformError> {
             Ok(_) => println!("✅ dsp_weights.json"),
             Err(e) => { eprintln!("❌ dsp_weights.json: {e}"); ok = false; }
         }
-        match ChordBrain::new(&model_path()) {
-            Ok(_) => println!("✅ best_model_v2_take6.onnx"),
-            Err(e) => { eprintln!("❌ model: {e}"); ok = false; }
+        let path = model_path();
+        match ChordBrain::new(&path).and_then(|mut brain| brain.predict(&[[0.0; 168]; 48])) {
+            Ok(_) => println!("✅ chord inference: {path}"),
+            Err(e) => { eprintln!("❌ model: {e:#}"); ok = false; }
+        }
+        if rise::enabled() {
+            match rise::model_path().and_then(|path| {
+                let mut detector = rise::Detector::new(&path)?;
+                detector.process_hop(&[0.0; 256])?;
+                Ok((path, detector.threshold()))
+            }) {
+                Ok((path, threshold)) => println!("✅ Rise inference: {path} (threshold {threshold})"),
+                Err(e) => { eprintln!("❌ rise onset model: {e:#}"); ok = false; }
+            }
         }
         keep_console_open(console);
         std::process::exit(if ok { 0 } else { 1 });
@@ -1395,8 +1409,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 app.reload_library();
             }
         }
-        app.single_notes = ui.get_single_notes();
-        app.require_onset = ui.get_require_onset();
+        app.set_note_policy(ui.get_single_notes(), ui.get_require_onset());
         // The extra step changes the length of the run, so the strip and the
         // marks have to be rebuilt when it is switched.
         if app.scale_repeat_root != ui.get_scale_repeat_root() {
@@ -1525,7 +1538,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 app.last_pitches = res.pred.pitches;
                 // What was STRUCK, as against what is sounding. Zeros with a
                 // model that has no onset head, and the modes fall back.
-                app.set_onsets(res.pred.onsets);
+                if !app.rise_enabled() { app.set_onsets(res.pred.onsets); }
 
                 // clear the flag once consumed
                 res.updated = false;
@@ -2913,7 +2926,10 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    ui.run()
+    let result = ui.run();
+    // Release the callback and finish any optional onset recording before exit.
+    audio_in.borrow_mut().take();
+    result
 }
 
 /// Diagnostic output (SOLITITO_DEBUG=1).
