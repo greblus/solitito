@@ -62,11 +62,11 @@ treningu potrzebujesz zgodnych danych/cache.
 
 ## Aplikacja i utrzymanie
 
-Aktualna aplikacja obsługuje take7 i wybiera go automatycznie po umieszczeniu
+Solitito 0.5.7 obsługuje take7 i wybiera go automatycznie po umieszczeniu
 pliku w katalogu projektu. Wykonaj `./target/release/solitito --check`, a potem
 uruchom zwyczajnie `./target/release/solitito`. Nagrywanie i dodatkowe
 potwierdzanie słabszych uderzeń są opcjonalne — [szczegóły](running_pl.md).
-Starszą binarkę trzeba przebudować. `app_ready=false` w raporcie trainera
+Binarkę z wersji 0.5.6 lub wcześniejszej trzeba zaktualizować. `app_ready=false` w raporcie trainera
 przypomina, że udany trening i eksport nie weryfikują zaliczania na żywo.
 
 Kod źródłowy trainera jest podzielony na moduły. Po zmianie źródeł wykonaj

@@ -1,13 +1,13 @@
 # Solitito — Project Summary
 
-> Historical technical report. The accompanying PDF preserves the earlier design.
-> Current take7 architecture: [how it works](how-it-works.md);
-> [training/export](training-take7.md), [running](running.md).
-> Historical onset metrics below do not evaluate the new Rise branch.
+**A real-time guitar practice and recognition system**
 
-**A real-time guitar chord recognition system**
+*Updated 4 October 2026 — take7 integration, application version 0.5.7*
 
-*Version 0.5.5, August 2026*
+This document describes version 0.5.7 with the take7 model and the
+experiments that led to it. Earlier take6 measurements are labelled as historical;
+they are not scores for the new Rise detector. The model's take number is separate
+from the application's release version.
 
 ---
 
@@ -15,7 +15,7 @@
 
 Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales, arpeggios, interval formulas and the layout of the neck.
 
-Recognition is performed by a neural network of 7.3 million parameters exported to the ONNX format. All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
+Recognition uses a single take7 ONNX containing the chord network and a separate Rise onset branch. All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
 
 Six modes of operation are provided:
 
@@ -120,6 +120,11 @@ An overriding principle was adopted: **the generator writes labels directly, and
 
 Four properties of the dataset are described below, the omission of which reduces model accuracy.
 
+For Rise, both solo and comp recordings supply note-start labels. Their
+string-resolved annotations are supervision only: the model hears ordinary mono
+audio and does not require a hexaphonic pickup in the application. The chord-label
+problems discussed below do not justify discarding solo note annotations.
+
 ### 4.1. Half of the dataset contains no chords
 
 Every excerpt was recorded twice: as `_comp` (accompaniment) and as `_solo` (monophonic improvisation). **The chord annotation is identical in both cases** — it describes the progression over which the performer improvised.
@@ -177,116 +182,134 @@ The threshold adopted: a note must sound for at least 25% of the window (`NOTE_M
 
 ## 5. Architecture
 
-### 5.1. Signal path
+### 5.1. Two signal paths in one model
 
-```
-audio input → resampling to 16 kHz → FFT (8192) → sparse pseudo-CQT → features → ONNX model
-```
+Take7 is a single self-contained `best_model_v2_take7.onnx` with two independent
+inputs and four outputs. The application extracts the required branch into each
+worker's memory at startup. It writes no derived model files. Selecting just one
+output of the full graph did not skip the other branch in profiling; the in-memory
+separation keeps chord computation out of the 16 ms onset cycle.
 
-**Resampling to 16 kHz.** The CQT spans 6 octaves from C1, so the highest bin falls in the region of 2 kHz, well below the 8 kHz Nyquist limit. Bandwidth does not constitute a constraint.
-
-**Pseudo-CQT.** In place of a true constant-Q transform, the application multiplies the FFT spectrum by a precomputed kernel: 144 bins, 24 per octave, corresponding to quarter-tone resolution. The kernel is obtained from `librosa.filters.constant_q`, by which means the application and the trainer produce identical features.
-
-**Features.** 168 values per frame:
-
-| range | contents |
-|---|---|
-| 0–143 | CQT bins after log normalisation |
-| 144–155 | chroma (`cq_to_chroma` matrix, per-frame maximum normalisation) |
-| 156–167 | bass energy (mean of bin pairs 0–23) |
-
-The model spans 48 frames of history at a hop of 256 samples, corresponding to **0.77 s**.
-
-### 5.2. Network
-
-```
-input [48, 168]
-   ↓
-InstanceNorm2d
-   ↓
-ConvBlockSE  1 → 48       (Squeeze-and-Excitation)
-ConvBlockSE 48 → 96
-ConvBlockSE 96 → 192
-ConvBlockSE 192 → 384
-   ↓
-Linear 3840 → 384
-   ↓
-+ CLS token, positional encoding
-   ↓
-TransformerEncoder: 4 layers, 8 heads, d=384, FF=768, GELU, norm_first
-   ↓
-CLS
-   ├── fc_root     → 13   (12 pitch classes + "Noise")
-   ├── fc_quality  → 11   (maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N)
-   └── fc_pitch    → 12   (sigmoid: which pitch classes are sounding)
-
-last frame, and the frame ONSET_LOOKBACK before it
-   └── fc_onset    → 12   (sigmoid: which pitch classes were STRUCK)
+```text
+mono guitar audio
+  ├─ chord DSP: 16 kHz → FFT 8192 → sparse CQT/chroma/bass
+  │    → features [1,48,168] → root, quality, sounding pitches
+  └─ onset DSP: 16 kHz → Hann spectra 1024/2048
+       → short_features [1,770,35] → per-pitch Rise events
 ```
 
-Total parameter count: 7,286,038; the onset head adds a further 156,156.
+The chord path retains the take6 features: 144 log-normalised CQT bins,
+12 chroma values and 12 bass-energy values. The sparse kernel has 24 bins per
+octave across six octaves from C1. Its context is 48 frames at a 256-sample hop,
+approximately 0.77 s; inference runs every 40 ms.
 
-The fourth head does not read the CLS token. Its input is assembled from four
-parts — the encoder's last frame, the difference between that frame and the one
-six frames earlier, and, taken from the raw features before the encoder sees
-them, the RISE of the CQT folded onto pitch classes together with the rise of
-the chroma. The reason is stated in one line of the trainer: an attack adds
-energy to the spectrum and a decay does not, so what grew is the quantity that
-separates a note being struck from one still ringing.
+The onset path uses 64 ms and 128 ms spectral windows, frequencies through
+4 kHz, and `log1p` amplitude compression without per-recording normalisation.
+Features are rounded to the same float16 precision used by the training cache.
+Causal resampling, left padding and frame timestamps agree with the trainer.
+Inference runs every 256 samples, or 16 ms, using 34 past feature frames plus
+the current one. History is retained continuously; no future audio is required.
+The update interval is not an assertion of 16 ms end-to-end detection latency.
 
-### 5.3. Division of tasks between the heads
+### 5.2. Chord base and Rise network
 
-The distinction between the roles of the individual heads is of central importance and has been confirmed by measurement.
+The chord branch preserves the CNN with Squeeze-and-Excitation and the
+four-layer Transformer encoder of take6. Its CLS token supplies root, quality
+and sounding-pitch predictions. The previous `fc_onset` head is removed.
 
-| head | result | role |
+Rise uses a 770-to-96 raw-feature projection and a second projection of the
+positive spectral change, followed by four causal residual convolutions with
+dilations 1, 2, 4 and 8, and 12 output logits. In amplitude space, its additional
+input is the positive difference between the current spectrum and the mean of
+the preceding four frames. The current frame is excluded from that baseline.
+The difference is compressed back to the feature scale inside the ONNX graph.
+
+| Input/output | Shape at live inference | Meaning |
 |---|---|---|
-| `pitch_logits` | F1 0.909 | which notes are sounding — the basis of the Intervals, Scales, Arpeggios and Fretboard modes |
-| `root_logits` | 98.1% | the name of the root |
-| `quality_logits` | ~93% | the chord family |
-| `onset_logits` | F1 0.812 | which classes were struck, as against which are sounding |
+| `features` | `[1,48,168]` | chord CQT context |
+| `short_features` | `[1,770,35]` | causal onset context |
+| `root_logits` | `[1,13]` | 12 roots plus Noise |
+| `quality_logits` | `[1,11]` | chord family, single note or noise |
+| `pitch_logits` | `[1,12]` | sounding pitch classes, after sigmoid |
+| `onset_logits` | `[1,12,35]` | attack probabilities after sigmoid; use the last frame |
 
-An early version of the application derived chord quality from the pitch vector using manually determined thresholds. The `probe_quality.py` probe compared three methods on the same checkpoint:
+Metadata records the onset threshold, feature specification, history length and
+source-model hashes. The application rejects an incompatible contract. The onset
+threshold is separate from the sounding-note threshold exposed in the UI.
 
-| method | accuracy |
-|---|---|
-| the `quality_logits` head | **80.5%** |
-| template matching against the predicted pitch | 66.0% |
-| template matching against the **true** pitch vector | 59.2% |
+### 5.3. Why replace the previous onset head?
 
-The head exceeds template matching against a *precisely known* set of notes by 21 percentage points. It therefore extracts from the signal information not present in the set of pitch classes itself: timbre, the distribution of the voicing across the register, and the shape of the attack.
+The training task is to recognise a fresh attack of a particular pitch class
+while other notes may still be ringing. A sustained note can match the next
+chord's requested interval without having been played again. A general loudness
+attack is not enough to say which note was newly struck.
 
-Design conclusion: the quality head remains a necessary component.
+The old head already examined CQT/chroma growth and changes in encoder tokens.
+Its input, however, came from the 512 ms FFT window of the chord path and its
+execution followed chord inference. Rise receives shorter spectral windows,
+learns from both the raw spectrum and its fresh growth, and runs independently.
+It supports simultaneous attacks of several pitch classes without requiring
+silence between them.
 
-The onset head answers a question none of the other three is able to put.
-"Sounding" is true of a string ringing on, of one resonating in sympathy, and of
-the note played immediately before — the model's window is 0.77 s wide and holds
-all of them. Measured against a recording it is the fastest answer the
-application has: 202 ms after the strike, against 676 ms for the remaining
-paths. It is also the least precise as to WHICH string was struck, since an
-attack spreads onto the neighbouring ones. Its use in the application is
-described in 8.12.
+In guitar practice, the Rise path was reported to substantially reduce credits
+carried over between chords. Earlier iterations also required some quiet notes
+to be repeated. The current integration received positive practice feedback.
+These observations are distinct from controlled accuracy measurements; the
+historical onset F1 in section 7 cannot be compared directly with Rise event
+metrics. Packaging both branches into one file does not itself improve accuracy.
+
+### 5.4. Division of tasks
+
+Root and quality identify chords; pitch describes what is sounding. Rise supplies
+new attacks for note practice when **Credit only what was struck** is enabled.
+The judge consumes timestamped events, while order and single-note options still
+determine how the exercise progresses. With that option disabled, the existing
+sounding-note rules remain available. Chord recognition has its own latch.
+
+The quality head remains necessary: in an earlier comparison on the same
+checkpoint, it achieved 80.5% accuracy, compared with 66.0% for templates based
+on predicted pitches and 59.2% for templates based on the true pitch set. Those
+are historical chord-head measurements, not Rise metrics.
 
 ---
 
 ## 6. Training
 
-### 6.1. Phases
+### 6.1. Take7 training and recovery
 
-The training procedure comprises four phases, of which the first is of principal significance.
+`dist/model_trainer.py` is the supported standalone Kaggle script, generated
+from the chord and onset source modules. The default `auto` mode resumes its
+own run, otherwise reuses a take6 chord checkpoint and trains only Rise. If no
+base exists, it also trains the chord branch. `onset_only` requires a ready base;
+`full` ignores take6 but can resume its own run. A new run tag starts a separate
+experiment. `USE_HF=False` supports training without Hugging Face history.
 
-| phase | scope | status |
-|---|---|---|
-| 1 | main training, 120 epochs, cosine LR with warm-up | the only phase yielding improvement |
-| 2 | tuning of the pitch head threshold | corrected — it had sorted by a metric independent of the threshold |
-| 3 | head fine-tuning with the encoder frozen | **disabled** |
-| 4 | the onset head, trained alone | added later; the remaining outputs are unchanged |
+| Stage | Current role |
+|---|---|
+| Chord phases 1–2 | Main training and pitch threshold selection, when a base is needed |
+| Chord phase 3 | Optional frozen-encoder fine-tuning; disabled by default |
+| Onset stage | Train the separate Rise branch, with chord weights frozen |
+| Export | Merge the selected branches into one ONNX and verify output parity |
 
-Phase 4 trains `fc_onset` with every other parameter frozen. The construction is
-deliberate: the phase either yields a head worth using or leaves the model
-exactly as it was, and the three earlier outputs cannot move by a decimal place.
-Its material is the note-level annotation — windows sampled around real attacks,
-by default from the solo recordings alone, which are the ones carrying
-`note_midi`. Training ends with a threshold sweep reported as F1.
+Take6 chord snapshots do not contain Rise weights. Rise therefore starts fresh
+unless an `INITIAL_ONSET` PyTorch checkpoint is supplied; an existing take7
+resume snapshot takes precedence. The retired `fc_onset` weights are not reused.
+The onset optimizer never receives the chord parameters.
+
+The default onset run has 12 epochs. A last-epoch snapshot stores model,
+optimizer, RNG state, history and the best checkpoint together. Data identities,
+splits, audio/feature hashes and annotations must match when resuming. A mismatch
+stops the run; it does not silently restart it. In particular, restoring a file
+path is not permission to change the underlying training data.
+
+For a completed earlier two-file run, `MODE="export_only"` combines its chord
+ONNX, onset ONNX and saved threshold without training, GPU or feature extraction.
+The final artifact is `best_model_v2_take7.onnx`; `_chords.onnx` is an intermediate,
+not the complete application model. Preserve the training summary and checkpoints.
+The exporter checks both branches against their original ONNX outputs at three
+batch/context shapes before promoting the combined model.
+
+The following notes explain two decisions retained from chord-model development.
 
 Phase 2 scanned thresholds over the range 0.30–0.70, optimising the `exact` figure. That figure is the conjunction of `argmax(root)` and `argmax(quality)`, and therefore took an identical value across all 41 thresholds, making the selection arbitrary. Sorting is now performed by the F1 of the pitch head, on which the threshold genuinely bears.
 
@@ -297,9 +320,9 @@ take2, 40 epochs: pitch_f1 0.9318 → 0.9326 (+0.0008), exact 0.5455 → 0.5445
 take3,  4 epochs: F1 0.933 → 0.931,             exact 54.6% unchanged
 ```
 
-The encoder remains frozen and only the heads are trained, at a learning rate of 1e-5. The phase possesses no mechanism by which to improve the model, and its cost amounts to approximately 1.5 hours of computation.
+The encoder remains frozen and only the heads are trained, at a learning rate of 1e-5. These trials did not yield a useful gain, while the phase cost approximately 1.5 hours of computation.
 
-### 6.2. Loss functions and masking
+### 6.2. Chord losses and masking
 
 - **root** — CrossEntropy with label smoothing of 0.05,
 - **quality** — CrossEntropy with smoothing, sampler weighted by class,
@@ -311,17 +334,17 @@ Two masking mechanisms were applied, both justified by measurement.
 
 **`GUITARSET_SOLO_MODE = "mask_chord"`** — the root and quality receive no gradient from solo recordings; the pitch head receives it unchanged.
 
-### 6.3. Augmentation
+### 6.3. Chord augmentation
 
 - **pitch shift** by ±N semitones. An implementation detail of consequence: the CQT and the bass energy are shifted **with zero fill**, whereas the chroma is shifted **cyclically**. The chroma is circular by definition; the CQT is not, and wrapping the bass band around to the top of the range would introduce notes absent from the signal.
 - **time and frequency masking** (SpecAugment),
 - **spectral tilt and noise** — simulation of varied signal chains.
 
-### 6.4. Energy gate
+### 6.4. Chord energy gate
 
 The parameter `ENERGY_KEEP_FRAC = 0.55` rejects windows whose energy falls below 55% of the segment peak. The justification: during the decay phase the seventh, being the quietest component of the voicing, is the first to disappear, while the label remains unchanged. In the absence of the gate this would systematically train the collapse `m7 → m`.
 
-### 6.5. Metrics
+### 6.5. Chord metrics
 
 Chord metrics are computed **exclusively on windows in which the label describes the signal**, with solo windows excluded. They are additionally reported separately for windows with and without an audible root, since the combined figure conflates two distinct populations.
 
@@ -329,18 +352,49 @@ Selection of the best checkpoint proceeds by the figure `composite = (root_audib
 
 The `TRAIN` diagnostic check, performed every 5 epochs, computes metrics on the training data without augmentation. It addresses the question of whether the model is capable of reproducing its own training data. A negative answer identifies the features or the labels as the source of the constraint rather than generalisation, and indicates that increasing the number of epochs would serve no purpose.
 
+### 6.6. Rise data, targets and evaluation
+
+Onset training uses synthetic plucks and GuitarSet note events from both solo
+and comp recordings. String-separated JAMS annotations provide labels; the
+network input is ordinary mono audio, not the six pickup channels. The pipeline
+selects the available mic or mono mix variant and records that choice. GuitarSet
+note starts describe played notes, not independently verified picking technique.
+
+GuitarSet players 00–03 form training, 04 validation and 05 test. Synthetic
+excitation groups are separated across the three splits. Their eight cases cover
+held roots, added thirds/fifths/octaves, repeated plucks and held or repeated
+triads. The tuned `onset-ks-v2` generator uses fractional delay so rendered pitch
+agrees with its label; deterministic annotations alone would not ensure that.
+
+The default recipe uses BCE with positive weight 4 and gain augmentation of
+±6 dB. Targets mark a pitch-class onset over 96 ms. Simultaneous starts of the
+same pitch class remain a limitation of this 12-class representation; their
+overlap counts are reported. Earlier paired/ringing loss experiments remain
+available in the sources but are not enabled in the take7 recipe.
+
+Checkpoint selection uses validation event metrics; the final threshold sweep
+uses the exported ONNX predictions. Precision, recall, F1, extra events per
+minute and audio-time latency are reported separately for domains and cases.
+The held-out test is evaluated at the validation-selected threshold. A detector
+event score is not an application-credit score: judging, noise gating and UI
+scheduling are separate. Previously inspected guitar recordings are regression
+material, not an unseen test set.
+
+See [training and export instructions](training-take7.md) and the
+[tool index](../dist/README.md) for reproducible commands and artifacts.
+
 ---
 
-## 7. Results
+## 7. Results and verification
 
-Model `v2_take6`, validated with a split by source and with solo windows excluded:
+Historical model `v2_take6`, validated with a split by source and with solo windows excluded:
 
 | metric | value |
 |---|---|
 | root accuracy | **98.1%** |
 | pitch F1 | **0.909** |
 | exact match (root **and** quality) | **92.4%** |
-| onset F1 | **0.812** |
+| take6 onset F1 (historical) | **0.812** |
 
 The first three figures are identical in the three-head and four-head files: the
 onset head was trained with the rest of the network frozen. The fourth figure is
@@ -362,6 +416,25 @@ Accuracy by quality at the best checkpoint: `dom7` 97%, `min7` 93%, `min` 92%, `
 The difference between the training and validation sets with respect to quality amounts to **6.5 percentage points** (99.2% against 92.7%). The model reproduces the training data. This corresponds to the profile of a constraint imposed by **generalisation** rather than by the capacity of the architecture.
 
 Practical conclusion: neither an increase in the number of epochs nor an increase in model size will yield improvement. Improvement will follow from an increase in the quantity of varied material from a real instrument.
+
+### 7.3. Take7 integration checks
+
+The combined-file integration was tested with a control merge of existing take6
+chord weights and existing Rise weights. The chord/pitch outputs matched their
+original model on four input windows. On the full AtoA recording, 5682 frames and
+50 detected events matched the separate Rise model, with zero probability
+difference, both with and without optional weak-response rescue.
+
+Profiler traces showed 32 executed nodes in the onset session and 437 in the
+chord session, with no nodes from the other branch. Runtime tests also exercised
+event consumption, boundaries, input restarts and polyphonic crediting. These
+checks establish preservation of the original branches and their scheduling;
+they are not a new accuracy evaluation of subsequently trained take7 weights.
+The current take7 file passes the application's `--check` inference check.
+
+New training metrics belong to that run's `training_summary_v2_take7.json`,
+including the selected checkpoint, threshold and model hashes. The older onset
+F1 above uses a different evaluation procedure and is not a take7 result.
 
 ---
 
@@ -472,6 +545,10 @@ The tool distinguishes the case in which the model fails to detect the seventh f
 
 ### 8.8. Single notes are not a question the model can answer
 
+This section records the earlier CQT solution and its measurements. Take7
+retains that path, but practice requiring a fresh strike uses the independent
+Rise events described in section 8.12 instead of waiting for the chord window.
+
 The model is asked about 48 frames — 0.77 s — and answers about all of it. That is correct for a
 chord held under the fingers and wrong for a scale, where notes follow one another faster than the
 window empties.
@@ -521,19 +598,23 @@ the enumeration entirely. Three consequences follow, each of which was first obs
 The noise gate is stored per device. An interface and a laptop microphone sit tens of decibels
 apart, and a threshold that has to be found again after every switch is not a setting.
 
-### 8.10. The cost of the application is one inference
+### 8.10. Independent inference schedules
 
-`--bench` times a single inference. On the reference machine it takes 39 ms, and the model is asked
-every 40 ms, so the inference thread is saturated for as long as a chord rings; every other thread —
-rendering, the CQT, the audio callback — accounts for under 3% between them.
+Chord inference runs every 40 ms, while Rise processes each 16 ms audio hop in
+its own worker. `--bench` measures the chord branch; it is not a measurement of
+the complete onset/crediting path. Splitting the combined ONNX in memory at load
+time avoids running the chord encoder on onset-only hops.
 
-The same binary on the same machine under Windows reports 61 ms. The apparent tenfold discrepancy in
-reported load between the two systems proved to be a discrepancy between two counters rather than
-between two builds: `top` reports in units of one core and the Task Manager over the whole processor,
-so 100% of a core on eight cores is the same 12.5%.
-
+Earlier measurements of 39 ms on Linux and 61 ms on Windows concerned chord
+inference on the reference machine. They are historical measurements, not the
+latency of take7's Rise branch. CPU load must also be compared on the same basis:
+one fully used core appears as 12.5% when a meter reports over eight cores.
 
 ### 8.11. Formulas, and a rule stricter than the one the note modes use
+
+The following comparison records the earlier CQT/take6 design. In the current
+build, enabling **Credit only what was struck** routes Formulas through Rise
+as well; with the option disabled, the existing sounding-note policy applies.
 
 The application draws a set of intervals over a root — every subset of the twelve
 chromatic functions containing the root, 2048 in all — and the exercise is to
@@ -553,9 +634,9 @@ recording (`dist/latency_stats.py`):
 
 Of the 110, ninety-nine came from the model's pitch head — which answers "what is
 sounding", and a string ringing on or resonating in sympathy is sounding without
-having been played. Formulas therefore run on the single-frame estimate alone,
-with a vote of four of the last five audio frames; the onset gate was not adopted
-here, for the reason given in 8.12.
+having been played. That version therefore used the single-frame estimate alone,
+with a vote of four of the last five audio frames. The old onset gate was not
+adopted because it missed four played notes in this comparison.
 
 The same mode also plants a formula on a chord: its root is placed on one of the
 chord's twelve degrees, and how much of that chord the set then covers is
@@ -564,30 +645,39 @@ only those establish which chord it is. This is arithmetic over two twelve-bit
 masks and is exact, which is what makes it worth showing on screen beside the
 functions.
 
-### 8.12. State carried across a boundary
+### 8.12. Events and exercise boundaries
 
-The model answers about 0.77 s of audio. At the moment the exercise moves on —
-the next chord, the next lap, entry into a mode — its most recent answer is still
-about what came before that boundary. The application kept that answer, and
-credited the first target of the new chord from the ringing of the old one.
+A sounding pitch and a fresh attack carry different evidence. With Rise and
+**Credit only what was struck** enabled, the application consumes events tagged
+with a pitch class, audio timestamp, frame identity and input generation.
+Already consumed, expired or pre-boundary events cannot credit a new target.
+Pause, exercise transitions and input restarts clear pending evidence; audio
+queue discontinuities reset the detector context rather than pretending the
+stream was continuous.
 
-The symptom was reported as a property of the model: "it was better the first
-time", "recognition used to be faster". It was neither. The first chord after
-launch is clean because there is nothing to inherit; every chord after it starts
-holding the previous one. The correction is to discard what was heard at each
-such boundary — the pitch vector, the previous frame, the onset answer, the
-voting window and the last credit. Nothing is lost by discarding: the next audio
-frame is 16 ms away and the next inference 40 ms.
+A polyphonic attack may supply several pitch-class events for one exercise.
+Order and single-note policies decide which of those events the exercise can
+use. The detector's peak-relative rearming is retained across exercise changes;
+changing the target does not itself constitute a new attack.
 
-The onset head remains available as an option — the model may credit only a class
-it also reports as struck — and is off by default. Once the boundary was
-corrected it was no longer needed for the reported symptom, and it carries a cost
-of its own: on the measurement above it removed 15 false credits at the price of
-4 notes missed altogether.
+The optional `SOLITITO_ONSET_RESCUE=1` path confirms a weaker response through
+pitch-specific spectral growth and one additional frame. Its timestamp remains
+that of the candidate, so confirmation does not move an earlier attack past a
+round boundary. Strong responses do not incur this additional wait. Rescue is
+disabled by default and is independent of model selection and audio recording.
+
+Normal startup automatically selects `best_model_v2_take7.onnx` when present.
+`SOLITITO_MODEL` overrides the primary path; `SOLITITO_ONSET_MODEL` overrides the
+onset source. For comparison, take6 plus `SOLITITO_ONSET=legacy` remains available.
+The trace/recording script is optional; normal practice needs neither a trace
+nor a WAV recording. See [running the app](running.md).
 
 ---
 
 ## 9. Hypotheses refuted by measurement
+
+The onset-related entries in this table concern the earlier take6/CQT path,
+not the current Rise branch.
 
 This chapter documents cases in which measurement refuted a previously held assumption.
 
@@ -621,7 +711,10 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 
 **Splitting the dataset by source.** It lowers the reported figures by more than ten percentage points and is justified.
 
-**Four heads with separated roles.** The note-based modes rely on the pitch vector rather than on the chord name; the fourth head answers for what was struck and is read, logged and offered as an option rather than being wired into the judging.
+**Four outputs, two independent branches.** Root, quality and pitch preserve
+the chord base. Rise supplies timestamped attacks for note practice requiring
+fresh strikes. Both branches are distributed in one ONNX, with separate inputs
+and inference schedules.
 
 **Two thresholds on the context window rather than one.** The model is asked from half a window and its chord name believed from nine tenths — a single threshold cannot serve both a held chord and a single note.
 
@@ -643,18 +736,23 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 
 **Training phase 3** — measured as yielding no improvement across three runs.
 
-### 10.3. Open matters
+### 10.3. Further validation
 
-- **A test set from the target instrument.** All figures relate to six external performers and two renders of the synthetic dataset. No measurement on the target signal chain is available.
-- **Changing `CTX_FRAMES` from 48 to 32** — no longer a free choice: the exported model fixes its input at 48 frames, so the change requires retraining. The latency it was intended to address was instead removed from the path where it mattered, by judging single notes on one CQT frame.
-- **A pitch estimator with a shorter window.** Autocorrelation over roughly 100 ms would place the latency of a single note below the 512 ms FFT window, which is what still limits fast passages.
-- **Increasing the quantity of material from a real instrument** — the only factor capable of reducing the 6.5 percentage point difference.
+- **Independent recordings from target instruments and interfaces.** AtoA and
+  practice recordings already inspected are regression material; a controlled
+  comparison of model weights needs additional unseen material.
+- **Stable resume and provenance.** Keep the selected model, threshold, data
+  identities and training summary together. A changed-data check must not be
+  bypassed to resume an unrelated run.
+- **Release packaging.** The 0.5.7 workflow bundles the combined take7 artifact,
+  verifies its SHA-256 hash and runs both model branches with `--check` in the
+  assembled Linux and Windows packages before publication.
 
 ---
 
 ## 11. Conclusion
 
-The work carried out resulted in a model achieving 92.4% exact matches on validation determined with a split by source, released as distribution packages for two platforms.
+The take6 work resulted in a model achieving 92.4% exact matches on validation determined with a split by source, released as distribution packages for two platforms.
 
 The principal gain in accuracy followed not from changes to the architecture, but from four findings concerning the data:
 
@@ -665,7 +763,14 @@ The principal gain in accuracy followed not from changes to the architecture, bu
 
 These four changes moved the `Exact` figure from 44.8% to 92.4%. None of them concerned the structure of the network.
 
+Take7 adds a separate development step: short causal onset features, a Rise
+network dedicated to fresh attacks, and timestamped events in the application.
+The chord base can be reused without retraining, or the entire model can be
+trained from scratch. A checked export delivers both branches in one ONNX while
+preserving their independent runtime schedules. This extends the application
+from identifying sounding material to judging newly played notes.
+
 ---
 
-*This document describes the state as of August 2026, version 0.5.5.*
+*Updated 4 October 2026: take7, application version 0.5.7.*
 *Repository: https://github.com/greblus/solitito*

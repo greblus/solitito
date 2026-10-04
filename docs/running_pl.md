@@ -5,6 +5,8 @@
 Do każdego [wydania](../../releases) dołączone są gotowe paczki — binarium, ONNX Runtime,
 model i wagi DSP, nic poza tym nie jest potrzebne:
 
+Wersja **0.5.7** zawiera połączony model take7 z detektorem uderzeń Rise.
+
 ```bash
 tar xzf solitito_linux-*.tar.gz && cd solitito_linux-* && ./solitito.sh
 ```
@@ -18,7 +20,8 @@ cargo build --release
 ```
 
 Aktualna wersja ze źródeł potrzebuje `dsp_weights.json` (z repozytorium) oraz
-`best_model_v2_take7.onnx` z [trainera/eksportu take7](training-take7_pl.md)
+`best_model_v2_take7.onnx` z [Hugging Face](https://huggingface.co/greblus/solitito-ai)
+lub [trainera/eksportu take7](training-take7_pl.md)
 w katalogu roboczym. Wagi ONNX nie są zapisywane w Git.
 `./target/release/solitito --check` uruchamia obie gałęzie i sprawdza zgodność.
 
@@ -32,7 +35,7 @@ cargo build --release
 ./target/release/solitito
 ```
 
-### Eksperymentalna integracja onsetów na tym branchu badawczym
+### Wykrywanie uderzeń przez take7 (0.5.7)
 
 Umieść **`best_model_v2_take7.onnx`** z trainera w katalogu roboczym.
 Program wybierze go automatycznie. Jeden plik zawiera wyjścia akordów, klas

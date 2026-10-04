@@ -4,7 +4,7 @@ The signal path, the model, and why single notes are not judged by the model alo
 
 [← back to the README](../README.md)
 
-## Take7: current signal and crediting paths
+## Take7 in 0.5.7: signal and crediting paths
 
 One ONNX file contains two independent branches. The app loads the required
 branch into each worker's memory; it does not run the chord encoder on every
@@ -27,10 +27,55 @@ played together can supply separate events; the order and single-note options
 still determine how the exercise accepts them. With onset crediting disabled,
 the existing sounding-note rules apply. Chord recognition keeps its own latch.
 
-This prevents reuse of an old event, not every false attack prediction. A root
-can still cause a spurious third/fifth detection; that reported case is unresolved.
-
 See [running](running.md) and [training take7](training-take7.md).
+
+### Why replace the old onset head?
+
+The practical problem was crediting a note that was still ringing from the
+previous chord. For example, a fifth shared by two consecutive chords should
+require another pluck when **Credit only what was struck** is enabled. At the
+same time, playing a new third should remain detectable while the root rings.
+A detector therefore needs to identify a new attack for each pitch class, not
+just report a sounding pitch or a general increase in volume.
+
+The take6 head already used changes in CQT/chroma features and encoder tokens;
+Rise is not the first attempt to measure spectral change. The limitation was
+that those features came from the long chord-analysis window. The earlier
+measurements described below found delayed responses and confusion between
+pitch classes. Additional waiting and blocking rules did not reliably fix the
+reported repeats and made practice less responsive.
+
+| Aspect | Take6 onset head | Take7 Rise branch |
+|---|---|---|
+| Audio features | 8192-sample FFT: 512 ms, then CQT/chroma and chord encoder features | 1024/2048-sample spectra: 64/128 ms, processed by a separate causal network |
+| Execution | Alongside the chord model, every 40 ms | Independent worker, every 16 ms |
+| Change evidence | Differences in chord features and encoder tokens | Spectrum plus positive per-bin amplitude growth over the preceding four frames |
+| Role in note crediting | Legacy onset counters combined with CQT/pitch rules | Timestamped per-pitch events, checked for freshness and consumed by the judge |
+
+Shorter spectral windows blur an attack over less audio. The independent worker
+can deliver an onset without waiting for a chord prediction. Rise learns from
+both the spectrum and its recent growth, to distinguish a fresh note from the
+sustained background. It remains polyphonic: several pitch classes can attack
+together. It still uses temporal history; a 16 ms update interval is **not** a
+claim of 16 ms end-to-end detection latency.
+
+The event bookkeeping is an application improvement, separate from the neural
+network: consuming an event once and checking its timestamp prevents that same
+event from crediting another round.
+
+**What improved in practice:** during the user's guitar exercises, the Rise path
+was reported to largely eliminate carried-over credits. Early versions also
+missed some quietly played notes and required repeated plucks. Feedback on the
+current take7 integration is positive. These are practice observations, not a controlled
+accuracy comparison. There is no published like-for-like benchmark here proving
+that the latest take7 weights outperform the 0.5.6 model on every material.
+The old take6 onset F1 and the newer event metrics use different evaluation
+setups and should not be compared directly.
+
+Take7 packages the chord base and Rise in one file; merging the graphs does not
+itself improve detection. The change in onset inputs, network and application
+integration is what addresses the original problem. The optional weak-response
+rescue is a separate feature, disabled by default.
 
 ## Earlier CQT and take6 design
 

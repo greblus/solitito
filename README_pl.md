@@ -99,22 +99,25 @@ ucha z rękami, zamiast klepania schematów.
 
 ---
 
-## Aktualna wersja ze źródeł: take7
+## Wersja 0.5.7: take7
 
 Take7 korzysta z jednego `best_model_v2_take7.onnx` do rozpoznawania akordów,
-brzmiących dźwięków i uderzeń przez Rise. Umieść wytrenowany model w katalogu
-projektu, wykonaj `./target/release/solitito --check`, a potem uruchom
+brzmiących dźwięków i uderzeń przez Rise. Paczki wydania zawierają już model.
+Przy kompilacji ze źródeł pobierz go z [Hugging Face](https://huggingface.co/greblus/solitito-ai),
+umieść w katalogu projektu, wykonaj `./target/release/solitito --check`, a potem uruchom
 `./target/release/solitito`. Model wybierany jest automatycznie; nagrywanie
 i dodatkowe potwierdzanie słabszych uderzeń są opcjonalne.
 
 Przy **Zaliczaj tylko to, co uderzone** tryby nutowe korzystają ze świeżych
-zdarzeń Rise przypisanych do klas wysokości. To samo zdarzenie nie przechodzi
-do kolejnego ćwiczenia, ale model nadal może pomylić harmoniczną z nową tercją
-lub kwintą. Ten problem pozostaje otwarty.
+zdarzeń Rise przypisanych do klas wysokości. Każde zdarzenie może zostać użyte
+tylko raz i należy do bieżącego ćwiczenia.
+
+Rise zastępuje starą głowicę, żeby wykrywać świeże uderzenia na tle
+wybrzmiewających nut bez czekania na model akordowy. [Uzasadnienie i porównanie](docs/how-it-works_pl.md#dlaczego-zastąpiliśmy-starą-głowicę-onsetów) opisują konstrukcję, obserwowaną poprawę i ograniczenia.
 
 Zobacz [uruchamianie](docs/running_pl.md), [trening i eksport take7](docs/training-take7_pl.md)
-oraz [indeks narzędzi](dist/README.md). Dotychczasowe paczki wydań i historyczne
-wyniki take6 nie opisują nowego detektora onsetów.
+oraz [indeks narzędzi](dist/README.md). Wydania do 0.5.6 używają take6;
+ich historyczne wyniki nie opisują nowego detektora onsetów.
 
 ## Czytaj dalej
 

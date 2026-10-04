@@ -4,7 +4,7 @@
 
 [← powrót do README](../README_pl.md)
 
-## Take7: obecne tory analizy i zaliczania
+## Take7 w 0.5.7: tory analizy i zaliczania
 
 Jeden ONNX zawiera dwie niezależne gałęzie. Program wczytuje potrzebną gałąź
 do pamięci każdego wątku. Przy analizie onsetów nie uruchamia części akordowej
@@ -27,10 +27,54 @@ restarcie wejścia. Wielodźwięk może dostarczyć kilka zdarzeń; ustawienia k
 i grania pojedynczo nadal określają sposób zaliczania. Po wyłączeniu wymagania
 uderzeń działają dotychczasowe reguły brzmiących nut. Akordy mają osobną blokadę.
 
-To zapobiega ponownemu użyciu starego zdarzenia, ale nie każdej błędnej predykcji
-uderzenia. Zgłoszone zaliczenie tercji/kwinty z prymy pozostaje nierozwiązane.
-
 Zobacz [uruchamianie](running_pl.md) i [trening take7](training-take7_pl.md).
+
+### Dlaczego zastąpiliśmy starą głowicę onsetów?
+
+Problemem było zaliczanie nuty, która nadal wybrzmiewała z poprzedniego akordu.
+Na przykład wspólna kwinta dwóch kolejnych akordów powinna wymagać ponownego
+szarpnięcia przy włączonym **Zaliczaj tylko to, co uderzone**. Jednocześnie nowa
+tercja powinna dać się wykryć na tle brzmiącej prymy. Detektor musi więc wskazać
+nowe uderzenie konkretnej klasy wysokości, a nie samą obecność dźwięku czy ogólny
+wzrost głośności.
+
+Głowica take6 już korzystała ze zmian CQT/chromy i tokenów enkodera; Rise nie jest
+pierwszą próbą mierzenia zmian widma. Ograniczeniem było to, że cechy pochodziły
+z długiego okna analizy akordowej. Opisane niżej wcześniejsze pomiary wykazały
+opóźnione odpowiedzi i pomyłki między klasami wysokości. Dokładanie oczekiwania
+i blokad nie usuwało niezawodnie zgłaszanych powtórzeń, a pogarszało sprawność
+ćwiczenia.
+
+| Cecha | Głowica onsetów take6 | Gałąź Rise w take7 |
+|---|---|---|
+| Cechy audio | FFT 8192 próbek: 512 ms, następnie CQT/chroma i cechy enkodera akordów | Widma 1024/2048 próbek: 64/128 ms, osobna sieć przyczynowa |
+| Wykonywanie | Razem z modelem akordowym, co 40 ms | Niezależny wątek, co 16 ms |
+| Informacja o zmianie | Różnice cech akordowych i tokenów enkodera | Widmo oraz dodatni przyrost amplitudy każdego prążka względem poprzednich czterech ramek |
+| Udział w zaliczaniu nut | Stare liczniki uderzeń połączone z regułami CQT/pitch | Zdarzenia dla klas wysokości ze znacznikami czasu, sprawdzane pod kątem świeżości i zużywane przez sędziego |
+
+Krótsze okna widmowe mniej rozmywają moment ataku. Niezależny wątek może dostarczyć
+onset bez czekania na rozpoznanie akordu. Rise uczy się na widmie i jego świeżym
+przyroście, żeby odróżniać nowy dźwięk od wybrzmiewającego tła. Nadal działa
+polifonicznie: kilka klas wysokości może zostać uderzonych jednocześnie. Sieć
+korzysta z historii; cykl 16 ms **nie oznacza** gwarantowanego opóźnienia
+wykrycia wynoszącego 16 ms.
+
+Obsługa zdarzeń jest osobną poprawą w aplikacji: jednorazowe zużycie i kontrola
+znacznika czasu zapobiegają zaliczeniu kolejnej rundy tym samym zdarzeniem.
+
+**Co poprawiło się w praktyce:** podczas ćwiczeń na gitarze użytkownik zgłaszał,
+że tor Rise w dużym stopniu wyeliminował przenoszenie zaliczeń między akordami.
+Wczesne wersje pomijały też część spokojnie granych nut i wymagały powtarzania
+szarpnięć. Ocena obecnej integracji take7 jest pozytywna. To obserwacje z ćwiczeń, a nie
+kontrolowany pomiar skuteczności. Nie publikujemy tu porównania na identycznym
+materiale dowodzącego przewagi najnowszych wag take7 nad modelem z wydania 0.5.6
+w każdej sytuacji. Dawne F1 onsetów take6 i nowe metryki zdarzeń pochodzą
+z różnych procedur oceny i nie należy porównywać ich wprost.
+
+Take7 łączy bazę akordową i Rise w jednym pliku; samo scalenie grafów nie poprawia
+detekcji. Na pierwotny problem odpowiada zmiana wejścia onsetów, sieci oraz
+integracji z aplikacją. Opcjonalne potwierdzanie słabszych odpowiedzi to osobna
+funkcja, domyślnie wyłączona.
 
 ## Wcześniejszy tor CQT i model take6
 

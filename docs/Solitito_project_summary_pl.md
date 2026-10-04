@@ -1,13 +1,13 @@
 # Solitito — podsumowanie projektu
 
-> Historyczny raport techniczny. Towarzyszący PDF zachowuje wcześniejszy opis.
-> Obecna architektura take7: [jak to działa](how-it-works_pl.md),
-> [trening/eksport](training-take7_pl.md), [uruchamianie](running_pl.md).
-> Historyczne metryki onsetów poniżej nie oceniają nowej gałęzi Rise.
+**System ćwiczenia i rozpoznawania gry na gitarze w czasie rzeczywistym**
 
-**System rozpoznawania akordów gitarowych w czasie rzeczywistym**
+*Aktualizacja: 4 października 2026 — integracja take7, wersja aplikacji 0.5.7*
 
-*Wersja 0.5.5, sierpień 2026*
+Dokument opisuje wersję 0.5.7 z modelem take7 oraz eksperymenty,
+które do niej doprowadziły. Dawne pomiary take6 oznaczono jako historyczne;
+nie są wynikami nowego detektora Rise. Numer modelu jest niezależny od numeru
+wydania aplikacji.
 
 ---
 
@@ -15,7 +15,7 @@
 
 Solitito jest trainerem gitarowym działającym w czasie rzeczywistym, stworzonym w Rust. Program pobiera sygnał interfejsu audio lub mikrofonu, rozpoznaje wykonywany materiał i prowadzi użytkownika przez standardy jazzowe, interwały, skale, arpeggia, formuły interwałowe oraz orientację na gryfie.
 
-Rozpoznawanie realizuje sieć neuronowa o 7,3 mln parametrów, wyeksportowana do formatu ONNX. Całość przetwarzania — DSP, inferencja oraz interfejs użytkownika — wykonywana jest lokalnie na procesorze, bez połączenia sieciowego i bez usług zewnętrznych.
+Rozpoznawanie wykorzystuje jeden ONNX take7 zawierający sieć akordową i osobną gałąź onsetów Rise. Całość przetwarzania — DSP, inferencja oraz interfejs użytkownika — wykonywana jest lokalnie na procesorze, bez połączenia sieciowego i bez usług zewnętrznych.
 
 System udostępnia sześć trybów pracy:
 
@@ -120,6 +120,11 @@ Przyjęto zasadę nadrzędną: **generator wypisuje etykiety wprost, a niezależ
 
 Poniżej opisano cztery właściwości zbioru, których pominięcie obniża dokładność modelu.
 
+Dla Rise zarówno nagrania solo, jak i comp dostarczają etykiet początków nut.
+Adnotacje rozdzielające struny służą tylko jako cele treningu: model słyszy zwykłe
+audio mono, a aplikacja nie wymaga przetwornika heksafonicznego. Opisane poniżej
+problemy etykiet akordowych nie uzasadniają odrzucania adnotacji nut solowych.
+
 ### 4.1. Połowa zbioru nie zawiera akordów
 
 Każdy fragment zarejestrowano dwukrotnie: jako `_comp` (akompaniament) oraz `_solo` (improwizacja jednogłosowa). **Adnotacja akordowa jest w obu przypadkach identyczna** — opisuje progresję, nad którą wykonawca improwizował.
@@ -177,106 +182,136 @@ Przyjęty próg: dźwięk musi brzmieć przez co najmniej 25% okna (`NOTE_MIN_CO
 
 ## 5. Architektura
 
-### 5.1. Ścieżka sygnału
+### 5.1. Dwa tory sygnału w jednym modelu
 
-```
-wejście audio → resampling do 16 kHz → FFT (8192) → rzadkie pseudo-CQT → cechy → model ONNX
-```
+Take7 to jeden samowystarczalny `best_model_v2_take7.onnx`, z dwoma niezależnymi
+wejściami i czterema wyjściami. Przy starcie aplikacja wydziela potrzebną gałąź
+do pamięci każdego wątku. Nie zapisuje modeli pochodnych. Sam wybór jednego
+wyjścia pełnego grafu nie pomijał drugiej gałęzi w pomiarze profilera; wydzielenie
+w pamięci usuwa obliczenia akordowe z cyklu onsetów wynoszącego 16 ms.
 
-**Resampling do 16 kHz.** Transformata CQT obejmuje 6 oktaw począwszy od C1, wobec czego najwyższy bin przypada w okolicy 2 kHz, a więc znacznie poniżej granicy Nyquista wynoszącej 8 kHz. Pasmo nie stanowi ograniczenia.
-
-**Pseudo-CQT.** Zamiast właściwej transformaty o stałym współczynniku Q aplikacja mnoży widmo FFT przez wyznaczone uprzednio jądro: 144 biny, 24 na oktawę, co odpowiada rozdzielczości ćwierćtonowej. Jądro pochodzi z funkcji `librosa.filters.constant_q`, dzięki czemu aplikacja i trener wytwarzają identyczne cechy.
-
-**Cechy.** 168 wartości na ramkę:
-
-| zakres | zawartość |
-|---|---|
-| 0–143 | biny CQT po log-normalizacji |
-| 144–155 | chroma (macierz `cq_to_chroma`, normalizacja maksimum w ramce) |
-| 156–167 | energia basowa (średnia z par binów 0–23) |
-
-Model obejmuje 48 ramek historii przy skoku 256 próbek, co odpowiada **0,77 s**.
-
-### 5.2. Sieć
-
-```
-wejście [48, 168]
-   ↓
-InstanceNorm2d
-   ↓
-ConvBlockSE  1 → 48       (Squeeze-and-Excitation)
-ConvBlockSE 48 → 96
-ConvBlockSE 96 → 192
-ConvBlockSE 192 → 384
-   ↓
-Linear 3840 → 384
-   ↓
-+ token CLS, kodowanie pozycji
-   ↓
-TransformerEncoder: 4 warstwy, 8 głowic, d=384, FF=768, GELU, norm_first
-   ↓
-CLS
-   ├── fc_root     → 13   (12 klas wysokości + „Noise")
-   ├── fc_quality  → 11   (maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N)
-   └── fc_pitch    → 12   (sigmoid: które klasy wysokości brzmią)
-
-ostatnia ramka oraz ramka ONSET_LOOKBACK wcześniej
-   └── fc_onset    → 12   (sigmoid: które klasy wysokości zostały UDERZONE)
+```text
+sygnał mono z gitary
+  ├─ DSP akordów: 16 kHz → FFT 8192 → rzadkie CQT/chroma/bas
+  │    → features [1,48,168] → pryma, jakość, brzmiące nuty
+  └─ DSP onsetów: 16 kHz → widma Hanna 1024/2048
+       → short_features [1,770,35] → zdarzenia Rise dla nut
 ```
 
-Łączna liczba parametrów: 7 286 038; głowica ataków dokłada 156 156.
+Tor akordowy zachowuje cechy take6: 144 log-normalizowane biny CQT, 12 wartości
+chromy i 12 wartości energii basowej. Rzadkie jądro ma 24 biny na oktawę,
+obejmując sześć oktaw od C1. Kontekst to 48 ramek przy skoku 256 próbek,
+około 0,77 s; inferencja wykonywana jest co 40 ms.
 
-Czwarta głowica nie czyta tokenu CLS. Jej wejście składa się z czterech części —
-ostatniej ramki enkodera, różnicy między nią a ramką sprzed sześciu ramek oraz,
-pobranych z surowych cech, zanim zobaczy je enkoder, PRZYROSTU CQT złożonego na
-klasy wysokości wraz z przyrostem chromy. Uzasadnienie mieści się w jednym
-zdaniu: atak dokłada energii do widma, a wybrzmiewanie nie, więc to, co
-przyrosło, jest wielkością odróżniającą dźwięk uderzany od wciąż brzmiącego.
+Tor onsetów korzysta z okien widmowych 64 i 128 ms, częstotliwości do 4 kHz
+oraz kompresji amplitudy `log1p`, bez normalizacji całego nagrania. Cechy są
+zaokrąglane do precyzji float16 używanej w cache treningowym. Przyczynowy
+resampling, dopełnienie z lewej i znaczniki czasu odpowiadają trainerowi.
+Inferencja działa co 256 próbek, czyli 16 ms, na 34 poprzednich ramkach cech
+i ramce bieżącej. Historia jest utrzymywana ciągle; przyszłe audio nie jest
+potrzebne. Cykl obliczeń nie oznacza opóźnienia wykrycia wynoszącego 16 ms.
 
-### 5.3. Podział zadań pomiędzy głowicami
+### 5.2. Baza akordowa i sieć Rise
 
-Rozróżnienie ról poszczególnych głowic ma charakter kluczowy i zostało potwierdzone pomiarem.
+Gałąź akordowa zachowuje CNN z Squeeze-and-Excitation oraz czterowarstwowy
+Transformer z take6. Token CLS dostarcza predykcji prymy, jakości i brzmiących
+klas wysokości. Poprzednia głowica `fc_onset` jest usuwana.
 
-| głowica | wynik | rola |
+Rise wykorzystuje projekcję surowych cech 770→96 oraz drugą projekcję dodatniej
+zmiany widma, po których następują cztery przyczynowe konwolucje rezydualne
+z dylatacjami 1, 2, 4 i 8 oraz 12 logitów wyjściowych. Dodatkowe wejście to,
+w przestrzeni amplitud, dodatnia różnica między bieżącym widmem a średnią
+z czterech poprzednich ramek. Bieżąca ramka nie wchodzi do tego tła. Różnica
+jest ponownie kompresowana do skali cech wewnątrz grafu ONNX.
+
+| Wejście/wyjście | Kształt podczas pracy | Znaczenie |
 |---|---|---|
-| `pitch_logits` | F1 0,909 | które dźwięki brzmią — podstawa trybów Interwały, Skale, Arpeggia i Gryf |
-| `root_logits` | 98,1% | nazwa prymy |
-| `quality_logits` | ~93% | rodzina akordu |
-| `onset_logits` | F1 0,812 | które klasy zostały uderzone, w odróżnieniu od brzmiących |
+| `features` | `[1,48,168]` | kontekst CQT akordów |
+| `short_features` | `[1,770,35]` | przyczynowy kontekst onsetów |
+| `root_logits` | `[1,13]` | 12 prym i szum |
+| `quality_logits` | `[1,11]` | rodzina akordu, pojedyncza nuta lub szum |
+| `pitch_logits` | `[1,12]` | brzmiące klasy wysokości, po sigmoidzie |
+| `onset_logits` | `[1,12,35]` | prawdopodobieństwa ataku po sigmoidzie; używana ostatnia ramka |
 
-Wczesna wersja aplikacji wyprowadzała jakość akordu z wektora pitch przy użyciu progów ustalonych ręcznie. Sonda `probe_quality.py` zestawiła trzy metody na tym samym checkpoincie:
+Metadane zapisują próg onsetów, opis cech, długość historii i hashe modeli
+źródłowych. Aplikacja odrzuca niezgodny kontrakt. Próg onsetów jest niezależny
+od progu brzmiących dźwięków dostępnego w interfejsie.
 
-| metoda | dokładność |
-|---|---|
-| głowica `quality_logits` | **80,5%** |
-| dopasowanie szablonów do przewidzianego pitch | 66,0% |
-| dopasowanie szablonów do **rzeczywistego** wektora pitch | 59,2% |
+### 5.3. Dlaczego zastąpiono poprzednią głowicę onsetów?
 
-Głowica przewyższa dopasowanie szablonów do *dokładnie znanego* zbioru dźwięków o 21 punktów procentowych. Wyprowadza zatem z sygnału informację nieobecną w samym zbiorze klas wysokości: barwę, rozłożenie voicingu w rejestrze oraz kształt ataku.
+Zadaniem jest rozpoznanie świeżego uderzenia konkretnej klasy wysokości,
+podczas gdy inne dźwięki mogą nadal wybrzmiewać. Trzymana nuta może pasować
+do interwału żądanego w kolejnym akordzie, mimo że nie została zagrana ponownie.
+Ogólny atak głośności nie mówi, który dźwięk został właśnie uderzony.
 
-Wniosek projektowy: głowica jakości pozostaje elementem koniecznym.
+Stara głowica już analizowała przyrost CQT/chromy i zmiany tokenów enkodera.
+Jej wejście pochodziło jednak z okna FFT o długości 512 ms w torze akordowym,
+a wykonanie było związane z inferencją akordów. Rise otrzymuje krótsze okna
+widmowe, uczy się zarówno z widma, jak i jego świeżego przyrostu, i działa
+niezależnie. Obsługuje jednoczesne ataki kilku klas wysokości bez wymagania
+ciszy między nimi.
+
+W ćwiczeniach na gitarze użytkownik zgłaszał znaczne ograniczenie zaliczeń
+przenoszonych między akordami po wprowadzeniu Rise. Wcześniejsze iteracje
+wymagały też powtarzania części cicho granych nut. Obecna integracja otrzymała
+pozytywną ocenę z ćwiczeń. Są to obserwacje użytkowe, odrębne od kontrolowanych
+pomiarów skuteczności; historycznego F1 onsetów z rozdziału 7 nie można porównywać
+wprost z metrykami zdarzeń Rise. Samo połączenie gałęzi w jeden plik nie poprawia
+dokładności.
+
+### 5.4. Podział zadań
+
+Pryma i jakość identyfikują akord; pitch opisuje to, co brzmi. Rise dostarcza
+nowych ataków do ćwiczeń nutowych przy włączonym **Zaliczaj tylko to, co uderzone**.
+Sędzia zużywa zdarzenia ze znacznikami czasu, a kolejność i granie pojedynczo
+nadal określają sposób przechodzenia ćwiczenia. Po wyłączeniu tej opcji pozostają
+dostępne dotychczasowe reguły brzmiących nut. Akordy mają osobną blokadę.
+
+Głowica jakości pozostaje potrzebna: we wcześniejszym porównaniu na jednym
+checkpoincie osiągnęła 80,5% dokładności, wobec 66,0% dla szablonów opartych na
+przewidywanych nutach i 59,2% dla szablonów opartych na rzeczywistym zbiorze nut.
+To historyczne pomiary głowicy akordowej, a nie metryki Rise.
 
 ---
 
 ## 6. Trening
 
-### 6.1. Fazy
+### 6.1. Trening i wznawianie take7
 
-Procedura treningowa obejmuje cztery fazy, przy czym zasadnicze znaczenie ma faza pierwsza.
+`dist/model_trainer.py` to wspierany samodzielny skrypt Kaggle, generowany
+z modułów części akordowej i onsetów. Domyślne `auto` wznawia własny przebieg,
+a w przeciwnym razie wykorzystuje checkpoint akordowy take6 i trenuje tylko
+Rise. Gdy nie ma bazy, trenuje również część akordową. `onset_only` wymaga
+przygotowanej bazy; `full` pomija take6, ale może wznowić własny przebieg.
+Nowy tag przebiegu rozpoczyna oddzielny eksperyment. `USE_HF=False` pozwala
+trenować bez historii Hugging Face.
 
-| faza | zakres | status |
-|---|---|---|
-| 1 | trening zasadniczy, 120 epok, cosine LR z rozgrzewką | jedyna wnosząca poprawę |
-| 2 | strojenie progu głowicy pitch | skorygowana — sortowała po metryce niezależnej od progu |
-| 3 | dostrajanie głowic przy zamrożonym enkoderze | **wyłączona** |
-| 4 | głowica ataków, trenowana osobno | dodana później; pozostałe wyjścia bez zmian |
+| Etap | Obecna rola |
+|---|---|
+| Fazy akordowe 1–2 | Trening zasadniczy i wybór progu pitch, gdy potrzebna jest baza |
+| Faza akordowa 3 | Opcjonalne dostrajanie przy zamrożonym enkoderze; domyślnie wyłączone |
+| Etap onsetów | Trening osobnej gałęzi Rise przy zamrożonych wagach akordowych |
+| Eksport | Scalenie wybranych gałęzi do jednego ONNX i kontrola zgodności wyjść |
 
-Faza 4 trenuje `fc_onset` przy zamrożonych wszystkich pozostałych parametrach.
-Konstrukcja jest celowa: faza albo daje głowicę wartą użycia, albo zostawia model
-dokładnie takim, jakim był, a trzy wcześniejsze wyjścia nie mogą przesunąć się o
-miejsce po przecinku. Materiałem jest adnotacja na poziomie dźwięku — okna
-próbkowane wokół rzeczywistych ataków, domyślnie wyłącznie z nagrań solowych,
-bo to one niosą `note_midi`. Trening kończy przegląd progów raportowany jako F1.
+Snapshoty akordowe take6 nie zawierają wag Rise. Rise zaczyna więc od nowych
+wag, chyba że podano checkpoint PyTorch w `INITIAL_ONSET`; zapisany stan take7
+do wznowienia ma pierwszeństwo. Stara `fc_onset` nie jest wykorzystywana.
+Optimizer onsetów nigdy nie otrzymuje parametrów części akordowej.
+
+Domyślny przebieg onsetów ma 12 epok. Snapshot ostatniej epoki zapisuje razem
+model, optimizer, stan generatorów losowych, historię i najlepszy checkpoint.
+Przy wznawianiu muszą być zgodne tożsamości źródeł, podziały, hashe audio/cech
+i adnotacje. Niezgodność zatrzymuje przebieg, zamiast po cichu zaczynać od nowa.
+Samo odtworzenie ścieżki pliku nie pozwala podmienić danych treningowych.
+
+Dla ukończonego wcześniejszego przebiegu z dwoma plikami `MODE="export_only"`
+łączy ONNX akordów, ONNX onsetów i zapisany próg bez treningu, GPU i ekstrakcji
+cech. Wynikiem jest `best_model_v2_take7.onnx`; `_chords.onnx` to plik pośredni,
+nie kompletny model aplikacji. Należy zachować raport treningu i checkpointy.
+Eksporter sprawdza obie gałęzie względem oryginalnych wyjść ONNX dla trzech
+kształtów batch/kontekst, zanim zatwierdzi połączony model.
+
+Poniższe uwagi wyjaśniają dwie decyzje zachowane z rozwoju modelu akordowego.
 
 Faza 2 skanowała progi w zakresie 0,30–0,70, optymalizując wskaźnik `exact`. Wskaźnik ten stanowi koniunkcję `argmax(root)` oraz `argmax(quality)`, wobec czego przyjmował identyczną wartość dla wszystkich 41 progów, a wybór był losowy. Obecnie sortowanie odbywa się po F1 głowicy pitch, na którą próg faktycznie oddziałuje.
 
@@ -287,9 +322,9 @@ take2, 40 epok:  pitch_f1 0,9318 → 0,9326 (+0,0008), exact 0,5455 → 0,5445
 take3,  4 epoki: F1 0,933 → 0,931,             exact 54,6% bez zmian
 ```
 
-Enkoder pozostaje zamrożony, uczeniu podlegają wyłącznie głowice przy współczynniku uczenia 1e-5. Faza nie dysponuje mechanizmem poprawy modelu, a jej koszt wynosi około 1,5 godziny obliczeń.
+Enkoder pozostaje zamrożony, uczeniu podlegają wyłącznie głowice przy współczynniku uczenia 1e-5. Próby nie przyniosły użytecznej poprawy, a koszt fazy wynosił około 1,5 godziny obliczeń.
 
-### 6.2. Funkcje straty i maskowanie
+### 6.2. Straty i maskowanie części akordowej
 
 - **root** — CrossEntropy z wygładzaniem etykiet 0,05,
 - **quality** — CrossEntropy z wygładzaniem, sampler ważony po klasie,
@@ -301,17 +336,17 @@ Zastosowano dwa mechanizmy maskowania, oba uzasadnione pomiarem.
 
 **`GUITARSET_SOLO_MODE = "mask_chord"`** — pryma i jakość nie otrzymują gradientu z nagrań solowych; głowica pitch otrzymuje go bez zmian.
 
-### 6.3. Augmentacja
+### 6.3. Augmentacja części akordowej
 
 - **przesunięcie wysokości** o ±N półtonów. Istotny szczegół implementacyjny: CQT oraz energia basowa przesuwane są **z wypełnieniem zerami**, chroma — **cyklicznie**. Chroma jest z definicji okrężna, CQT nie jest; zawinięcie pasma basowego na górę zakresu wprowadzałoby dźwięki nieobecne w sygnale.
 - **maskowanie czasu i częstotliwości** (SpecAugment),
 - **nachylenie widma oraz szum** — symulacja zróżnicowanych torów sygnału.
 
-### 6.4. Bramka energetyczna
+### 6.4. Bramka energetyczna części akordowej
 
 Parametr `ENERGY_KEEP_FRAC = 0,55` odrzuca okna o energii poniżej 55% wartości szczytowej segmentu. Uzasadnienie: w fazie zaniku septyma, będąca najcichszym składnikiem voicingu, zanika jako pierwsza, podczas gdy etykieta pozostaje niezmieniona. Brak bramki prowadziłby do systematycznego uczenia kolapsu `m7 → m`.
 
-### 6.5. Metryki
+### 6.5. Metryki części akordowej
 
 Metryki akordowe wyznaczane są **wyłącznie na oknach, w których etykieta opisuje sygnał**, z pominięciem okien solowych. Raportowane są dodatkowo w rozbiciu na okna ze słyszalną prymą i bez niej, ponieważ wartość łączna miesza dwie odmienne populacje.
 
@@ -319,18 +354,51 @@ Wybór najlepszego checkpointu odbywa się według wskaźnika `composite = (root
 
 Kontrola diagnostyczna `TRAIN`, wykonywana co 5 epok, wyznacza metryki na danych treningowych bez augmentacji. Odpowiada na pytanie, czy model jest w stanie odwzorować własne dane treningowe. Odpowiedź negatywna wskazuje na cechy lub etykiety jako źródło ograniczenia, nie na generalizację, i oznacza, że zwiększanie liczby epok jest bezcelowe.
 
+### 6.6. Dane, cele i ocena Rise
+
+Trening onsetów wykorzystuje syntetyczne szarpnięcia i zdarzenia nutowe GuitarSet
+zarówno z nagrań solo, jak i comp. Adnotacje JAMS rozdzielające struny dostarczają
+etykiet; wejściem sieci jest zwykłe audio mono, a nie sześć kanałów przetwornika.
+Pipeline wybiera dostępny wariant mic albo mono mix i zapisuje ten wybór.
+Początki nut GuitarSet opisują zagrane dźwięki, nie niezależnie zweryfikowaną
+technikę szarpania.
+
+Wykonawcy GuitarSet 00–03 tworzą trening, 04 walidację, a 05 test. Grupy
+syntetycznych pobudzeń są rozdzielone między te trzy zbiory. Osiem przypadków
+obejmuje trzymaną prymę, dodaną tercję/kwintę/oktawę, ponowne szarpnięcia oraz
+trzymane i powtarzane trójdźwięki. Dostrojony generator `onset-ks-v2` wykorzystuje
+opóźnienie ułamkowe, aby wysokość renderu zgadzała się z etykietą; sama
+deterministyczność adnotacji nie zapewniłaby tego.
+
+Domyślna procedura używa BCE z wagą pozytywnych przykładów 4 oraz augmentacji
+głośności ±6 dB. Cel oznacza onset klasy wysokości przez 96 ms. Jednoczesne
+początki tej samej klasy wysokości pozostają ograniczeniem reprezentacji
+12-klasowej; raport zawiera liczby takich nałożeń. Wcześniejsze eksperymenty
+ze stratami paired/ringing pozostają w źródłach, ale take7 ich nie włącza.
+
+Checkpoint jest wybierany metrykami zdarzeń na walidacji, a końcowy przegląd
+progów korzysta z predykcji wyeksportowanego ONNX. Precision, recall, F1,
+nadmiarowe zdarzenia na minutę i opóźnienie względem audio są raportowane
+osobno dla domen i przypadków. Zbiór testowy jest oceniany przy progu wybranym
+na walidacji. Wynik zdarzeń detektora nie jest wynikiem zaliczania aplikacji:
+sędzia, bramka i harmonogram UI są odrębnymi elementami. Wcześniej przeanalizowane
+nagrania gitarowe służą regresji, nie stanowią nieznanego zbioru testowego.
+
+Polecenia i artefakty opisują [instrukcja treningu i eksportu](training-take7_pl.md)
+oraz [indeks narzędzi](../dist/README.md).
+
 ---
 
-## 7. Wyniki
+## 7. Wyniki i weryfikacja
 
-Model `v2_take6`, walidacja z podziałem po źródle, z pominięciem okien solowych:
+Historyczny model `v2_take6`, walidacja z podziałem po źródle, z pominięciem okien solowych:
 
 | metryka | wartość |
 |---|---|
 | dokładność prymy | **98,1%** |
 | pitch F1 | **0,909** |
 | trafienie dokładne (pryma **i** jakość) | **92,4%** |
-| F1 ataków | **0,812** |
+| F1 ataków take6 (historyczne) | **0,812** |
 
 Trzy pierwsze wielkości są identyczne w pliku trójgłowicowym i czterogłowicowym:
 głowica ataków trenowała się przy zamrożonej reszcie sieci. Czwarta podana jest
@@ -352,6 +420,27 @@ Dokładność w podziale na jakości przy najlepszym checkpoincie: `dom7` 97%, `
 Różnica pomiędzy zbiorem treningowym a walidacyjnym w zakresie jakości wynosi **6,5 punktu procentowego** (99,2% wobec 92,7%). Model odwzorowuje dane treningowe. Odpowiada to profilowi ograniczenia przez **generalizację**, nie przez pojemność architektury.
 
 Wniosek praktyczny: zwiększenie liczby epok ani rozmiaru modelu nie przyniesie poprawy. Poprawę przyniesie zwiększenie ilości zróżnicowanego materiału z rzeczywistego instrumentu.
+
+### 7.3. Kontrola integracji take7
+
+Integrację jednego pliku sprawdzono na kontrolnym połączeniu istniejących wag
+akordowych take6 i istniejących wag Rise. Wyjścia akordowe/pitch były identyczne
+z modelem źródłowym dla czterech okien wejściowych. Na pełnym nagraniu AtoA
+5682 ramki i 50 wykrytych zdarzeń były zgodne z osobnym modelem Rise, z zerową
+różnicą prawdopodobieństw, zarówno bez dodatkowego potwierdzania słabszych
+odpowiedzi, jak i z nim.
+
+Profiler wykazał 32 wykonywane węzły w sesji onsetów oraz 437 w sesji akordów,
+bez węzłów drugiej gałęzi. Testy runtime objęły również zużywanie zdarzeń,
+granice ćwiczeń, restarty wejścia i zaliczanie wielodźwięków. Kontrole te
+potwierdzają zachowanie wyników gałęzi i ich harmonogramu; nie są nową oceną
+dokładności później wytrenowanych wag take7. Obecny plik take7 przechodzi
+kontrolę inferencji `--check` w aplikacji.
+
+Nowe metryki treningowe należą do raportu danego przebiegu
+`training_summary_v2_take7.json`, wraz z wybranym checkpointem, progiem i hashami
+modeli. Dawne F1 onsetów powyżej pochodzi z innej procedury oceny i nie jest
+wynikiem take7.
 
 ---
 
@@ -463,6 +552,10 @@ Narzędzie rozróżnia przypadek, w którym model nie wykrywa septymy, od przypa
 
 ### 8.8. Pojedynczy dźwięk nie jest pytaniem, na które model potrafi odpowiedzieć
 
+Rozdział opisuje wcześniejsze rozwiązanie CQT i jego pomiary. Take7 zachowuje
+ten tor, ale ćwiczenie wymagające świeżego uderzenia korzysta z niezależnych
+zdarzeń Rise opisanych w 8.12, zamiast czekać na okno akordowe.
+
 Model pytany jest o 48 ramek — 0,77 s — i odpowiada o całości tego materiału. Jest to właściwe dla
 akordu trzymanego pod palcami i niewłaściwe dla gamy, w której dźwięki następują po sobie szybciej,
 niż okno zdąży się opróżnić.
@@ -512,19 +605,24 @@ Wynikają z tego trzy konsekwencje, z których każda została najpierw zaobserw
 Bramka szumu zapamiętywana jest per urządzenie. Interfejs i mikrofon laptopa dzielą dziesiątki
 decybeli, a próg, który trzeba odnajdywać po każdym przełączeniu, nie jest ustawieniem.
 
-### 8.10. Kosztem aplikacji jest jedna inferencja
+### 8.10. Niezależne harmonogramy inferencji
 
-Tryb `--bench` mierzy czas pojedynczej inferencji. Na maszynie odniesienia wynosi on 39 ms, a model
-pytany jest co 40 ms, wobec czego wątek inferencji pozostaje nasycony przez cały czas wybrzmiewania
-akordu; wszystkie pozostałe wątki — rysowanie, CQT, wywołanie zwrotne audio — dają łącznie poniżej 3%.
+Inferencja akordów działa co 40 ms, a Rise przetwarza każdy skok audio 16 ms
+w osobnym wątku. `--bench` mierzy gałąź akordową, nie cały tor onsetów i zaliczania.
+Wydzielenie gałęzi połączonego ONNX w pamięci podczas ładowania pozwala nie
+uruchamiać enkodera akordowego przy analizie samych onsetów.
 
-Ta sama binarka na tej samej maszynie pod systemem Windows raportuje 61 ms. Pozorna dziesięciokrotna
-różnica obciążenia pomiędzy systemami okazała się różnicą pomiędzy dwoma licznikami, nie pomiędzy dwiema
-kompilacjami: `top` podaje wartość w jednostkach jednego rdzenia, Menedżer zadań w skali całego
-procesora, wobec czego 100% rdzenia przy ośmiu rdzeniach to te same 12,5%.
-
+Wcześniejsze pomiary 39 ms na Linuksie i 61 ms na Windows dotyczyły inferencji
+akordowej na maszynie odniesienia. Są to pomiary historyczne, a nie opóźnienie
+gałęzi Rise w take7. Obciążenie CPU należy również porównywać na tej samej
+podstawie: jeden w pełni zajęty rdzeń odpowiada 12,5%, gdy licznik obejmuje
+osiem rdzeni.
 
 ### 8.11. Formuły oraz reguła surowsza niż w trybach dźwiękowych
+
+Poniższe porównanie dokumentuje wcześniejszy tor CQT/take6. W obecnej wersji
+włączenie **Zaliczaj tylko to, co uderzone** kieruje również Formuły do Rise;
+po wyłączeniu opcji obowiązują dotychczasowe reguły brzmiących nut.
 
 Aplikacja losuje zbiór interwałów nad prymą — każdy podzbiór dwunastu funkcji
 chromatycznych zawierający prymę, łącznie 2048 — a ćwiczenie polega na
@@ -544,9 +642,10 @@ nagrania (`dist/latency_stats.py`):
 
 Ze 110 dziewięćdziesiąt dziewięć pochodziło z głowicy wysokości modelu — która
 odpowiada na pytanie „co brzmi", a struna wybrzmiewająca albo rezonująca
-współczująco brzmi, nie będąc zagraną. Formuły działają więc na samej estymacie
-jednoramkowej, z głosowaniem czterech z pięciu ostatnich ramek audio; bramki
-atakowej tu nie przyjęto, z powodu podanego w 8.12.
+współczująco brzmi, nie będąc zagraną. Tamta wersja korzystała więc z samej
+estymaty jednoramkowej, z głosowaniem czterech z pięciu ostatnich ramek audio.
+Starej bramki atakowej nie przyjęto, ponieważ w tym porównaniu pomijała cztery
+zagrane dźwięki.
 
 Ten sam tryb potrafi również postawić formułę na akordzie: jej pryma sadzana jest
 na jednym z dwunastu stopni akordu, po czym zliczane jest, ile z tego akordu
@@ -554,30 +653,40 @@ zbiór pokrywa — wszystkie jego dźwięki poza prymą i czystą kwintą, bo ty
 ustalają, jaki to akord. Jest to arytmetyka na dwóch dwunastobitowych maskach i
 jest dokładna, co czyni ją wartą pokazania na ekranie obok funkcji.
 
-### 8.12. Stan przeniesiony przez granicę
+### 8.12. Zdarzenia i granice ćwiczeń
 
-Model odpowiada o 0,77 s dźwięku. W chwili, gdy ćwiczenie przechodzi dalej —
-następny akord, następna runda, wejście w tryb — jego najświeższa odpowiedź
-dotyczy jeszcze tego, co było przed tą granicą. Aplikacja tę odpowiedź
-zachowywała i zaliczała pierwszy cel nowego akordu z wybrzmiewania poprzedniego.
+Brzmiąca wysokość i świeży atak dostarczają innego rodzaju dowodów. Przy Rise
+i włączonym **Zaliczaj tylko to, co uderzone** aplikacja zużywa zdarzenia opisane
+klasą wysokości, czasem audio, identyfikatorem ramki i generacją wejścia.
+Zdarzenia już zużyte, wygasłe lub pochodzące sprzed granicy nie mogą zaliczyć
+nowego celu. Pauza, zmiana ćwiczenia i restart wejścia czyszczą oczekujące
+zdarzenia; przerwa kolejki audio resetuje kontekst detektora, zamiast udawać
+ciągły strumień.
 
-Objaw zgłaszany był jako właściwość modelu: „przy pierwszym uruchomieniu było
-lepiej", „przedtem wykrywanie było szybsze". Nie był ani jednym, ani drugim.
-Pierwszy akord po starcie jest czysty, bo nie ma czego dziedziczyć; każdy
-następny zaczyna, trzymając poprzedni. Poprawka polega na porzuceniu tego, co
-usłyszano, przy każdej takiej granicy — wektora wysokości, poprzedniej ramki,
-odpowiedzi o atakach, okna głosowania i ostatniego zaliczenia. Porzucenie nic nie
-kosztuje: następna ramka audio jest 16 ms dalej, a następna inferencja 40 ms.
+Atak wielodźwiękowy może dostarczyć kilka zdarzeń klas wysokości dla jednego
+ćwiczenia. Reguły kolejności i grania pojedynczo określają, które z nich mogą
+zostać użyte. Ponowne uzbrajanie detektora względem szczytu prawdopodobieństwa
+jest zachowywane przez zmiany ćwiczeń; sama zmiana celu nie jest nowym atakiem.
 
-Głowica ataków pozostaje dostępna jako opcja — model może zaliczyć wyłącznie
-klasę, którą raportuje również jako uderzoną — i jest domyślnie wyłączona. Po
-poprawieniu granicy przestała być potrzebna dla zgłoszonego objawu, a niesie
-własny koszt: w powyższym pomiarze zdejmowała 15 zaliczeń fałszywych ceną 4
-dźwięków pominiętych zupełnie.
+Opcjonalne `SOLITITO_ONSET_RESCUE=1` potwierdza słabszą odpowiedź przyrostem
+widma danej wysokości i dodatkową ramką. Znacznik czasu pozostaje czasem
+kandydata, więc potwierdzenie nie przenosi wcześniejszego ataku za granicę rundy.
+Silne odpowiedzi nie wymagają tego dodatkowego oczekiwania. Rescue jest
+domyślnie wyłączone i niezależne od wyboru modelu oraz nagrywania audio.
+
+Zwykły start automatycznie wybiera `best_model_v2_take7.onnx`, jeśli plik jest
+dostępny. `SOLITITO_MODEL` nadpisuje główną ścieżkę, a `SOLITITO_ONSET_MODEL`
+źródło onsetów. Do porównania nadal dostępne jest take6 z
+`SOLITITO_ONSET=legacy`. Skrypt logowania/nagrywania jest opcjonalny;
+zwykłe ćwiczenie nie wymaga logu ani zapisu WAV. Zobacz
+[uruchamianie aplikacji](running_pl.md).
 
 ---
 
 ## 9. Hipotezy zweryfikowane negatywnie
+
+Wpisy o głowicy onsetów w tej tabeli dotyczą wcześniejszego toru take6/CQT,
+nie obecnej gałęzi Rise.
 
 Rozdział dokumentuje przypadki, w których pomiar obalił wcześniej przyjęte założenie.
 
@@ -611,7 +720,10 @@ Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwent
 
 **Podział zbioru po źródle.** Obniża raportowane wskaźniki o kilkanaście punktów procentowych i jest uzasadniony.
 
-**Cztery głowice o rozdzielonych rolach.** Tryby dźwiękowe opierają się na wektorze pitch, nie na nazwie akordu; czwarta głowica odpowiada za to, co uderzone, i jest odczytywana, zapisywana oraz udostępniona jako opcja, zamiast być wpięta w ocenianie.
+**Cztery wyjścia, dwie niezależne gałęzie.** Root, quality i pitch zachowują
+bazę akordową. Rise dostarcza ataków ze znacznikami czasu do ćwiczeń wymagających
+świeżego uderzenia. Obie gałęzie są dystrybuowane w jednym ONNX, z osobnymi
+wejściami i harmonogramami inferencji.
 
 **Dwa progi na oknie kontekstowym zamiast jednego.** Model pytany jest od połowy okna, a jego nazwie akordu wierzy się od dziewięciu dziesiątych — jeden próg nie może obsłużyć zarazem trzymanego akordu i pojedynczego dźwięku.
 
@@ -633,18 +745,23 @@ Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwent
 
 **Faza 3 treningu** — zmierzona jako nieprzynosząca poprawy w trzech przebiegach.
 
-### 10.3. Zagadnienia otwarte
+### 10.3. Dalsza weryfikacja
 
-- **Zbiór testowy z instrumentu docelowego.** Wszystkie wskaźniki dotyczą sześciu wykonawców zewnętrznych oraz dwóch renderów zbioru syntetycznego. Brak jest pomiaru na docelowym torze sygnału.
-- **Zmiana `CTX_FRAMES` z 48 na 32** — przestała być wyborem swobodnym: wyeksportowany model ma wejście ustalone na 48 ramek, więc zmiana wymaga ponownego trenowania. Opóźnienie, któremu miała zaradzić, usunięto natomiast z tej ścieżki, na której miało znaczenie, oceniając pojedyncze dźwięki na jednej ramce CQT.
-- **Estymator wysokości o krótszym oknie.** Autokorelacja w oknie rzędu 100 ms sprowadziłaby opóźnienie pojedynczego dźwięku poniżej okna FFT o długości 512 ms, które pozostaje ograniczeniem w szybkich przebiegach.
-- **Zwiększenie ilości materiału z rzeczywistego instrumentu** — jedyny czynnik zdolny zmniejszyć różnicę 6,5 punktu procentowego.
+- **Niezależne nagrania z docelowych instrumentów i interfejsów.** AtoA i wcześniej
+  przeanalizowane nagrania z ćwiczeń są materiałem regresyjnym; kontrolowane
+  porównanie wag wymaga dodatkowego nieznanego materiału.
+- **Stabilne wznawianie i pochodzenie danych.** Wybrany model, próg, tożsamości
+  danych i raport treningu należy zachowywać razem. Kontroli zmienionych danych
+  nie należy obchodzić, aby wznowić niepowiązany przebieg.
+- **Pakowanie wydania.** Workflow 0.5.7 dołącza połączony artefakt take7,
+  sprawdza jego sumę SHA-256 i wykonuje obie gałęzie modelu przez `--check`
+  w przygotowanych paczkach Linuksa i Windows przed publikacją.
 
 ---
 
 ## 11. Podsumowanie
 
-W wyniku przeprowadzonych prac uzyskano model osiągający 92,4% trafień dokładnych na walidacji wyznaczonej z podziałem po źródle, wydany jako pakiety dystrybucyjne dla dwóch platform.
+W pracach nad take6 uzyskano model osiągający 92,4% trafień dokładnych na walidacji wyznaczonej z podziałem po źródle, wydany jako pakiety dystrybucyjne dla dwóch platform.
 
 Zasadniczy przyrost dokładności nie wynikał ze zmian architektury, lecz z czterech ustaleń dotyczących danych:
 
@@ -655,7 +772,15 @@ Zasadniczy przyrost dokładności nie wynikał ze zmian architektury, lecz z czt
 
 Wymienione cztery zmiany przesunęły wskaźnik `Exact` z 44,8% na 92,4%. Żadna z nich nie dotyczyła struktury sieci.
 
+Take7 wprowadza kolejny etap rozwoju: krótkie przyczynowe cechy onsetów,
+sieć Rise wyspecjalizowaną w świeżych atakach oraz zdarzenia ze znacznikami czasu
+w aplikacji. Baza akordowa może zostać wykorzystana bez ponownego treningu,
+a cały model można też wytrenować od zera. Zweryfikowany eksport dostarcza
+obie gałęzie w jednym ONNX, zachowując ich niezależne harmonogramy pracy.
+Rozszerza to aplikację z rozpoznawania brzmiącego materiału o ocenę nowo
+zagranych dźwięków.
+
 ---
 
-*Dokument opisuje stan na sierpień 2026, wersja 0.5.5.*
+*Aktualizacja: 4 października 2026 — take7, aplikacja 0.5.7.*
 *Repozytorium: https://github.com/greblus/solitito*

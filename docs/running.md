@@ -7,6 +7,8 @@
 Ready packages are attached to each [release](../../releases) — binary, ONNX
 Runtime, the model and the DSP weights, nothing else needed:
 
+Version **0.5.7** includes the combined take7 model with Rise onset detection.
+
 ```bash
 tar xzf solitito_linux-*.tar.gz && cd solitito_linux-* && ./solitito.sh
 ```
@@ -20,7 +22,8 @@ cargo build --release
 ```
 
 The current source build needs `dsp_weights.json` (in this repository) and
-`best_model_v2_take7.onnx` from [the take7 trainer/export](training-take7.md)
+`best_model_v2_take7.onnx` from [Hugging Face](https://huggingface.co/greblus/solitito-ai)
+or [the take7 trainer/export](training-take7.md)
 in its working directory. The ONNX weights are not committed to Git.
 `./target/release/solitito --check` runs both branches and checks compatibility.
 
@@ -34,7 +37,7 @@ cargo build --release
 ./target/release/solitito
 ```
 
-### Experimental onset integration on this research branch
+### Take7 onset detection (0.5.7)
 
 Put the trainer's **`best_model_v2_take7.onnx`** in the working directory.
 The app prefers it automatically. This single file contains the chord, pitch

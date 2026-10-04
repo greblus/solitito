@@ -14,11 +14,11 @@ on:
         default: ""
 
 env:
-  MODEL: best_model_v2_take6_onset.onnx
-  # The model is not in the repository - 29 MB per checkpoint. This one carries
-  # the onset head as a fourth output; the three the app has always read keep
-  # their names, so an older file still works if it is put beside the binary.
-  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+  # One self-contained ONNX with the chord and Rise branches. Verify the tested
+  # artifact on both platforms, pinned to its Hugging Face revision.
+  MODEL: best_model_v2_take7.onnx
+  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/ac79509476d68bca28be591b4cea02c793829969/best_model_v2_take7.onnx
+  MODEL_SHA256: ce3d192e67b8954785d2a39c3e5c40e8cf13314ed7da15bd941909e2e59e2b66
 
 jobs:
   resolve-ort:
@@ -77,6 +77,7 @@ jobs:
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+          echo "$MODEL_SHA256  $NAME/$MODEL" | sha256sum -c -
 
           # The app opens dsp_weights.json and the model by relative path, so the
           # working directory has to be the package directory. RUNPATH=$ORIGIN
@@ -137,6 +138,7 @@ jobs:
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+          echo "$MODEL_SHA256  $NAME/$MODEL" | sha256sum -c -
 
           7z a -tzip "$NAME.zip" "$NAME"
           sha256sum "$NAME.zip"

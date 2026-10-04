@@ -74,12 +74,12 @@ onset feature contract are saved in model metadata. The exporter checks three
 batch/context sizes against the original branch models in ONNX Runtime, and
 writes a single self-contained ONNX only after parity passes.
 
-The current source build supports this contract. It loads each independent
+Solitito 0.5.7 supports this contract. It loads each independent
 branch into memory for its own worker: chords every 40 ms, Rise every 16 ms.
 Copy `best_model_v2_take7.onnx` next to `dsp_weights.json`, then run
 `./target/release/solitito --check`. Normal launch selects take7 automatically;
 recording and weak-onset rescue are optional. See [running](running.md).
-Older released binaries need rebuilding before using this model. The trainer's
+Binaries from 0.5.6 and earlier need updating before using this model. The trainer's
 `app_ready=false` means training/export alone does not validate live crediting.
 
 ## Convert a completed take7 run without training again

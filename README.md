@@ -81,6 +81,7 @@ The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — poss
 interesting approach to creative improvisation ever put together.
 
 The book is available from [Wayne Krantz](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition) directly.
+I highly recommend to check out his music, he's an amazing musician and improviser.
 
 <div align="center">
 <img height="479" alt="Formulas" src="docs/solitito_formulas.png" />
@@ -102,20 +103,23 @@ the pictures at all.
 
 ---
 
-## Current source build: take7
+## Version 0.5.7: take7
 
 Take7 uses one `best_model_v2_take7.onnx` file for chords, sounding pitches and
-Rise onset detection. Copy the trained model into the project directory, then
+Rise onset detection. Release packages include it. For a source build, copy the
+model from [Hugging Face](https://huggingface.co/greblus/solitito-ai) into the project directory, then
 run `./target/release/solitito --check` and `./target/release/solitito`.
 The model is selected automatically. Recording and weak-onset rescue are optional.
 
 With **Credit only what was struck** enabled, note practice uses fresh per-pitch
-Rise events. The same event cannot be carried into the next exercise, but a model
-can still mistake a harmonic for a new third or fifth. This remains an open issue.
+Rise events. Each event can be consumed only once and belongs to the current exercise.
+
+Rise replaces the old onset head to detect fresh attacks on top of ringing
+notes without waiting for the chord model. [Why it changed and what improved](docs/how-it-works.md#why-replace-the-old-onset-head) explains the design, practice feedback and remaining limits.
 
 See [running](docs/running.md), [take7 training and export](docs/training-take7.md)
-and [the development tool index](dist/README.md). Existing release packages and
-historical take6 results do not describe the new onset detector.
+and [the development tool index](dist/README.md). Releases through 0.5.6 use
+take6; their historical results do not describe the new onset detector.
 
 ## Read on
 
