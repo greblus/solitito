@@ -4,6 +4,40 @@
 
 [← powrót do README](../README_pl.md)
 
+## Take7: obecne tory analizy i zaliczania
+
+Jeden ONNX zawiera dwie niezależne gałęzie. Program wczytuje potrzebną gałąź
+do pamięci każdego wątku. Przy analizie onsetów nie uruchamia części akordowej
+i nie zapisuje dodatkowych plików modeli.
+
+| Gałąź | Wejście podczas analizy | Wyjścia | Cykl |
+|---|---|---|---|
+| Akordy i brzmiące dźwięki | CQT `features [1,48,168]` | root, quality, pitch | 40 ms |
+| Uderzenia Rise | widma `short_features [1,770,35]` | onset `[1,12,35]`, używana ostatnia ramka | 16 ms |
+
+Rise używa przyczynowych widm z oknami Hanna 1024/2048 próbek przy 16 kHz,
+bez przyszłego audio. Próg onsetów i opis cech pochodzą z metadanych modelu.
+Suwak progu brzmiących dźwięków go nie zmienia. Opcjonalne potwierdzanie słabszych
+odpowiedzi wymaga przyrostu widma danej wysokości i potwierdzenia ramkę później.
+
+Przy **Zaliczaj tylko to, co uderzone** tryby nutowe zużywają zdarzenia dla klas
+wysokości ze znacznikami czasu. Bramka szumów nadal obowiązuje. Zdarzenia wygasają,
+nie są zużywane dwukrotnie i są czyszczone przy zmianie ćwiczenia, pauzie oraz
+restarcie wejścia. Wielodźwięk może dostarczyć kilka zdarzeń; ustawienia kolejności
+i grania pojedynczo nadal określają sposób zaliczania. Po wyłączeniu wymagania
+uderzeń działają dotychczasowe reguły brzmiących nut. Akordy mają osobną blokadę.
+
+To zapobiega ponownemu użyciu starego zdarzenia, ale nie każdej błędnej predykcji
+uderzenia. Zgłoszone zaliczenie tercji/kwinty z prymy pozostaje nierozwiązane.
+
+Zobacz [uruchamianie](running_pl.md) i [trening take7](training-take7_pl.md).
+
+## Wcześniejszy tor CQT i model take6
+
+Poniższy opis i pomiary dotyczą wcześniejszego toru, nadal istotnego dla trybu
+legacy i zaliczania bez zdarzeń Rise. Czasy i wyniki starej głowicy onsetów
+nie są pomiarami take7.
+
 ### Dlaczego pojedynczych dźwięków nie sądzi sam model
 
 Model pytany jest o 48 ramek, czyli 0,77 s dźwięku, i odpowiada o całości tego odcinka. Dla

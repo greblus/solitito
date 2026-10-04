@@ -6,7 +6,7 @@
 interfejs audio (zalecany) albo mikrofon, rozpoznaje, co grasz, i prowadzi przez standardy
 jazzowe, interwały, skale, arpeggia i formuły interwałowe.
 
-Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyeksportowanej do
+Rozpoznawanie działa na niewielkiej sieci neuronowej wyeksportowanej do
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
@@ -99,6 +99,23 @@ ucha z rękami, zamiast klepania schematów.
 
 ---
 
+## Aktualna wersja ze źródeł: take7
+
+Take7 korzysta z jednego `best_model_v2_take7.onnx` do rozpoznawania akordów,
+brzmiących dźwięków i uderzeń przez Rise. Umieść wytrenowany model w katalogu
+projektu, wykonaj `./target/release/solitito --check`, a potem uruchom
+`./target/release/solitito`. Model wybierany jest automatycznie; nagrywanie
+i dodatkowe potwierdzanie słabszych uderzeń są opcjonalne.
+
+Przy **Zaliczaj tylko to, co uderzone** tryby nutowe korzystają ze świeżych
+zdarzeń Rise przypisanych do klas wysokości. To samo zdarzenie nie przechodzi
+do kolejnego ćwiczenia, ale model nadal może pomylić harmoniczną z nową tercją
+lub kwintą. Ten problem pozostaje otwarty.
+
+Zobacz [uruchamianie](docs/running_pl.md), [trening i eksport take7](docs/training-take7_pl.md)
+oraz [indeks narzędzi](dist/README.md). Dotychczasowe paczki wydań i historyczne
+wyniki take6 nie opisują nowego detektora onsetów.
+
 ## Czytaj dalej
 
 Reszta dokumentacji w `docs/`:
@@ -137,7 +154,7 @@ Katalog `dist/` zawiera wszystko, czym zbudowano zbiór danych i wytrenowano mod
 |---|---|
 | `dataset_generator_v2.py` | generuje plik GP5 **i** adnotacje; sam sprawdza wszystkie akordy |
 | `verify_annotations.py` | kontroluje, czy etykiety opisują dźwięk (samo numpy, bez librosy) |
-| `model_trainer.py` | trening; działa na Kaggle, punkty kontrolne na Hugging Face |
+| `model_trainer.py` | trening/eksport take7; jeden skrypt na Kaggle, checkpointy na Hugging Face |
 | `gen_weights.py` | rzadkie wagi pseudo-CQT dla strony rustowej |
 | `probe_root.py` | jak często oznaczona pryma jest faktycznie słyszalna |
 | `probe_quality.py` | skąd powinna pochodzić jakość akordu: z głowicy czy z wektora wysokości |

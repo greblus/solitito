@@ -6,7 +6,7 @@
 through an audio interface (recommended) or a microphone, recognises what you are playing,
 and walks you through jazz standards, intervals, scales, arpeggios and interval formulas.
 
-Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
+Recognition runs on a small neural network exported to ONNX. Everything —
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
@@ -102,6 +102,21 @@ the pictures at all.
 
 ---
 
+## Current source build: take7
+
+Take7 uses one `best_model_v2_take7.onnx` file for chords, sounding pitches and
+Rise onset detection. Copy the trained model into the project directory, then
+run `./target/release/solitito --check` and `./target/release/solitito`.
+The model is selected automatically. Recording and weak-onset rescue are optional.
+
+With **Credit only what was struck** enabled, note practice uses fresh per-pitch
+Rise events. The same event cannot be carried into the next exercise, but a model
+can still mistake a harmonic for a new third or fifth. This remains an open issue.
+
+See [running](docs/running.md), [take7 training and export](docs/training-take7.md)
+and [the development tool index](dist/README.md). Existing release packages and
+historical take6 results do not describe the new onset detector.
+
 ## Read on
 
 The rest of the documentation is in `docs/`:
@@ -140,7 +155,7 @@ The `dist/` directory contains everything used to build the dataset and train th
 |---|---|
 | `dataset_generator_v2.py` | generates the GP5 **and** the annotations; self-tests all shapes |
 | `verify_annotations.py` | checks that labels describe the audio (numpy only, no librosa) |
-| `model_trainer.py` | training; runs on Kaggle, checkpoints to Hugging Face |
+| `model_trainer.py` | take7 training/export; one copyable Kaggle script, checkpoints to Hugging Face |
 | `gen_weights.py` | sparse pseudo-CQT weights for the Rust side |
 | `probe_root.py` | how often the labelled root is actually audible |
 | `probe_quality.py` | where chord quality should come from: the head or the pitch vector |

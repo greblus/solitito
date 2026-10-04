@@ -4,6 +4,40 @@ The signal path, the model, and why single notes are not judged by the model alo
 
 [← back to the README](../README.md)
 
+## Take7: current signal and crediting paths
+
+One ONNX file contains two independent branches. The app loads the required
+branch into each worker's memory; it does not run the chord encoder on every
+onset hop and does not create extra model files.
+
+| Branch | Input at inference | Outputs | Cadence |
+|---|---|---|---|
+| Chords and sounding pitches | CQT `features [1,48,168]` | root, quality, pitch | 40 ms |
+| Rise attacks | causal spectra `short_features [1,770,35]` | onset `[1,12,35]`, last frame used | 16 ms |
+
+Rise uses 1024/2048-sample Hann spectra at 16 kHz, with no future audio.
+Its onset threshold and feature contract come from model metadata. This threshold
+is separate from the sounding-note setting. The optional weak-response rescue
+requires pitch-specific spectral growth and confirmation one hop later.
+
+With **Credit only what was struck** enabled, note modes consume per-pitch events
+with timestamps. The noise gate still applies. Events expire, cannot be consumed
+twice, and are cleared at exercise boundaries, pauses and input restarts. Notes
+played together can supply separate events; the order and single-note options
+still determine how the exercise accepts them. With onset crediting disabled,
+the existing sounding-note rules apply. Chord recognition keeps its own latch.
+
+This prevents reuse of an old event, not every false attack prediction. A root
+can still cause a spurious third/fifth detection; that reported case is unresolved.
+
+See [running](running.md) and [training take7](training-take7.md).
+
+## Earlier CQT and take6 design
+
+The discussion and measurements below describe the earlier path, still relevant
+to legacy mode and judging without Rise events. The old onset timing and scores
+are not measurements of take7.
+
 ### Why single notes are not judged by the model alone
 
 The model is asked about 48 frames, which is 0.77 s of audio, and it answers about all of it.

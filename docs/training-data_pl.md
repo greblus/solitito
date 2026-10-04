@@ -1,5 +1,12 @@
 # Dane treningowe i wyniki
 
+Take7 zachowuje bazę akordową i zastępuje starą głowicę onsetów przez Rise,
+trenowane na syntetycznych szarpnięciach oraz zdarzeniach nutowych solo/comp
+z GuitarSet. Adnotacje strun dostarczają etykiet; aplikacja potrzebuje tylko
+zwykłego monofonicznego sygnału gitary. Aktualną procedurę opisuje
+[trening take7](training-take7_pl.md). Wyniki poniżej dotyczą historycznej
+części akordowej/take6, a nie jakości onsetów take7.
+
 [← powrót do README](../README_pl.md)
 
 ## Dane treningowe

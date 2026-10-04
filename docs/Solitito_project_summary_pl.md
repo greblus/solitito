@@ -1,5 +1,10 @@
 # Solitito — podsumowanie projektu
 
+> Historyczny raport techniczny. Towarzyszący PDF zachowuje wcześniejszy opis.
+> Obecna architektura take7: [jak to działa](how-it-works_pl.md),
+> [trening/eksport](training-take7_pl.md), [uruchamianie](running_pl.md).
+> Historyczne metryki onsetów poniżej nie oceniają nowej gałęzi Rise.
+
 **System rozpoznawania akordów gitarowych w czasie rzeczywistym**
 
 *Wersja 0.5.5, sierpień 2026*

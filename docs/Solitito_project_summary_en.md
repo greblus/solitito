@@ -1,5 +1,10 @@
 # Solitito — Project Summary
 
+> Historical technical report. The accompanying PDF preserves the earlier design.
+> Current take7 architecture: [how it works](how-it-works.md);
+> [training/export](training-take7.md), [running](running.md).
+> Historical onset metrics below do not evaluate the new Rise branch.
+
 **A real-time guitar chord recognition system**
 
 *Version 0.5.5, August 2026*

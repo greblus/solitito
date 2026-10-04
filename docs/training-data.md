@@ -1,5 +1,11 @@
 # Training data and results
 
+Take7 retains the chord base and replaces its old onset head with Rise, trained
+on synthetic plucks and GuitarSet solo/comp note events. GuitarSet string
+annotations supply labels; inference needs only ordinary mono guitar audio.
+The current recipe, checkpoints and export are described in [training take7](training-take7.md).
+The results below are historical chord/take6 results, not take7 onset scores.
+
 [← back to the README](../README.md)
 
 ## Training data

@@ -1,5 +1,10 @@
 # Settings
 
+With take7, **Credit only what was struck** uses Rise events. The sounding-note
+threshold does not adjust the onset threshold, which comes from model metadata.
+`SOLITITO_ONSET_RESCUE=1` optionally confirms weaker attacks; it does not select
+the model or enable recording. See [running](running.md).
+
 Every option in the four tabs, and the controls on the main window.
 
 [← back to the README](../README.md)

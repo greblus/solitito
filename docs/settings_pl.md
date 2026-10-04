@@ -1,5 +1,10 @@
 # Ustawienia
 
+W take7 opcja **Zaliczaj tylko to, co uderzone** korzysta ze zdarzeń Rise.
+Próg brzmiących nut nie reguluje progu onsetów — ten pochodzi z metadanych modelu.
+`SOLITITO_ONSET_RESCUE=1` opcjonalnie potwierdza słabsze uderzenia; nie wybiera
+modelu ani nie włącza nagrywania. Zobacz [uruchamianie](running_pl.md).
+
 Wszystkie opcje z czterech zakładek oraz sterowanie w oknie głównym.
 
 [← powrót do README](../README_pl.md)
