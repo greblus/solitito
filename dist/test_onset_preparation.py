@@ -11,7 +11,7 @@ import soundfile as sf
 
 from audit_onset_data import audit
 from onset_events import read_events
-from prepare_onset_data import find_manifest, prepare, render_group, sha256, split_sources
+from prepare_onset_data import find_manifest, pluck, prepare, render_group, sha256, split_sources
 from test_onset_events import jams_fixture
 
 
@@ -146,6 +146,21 @@ class PreparationTests(unittest.TestCase):
 
 
 class SyntheticPairsTests(unittest.TestCase):
+    def test_rendered_pitch_matches_label_across_guitar_range(self):
+        # Measure audio independently; integer-delay KS was >50 cents sharp
+        # at MIDI76/16kHz despite carrying a perfectly consistent MIDI label.
+        for sr in (16000, 44100):
+            frequencies = np.fft.rfftfreq(262144, 1 / sr)
+            for midi in range(40, 89):
+                wave = pluck(midi, round(.5 * sr), sr, 23, .998, .003)
+                segment = wave[round(.05 * sr):round(.45 * sr)]
+                spectrum = np.abs(np.fft.rfft(segment * np.hanning(len(segment)), n=262144))
+                expected = 440 * 2 ** ((midi - 69) / 12)
+                band = np.flatnonzero((frequencies > expected * .95) & (frequencies < expected * 1.05))
+                measured = frequencies[band[np.argmax(spectrum[band])]]
+                cents = 1200 * np.log2(measured / expected)
+                self.assertLess(abs(cents), 3., (sr, midi, measured, cents))
+
     @classmethod
     def setUpClass(cls):
         cls.clips = {c["case"]: c for c in render_group("train", 0, sr=8000)}

@@ -43,7 +43,7 @@ SYNTHETIC_GROUPS = (60, 12, 12)  # train, validation, test; eight variants/group
 SEED = 20260922
 SR = 16000
 SPLITS = ("train", "validation", "test")
-GENERATOR_VERSION = "onset-ks-v1"
+GENERATOR_VERSION = "onset-ks-v2"
 
 
 def sha256(path):
@@ -191,16 +191,27 @@ def excitation_seed(seed, split, group, role):
 
 
 def pluck(midi, frames, sr, seed, damping, attack_seconds):
-    period = round(sr / (440 * 2 ** ((midi - 69) / 12)))
-    buffer = np.random.default_rng(seed).uniform(-1, 1, period)
-    buffer = np.convolve(buffer, [.5, .5], mode="same")
-    wave = np.empty(frames, dtype=np.float64)
-    position = 0
-    for i in range(frames):
-        wave[i] = buffer[position]
-        following = (position + 1) % period
-        buffer[position] = damping * .5 * (buffer[position] + buffer[following])
-        position = following
+    # The two-tap averaging filter adds half a sample of delay. The old
+    # integer ring instead had effective period round(sr/f)-0.5: at 16kHz,
+    # requested E5 (MIDI76) became 680.85Hz, closer to F5 than E5.
+    # Add fractional delay BEFORE averaging, so total delay is sr/f. Keep
+    # the recurrence explicit and causal, with zero history before sample0.
+    period = sr / (440 * 2 ** ((midi - 69) / 12))
+    delay = math.floor(period - .5)
+    fraction = period - .5 - delay
+    if frames < 0 or delay < 2 or not 0 < damping <= 1 or attack_seconds <= 0:
+        raise ValueError("Invalid pluck parameters")
+    excitation = np.random.default_rng(seed).uniform(-1, 1, delay)
+    excitation = np.convolve(excitation, [.5, .5], mode="same")
+    wave = np.zeros(frames, dtype=np.float64)
+    count = min(frames, delay)
+    wave[:count] = excitation[:count]
+    weights = (.5 * (1 - fraction), .5, .5 * fraction)
+    for i in range(delay, frames):
+        past = i - delay
+        wave[i] = damping * (weights[0] * wave[past] +
+                             (weights[1] * wave[past - 1] if past >= 1 else 0.) +
+                             (weights[2] * wave[past - 2] if past >= 2 else 0.))
     wave *= np.minimum(1, np.arange(frames) / (attack_seconds * sr))
     return wave
 
