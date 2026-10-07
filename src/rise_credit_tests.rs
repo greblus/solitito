@@ -58,6 +58,43 @@ fn old_cqt_pitch_and_octave_do_not_replace_an_attack() {
 }
 
 #[test]
+fn opening_the_noise_gate_preserves_attack_time_across_exercise_boundaries() {
+    let mut a = intervals();
+    let at = Instant::now();
+    let event = crate::rise::Event { frame: 1, pc: 0, at };
+    let mut admission = crate::rise::GateAdmission::default();
+    let probabilities = [0.9; 12];
+    assert!(admission.admit(at, false, &probabilities, 0.8, [event]).is_empty());
+    // A new exercise starts while the onset is waiting for enough RMS.
+    a.rise_after = at + Duration::from_millis(8);
+    let admitted = admission.admit(at + Duration::from_millis(32), true,
+        &probabilities, 0.8, []);
+    assert_eq!(admitted.len(), 1);
+    a.receive_rise(admitted[0]);
+    frames(&mut a, 20);
+    assert!(a.collected_notes.iter().all(|&done| !done));
+}
+
+#[test]
+fn a_gate_delayed_attack_credits_once_and_a_new_pluck_still_credits() {
+    let mut a = intervals();
+    let at = Instant::now();
+    let mut admission = crate::rise::GateAdmission::default();
+    let probabilities = [0.9; 12];
+    admission.admit(at, false, &probabilities, 0.8,
+        [crate::rise::Event { frame: 1, pc: 0, at }]);
+    for event in admission.admit(at + Duration::from_millis(32), true,
+        &probabilities, 0.8, []) { a.receive_rise(event); }
+    frames(&mut a, 10);
+    assert_eq!(a.collected_notes, [true, false, false]);
+    assert!(admission.admit(at + Duration::from_millis(48), true,
+        &probabilities, 0.8, []).is_empty());
+    attack(&mut a, &[4]);
+    frames(&mut a, 10);
+    assert_eq!(a.collected_notes, [true, true, false]);
+}
+
+#[test]
 fn polyphonic_attack_walks_the_intervals_but_not_the_next_chord() {
     let mut a = intervals();
     a.chords = vec![a.chords[0].clone(), a.chords[0].clone()];
@@ -209,22 +246,28 @@ fn changing_note_policy_does_not_reuse_a_previous_attack() {
 #[test]
 #[ignore = "live worker integration: needs Rise model and SOLITITO_RISE_WAV (AtoA)"]
 fn real_worker_delivers_a_pluck_to_the_judge_without_the_chord_model() -> anyhow::Result<()> {
-    real_worker_credits_root(NoteName::A)
+    real_worker_credits_root(NoteName::A, 0.0)
+}
+
+#[test]
+#[ignore = "live gate integration: needs take7 and SOLITITO_RISE_WAV (AtoA)"]
+fn real_worker_keeps_the_first_attack_until_the_gate_opens() -> anyhow::Result<()> {
+    real_worker_credits_root(NoteName::A, 10f32.powf(-34.0 / 20.0))
 }
 
 #[test]
 #[ignore = "live rescue integration: needs SOLITITO_RISE_WAV with a weak E pluck and SOLITITO_ONSET_RESCUE=1"]
 fn real_worker_credits_a_weak_e_with_rescue() -> anyhow::Result<()> {
     anyhow::ensure!(std::env::var("SOLITITO_ONSET_RESCUE").as_deref() == Ok("1"), "Enable rescue for this test");
-    real_worker_credits_root(NoteName::E)
+    real_worker_credits_root(NoteName::E, 0.0)
 }
 
-fn real_worker_credits_root(root: NoteName) -> anyhow::Result<()> {
+fn real_worker_credits_root(root: NoteName, gate: f32) -> anyhow::Result<()> {
     let (audio, rate) = crate::rise::read_wav(&std::env::var("SOLITITO_RISE_WAV")?)?;
     let mut a = intervals();
     a.chords[0].root = root;
     a.reset_logic_state();
-    a.noise_gate = 0.0;
+    a.noise_gate = gate;
     let mut input = crate::rise::start(a.analysis_state.clone(), rate)?
         .ok_or_else(|| anyhow::anyhow!("Rise is disabled"))?;
     a.sync_audio_settings();
