@@ -10,9 +10,16 @@ anyhow = "1.0"
 log = "0.4"
 ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"] }
 ndarray = "0.15"
-slint = "1.17" 
+slint = "1.18.1" 
 hound = "3.5"
 keepawake = "0.4"
+# Not called from here. zune-jpeg reaches us through Slint's image support and
+# calls warn!(..) in expression position, which is only a real macro when
+# zune-core's `log` feature is on; 0.5.3 is the first version that makes it so.
+# Naming it as a direct dependency is what pins that version - without this the
+# build fails inside a crate we never asked for. It replaced a vendored copy of
+# zune-jpeg that differed from the published one by a semicolon.
+zune-core = "0.5.3"
 
 # Nowe zależności do wczytywania dsp_weights.json
 serde = { version = "1.0", features = ["derive"] }
@@ -21,14 +28,4 @@ chrono = "0.4"
 
 
 [build-dependencies]
-slint-build = "1.17"
-
-# zune-jpeg 0.5.15 does not compile: mcu_prog.rs calls warn!(..) in expression
-# position, which only works when zune-core's `log` feature makes the macro real.
-# Cargo reports that feature as enabled but never passes it to rustc, and the
-# crate arrives transitively through Slint's image support, which hard-codes
-# image/jpeg. The vendored copy differs from the published one by one semicolon.
-# Needed for Slint 1.17, which is the first release that renders text inside SVG.
-# Delete this section and vendor/zune-jpeg once upstream ships a fix.
-[patch.crates-io]
-zune-jpeg = { path = "vendor/zune-jpeg" }
+slint-build = "1.18.1"
