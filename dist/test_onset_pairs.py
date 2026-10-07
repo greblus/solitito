@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 
 from onset_pairs import build_onset_pairs, OnsetPairBatches, onset_pair_loss, onset_pair_metrics
-from prepare_onset_data import render_group
+from prepare_onset_data import render_group, render_masking_group
 from train_short_onset import feature_block, onset_features, onset_targets, HISTORY
 
 
@@ -126,6 +126,28 @@ class OnsetPairTests(unittest.TestCase):
         measured = onset_pair_metrics(constant)
         self.assertEqual(measured["positive_above_negative"], 0)
         self.assertEqual(measured["ties"], 12)
+
+    def test_masking_clips_do_not_enter_repeated_pc_pair_metrics(self):
+        # Reproduce final scoring with actual new-generator annotations:
+        # context events have no 'level', and the alone clip has no context.
+        masking = []
+        for group in range(4):
+            for clip in render_masking_group("train", group):
+                frames = len(onset_features(clip.pop("audio")))
+                masking.append(dict(clip, id=clip["name"], group=clip["source_group"],
+                                    domain="synthetic", frames=frames, pair_gain=clip["gain"]))
+        for sources, expected in ((masking, 0), (self.sources + masking, 12)):
+            with self.subTest(mixed=bool(expected)):
+                predictions = [(s, onset_targets(s["events"], s["frames"])) for s in sources]
+                measured = onset_pair_metrics(predictions)
+                self.assertEqual(measured["pairs"], expected)
+                self.assertEqual(measured["positive_above_negative"], expected)
+                self.assertEqual(measured["exclusions"]["group_without_repeated_pc_challenge"], 4)
+        # Relevant pairs must still fail on damaged context metadata.
+        corrupted = copy.deepcopy(self.sources)
+        del corrupted[0]["events"][0]["level"]
+        with self.assertRaises(KeyError):
+            build_onset_pairs(corrupted + masking)
 
     @unittest.skipUnless(importlib.util.find_spec("torch"), "temporary Torch environment required")
     def test_ranking_gradient_raises_true_attack_and_lowers_wrong_pc_response(self):

@@ -11,8 +11,12 @@ def build_model_trainer(directory):
 
 Copy/run this WHOLE file in the existing Kaggle notebook. Configuration is at
 the top: RUN_TAG, MODE, BASE_RUN, HF_REPO_ID, USE_HF, INITIAL_ONSET, ONSET_EPOCHS.
+Current defaults: v2_take7_masking_v2, ONSET_ONLY, masking pairs enabled, Rise
+fine-tuned from hf:checkpoint_v2_take7_onset_best.pth in HF_REPO_ID. The chord
+base stays frozen. A missing parent is an error, not a silent fresh start.
 AUTO reuses take6 and trains only Rise; FULL ignores take6 and trains both models.
 Both modes resume their own run. For a completely new run choose a new RUN_TAG.
+For all weights from scratch also set MODE="full" and INITIAL_ONSET="".
 USE_HF=False works locally without a Hugging Face account. Errors accessing HF
 are errors, never evidence of an empty repository. The final graph has two inputs
 (CQT features and short spectra) and four outputs. MODE="export_only" combines

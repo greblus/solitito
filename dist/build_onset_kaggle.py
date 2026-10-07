@@ -32,7 +32,7 @@ OUTPUT_ROOT = "/kaggle/working"
 RUNNER = '''
 def run_pipeline(root, output_root, variant="auto", groups=SYNTHETIC_GROUPS,
                  validation_player=VALIDATION_PLAYER, test_player=TEST_PLAYER,
-                 seed=SEED, sr=SR):
+                 seed=SEED, sr=SR, masking_pairs=False):
     import tempfile
     if not root.is_dir():
         raise FileNotFoundError(f"GuitarSet input directory is unavailable: {root}")
@@ -53,7 +53,7 @@ def run_pipeline(root, output_root, variant="auto", groups=SYNTHETIC_GROUPS,
     print(f"Audited {len(audited['sources'])} sources. Manifest: {manifest}", flush=True)
     print("Stage 2/2: preparing source splits and synthetic pairs", flush=True)
     result = prepare(manifest, run_dir / "prepared", validation_player, test_player,
-                     groups, seed, sr)
+                     groups, seed, sr, masking_pairs=masking_pairs)
     result["prepared_directory"] = str(run_dir / "prepared")
     result["summary_path"] = str(run_dir / "summary.json")
     write_json(run_dir / "summary.json", result)

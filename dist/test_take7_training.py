@@ -13,14 +13,119 @@ from unittest.mock import patch
 import numpy as np
 from build_model_trainer import build_model_trainer
 from chord_training import chord_runtime
-from take7_training import SnapshotStore, choose_chord_start, prepare_chords, run_take7, weights_digest
+from take7_training import (SnapshotStore, choose_chord_start, prepare_chords,
+                            prepare_features, resolve_initial_onset, run_take7, weights_digest,
+                            RUN_TAG, MODE, INITIAL_ONSET, ONSET_MASKING_PAIRS)
 from test_onset_preparation import fixture
-from train_short_onset import run_pipeline, onset_sources, cache_onset_features, train_onset_experiment
+from train_short_onset import (run_pipeline, onset_sources, cache_onset_features,
+                              train_onset_experiment, validate_resume_sources)
+from onset_pairs import onset_pair_metrics
 
 HAS_TRAINING = all(importlib.util.find_spec(m) for m in ('torch', 'onnx', 'onnxruntime'))
 
 
 class Take7Tests(unittest.TestCase):
+    def test_copyable_defaults_select_the_new_finetuning_experiment(self):
+        self.assertEqual(RUN_TAG, 'v2_take7_masking_v2')
+        self.assertEqual(MODE, 'onset_only')
+        self.assertTrue(ONSET_MASKING_PAIRS)
+        self.assertEqual(INITIAL_ONSET, 'hf:checkpoint_v2_take7_onset_best.pth')
+        generated = ast.parse(build_model_trainer(Path(__file__).parent))
+        settings = {node.targets[0].id: ast.literal_eval(node.value)
+                    for node in generated.body if isinstance(node, ast.Assign)
+                    and isinstance(node.targets[0], ast.Name)
+                    and node.targets[0].id in ('RUN_TAG', 'MODE', 'INITIAL_ONSET', 'ONSET_MASKING_PAIRS')}
+        self.assertEqual(settings, dict(RUN_TAG=RUN_TAG, MODE=MODE,
+                                        INITIAL_ONSET=INITIAL_ONSET, ONSET_MASKING_PAIRS=True))
+
+    def test_explicit_parent_checkpoint_resolution_and_missing_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(tmp)
+            path = Path(tmp) / 'parent.pth'
+            path.write_bytes(b'parent')
+            self.assertEqual(resolve_initial_onset('hf:parent.pth', store), path)
+            self.assertEqual(resolve_initial_onset(str(path), store), path)
+            self.assertIsNone(resolve_initial_onset('', store))
+            for value in ('hf:missing.pth', str(Path(tmp) / 'missing.pt')):
+                with self.assertRaises(FileNotFoundError):
+                    resolve_initial_onset(value, store)
+            for value in ('hf:', 'hf:../parent.pth', 'hf:model.onnx'):
+                with self.assertRaises(ValueError):
+                    resolve_initial_onset(value, store)
+            with patch.object(store, 'fetch', side_effect=ConnectionError('HF unavailable')):
+                with self.assertRaises(ConnectionError):
+                    resolve_initial_onset('hf:parent.pth', store)
+
+    def test_new_run_uses_parent_but_resume_does_not_require_it_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            store = SnapshotStore(work)
+            parent = work / 'checkpoint_v2_take7_onset_best.pth'
+            parent.write_bytes(b'parent')
+            # The old run's last checkpoint must never be resumed as the new run.
+            (work / 'checkpoint_v2_take7_onset_last.pth').write_bytes(b'old run')
+            config = dict(work_dir=tmp, input_dir=tmp, run_tag=RUN_TAG, mode=MODE,
+                          base_run='v2_take6', initial_onset=INITIAL_ONSET, onset_masking_pairs=True)
+            sources = [dict(split=s, case='masking_add_fifth_-12db')
+                       for s in ('train', 'validation', 'test')]
+            for resumed in (False, True):
+                if resumed:
+                    (work / f'checkpoint_{RUN_TAG}_onset_last.pth').write_bytes(b'new run')
+                    parent.unlink()
+                with patch('take7_training.prepare_chords', return_value={}), \
+                     patch('take7_training.prepare_features', return_value=sources) as prepare, \
+                     patch('take7_training.train_onset_experiment', side_effect=RuntimeError('stop before optimizer')) as train:
+                    with self.assertRaisesRegex(RuntimeError, 'stop before optimizer'):
+                        run_take7(config, store)
+                    prepare.assert_called_once_with(Path(tmp), work, (96, 96, 96), True)
+                    self.assertEqual(train.call_args.kwargs['initial_checkpoint'], None if resumed else parent)
+                record = json.loads((work / 'run_configuration.json').read_text())
+                self.assertTrue(record['onset_masking_pairs'])
+                self.assertEqual(record['run_tag'], RUN_TAG)
+            self.assertEqual((work / 'rise/short_onset_last.pt').read_bytes(), b'new run')
+
+    def test_masking_preparation_reaches_training_sources_and_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inputs = root / 'input'
+            inputs.mkdir()
+            fixture(inputs)
+            work = root / 'work'
+            sources = prepare_features(inputs, work, (1, 1, 1), masking_pairs=True)
+            masking = [s for s in sources if s['case'].startswith('masking_')]
+            self.assertEqual(len(masking), 9)
+            self.assertEqual({s['split'] for s in masking}, {'train', 'validation', 'test'})
+            self.assertTrue(all(Path(s['features']).is_file() for s in masking))
+            for split in ('validation', 'test'):
+                predictions = [(s, np.zeros((s['frames'], 12), dtype=np.float32))
+                               for s in sources if s['split'] == split]
+                pairs = onset_pair_metrics(predictions)
+                self.assertEqual(pairs['pairs'], 12)
+                self.assertEqual(pairs['exclusions']['group_without_repeated_pc_challenge'], 1)
+            cached = prepare_features(inputs, work, (1, 1, 1), masking_pairs=True)
+            self.assertEqual(json.loads(json.dumps(sources)), cached)
+            # A new Kaggle session regenerates WAV headers rather than reusing
+            # the previous work directory. Check the complete recovery path.
+            rebuilt = prepare_features(inputs, root / 'rebuilt', (1, 1, 1), masking_pairs=True)
+            identities = [tuple(s[k] for k in ('id', 'split', 'sha256', 'feature_sha256', 'events'))
+                          for s in sources]
+            checked = validate_resume_sources(identities, rebuilt, root / 'resume_data_check.json')
+            self.assertTrue(checked['ok'])
+            with self.assertRaisesRegex(ValueError, 'masking recipe changed'):
+                prepare_features(inputs, work, (1, 1, 1), masking_pairs=False)
+
+    def test_masking_recipe_cannot_reuse_an_old_feature_cache(self):
+        from train_short_onset import FEATURE_SPEC
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'features').mkdir()
+            index = root / 'features/index.json'
+            for present in (False, True):
+                sources = [dict(case='masking_add_fifth_-12db' if present else 'root_hold')]
+                index.write_text(json.dumps(dict(feature_spec=FEATURE_SPEC, sources=sources)))
+                with self.assertRaisesRegex(ValueError, 'masking recipe changed'):
+                    prepare_features(root, root, (1, 1, 1), masking_pairs=not present)
+
     def test_start_modes_and_no_overwriting_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SnapshotStore(tmp)

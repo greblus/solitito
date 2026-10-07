@@ -2,8 +2,12 @@
 
 Copy/run this WHOLE file in the existing Kaggle notebook. Configuration is at
 the top: RUN_TAG, MODE, BASE_RUN, HF_REPO_ID, USE_HF, INITIAL_ONSET, ONSET_EPOCHS.
+Current defaults: v2_take7_masking_v2, ONSET_ONLY, masking pairs enabled, Rise
+fine-tuned from hf:checkpoint_v2_take7_onset_best.pth in HF_REPO_ID. The chord
+base stays frozen. A missing parent is an error, not a silent fresh start.
 AUTO reuses take6 and trains only Rise; FULL ignores take6 and trains both models.
 Both modes resume their own run. For a completely new run choose a new RUN_TAG.
+For all weights from scratch also set MODE="full" and INITIAL_ONSET="".
 USE_HF=False works locally without a Hugging Face account. Errors accessing HF
 are errors, never evidence of an empty repository. The final graph has two inputs
 (CQT features and short spectra) and four outputs. MODE="export_only" combines
@@ -13,15 +17,16 @@ Generated from chord_training.py, take7_training.py and the tested onset modules
 by build_model_trainer.py. Edit sources and regenerate, not this copy.
 """
 
-RUN_TAG = "v2_take7"
-MODE = "auto"  # auto, onset_only, full, export_only; full resumes its own run
+RUN_TAG = "v2_take7_masking_v2"
+MODE = "onset_only"  # auto, onset_only, full, export_only; full resumes its own run
 BASE_RUN = "v2_take6"
 HF_REPO_ID = "greblus/chord-model-snapshots"  # set to your own repo for a new model
 USE_HF = True  # False: entirely local training, no token or HF account needed
 INPUT_DIR = "/kaggle/input"
 OUTPUT_ROOT = "/kaggle/working"
-INITIAL_ONSET = ""  # optional Rise .pt/.pth path, never an ONNX or take6 fc_onset
+INITIAL_ONSET = "hf:checkpoint_v2_take7_onset_best.pth"  # same HF repo; local .pt/.pth also supported; empty = fresh Rise
 ONSET_EPOCHS = 12
+ONSET_MASKING_PAIRS = True  # upper-note/background pairs; keep separate from the original v2_take7 run
 EXPORT_ONSET_THRESHOLD = None  # export_only: normally read from the saved summary
 
 if __name__ == "__main__":
@@ -2015,6 +2020,73 @@ def _onset_runtime():
                           "audio": (tracks[case] * gain).astype(np.float32), "events": clip_events})
         return clips
 
+    def render_masking_group(split, group, seed=SEED, sr=SR):
+        """Paired upper-string attacks at measured levels relative to ringing notes.
+
+        Independent synthetic excitations only. These are controlled training cases,
+        not recordings of a guitar or a simulation of pick damping on a real string.
+        Ninety-six groups cover 24 roots x four target/background RMS ratios.
+        """
+        if split not in SPLITS or group < 0 or sr < 8000 or seed < 0:
+            raise ValueError("Invalid masking group")
+        source_id = f"onset-masking-v1-{seed}-{split}-{group:04}"
+        rng = np.random.default_rng(excitation_seed(seed, split, group, "masking-v1"))
+        root = 55 + (group // 4) % 24
+        third = int(rng.choice([3, 4]))
+        relative_db = [-18, -12, -6, 0][group % 4]
+        challenge = 1.5
+        total = round(3.0 * sr)
+        window = round(.096 * sr)
+        start = round(challenge * sr)
+        specs = [("root", root, .3), ("third", root + third, .65),
+                 ("fifth", root + 7, challenge)]
+        stems, events, timbres = {}, {}, {}
+        for key, midi, at in specs:
+            exc_seed = excitation_seed(seed, split, group, "masking-v1-" + key)
+            offset = round(at * sr)
+            damping = float(rng.choice([.999, .9997, .9999]))
+            attack = float(rng.choice([.001, .003, .006]))
+            tone = pluck(midi, total - offset, sr, exc_seed, damping, attack)
+            # A causal comb changes harmonic balance without changing the pitch.
+            # Independent positions avoid giving every string the same spectrum.
+            pick_position = float(rng.choice([.12, .23, .38]))
+            delay = max(1, round(sr / (440 * 2 ** ((midi - 69) / 12)) * pick_position))
+            shaped = tone.copy()
+            shaped[delay:] -= .8 * tone[:-delay]
+            tone = shaped / max(float(np.sqrt(np.mean(shaped[:window] ** 2))), 1e-12)
+            wave = np.zeros(total)
+            wave[offset:] = tone
+            stems[key] = wave
+            timbres[key] = dict(damping=damping, attack_seconds=attack, pick_position=pick_position)
+            events[key] = dict(t=offset / sr, sample=offset, midi=midi, pc=midi % 12,
+                               role="challenge" if key == "fifth" else "context",
+                               source_id=f"{source_id}:{key}", excitation_seed=exc_seed,
+                               pluck_verified=True, label_kind="synthetic_excitation")
+        background = stems["root"] + stems["third"]
+        background_rms = float(np.sqrt(np.mean(background[start:start + window] ** 2)))
+        stems["fifth"] *= background_rms * 10 ** (relative_db / 20)
+        target_rms = float(np.sqrt(np.mean(stems["fifth"][start:start + window] ** 2)))
+        tracks = {"hold": background, "alone": stems["fifth"],
+                  "add_fifth": background + stems["fifth"]}
+        gain = float(rng.choice([.15, .3, .6])) / max(np.max(np.abs(x)) for x in tracks.values())
+        clips = []
+        for variant, track in tracks.items():
+            case = f"masking_{variant}_{relative_db:+d}db"
+            name = f"{source_id}-{variant}"
+            keys = {"hold": ["root", "third"], "alone": ["fifth"],
+                    "add_fifth": ["root", "third", "fifth"]}[variant]
+            clip_events = [dict(events[key], id=f"{name}:{i}", case=f"{case}/{events[key]['role']}")
+                           for i, key in enumerate(keys)]
+            clips.append(dict(name=name, source_group=source_id, parent_groups=[source_id],
+                              split=split, case=case, seed=seed, sr=sr, root_midi=root,
+                              challenge_at=challenge, target_midi=root + 7,
+                              target_background_db=relative_db, background_rms=background_rms * gain,
+                              target_rms=target_rms * gain, timbres=timbres,
+                              gain=gain, frames=total, duration=total / sr,
+                              expected_new_pcs=[(root + 7) % 12] if variant != "hold" else [],
+                              audio=(track * gain).astype(np.float32), events=clip_events))
+        return clips
+
     def source_summary(sources):
         result = {}
         for split in SPLITS:
@@ -2028,7 +2100,7 @@ def _onset_runtime():
         return result
 
     def prepare(manifest_path, output, validation_player=VALIDATION_PLAYER, test_player=TEST_PLAYER,
-                groups=SYNTHETIC_GROUPS, seed=SEED, sr=SR):
+                groups=SYNTHETIC_GROUPS, seed=SEED, sr=SR, masking_pairs=False):
         import csv
         if len(groups) != 3 or any(n < 1 for n in groups) or seed < 0 or sr < 8000:
             raise ValueError("Need three positive group counts, nonnegative seed and sample rate >=8000")
@@ -2038,7 +2110,7 @@ def _onset_runtime():
         output.mkdir(parents=True, exist_ok=False)
         summary_path = output / "summary.json"
         summary = {"schema_version": 1, "ok": False, "training_ready": False,
-                   "generator": GENERATOR_VERSION, "samplerate": sr,
+                   "generator": GENERATOR_VERSION, "masking_pairs": masking_pairs, "samplerate": sr,
                    "input_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                    "input_manifest": str(manifest_path.resolve()), "seed": seed,
                    "validation_player": validation_player, "test_player": test_player,
@@ -2057,12 +2129,16 @@ def _onset_runtime():
             synthetic_dir = output / "synthetic"
             synthetic_dir.mkdir()
             synthetic = {"schema_version": 1, "generator": GENERATOR_VERSION,
+                         "masking_generator": "onset-masking-v1" if masking_pairs else None,
                          "purpose": "onset_experiment_sources", "seed": seed, "samplerate": sr, "clips": []}
             for split, count in zip(SPLITS, groups):
                 totals = {"groups": count, "clips": 0, "events": 0, "challenge_events": 0,
                           "seconds": 0., "cases": {}}
                 for group in range(count):
-                    for clip in render_group(split, group, seed, sr):
+                    clips = render_group(split, group, seed, sr)
+                    if masking_pairs:
+                        clips += render_masking_group(split, group, seed, sr)
+                    for clip in clips:
                         audio = clip.pop("audio")
                         wav = synthetic_dir / (clip["name"] + ".wav")
                         reference = synthetic_dir / (clip["name"] + ".csv")
@@ -2102,7 +2178,7 @@ def _onset_runtime():
 
     def run_pipeline(root, output_root, variant="auto", groups=SYNTHETIC_GROUPS,
                      validation_player=VALIDATION_PLAYER, test_player=TEST_PLAYER,
-                     seed=SEED, sr=SR):
+                     seed=SEED, sr=SR, masking_pairs=False):
         import tempfile
         if not root.is_dir():
             raise FileNotFoundError(f"GuitarSet input directory is unavailable: {root}")
@@ -2123,7 +2199,7 @@ def _onset_runtime():
         print(f"Audited {len(audited['sources'])} sources. Manifest: {manifest}", flush=True)
         print("Stage 2/2: preparing source splits and synthetic pairs", flush=True)
         result = prepare(manifest, run_dir / "prepared", validation_player, test_player,
-                         groups, seed, sr)
+                         groups, seed, sr, masking_pairs=masking_pairs)
         result["prepared_directory"] = str(run_dir / "prepared")
         result["summary_path"] = str(run_dir / "summary.json")
         write_json(run_dir / "summary.json", result)
@@ -2399,6 +2475,20 @@ def _onset_runtime():
                 raise ValueError(f"Pair group crosses data splits: {group}")
             if len({s["id"] for _, s in members}) != len(members):
                 raise ValueError(f"Duplicate clip in pair group: {group}")
+            # This metric measures a new attack of an already sounding PC, not
+            # masking of a different note. Those clips still enter ordinary event
+            # metrics/BCE, but need not have the repeated-attack context schema.
+            repeated = any(
+                e["role"] == "challenge" and e["pc"] in
+                {old["pc"] for old in s["events"] if old["role"] == "context"}
+                for _, s in members for e in s["events"]
+            )
+            if not repeated:
+                exclusions["group_without_repeated_pc_challenge"] += 1
+                continue
+            # A context-free clip cannot share a repeated attack's initial stems.
+            members = [(i, s) for i, s in members
+                       if any(e["role"] == "context" for e in s["events"])]
             contexts = {i: pair_context(s) for i, s in members}
             for positive_index, positive in sorted(members, key=lambda item: item[1]["id"]):
                 old_pcs = {e["pc"] for e in positive["events"] if e["role"] == "context"}
@@ -2847,6 +2937,8 @@ def _onset_runtime():
             bucket.update({name: sorted(values) for name, values in group_sets[key].items()})
             tp, fp, fn = (bucket[name] for name in ("tp", "fp", "fn"))
             bucket.update(precision=tp / (tp + fp) if tp + fp else 0.,
+                          challenge_recall=(bucket["challenge_tp"] / bucket["challenge_reference"]
+                                            if bucket["challenge_reference"] else None),
                           recall=tp / (tp + fn) if tp + fn else 0.,
                           f1=2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.,
                           false_events_per_minute=60 * fp / bucket["seconds"],
@@ -2873,6 +2965,43 @@ def _onset_runtime():
                 importlib.invalidate_caches()
                 importlib.import_module(package)
         return torch
+
+    def validate_resume_sources(previous, sources, report_path):
+        """Keep exact model inputs/labels; regenerated synthetic WAV headers may vary."""
+        fields = ("id", "split", "sha256", "feature_sha256", "events")
+        differences, container_changes = [], []
+        for index, (saved, source) in enumerate(zip(previous, sources)):
+            if len(saved) != len(fields):
+                differences.append(dict(index=index, id=source["id"], fields=["snapshot_schema"]))
+                continue
+            changed = [key for key, value in zip(fields, saved) if value != source[key]]
+            if changed == ["sha256"] and source["domain"] == "synthetic":
+                # FLOAT WAVs contain a PEAK creation timestamp. A byte hash of
+                # regenerated audio can change while the actual training tensors
+                # remain bit-identical. Verify the array file too, not just its index.
+                path = Path(source["features"])
+                if path.is_file() and sha256(path) == source["feature_sha256"]:
+                    container_changes.append(source["id"])
+                    continue
+                changed.append("feature_file")
+            if changed:
+                differences.append(dict(index=index, id=source["id"], fields=changed))
+        ok = len(previous) == len(sources) and not differences
+        report = dict(ok=ok, saved_sources=len(previous), current_sources=len(sources),
+                      changed_sources=len(differences), examples=differences[:10],
+                      synthetic_container_changes=len(container_changes),
+                      synthetic_container_examples=container_changes[:10],
+                      policy="Exact ordered IDs, splits, feature hashes and events; synthetic WAV hash may differ only with verified identical feature files")
+        write_json(report_path, report)
+        if not ok:
+            details = json.dumps(dict(saved_sources=len(previous), current_sources=len(sources),
+                                      examples=differences[:3]))
+            raise ValueError(f"Cannot resume onset training with changed data: {details}. "
+                             f"See {report_path}. Checkpoint was not changed.")
+        if container_changes:
+            print(f"Resume: {len(container_changes)} synthetic WAV hashes differ; "
+                  "feature files and labels match the checkpoint exactly.", flush=True)
+        return report
 
     def train_onset_experiment(sources, output, epochs=TRAIN_EPOCHS, batch_size=TRAIN_BATCH_SIZE,
                                seed=TRAIN_SEED, device_name="auto", ringing_weight=1.,
@@ -2951,10 +3080,7 @@ def _onset_runtime():
                     "batch_size", "seed", "pair_weight", "ringing_negative_weight")
             if any(previous[k] != contract[k] for k in keys):
                 raise ValueError("Cannot resume onset training with changed configuration")
-            identities = [(v["id"], v["split"], v["sha256"], v["feature_sha256"], v["events"])
-                          for v in sources]
-            if restored["sources"] != identities:
-                raise ValueError("Cannot resume onset training with changed data")
+            validate_resume_sources(restored["sources"], sources, output / "resume_data_check.json")
             contract = previous
             model.load_state_dict(restored["state_dict"], strict=True)
             optimizer.load_state_dict(restored["optimizer"])
@@ -3392,6 +3518,24 @@ def choose_chord_start(store, run_tag, base_run, mode):
         raise ValueError("onset_only needs a chord checkpoint; use auto/full to train everything")
     return "fresh", None
 
+def resolve_initial_onset(value, store):
+    """Explicit parent weights, never a fallback to random initialization."""
+    if not value:
+        return None
+    if value.startswith("hf:"):
+        name = value[3:]
+        if not name or Path(name).name != name or Path(name).suffix not in (".pt", ".pth"):
+            raise ValueError("INITIAL_ONSET hf: reference must name a .pt/.pth checkpoint in HF_REPO_ID")
+        path = store.fetch(name)
+        if path is None:
+            raise FileNotFoundError(f"Initial Rise checkpoint not found: {value}. "
+                                    "Restore it or explicitly set INITIAL_ONSET empty to train from scratch.")
+    else:
+        path = Path(value)
+    if not path.is_file():
+        raise FileNotFoundError(f"Initial Rise checkpoint does not exist: {path}")
+    return path
+
 def weights_digest(state):
     h = hashlib.sha256()
     for key, value in sorted(state.items()):
@@ -3437,20 +3581,24 @@ def prepare_chords(config, store):
                 initialized_from=decision, pitch_threshold=saved.get("best_threshold", .5),
                 outputs=["root_logits", "quality_logits", "pitch_logits"], legacy_onset=False)
 
-def prepare_features(root, work, groups):
+def prepare_features(root, work, groups, masking_pairs=False):
     index = work / "features" / "index.json"
     if index.exists():
         document = json.loads(index.read_text())
         if document["feature_spec"] != FEATURE_SPEC:
             raise ValueError("Cached onset features use a different DSP contract")
         sources = document["sources"]
+        has_masking = any(s["case"].startswith("masking_") for s in sources)
+        if has_masking != masking_pairs:
+            raise ValueError("Onset masking recipe changed; use a new RUN_TAG, not this cache")
         for source in sources:
             path = work / "features" / Path(source["features"]).name
             if not path.is_file() or sha256(path) != source["feature_sha256"]:
                 raise ValueError(f"Missing or corrupt onset cache: {path}")
             source["features"] = str(path)
         return sources
-    prepared = run_pipeline(root, work, "auto", groups=groups, seed=20260923)
+    prepared = run_pipeline(root, work, "auto", groups=groups, seed=20260923,
+                            masking_pairs=masking_pairs)
     return cache_onset_features(onset_sources(Path(prepared["prepared_directory"])), work / "features")
 
 def export_combined_model(chord_path, onset_path, output, onset_threshold):
@@ -3585,28 +3733,44 @@ def run_take7(config, store):
         raise ValueError("Choose a simple new RUN_TAG different from BASE_RUN; never overwrite take6")
     if config["mode"] == "export_only":
         return export_take7_only(config, store)
+    masking_pairs = config.get("onset_masking_pairs", False)
+    groups = config.get("groups", (96, 96, 96) if masking_pairs else (60, 12, 12))
+    configuration = dict(run_tag=tag, mode=config["mode"], base_run=config["base_run"],
+                         onset_masking_pairs=masking_pairs, synthetic_groups=list(groups),
+                         initial_onset=config.get("initial_onset") or "",
+                         onset_epochs=config.get("onset_epochs", 12))
+    print("Take7 configuration: " + json.dumps(configuration, sort_keys=True), flush=True)
+    write_json(work / "run_configuration.json", configuration)
+    last_name = f"checkpoint_{tag}_onset_last.pth"
+    previous = store.fetch(last_name)
+    # Resolve the parent before preparing data, and only for a new onset run.
+    # A resumed run already carries both the best weights and their provenance.
+    local_last = work / "rise" / "short_onset_last.pt"
+    resuming = previous is not None or local_last.is_file()
+    initial = None if resuming else resolve_initial_onset(config.get("initial_onset"), store)
     report_path = work / f"training_summary_{tag}.json"
     write_json(report_path, dict(ok=False, stage="chords", run_tag=tag))
     chords = prepare_chords(config, store)
     write_json(report_path, dict(ok=False, stage="onsets", run_tag=tag, chords=chords))
-    sources = prepare_features(Path(config["input_dir"]), work, config.get("groups", (60, 12, 12)))
+    sources = prepare_features(Path(config["input_dir"]), work, groups, masking_pairs)
+    for split in ("train", "validation", "test"):
+        selected = [s for s in sources if s["split"] == split]
+        masking_count = sum(s["case"].startswith("masking_") for s in selected)
+        print(f"Onset data {split}: {len(selected)} recordings, {masking_count} masking clips", flush=True)
+        if masking_pairs and not masking_count:
+            raise ValueError(f"Masking enabled but no masking clips in {split}; check the feature cache")
     onset_dir = work / "rise"
     onset_dir.mkdir(exist_ok=True)
-    last_name = f"checkpoint_{tag}_onset_last.pth"
-    previous = store.fetch(last_name)
     if previous:
         shutil.copy2(previous, onset_dir / "short_onset_last.pt")
-    initial = config.get("initial_onset") or None
-    if initial and not Path(initial).is_file():
-        raise ValueError(f"Initial Rise checkpoint does not exist: {initial}")
-    print("Onsets: " + ("resuming take7" if previous else "initial Rise weights" if initial else
+    print("Onsets: " + ("resuming take7" if resuming else f"initial Rise weights from {initial}" if initial else
                         "training Rise from scratch; chord base is frozen"), flush=True)
     result = train_onset_experiment(sources, onset_dir,
                                    epochs=config.get("onset_epochs", 12),
                                    batch_size=config.get("onset_batch_size", 16),
                                    device_name=config.get("device", "auto"),
                                    feature_directory=work / "features", spectral_rise=True,
-                                   initial_checkpoint=initial if not previous else None, resume=True,
+                                   initial_checkpoint=initial, resume=True,
                                    checkpoint_callback=lambda path: store.publish(path, last_name))
     # No reference to the chord model is passed into the onset optimizer.
     import torch
@@ -3619,6 +3783,7 @@ def run_take7(config, store):
     store.publish(onset_dir / "short_onset_best.pt", f"checkpoint_{tag}_onset_best.pth")
     summary = dict(schema_version=2, ok=True, training_complete=True,
                    candidate_only=True, app_ready=False, run_tag=tag, mode=config["mode"],
+                   configuration=configuration,
                    model=model, chords=chords, onset=result, summary_path=str(report_path),
                    note="One ONNX, two inputs, four outputs. Requires the matching application input path.")
     write_json(report_path, summary)
@@ -3637,6 +3802,7 @@ def main(argv=None):
     parser.add_argument("--no-hf", action="store_true", default=not USE_HF)
     parser.add_argument("--initial-onset", default=INITIAL_ONSET)
     parser.add_argument("--onset-epochs", type=int, default=ONSET_EPOCHS)
+    parser.add_argument("--onset-masking-pairs", action=argparse.BooleanOptionalAction, default=ONSET_MASKING_PAIRS)
     parser.add_argument("--export-onset-threshold", type=float, default=EXPORT_ONSET_THRESHOLD)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     import sys

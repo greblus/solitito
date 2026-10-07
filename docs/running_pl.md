@@ -37,6 +37,12 @@ cargo build --release
 
 ### Wykrywanie uderzeń przez take7 (0.5.7)
 
+W aktualnych źródłach silne wykrycie tuż pod bramką szumów może zaczekać do
+96 ms na jej otwarcie, jeśli model nieprzerwanie potwierdza uderzenie. Zachowuje
+pierwotny czas i numer zdarzenia, więc nie przechodzi do kolejnego ćwiczenia
+i nie zalicza się drugi raz. Wykrycia powyżej bramki przechodzą bez dodatkowego
+czekania. Ta poprawka jest nowsza niż paczka 0.5.7.
+
 Umieść **`best_model_v2_take7.onnx`** z trainera w katalogu roboczym.
 Program wybierze go automatycznie. Jeden plik zawiera wyjścia akordów, klas
 wysokości i Rise; osobny `short_onset_rise.onnx` nie jest wtedy potrzebny.

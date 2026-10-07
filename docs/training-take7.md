@@ -8,13 +8,14 @@ chord WAV/CSV dataset. GPU training stays on Kaggle.
 Configuration at the top:
 
 ```python
-RUN_TAG = "v2_take7"
-MODE = "auto"
+RUN_TAG = "v2_take7_masking_v2"
+MODE = "onset_only"
 BASE_RUN = "v2_take6"
 HF_REPO_ID = "greblus/chord-model-snapshots"
 USE_HF = True
-INITIAL_ONSET = ""
+INITIAL_ONSET = "hf:checkpoint_v2_take7_onset_best.pth"
 ONSET_EPOCHS = 12
+ONSET_MASKING_PAIRS = True
 ```
 
 - `auto`: resume this run; otherwise reuse `checkpoint_v2_take6_best.pth` and
@@ -22,7 +23,7 @@ ONSET_EPOCHS = 12
   The final export is one ONNX with four outputs.
 - `onset_only`: require a ready chord base; never silently train the chord model.
 - `full`: ignore take6 and train the whole model. It still resumes its own run.
-  **Choose a new `RUN_TAG` for a completely fresh experiment.**
+  **Choose a new `RUN_TAG` and set `INITIAL_ONSET=""` for all weights from scratch.**
 - `export_only`: combine the already exported chord and Rise branches without
   training, GPU, feature cache or datasets. See the recovery instructions below.
 - Set `USE_HF=False` for local-only training without an account/token. With HF,
@@ -35,11 +36,17 @@ keys if present; missing/incompatible chord layers are an error. The chord base
 is not in the Rise optimizer. Root, quality and pitch outputs keep their take6
 architecture. The old onset head is neither trained nor exported.
 
-Rise keeps its current causal architecture and 770-feature input. By default it
-starts with fresh onset weights: **a take6 chord snapshot does not contain Rise
-weights**. To continue from an existing Rise model, set `INITIAL_ONSET` to its
-PyTorch `short_onset_best.pt` (not its ONNX). This option must match the existing
-Rise/DSP contract. A saved take7 onset checkpoint takes precedence.
+Rise keeps its current causal architecture and 770-feature input. Current defaults
+fine-tune the existing Rise checkpoint from `HF_REPO_ID`; `hf:` names a file in
+that repository, while a plain path uses a local PyTorch checkpoint. A missing
+explicit parent stops before data preparation. `INITIAL_ONSET=""` starts fresh
+Rise weights; a take6 chord snapshot does not contain them. The parent must match
+the Rise/DSP contract. A saved onset snapshot for the current run takes precedence.
+The default run is isolated from `v2_take7` and enables the masking data described
+below. Startup logs and `run_configuration.json` show the effective settings;
+the final summary includes them as `configuration`. Each split should report
+288 masking clips with the default 96 groups. To use the earlier data recipe,
+set `ONSET_MASKING_PAIRS=False` (CLI: `--no-onset-masking-pairs`) in a separate run.
 
 Outputs in `/kaggle/working/<RUN_TAG>/` and, when enabled, on HF:
 
@@ -63,6 +70,23 @@ are not required. An interrupted export resumes from saved weights without anoth
 optimizer step. The chord phases retain the original best-checkpoint resume
 policy; they do not promise exact mid-epoch replay.
 
+Regenerated synthetic FLOAT WAVs may have a different file hash because their
+`PEAK` header records creation time. Resume accepts that difference only when
+ordered source IDs, splits, annotations and feature hashes match exactly, and
+also verifies the actual feature file. GuitarSet audio hashes remain strict.
+`rise/resume_data_check.json` records accepted differences and identifies fields
+that prevent recovery. Do not change the run tag or data to bypass a mismatch.
+
+If final scoring failed after `Epoch 12/12` with `KeyError: 'level'` in
+`pair_context`, copy the corrected `dist/model_trainer.py` and rerun with the
+same `RUN_TAG`, HF repository, data and training settings. Keep
+`checkpoint_<RUN_TAG>_onset_last.pth` locally or on HF. It contains the completed
+epoch and best weights; after `Onsets: resuming take7`, all 12 completed epochs
+are skipped and scoring/export run again. Do not use `export_only` for this
+failure: the selected-threshold report may not exist yet. The fix changes
+neither data nor weights; clips without a repeated pitch-class challenge are
+excluded only from repeated-attack pair diagnostics, not ordinary event metrics.
+
 The combined model has two independent inputs:
 
 - `features`: `[batch, 48, 168]`, the existing CQT chord features;
@@ -76,7 +100,7 @@ writes a single self-contained ONNX only after parity passes.
 
 Solitito 0.5.7 supports this contract. It loads each independent
 branch into memory for its own worker: chords every 40 ms, Rise every 16 ms.
-Copy `best_model_v2_take7.onnx` next to `dsp_weights.json`, then run
+Copy the chosen experiment's ONNX as `best_model_v2_take7.onnx` next to `dsp_weights.json`, then run
 `./target/release/solitito --check`. Normal launch selects take7 automatically;
 recording and weak-onset rescue are optional. See [running](running.md).
 Binaries from 0.5.6 and earlier need updating before using this model. The trainer's
@@ -119,6 +143,36 @@ No pitch-shift augmentation, new loss, live rescue rule or application threshold
 was added in this integration. It consolidates the existing Rise trainer with the
 chord trainer. GuitarSet note starts remain note annotations, not verified pick
 technique. Previously inspected test recordings are regression data.
+
+## Current experiment: quiet upper notes over ringing strings
+
+The copyable trainer now enables `ONSET_MASKING_PAIRS = True` in the separate
+`v2_take7_masking_v2` run. `MODE = "onset_only"` keeps the take6 chord base frozen,
+and `INITIAL_ONSET` selects the previous Rise **PyTorch best checkpoint** on HF.
+An ONNX cannot provide training weights through this setting. Clearing
+`INITIAL_ONSET` explicitly starts Rise from scratch.
+
+This recipe retains GuitarSet solo/comp and the existing eight synthetic cases.
+It adds three paired recordings per synthetic group: root and third ringing
+alone; a new upper fifth alone; and that identical fifth added to the identical
+background. The target/background RMS ratio is measured over the first 96 ms
+of the new note, at −18, −12, −6 or 0 dB. Roots span MIDI 55–78, upper fifths
+62–85; each note has independently varied damping, attack and harmonic balance.
+These are simplified synthetic plucks, not recordings of physical strings.
+
+With this option, the default split sizes are 96/96/96 synthetic groups,
+covering every root/level combination in each split with independent excitations.
+All three variants share their gain and split. The existing repeat/hold cases
+remain in training and evaluation. Changing this option cannot reuse an old
+feature cache or bypass the changed-data resume check.
+
+Inspect `challenge_recall` for each `synthetic/masking_add_fifth_*` case in the
+validation threshold table, alongside the corresponding `masking_alone_*` and
+`masking_hold_*` results. A higher aggregate F1 does not establish better quiet
+note detection. Compare the same held-out sources with the previous model and
+check false events/repeated-note recall before selecting a candidate. AtoA and
+the user's practice recordings remain regression material, never training data.
+Enabling this recipe is an experiment, not evidence of improved model quality.
 
 ## Resume errors
 

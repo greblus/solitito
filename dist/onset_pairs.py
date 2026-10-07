@@ -1,4 +1,4 @@
-"""Same-background synthetic onset pairs, used only by the training loss.
+"""Same-background repeated-PC pairs for the optional loss and final diagnostics.
 
 GuitarSet remains in the ordinary full-recording BCE; its recordings are not
 counterfactual pairs. No annotation, pair identity or second signal reaches
@@ -47,6 +47,20 @@ def build_onset_pairs(sources, hop_seconds=.016, target_seconds=.096):
             raise ValueError(f"Pair group crosses data splits: {group}")
         if len({s["id"] for _, s in members}) != len(members):
             raise ValueError(f"Duplicate clip in pair group: {group}")
+        # This metric measures a new attack of an already sounding PC, not
+        # masking of a different note. Those clips still enter ordinary event
+        # metrics/BCE, but need not have the repeated-attack context schema.
+        repeated = any(
+            e["role"] == "challenge" and e["pc"] in
+            {old["pc"] for old in s["events"] if old["role"] == "context"}
+            for _, s in members for e in s["events"]
+        )
+        if not repeated:
+            exclusions["group_without_repeated_pc_challenge"] += 1
+            continue
+        # A context-free clip cannot share a repeated attack's initial stems.
+        members = [(i, s) for i, s in members
+                   if any(e["role"] == "context" for e in s["events"])]
         contexts = {i: pair_context(s) for i, s in members}
         for positive_index, positive in sorted(members, key=lambda item: item[1]["id"]):
             old_pcs = {e["pc"] for e in positive["events"] if e["role"] == "context"}

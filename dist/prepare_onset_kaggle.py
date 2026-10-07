@@ -396,6 +396,73 @@ def render_group(split, group, seed=SEED, sr=SR):
                       "audio": (tracks[case] * gain).astype(np.float32), "events": clip_events})
     return clips
 
+def render_masking_group(split, group, seed=SEED, sr=SR):
+    """Paired upper-string attacks at measured levels relative to ringing notes.
+
+    Independent synthetic excitations only. These are controlled training cases,
+    not recordings of a guitar or a simulation of pick damping on a real string.
+    Ninety-six groups cover 24 roots x four target/background RMS ratios.
+    """
+    if split not in SPLITS or group < 0 or sr < 8000 or seed < 0:
+        raise ValueError("Invalid masking group")
+    source_id = f"onset-masking-v1-{seed}-{split}-{group:04}"
+    rng = np.random.default_rng(excitation_seed(seed, split, group, "masking-v1"))
+    root = 55 + (group // 4) % 24
+    third = int(rng.choice([3, 4]))
+    relative_db = [-18, -12, -6, 0][group % 4]
+    challenge = 1.5
+    total = round(3.0 * sr)
+    window = round(.096 * sr)
+    start = round(challenge * sr)
+    specs = [("root", root, .3), ("third", root + third, .65),
+             ("fifth", root + 7, challenge)]
+    stems, events, timbres = {}, {}, {}
+    for key, midi, at in specs:
+        exc_seed = excitation_seed(seed, split, group, "masking-v1-" + key)
+        offset = round(at * sr)
+        damping = float(rng.choice([.999, .9997, .9999]))
+        attack = float(rng.choice([.001, .003, .006]))
+        tone = pluck(midi, total - offset, sr, exc_seed, damping, attack)
+        # A causal comb changes harmonic balance without changing the pitch.
+        # Independent positions avoid giving every string the same spectrum.
+        pick_position = float(rng.choice([.12, .23, .38]))
+        delay = max(1, round(sr / (440 * 2 ** ((midi - 69) / 12)) * pick_position))
+        shaped = tone.copy()
+        shaped[delay:] -= .8 * tone[:-delay]
+        tone = shaped / max(float(np.sqrt(np.mean(shaped[:window] ** 2))), 1e-12)
+        wave = np.zeros(total)
+        wave[offset:] = tone
+        stems[key] = wave
+        timbres[key] = dict(damping=damping, attack_seconds=attack, pick_position=pick_position)
+        events[key] = dict(t=offset / sr, sample=offset, midi=midi, pc=midi % 12,
+                           role="challenge" if key == "fifth" else "context",
+                           source_id=f"{source_id}:{key}", excitation_seed=exc_seed,
+                           pluck_verified=True, label_kind="synthetic_excitation")
+    background = stems["root"] + stems["third"]
+    background_rms = float(np.sqrt(np.mean(background[start:start + window] ** 2)))
+    stems["fifth"] *= background_rms * 10 ** (relative_db / 20)
+    target_rms = float(np.sqrt(np.mean(stems["fifth"][start:start + window] ** 2)))
+    tracks = {"hold": background, "alone": stems["fifth"],
+              "add_fifth": background + stems["fifth"]}
+    gain = float(rng.choice([.15, .3, .6])) / max(np.max(np.abs(x)) for x in tracks.values())
+    clips = []
+    for variant, track in tracks.items():
+        case = f"masking_{variant}_{relative_db:+d}db"
+        name = f"{source_id}-{variant}"
+        keys = {"hold": ["root", "third"], "alone": ["fifth"],
+                "add_fifth": ["root", "third", "fifth"]}[variant]
+        clip_events = [dict(events[key], id=f"{name}:{i}", case=f"{case}/{events[key]['role']}")
+                       for i, key in enumerate(keys)]
+        clips.append(dict(name=name, source_group=source_id, parent_groups=[source_id],
+                          split=split, case=case, seed=seed, sr=sr, root_midi=root,
+                          challenge_at=challenge, target_midi=root + 7,
+                          target_background_db=relative_db, background_rms=background_rms * gain,
+                          target_rms=target_rms * gain, timbres=timbres,
+                          gain=gain, frames=total, duration=total / sr,
+                          expected_new_pcs=[(root + 7) % 12] if variant != "hold" else [],
+                          audio=(track * gain).astype(np.float32), events=clip_events))
+    return clips
+
 def source_summary(sources):
     result = {}
     for split in SPLITS:
@@ -409,7 +476,7 @@ def source_summary(sources):
     return result
 
 def prepare(manifest_path, output, validation_player=VALIDATION_PLAYER, test_player=TEST_PLAYER,
-            groups=SYNTHETIC_GROUPS, seed=SEED, sr=SR):
+            groups=SYNTHETIC_GROUPS, seed=SEED, sr=SR, masking_pairs=False):
     import csv
     if len(groups) != 3 or any(n < 1 for n in groups) or seed < 0 or sr < 8000:
         raise ValueError("Need three positive group counts, nonnegative seed and sample rate >=8000")
@@ -419,7 +486,7 @@ def prepare(manifest_path, output, validation_player=VALIDATION_PLAYER, test_pla
     output.mkdir(parents=True, exist_ok=False)
     summary_path = output / "summary.json"
     summary = {"schema_version": 1, "ok": False, "training_ready": False,
-               "generator": GENERATOR_VERSION, "samplerate": sr,
+               "generator": GENERATOR_VERSION, "masking_pairs": masking_pairs, "samplerate": sr,
                "input_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                "input_manifest": str(manifest_path.resolve()), "seed": seed,
                "validation_player": validation_player, "test_player": test_player,
@@ -438,12 +505,16 @@ def prepare(manifest_path, output, validation_player=VALIDATION_PLAYER, test_pla
         synthetic_dir = output / "synthetic"
         synthetic_dir.mkdir()
         synthetic = {"schema_version": 1, "generator": GENERATOR_VERSION,
+                     "masking_generator": "onset-masking-v1" if masking_pairs else None,
                      "purpose": "onset_experiment_sources", "seed": seed, "samplerate": sr, "clips": []}
         for split, count in zip(SPLITS, groups):
             totals = {"groups": count, "clips": 0, "events": 0, "challenge_events": 0,
                       "seconds": 0., "cases": {}}
             for group in range(count):
-                for clip in render_group(split, group, seed, sr):
+                clips = render_group(split, group, seed, sr)
+                if masking_pairs:
+                    clips += render_masking_group(split, group, seed, sr)
+                for clip in clips:
                     audio = clip.pop("audio")
                     wav = synthetic_dir / (clip["name"] + ".wav")
                     reference = synthetic_dir / (clip["name"] + ".csv")
@@ -484,7 +555,7 @@ def prepare(manifest_path, output, validation_player=VALIDATION_PLAYER, test_pla
 
 def run_pipeline(root, output_root, variant="auto", groups=SYNTHETIC_GROUPS,
                  validation_player=VALIDATION_PLAYER, test_player=TEST_PLAYER,
-                 seed=SEED, sr=SR):
+                 seed=SEED, sr=SR, masking_pairs=False):
     import tempfile
     if not root.is_dir():
         raise FileNotFoundError(f"GuitarSet input directory is unavailable: {root}")
@@ -505,7 +576,7 @@ def run_pipeline(root, output_root, variant="auto", groups=SYNTHETIC_GROUPS,
     print(f"Audited {len(audited['sources'])} sources. Manifest: {manifest}", flush=True)
     print("Stage 2/2: preparing source splits and synthetic pairs", flush=True)
     result = prepare(manifest, run_dir / "prepared", validation_player, test_player,
-                     groups, seed, sr)
+                     groups, seed, sr, masking_pairs=masking_pairs)
     result["prepared_directory"] = str(run_dir / "prepared")
     result["summary_path"] = str(run_dir / "summary.json")
     write_json(run_dir / "summary.json", result)

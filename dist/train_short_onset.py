@@ -323,6 +323,8 @@ def onset_metrics(predictions, threshold):
         bucket.update({name: sorted(values) for name, values in group_sets[key].items()})
         tp, fp, fn = (bucket[name] for name in ("tp", "fp", "fn"))
         bucket.update(precision=tp / (tp + fp) if tp + fp else 0.,
+                      challenge_recall=(bucket["challenge_tp"] / bucket["challenge_reference"]
+                                        if bucket["challenge_reference"] else None),
                       recall=tp / (tp + fn) if tp + fn else 0.,
                       f1=2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.,
                       false_events_per_minute=60 * fp / bucket["seconds"],
@@ -351,6 +353,44 @@ def training_dependencies():
             importlib.invalidate_caches()
             importlib.import_module(package)
     return torch
+
+
+def validate_resume_sources(previous, sources, report_path):
+    """Keep exact model inputs/labels; regenerated synthetic WAV headers may vary."""
+    fields = ("id", "split", "sha256", "feature_sha256", "events")
+    differences, container_changes = [], []
+    for index, (saved, source) in enumerate(zip(previous, sources)):
+        if len(saved) != len(fields):
+            differences.append(dict(index=index, id=source["id"], fields=["snapshot_schema"]))
+            continue
+        changed = [key for key, value in zip(fields, saved) if value != source[key]]
+        if changed == ["sha256"] and source["domain"] == "synthetic":
+            # FLOAT WAVs contain a PEAK creation timestamp. A byte hash of
+            # regenerated audio can change while the actual training tensors
+            # remain bit-identical. Verify the array file too, not just its index.
+            path = Path(source["features"])
+            if path.is_file() and sha256(path) == source["feature_sha256"]:
+                container_changes.append(source["id"])
+                continue
+            changed.append("feature_file")
+        if changed:
+            differences.append(dict(index=index, id=source["id"], fields=changed))
+    ok = len(previous) == len(sources) and not differences
+    report = dict(ok=ok, saved_sources=len(previous), current_sources=len(sources),
+                  changed_sources=len(differences), examples=differences[:10],
+                  synthetic_container_changes=len(container_changes),
+                  synthetic_container_examples=container_changes[:10],
+                  policy="Exact ordered IDs, splits, feature hashes and events; synthetic WAV hash may differ only with verified identical feature files")
+    write_json(report_path, report)
+    if not ok:
+        details = json.dumps(dict(saved_sources=len(previous), current_sources=len(sources),
+                                  examples=differences[:3]))
+        raise ValueError(f"Cannot resume onset training with changed data: {details}. "
+                         f"See {report_path}. Checkpoint was not changed.")
+    if container_changes:
+        print(f"Resume: {len(container_changes)} synthetic WAV hashes differ; "
+              "feature files and labels match the checkpoint exactly.", flush=True)
+    return report
 
 
 def train_onset_experiment(sources, output, epochs=TRAIN_EPOCHS, batch_size=TRAIN_BATCH_SIZE,
@@ -430,10 +470,7 @@ def train_onset_experiment(sources, output, epochs=TRAIN_EPOCHS, batch_size=TRAI
                 "batch_size", "seed", "pair_weight", "ringing_negative_weight")
         if any(previous[k] != contract[k] for k in keys):
             raise ValueError("Cannot resume onset training with changed configuration")
-        identities = [(v["id"], v["split"], v["sha256"], v["feature_sha256"], v["events"])
-                      for v in sources]
-        if restored["sources"] != identities:
-            raise ValueError("Cannot resume onset training with changed data")
+        validate_resume_sources(restored["sources"], sources, output / "resume_data_check.json")
         contract = previous
         model.load_state_dict(restored["state_dict"], strict=True)
         optimizer.load_state_dict(restored["optimizer"])

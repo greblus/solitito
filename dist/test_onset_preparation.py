@@ -11,7 +11,8 @@ import soundfile as sf
 
 from audit_onset_data import audit
 from onset_events import read_events
-from prepare_onset_data import find_manifest, pluck, prepare, render_group, sha256, split_sources
+from prepare_onset_data import (find_manifest, pluck, prepare, render_group,
+                               render_masking_group, sha256, split_sources)
 from test_onset_events import jams_fixture
 
 
@@ -32,6 +33,34 @@ def fixture(root):
 
 
 class PreparationTests(unittest.TestCase):
+    def test_masking_pairs_have_identical_background_and_measured_relative_levels(self):
+        for group in (0, 1, 2, 3, 92, 95):
+            hold, alone, added = render_masking_group("validation", group)
+            self.assertEqual(hold["expected_new_pcs"], [])
+            self.assertEqual(len(hold["events"]), 2)
+            self.assertEqual(len(added["events"]), 3)
+            self.assertEqual(added["events"][-1]["pc"], added["target_midi"] % 12)
+            start = round(added["challenge_at"] * added["sr"])
+            end = start + round(.096 * added["sr"])
+            np.testing.assert_array_equal(hold["audio"][:start], added["audio"][:start])
+            np.testing.assert_allclose(added["audio"], hold["audio"] + alone["audio"], atol=1e-7)
+            bg = np.sqrt(np.mean(hold["audio"][start:end].astype(float) ** 2))
+            target = np.sqrt(np.mean(alone["audio"][start:end].astype(float) ** 2))
+            self.assertAlmostEqual(20 * np.log10(target / bg), added["target_background_db"], places=5)
+            self.assertLess(np.max(np.abs(added["audio"])), 1)
+            self.assertGreaterEqual(added["target_midi"], 62)
+            self.assertLessEqual(added["target_midi"], 85)
+
+    def test_masking_excitation_groups_do_not_cross_splits_and_are_deterministic(self):
+        first = render_masking_group("train", 0)
+        repeated = render_masking_group("train", 0)
+        held_out = render_masking_group("test", 0)
+        for a, b, c in zip(first, repeated, held_out):
+            np.testing.assert_array_equal(a["audio"], b["audio"])
+            self.assertNotEqual(a["source_group"], c["source_group"])
+            self.assertNotEqual(a["events"][0]["excitation_seed"], c["events"][0]["excitation_seed"])
+            self.assertFalse(np.array_equal(a["audio"], c["audio"]))
+
     def test_manifest_found_in_nested_output_and_summary_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

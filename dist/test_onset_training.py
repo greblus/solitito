@@ -1,6 +1,7 @@
 """Physical-time, sustained-note, isolation and runnable-training contract checks."""
 
 import importlib.util
+import copy
 import contextlib
 import io
 import json
@@ -9,10 +10,12 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import struct
 import unittest
 from unittest.mock import patch
 
 import numpy as np
+import soundfile as sf
 
 from build_train_onset_kaggle import build
 from onset_events import Event, match_events
@@ -21,12 +24,71 @@ from train_short_onset import (BLOCK_FRAMES, FEATURE_DIM, HISTORY, OnsetBlocks,
                               feature_block, local_event_matches, make_onset_model,
                               onset_features, onset_metrics, onset_predictions,
                               onset_resample, onset_targets, validation_choice, training_main)
+from train_short_onset import cache_onset_features, sha256, validate_resume_sources
 
 
 HAS_TRAINING = all(importlib.util.find_spec(n) for n in ("torch", "onnx", "onnxruntime"))
 
 
 class OnsetTrainingTests(unittest.TestCase):
+    def test_resume_accepts_wav_timestamp_change_only_with_identical_model_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wav = root / 'synthetic.wav'
+            sf.write(wav, np.sin(np.arange(16000) * .1).astype(np.float32), 16000, subtype='FLOAT')
+            source = dict(id='synthetic-note', domain='synthetic', split='train',
+                          case='root_hold', duration=1., wav=str(wav), sha256=sha256(wav),
+                          events=[dict(id='note', t=.2, pc=0, end=.8)])
+            original = cache_onset_features([source], root / 'first')[0]
+            saved = [tuple(original[k] for k in ('id', 'split', 'sha256', 'feature_sha256', 'events'))]
+            # Deterministically simulate a WAV written one second later.
+            data = bytearray(wav.read_bytes())
+            offset = 12
+            while offset + 8 <= len(data):
+                tag, size = struct.unpack_from('<4sI', data, offset)
+                if tag == b'PEAK':
+                    timestamp = struct.unpack_from('<I', data, offset + 12)[0]
+                    struct.pack_into('<I', data, offset + 12, timestamp + 1)
+                    break
+                offset += 8 + size + size % 2
+            else:
+                self.fail('FLOAT WAV must have a PEAK timestamp for this regression')
+            wav.write_bytes(data)
+            regenerated = cache_onset_features([dict(source, sha256=sha256(wav))], root / 'second')[0]
+            self.assertNotEqual(original['sha256'], regenerated['sha256'])
+            self.assertEqual(original['feature_sha256'], regenerated['feature_sha256'])
+            report_path = root / 'resume_data_check.json'
+            result = validate_resume_sources(saved, [regenerated], report_path)
+            self.assertTrue(result['ok'])
+            self.assertEqual(result['synthetic_container_changes'], 1)
+            self.assertEqual(json.loads(report_path.read_text()), result)
+            for field, value in [('id', 'another'), ('split', 'test'),
+                                 ('feature_sha256', 'changed'), ('events', [])]:
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'changed data'):
+                    validate_resume_sources(saved, [dict(regenerated, **{field: value})], report_path)
+                self.assertIn(field, json.loads(report_path.read_text())['examples'][0]['fields'])
+            with self.assertRaisesRegex(ValueError, 'changed data'):
+                validate_resume_sources(saved, [dict(regenerated, domain='guitarset')], report_path)
+            # Even unchanged index metadata cannot conceal a corrupt array.
+            Path(regenerated['features']).write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'feature_file'):
+                validate_resume_sources(saved, [regenerated], report_path)
+
+    def test_resume_keeps_source_order_count_and_annotations_strict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'check.json'
+            sources = [dict(id=str(i), split='train', domain='guitarset', sha256='audio',
+                            feature_sha256='features', events=[dict(t=.2, pc=i)]) for i in range(2)]
+            saved = [tuple(s[k] for k in ('id', 'split', 'sha256', 'feature_sha256', 'events'))
+                     for s in copy.deepcopy(sources)]
+            self.assertTrue(validate_resume_sources(saved, sources, path)['ok'])
+            for changed in (sources[::-1], sources[:1], sources + [sources[0]]):
+                with self.assertRaisesRegex(ValueError, 'changed data'):
+                    validate_resume_sources(saved, changed, path)
+            sources[0]['events'][0]['t'] += .016
+            with self.assertRaisesRegex(ValueError, 'events'):
+                validate_resume_sources(saved, sources, path)
+
     def test_entry_point_reports_export_failure_without_removing_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -112,6 +174,10 @@ class OnsetTrainingTests(unittest.TestCase):
         metrics, _ = onset_metrics([(source, values)], .5)
         counts = metrics["groups"]["all"]
         self.assertEqual((counts["tp"], counts["fp"], counts["repeated_tp"], counts["challenge_tp"]), (2, 0, 1, 1))
+        self.assertEqual(counts["challenge_recall"], 1.0)
+        values[100:110, 9] = 0
+        metrics, _ = onset_metrics([(source, values)], .5)
+        self.assertEqual(metrics["groups"]["all"]["challenge_recall"], 0.0)
 
     def test_same_pc_strings_and_unobservable_end_note_are_not_forgiven(self):
         source = {"id": "poly", "domain": "guitarset", "case": "comp", "duration": 1.,

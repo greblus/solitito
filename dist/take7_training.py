@@ -14,15 +14,16 @@ from chord_training import chord_runtime
 from train_short_onset import (run_pipeline, onset_sources, cache_onset_features,
                                train_onset_experiment, sha256, write_json, FEATURE_SPEC)
 
-RUN_TAG = "v2_take7"
-MODE = "auto"  # auto, onset_only, full, export_only; full resumes its own run
+RUN_TAG = "v2_take7_masking_v2"
+MODE = "onset_only"  # auto, onset_only, full, export_only; full resumes its own run
 BASE_RUN = "v2_take6"
 HF_REPO_ID = "greblus/chord-model-snapshots"  # set to your own repo for a new model
 USE_HF = True  # False: entirely local training, no token or HF account needed
 INPUT_DIR = "/kaggle/input"
 OUTPUT_ROOT = "/kaggle/working"
-INITIAL_ONSET = ""  # optional Rise .pt/.pth path, never an ONNX or take6 fc_onset
+INITIAL_ONSET = "hf:checkpoint_v2_take7_onset_best.pth"  # same HF repo; local .pt/.pth also supported; empty = fresh Rise
 ONSET_EPOCHS = 12
+ONSET_MASKING_PAIRS = True  # upper-note/background pairs; keep separate from the original v2_take7 run
 EXPORT_ONSET_THRESHOLD = None  # export_only: normally read from the saved summary
 
 
@@ -81,6 +82,25 @@ def choose_chord_start(store, run_tag, base_run, mode):
     return "fresh", None
 
 
+def resolve_initial_onset(value, store):
+    """Explicit parent weights, never a fallback to random initialization."""
+    if not value:
+        return None
+    if value.startswith("hf:"):
+        name = value[3:]
+        if not name or Path(name).name != name or Path(name).suffix not in (".pt", ".pth"):
+            raise ValueError("INITIAL_ONSET hf: reference must name a .pt/.pth checkpoint in HF_REPO_ID")
+        path = store.fetch(name)
+        if path is None:
+            raise FileNotFoundError(f"Initial Rise checkpoint not found: {value}. "
+                                    "Restore it or explicitly set INITIAL_ONSET empty to train from scratch.")
+    else:
+        path = Path(value)
+    if not path.is_file():
+        raise FileNotFoundError(f"Initial Rise checkpoint does not exist: {path}")
+    return path
+
+
 def weights_digest(state):
     h = hashlib.sha256()
     for key, value in sorted(state.items()):
@@ -128,20 +148,24 @@ def prepare_chords(config, store):
                 outputs=["root_logits", "quality_logits", "pitch_logits"], legacy_onset=False)
 
 
-def prepare_features(root, work, groups):
+def prepare_features(root, work, groups, masking_pairs=False):
     index = work / "features" / "index.json"
     if index.exists():
         document = json.loads(index.read_text())
         if document["feature_spec"] != FEATURE_SPEC:
             raise ValueError("Cached onset features use a different DSP contract")
         sources = document["sources"]
+        has_masking = any(s["case"].startswith("masking_") for s in sources)
+        if has_masking != masking_pairs:
+            raise ValueError("Onset masking recipe changed; use a new RUN_TAG, not this cache")
         for source in sources:
             path = work / "features" / Path(source["features"]).name
             if not path.is_file() or sha256(path) != source["feature_sha256"]:
                 raise ValueError(f"Missing or corrupt onset cache: {path}")
             source["features"] = str(path)
         return sources
-    prepared = run_pipeline(root, work, "auto", groups=groups, seed=20260923)
+    prepared = run_pipeline(root, work, "auto", groups=groups, seed=20260923,
+                            masking_pairs=masking_pairs)
     return cache_onset_features(onset_sources(Path(prepared["prepared_directory"])), work / "features")
 
 
@@ -279,28 +303,44 @@ def run_take7(config, store):
         raise ValueError("Choose a simple new RUN_TAG different from BASE_RUN; never overwrite take6")
     if config["mode"] == "export_only":
         return export_take7_only(config, store)
+    masking_pairs = config.get("onset_masking_pairs", False)
+    groups = config.get("groups", (96, 96, 96) if masking_pairs else (60, 12, 12))
+    configuration = dict(run_tag=tag, mode=config["mode"], base_run=config["base_run"],
+                         onset_masking_pairs=masking_pairs, synthetic_groups=list(groups),
+                         initial_onset=config.get("initial_onset") or "",
+                         onset_epochs=config.get("onset_epochs", 12))
+    print("Take7 configuration: " + json.dumps(configuration, sort_keys=True), flush=True)
+    write_json(work / "run_configuration.json", configuration)
+    last_name = f"checkpoint_{tag}_onset_last.pth"
+    previous = store.fetch(last_name)
+    # Resolve the parent before preparing data, and only for a new onset run.
+    # A resumed run already carries both the best weights and their provenance.
+    local_last = work / "rise" / "short_onset_last.pt"
+    resuming = previous is not None or local_last.is_file()
+    initial = None if resuming else resolve_initial_onset(config.get("initial_onset"), store)
     report_path = work / f"training_summary_{tag}.json"
     write_json(report_path, dict(ok=False, stage="chords", run_tag=tag))
     chords = prepare_chords(config, store)
     write_json(report_path, dict(ok=False, stage="onsets", run_tag=tag, chords=chords))
-    sources = prepare_features(Path(config["input_dir"]), work, config.get("groups", (60, 12, 12)))
+    sources = prepare_features(Path(config["input_dir"]), work, groups, masking_pairs)
+    for split in ("train", "validation", "test"):
+        selected = [s for s in sources if s["split"] == split]
+        masking_count = sum(s["case"].startswith("masking_") for s in selected)
+        print(f"Onset data {split}: {len(selected)} recordings, {masking_count} masking clips", flush=True)
+        if masking_pairs and not masking_count:
+            raise ValueError(f"Masking enabled but no masking clips in {split}; check the feature cache")
     onset_dir = work / "rise"
     onset_dir.mkdir(exist_ok=True)
-    last_name = f"checkpoint_{tag}_onset_last.pth"
-    previous = store.fetch(last_name)
     if previous:
         shutil.copy2(previous, onset_dir / "short_onset_last.pt")
-    initial = config.get("initial_onset") or None
-    if initial and not Path(initial).is_file():
-        raise ValueError(f"Initial Rise checkpoint does not exist: {initial}")
-    print("Onsets: " + ("resuming take7" if previous else "initial Rise weights" if initial else
+    print("Onsets: " + ("resuming take7" if resuming else f"initial Rise weights from {initial}" if initial else
                         "training Rise from scratch; chord base is frozen"), flush=True)
     result = train_onset_experiment(sources, onset_dir,
                                    epochs=config.get("onset_epochs", 12),
                                    batch_size=config.get("onset_batch_size", 16),
                                    device_name=config.get("device", "auto"),
                                    feature_directory=work / "features", spectral_rise=True,
-                                   initial_checkpoint=initial if not previous else None, resume=True,
+                                   initial_checkpoint=initial, resume=True,
                                    checkpoint_callback=lambda path: store.publish(path, last_name))
     # No reference to the chord model is passed into the onset optimizer.
     import torch
@@ -313,6 +353,7 @@ def run_take7(config, store):
     store.publish(onset_dir / "short_onset_best.pt", f"checkpoint_{tag}_onset_best.pth")
     summary = dict(schema_version=2, ok=True, training_complete=True,
                    candidate_only=True, app_ready=False, run_tag=tag, mode=config["mode"],
+                   configuration=configuration,
                    model=model, chords=chords, onset=result, summary_path=str(report_path),
                    note="One ONNX, two inputs, four outputs. Requires the matching application input path.")
     write_json(report_path, summary)
@@ -332,6 +373,7 @@ def main(argv=None):
     parser.add_argument("--no-hf", action="store_true", default=not USE_HF)
     parser.add_argument("--initial-onset", default=INITIAL_ONSET)
     parser.add_argument("--onset-epochs", type=int, default=ONSET_EPOCHS)
+    parser.add_argument("--onset-masking-pairs", action=argparse.BooleanOptionalAction, default=ONSET_MASKING_PAIRS)
     parser.add_argument("--export-onset-threshold", type=float, default=EXPORT_ONSET_THRESHOLD)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     import sys

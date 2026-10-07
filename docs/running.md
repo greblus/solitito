@@ -64,6 +64,12 @@ still applies, using the short audio window. Take7 reads the validation-selected
 A new round needs new events. Rise can still misclassify attacks: this build is
 for testing, not a claim that repeated credits are solved.
 
+In the current source build, a strong onset detected just below the noise gate
+can wait up to 96 ms for the gate to open, provided the model continuously
+confirms it. Its original timestamp and event identity are preserved, so it
+cannot cross an exercise boundary or be credited twice. Events detected above
+the gate have no additional wait. This change is newer than the 0.5.7 package.
+
 For a comparison with the original onset path, launch:
 
 ```bash
