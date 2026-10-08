@@ -291,6 +291,89 @@ impl CqtAnalyzer {
     }
 }
 
+/// A copy of exactly the 16 kHz hops the detectors see, for measuring on.
+///
+/// SOLITITO_RECORD=<prefix> writes <prefix>-g<n>.wav, mono float32 at
+/// TARGET_SR. This is the audio AFTER resampling and after the channel choice,
+/// so what is measured later is what the app actually heard - no second guess
+/// about which socket the instrument was in, which is the mistake an external
+/// recorder invites.
+///
+/// Every hop, not only the ones past the noise gate: a file with the quiet
+/// parts cut out has a step where each cut was, and a step reads as an attack.
+pub struct Capture {
+    writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>>,
+    path: std::path::PathBuf,
+    hops: u64,
+    failed: bool,
+}
+
+impl Capture {
+    /// None when SOLITITO_RECORD is unset, which is the normal case.
+    pub fn from_env() -> Option<Self> {
+        let prefix = std::env::var_os("SOLITITO_RECORD")?;
+        let prefix = std::path::PathBuf::from(prefix);
+        // A free name rather than an overwrite: a measurement already taken is
+        // not something to lose to a restart.
+        for generation in 1..1000 {
+            let mut name = prefix.as_os_str().to_os_string();
+            name.push(format!("-g{generation}.wav"));
+            let path = std::path::PathBuf::from(name);
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => {
+                    let spec = hound::WavSpec {
+                        channels: 1,
+                        sample_rate: TARGET_SR,
+                        bits_per_sample: 32,
+                        sample_format: hound::SampleFormat::Float,
+                    };
+                    return match hound::WavWriter::new(std::io::BufWriter::new(file), spec) {
+                        Ok(writer) => {
+                            eprintln!("📼 {} · {TARGET_SR} Hz · 1 ch · F32", path.display());
+                            Some(Self { writer: Some(writer), path, hops: 0, failed: false })
+                        }
+                        Err(error) => {
+                            eprintln!("📼 nie mogę pisać do {}: {error}", path.display());
+                            None
+                        }
+                    };
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    eprintln!("📼 nie mogę utworzyć {}: {error}", path.display());
+                    return None;
+                }
+            }
+        }
+        None
+    }
+
+    /// One hop. Never panics and never fails twice loudly: this runs on the
+    /// audio thread, where an unwrap would take the stream down mid-phrase.
+    pub fn record(&mut self, hop: &[f32]) {
+        if self.failed {
+            return;
+        }
+        let result = (|| -> Result<()> {
+            if let Some(writer) = self.writer.as_mut() {
+                for &sample in hop {
+                    writer.write_sample(sample)?;
+                }
+                self.hops += 1;
+                // The header stays readable if the process is interrupted.
+                if self.hops % 64 == 0 {
+                    writer.flush()?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.failed = true;
+            eprintln!("📼 zapis przerwany {}: {error:#}", self.path.display());
+        }
+    }
+}
+
 /// The windows the attack detector reads: 64 ms and 128 ms, against the CQT's
 /// 512 ms. A window that long smears the very thing an attack detector looks
 /// for, which is why this cannot reuse the features already being computed.
@@ -620,6 +703,7 @@ pub fn start_audio_stream(
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
     let mut short = ShortSpectrum::new();
     let mut flux = crate::flux::Flux::default();
+    let mut capture = Capture::from_env();
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
     // Attack detection: an energy jump above a slowly creeping envelope.
@@ -656,6 +740,9 @@ pub fn start_audio_stream(
                 
                 if resampled.len() >= FFT_SIZE && resampled.len() % HOP_LENGTH == 0 {
                     let chunk = &resampled[resampled.len() - FFT_SIZE..];
+                    if let Some(capture) = capture.as_mut() {
+                        capture.record(&resampled[resampled.len() - HOP_LENGTH..]);
+                    }
                     
                     let (gate, boost_enabled, boost_gain) = {
                         let s = shared_state.lock().unwrap();

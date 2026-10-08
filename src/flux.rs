@@ -410,3 +410,141 @@ mod diagnostics {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod strings_diagnostics {
+    use super::*;
+
+    /// Bins of the 2048-point spectrum covering guitar FUNDAMENTALS, which is
+    /// where this question can be asked at all.
+    ///
+    /// 80 Hz to 660 Hz - low E to about E5 - at 7.8125 Hz per bin. Above that
+    /// range lives every note's own partial series, so counting peaks there
+    /// counts one string several times.
+    const FIRST: usize = 257 + 10;
+    const LAST: usize = 257 + 85;
+
+    /// How many distinct fundamentals rose in this frame.
+    ///
+    /// Peaks, not fixed bands: a semitone at 82 Hz is 4.9 Hz, narrower than one
+    /// bin, so bands would have to be wide enough to merge chord tones. Peaks
+    /// adapt to wherever the notes actually are.
+    fn fundamentals(rise: &[f32], fraction: f32, separation: usize) -> usize {
+        peak_bins(rise, fraction, separation).len()
+    }
+
+    /// The accepted peaks, lowest bin first, as bins of the 2048 spectrum.
+    fn peak_bins(rise: &[f32], fraction: f32, separation: usize) -> Vec<usize> {
+        let range = &rise[FIRST..LAST.min(rise.len())];
+        let peak = range.iter().cloned().fold(0.0f32, f32::max);
+        if peak <= 0.0 {
+            return Vec::new();
+        }
+        let mut taken: Vec<usize> = Vec::new();
+        let mut order: Vec<usize> = (1..range.len() - 1).collect();
+        order.sort_by(|&a, &b| range[b].partial_cmp(&range[a]).unwrap_or(std::cmp::Ordering::Equal));
+        for i in order {
+            if range[i] < peak * fraction {
+                break;
+            }
+            if range[i] < range[i - 1] || range[i] < range[i + 1] {
+                continue;
+            }
+            if taken.iter().any(|&t| i.abs_diff(t) < separation) {
+                continue;
+            }
+            taken.push(i);
+        }
+        taken.sort_unstable();
+        taken
+    }
+
+    /// SOLITITO_STRINGS_WAV=file.wav [SOLITITO_STRINGS_FRACTION] [SOLITITO_STRINGS_SEP]
+    #[test]
+    #[ignore = "diagnostic: requires SOLITITO_STRINGS_WAV"]
+    fn count_fundamentals() -> anyhow::Result<()> {
+        let path = std::env::var("SOLITITO_STRINGS_WAV")?;
+        let mut reader = hound::WavReader::open(&path)?;
+        let spec = reader.spec();
+        // 24 bits as well as 16 and float: a backing track is the only chord
+        // material here long enough to measure, and reading it as i16 fed the
+        // detector silence - which looked exactly like "no attacks found".
+        let raw: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
+            (hound::SampleFormat::Float, _) => {
+                reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect()
+            }
+            (_, 16) => reader.samples::<i16>().map(|s| s.unwrap_or(0) as f32 / 32768.0).collect(),
+            (_, bits) => {
+                let full = (1i32 << (bits - 1)) as f32;
+                reader.samples::<i32>().map(|s| s.unwrap_or(0) as f32 / full).collect()
+            }
+        };
+        // The channel the instrument is actually on, 1-based as the app's own
+        // setting is: averaging the inputs pulls in the other socket, and
+        // taking the first one blind records the empty one.
+        let channel = std::env::var("SOLITITO_STRINGS_CHANNEL")
+            .ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1)
+            .saturating_sub(1)
+            .min(spec.channels as usize - 1);
+        let mono: Vec<f32> = raw.chunks(spec.channels as usize).map(|f| f[channel]).collect();
+        let ratio = spec.sample_rate as f32 / crate::audio::TARGET_SR as f32;
+        let mut signal = Vec::with_capacity((mono.len() as f32 / ratio) as usize + 8);
+        let mut read = 0.0f32;
+        while read + 1.0 < mono.len() as f32 {
+            let i = read as usize;
+            let f = read - i as f32;
+            signal.push(mono[i] + f * (mono[i + 1] - mono[i]));
+            read += ratio;
+        }
+        let fraction: f32 = std::env::var("SOLITITO_STRINGS_FRACTION")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(0.3);
+        let separation: usize = std::env::var("SOLITITO_STRINGS_SEP")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let mut short = crate::audio::ShortSpectrum::new();
+        let mut flux = Flux::default();
+        let mut previous: Vec<f32> = Vec::new();
+        let mut counts = vec![0usize; 13];
+        let mut harmonic_hits = 0usize;
+        let mut harmonic_total = 0usize;
+        let mut at = crate::audio::SHORT_FFT;
+        while at <= signal.len() {
+            let magnitudes = short.of(&signal[at - crate::audio::SHORT_FFT..at]).to_vec();
+            if previous.len() != magnitudes.len() {
+                previous = magnitudes.clone();
+            }
+            let rise: Vec<f32> = magnitudes.iter().zip(previous.iter())
+                .map(|(now, before)| (now - before).max(0.0)).collect();
+            previous.copy_from_slice(&magnitudes);
+            if flux.push(&magnitudes).1 {
+                counts[fundamentals(&rise, fraction, separation).min(12)] += 1;
+                // Are the extra peaks this note's OWN partials? If they sit at
+                // integer multiples of the lowest one, the range is not a list
+                // of fundamentals and counting it cannot count strings.
+                let peaks = peak_bins(&rise, fraction, separation);
+                if let Some(&lowest) = peaks.first() {
+                    for &b in peaks.iter().skip(1) {
+                        let multiple = b as f32 / lowest as f32;
+                        harmonic_total += 1;
+                        if (multiple - multiple.round()).abs() < 0.06 && multiple.round() >= 2.0 {
+                            harmonic_hits += 1;
+                        }
+                    }
+                }
+            }
+            at += crate::audio::HOP_LENGTH;
+        }
+        let total: usize = counts.iter().sum();
+        let share = |n: usize| 100.0 * counts[n] as f32 / total.max(1) as f32;
+        println!(
+            "{} frac={fraction} sep={separation}: {total} atakow | 1 glos {:.0}%, 2 {:.0}%, 3+ {:.0}%, mediana {}",
+            path.rsplit('/').next().unwrap_or(&path),
+            share(1), share(2), (3..=12).map(share).sum::<f32>(),
+            { let mut seen = 0; (0..=12).find(|&n| { seen += counts[n]; seen * 2 >= total }).unwrap_or(0) },
+        );
+        println!(
+            "  z {harmonic_total} dodatkowych szczytow {:.0}% lezy na calkowitej wielokrotnosci najnizszego",
+            100.0 * harmonic_hits as f32 / harmonic_total.max(1) as f32,
+        );
+        Ok(())
+    }
+}
