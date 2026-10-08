@@ -1123,3 +1123,94 @@ mod fill_tests {
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
     ];
 }
+#[cfg(test)]
+mod voices_diagnostics {
+    use super::*;
+
+    /// How many pitch classes the CQT lights up, over a recording.
+    ///
+    /// The question the interval guard needs answered: can "several notes are
+    /// sounding together" be told from "one note is sounding and the model is
+    /// spreading it"? The model's own pitch head cannot say, because spreading
+    /// is what it does. The CQT can, if the count separates.
+    ///
+    /// SOLITITO_VOICES_WAV=file.wav
+    #[test]
+    #[ignore = "diagnostic: requires SOLITITO_VOICES_WAV"]
+    fn count_voices() -> anyhow::Result<()> {
+        let path = std::env::var("SOLITITO_VOICES_WAV")?;
+        let mut reader = hound::WavReader::open(&path)?;
+        let spec = reader.spec();
+        let raw: Vec<f32> = match spec.sample_format {
+            hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect(),
+            _ => reader.samples::<i16>().map(|s| s.unwrap_or(0) as f32 / 32768.0).collect(),
+        };
+        let mono: Vec<f32> = raw.chunks(spec.channels as usize).map(|f| f[0]).collect();
+        let ratio = spec.sample_rate as f32 / TARGET_SR as f32;
+        let mut signal = Vec::with_capacity((mono.len() as f32 / ratio) as usize + 8);
+        let mut read = 0.0f32;
+        while read + 1.0 < mono.len() as f32 {
+            let i = read as usize;
+            let f = read - i as f32;
+            signal.push(mono[i] + f * (mono[i + 1] - mono[i]));
+            read += ratio;
+        }
+        let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+        let fractions = [0.3f32, 0.5, 0.7];
+        let mut counts: Vec<Vec<usize>> = vec![vec![0; 13]; fractions.len()];
+        let mut frames = 0usize;
+        let mut pos = 0usize;
+        while pos + FFT_SIZE < signal.len() {
+            let (_, chroma, _, _) = analyzer.compute_cqt_chroma(&signal[pos..pos + FFT_SIZE], true, 5.0);
+            let peak = chroma.iter().cloned().fold(0.0f32, f32::max);
+            // Only frames with something in them: the gaps say nothing.
+            if peak > 1e-3 {
+                frames += 1;
+                for (f, &fraction) in fractions.iter().enumerate() {
+                    let n = chroma.iter().filter(|&&v| v >= peak * fraction).count();
+                    counts[f][n.min(12)] += 1;
+                }
+            }
+            pos += HOP_LENGTH * 4;
+        }
+        println!("{}: {frames} ramek z dzwiekiem", path.rsplit('/').next().unwrap_or(&path));
+        // The other candidate witness: does the monophonic ear MOVE between
+        // classes after a strum, where after one pluck it would sit still?
+        let mut pos2 = 0usize;
+        let mut heard: Vec<Option<usize>> = Vec::new();
+        while pos2 + FFT_SIZE < signal.len() {
+            let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&signal[pos2..pos2 + FFT_SIZE], true, 5.0);
+            heard.push(mono_pitch(&cqt).map(|(pc, _)| pc));
+            pos2 += HOP_LENGTH * 4;
+        }
+        // Distinct classes the ear names in each half-second window.
+        let window = (0.5 * TARGET_SR as f32 / (HOP_LENGTH * 4) as f32) as usize;
+        let mut distinct: Vec<usize> = Vec::new();
+        for start in (0..heard.len().saturating_sub(window)).step_by(window) {
+            let set: std::collections::BTreeSet<usize> =
+                heard[start..start + window].iter().flatten().cloned().collect();
+            if !set.is_empty() {
+                distinct.push(set.len());
+            }
+        }
+        distinct.sort_unstable();
+        let at = |q: f32| distinct.get((distinct.len() as f32 * q) as usize).copied().unwrap_or(0);
+        println!(
+            "  ucho w oknie 0,5 s: mediana {} klas, 25% {} , 75% {} (okien {})",
+            at(0.5), at(0.25), at(0.75), distinct.len(),
+        );
+        for (f, &fraction) in fractions.iter().enumerate() {
+            let total: usize = counts[f].iter().sum();
+            let median = {
+                let mut seen = 0;
+                (0..=12).find(|&n| { seen += counts[f][n]; seen * 2 >= total }).unwrap_or(0)
+            };
+            let share = |n: usize| 100.0 * counts[f][n] as f32 / total.max(1) as f32;
+            println!(
+                "  >= {fraction:.1} szczytu: mediana {median} klas, 1 klasa {:.0}%, 2 {:.0}%, 3+ {:.0}%",
+                share(1), share(2), (3..=12).map(share).sum::<f32>(),
+            );
+        }
+        Ok(())
+    }
+}

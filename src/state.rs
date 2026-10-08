@@ -2201,19 +2201,39 @@ impl MyApp {
                     if !me.struck_since_credit(target) {
                         return None;
                     }
-                    // Free order asks every step still wanted, so the model
-                    // gets three chances a frame to name something instead of
-                    // one - and its pitch head spreads a plucked note onto its
-                    // neighbours. Where the single-frame estimate names a class,
-                    // no OTHER class may be credited off the model that frame.
-                    // This is the test `struck_since_credit` already applies to
-                    // repeats, and it is what stopped a b3 being credited while
-                    // the root was what was played.
-                    // A confidently recognised target chord is the exception:
-                    // its notes sound together, while CQT can name only one.
-                    // The pitch head still has to confirm each requested tone.
-                    if me.free_order()
-                        && me.cqt_pitch.is_some_and(|now| now != target % 12)
+                    // The model's pitch head spreads a plucked note onto its
+                    // neighbours, so where the single-frame estimate names a
+                    // class, no OTHER class may be credited off the model that
+                    // frame. This is the test `struck_since_credit` already
+                    // applies to repeats.
+                    //
+                    // In BOTH orders. It used to run only in free order, on the
+                    // reasoning that asking every step still wanted gives the
+                    // model three chances a frame instead of one - but one
+                    // chance is enough: in order, the root is credited, the
+                    // target moves to the third while the root rings on, and
+                    // the head offers the third because a head trained on chord
+                    // shapes answers the whole chord. That is the reported
+                    // fault, and in order there was nothing holding it.
+                    //
+                    // There used to be an exception for a confidently
+                    // recognised target chord, on the premise that its notes
+                    // sound together while CQT can name only one. The premise
+                    // is right and unverifiable: neither candidate witness
+                    // separates a chord from one note, because one note's
+                    // harmonics look like a chord. Measured over AtoA's single
+                    // notes against chord_repeats, the CQT lights ~12 classes
+                    // in both, and the ear names a median of 2 classes per half
+                    // second in both. See `audio::voices_diagnostics`.
+                    //
+                    // The exception STAYS, because the feature and the fault
+                    // are one code path on one input and removing it would take
+                    // strummed grips with it. "One note at a time" already
+                    // switches it off for anyone who would rather have the
+                    // stricter rule, and that is the measured one: over 49
+                    // notes the permissive path credited 110 things nobody
+                    // played against the steady estimate's 33, missing nothing.
+                    if me.cqt_pitch.is_some_and(|now| now != target % 12)
                         && !(me.interval_chord_confirmed && !me.single_notes)
                     {
                         return None;
