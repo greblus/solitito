@@ -70,6 +70,8 @@ pub struct AudioAnalysis {
     pub onset_id: u64,
     /// Attacks the flux detector has reported. Pitch-blind by construction.
     pub flux_id: u64,
+    /// Hops of audio seen, gate or no gate: the recording's own clock.
+    pub hops: u64,
     /// Frames since the last attack. Below CTX_FRAMES the context window still
     /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
@@ -309,43 +311,34 @@ pub struct Capture {
 }
 
 impl Capture {
-    /// None when SOLITITO_RECORD is unset, which is the normal case.
+    /// None when SOLITITO_RECORD is unset, which is the normal case. The
+    /// generation comes from `journal::base`, so the audio and the journal of
+    /// one run always carry the same number.
     pub fn from_env() -> Option<Self> {
-        let prefix = std::env::var_os("SOLITITO_RECORD")?;
-        let prefix = std::path::PathBuf::from(prefix);
-        // A free name rather than an overwrite: a measurement already taken is
-        // not something to lose to a restart.
-        for generation in 1..1000 {
-            let mut name = prefix.as_os_str().to_os_string();
-            name.push(format!("-g{generation}.wav"));
-            let path = std::path::PathBuf::from(name);
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(file) => {
-                    let spec = hound::WavSpec {
-                        channels: 1,
-                        sample_rate: TARGET_SR,
-                        bits_per_sample: 32,
-                        sample_format: hound::SampleFormat::Float,
-                    };
-                    return match hound::WavWriter::new(std::io::BufWriter::new(file), spec) {
-                        Ok(writer) => {
-                            eprintln!("📼 {} · {TARGET_SR} Hz · 1 ch · F32", path.display());
-                            Some(Self { writer: Some(writer), path, hops: 0, failed: false })
-                        }
-                        Err(error) => {
-                            eprintln!("📼 nie mogę pisać do {}: {error}", path.display());
-                            None
-                        }
-                    };
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => {
-                    eprintln!("📼 nie mogę utworzyć {}: {error}", path.display());
-                    return None;
-                }
+        let path = crate::journal::base()?.with_extension("wav");
+        let file = match std::fs::File::create(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                eprintln!("📼 nie mogę utworzyć {}: {error}", path.display());
+                return None;
+            }
+        };
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: TARGET_SR,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        match hound::WavWriter::new(std::io::BufWriter::new(file), spec) {
+            Ok(writer) => {
+                eprintln!("📼 {} · {TARGET_SR} Hz · 1 ch · F32", path.display());
+                Some(Self { writer: Some(writer), path, hops: 0, failed: false })
+            }
+            Err(error) => {
+                eprintln!("📼 nie mogę pisać do {}: {error}", path.display());
+                None
             }
         }
-        None
     }
 
     /// One hop. Never panics and never fails twice loudly: this runs on the
@@ -743,6 +736,12 @@ pub fn start_audio_stream(
                     if let Some(capture) = capture.as_mut() {
                         capture.record(&resampled[resampled.len() - HOP_LENGTH..]);
                     }
+                    // The journal's clock. Bumped here and nowhere else, so a
+                    // row's hop is a sample position in the recording even
+                    // though `frames_seen` counts only what passed the gate.
+                    if let Ok(mut st) = shared_state.lock() {
+                        st.hops = st.hops.wrapping_add(1);
+                    }
                     
                     let (gate, boost_enabled, boost_gain) = {
                         let s = shared_state.lock().unwrap();
@@ -901,14 +900,32 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
 
     thread::spawn(move || {
         let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
+        let mut short = ShortSpectrum::new();
+        let mut flux = crate::flux::Flux::default();
         let mut pos = 0;
         
         while pos + FFT_SIZE < samples.len() {
             let start = Instant::now();
             let chunk = &samples[pos..pos+FFT_SIZE];
             let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
+            // The same ear and the same attack detector as the live path, so a
+            // recording replayed here is judged the way it was when played.
+            // Without these a replay pushes features and nothing else, and the
+            // ear - which decides almost everything - is simply absent.
+            let heard = mono_pitch(&cqt)
+                .filter(|&(_, score)| score >= MONO_MIN_SCORE)
+                .map(|(note, _)| note);
+            let attack = flux.push(short.of(chunk)).1;
             
             if let Ok(mut state) = shared_state.lock() {
+                state.cqt_pitch = heard.map(|n| n % 12);
+                state.cqt_semitone = heard;
+                state.gate_open = true;
+                state.hops = state.hops.wrapping_add(1);
+                if attack {
+                    state.mark_flux();
+                    state.mark_onset();
+                }
                 let mut frame = Vec::with_capacity(TOTAL_FEATURES);
                 frame.extend_from_slice(&cqt);
                 frame.extend_from_slice(&chroma);
@@ -1038,6 +1055,7 @@ mod fill_tests {
             frame_live: [false; CTX_FRAMES],
             onset_id: 0,
             flux_id: 0,
+            hops: 0,
             frames_since_onset: 0,
             spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],

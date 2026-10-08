@@ -488,6 +488,15 @@ pub struct MyApp {
     pub single_notes: bool,
     /// Attack counter, mirrored from the audio thread.
     pub onset_id: u64,
+    /// Where the exercise writes down what it asked and what it credited, when
+    /// SOLITITO_RECORD is set. None otherwise, which is every normal run.
+    journal: Option<crate::journal::Journal>,
+    /// The recording's hop clock, so a journal row is a position in the WAV.
+    capture_hop: u64,
+    /// Which of the four ways credited this, where the call site knew.
+    credit_branch: Option<u8>,
+    /// The (chord, step) pair last written down, to notice a new request.
+    logged_ask: Option<(usize, usize)>,
     /// Attacks the flux detector has counted, mirrored from the audio thread.
     /// Pitch-blind: it says a string was hit, never which one.
     pub flux_id: u64,
@@ -658,6 +667,10 @@ impl MyApp {
             lap_hold: 0.0,
             single_notes: false,
             onset_id: 0,
+            journal: crate::journal::Journal::open(),
+            capture_hop: 0,
+            credit_branch: None,
+            logged_ask: None,
             flux_id: 0,
             flux_seen: false,
             credited: [None; 12],
@@ -2180,6 +2193,7 @@ impl MyApp {
                 if self.collected_notes.len() != active_indices.len() {
                     self.collected_notes.resize(active_indices.len(), false);
                 }
+                self.journal_ask();
 
                 // Which step is being answered.
                 //
@@ -2240,6 +2254,7 @@ impl MyApp {
                     }
                     me.sounding_by(target, ai_root, confidence)
                 };
+                let mut branch_used = None;
                 let answering = if self.free_order() {
                     // The BEST answer, not the first: taking the lowest-numbered
                     // step that answered credited whichever of them the model
@@ -2259,9 +2274,15 @@ impl MyApp {
                                     .unwrap_or(std::cmp::Ordering::Equal)
                             })
                         })
-                        .map(|(k, _)| k)
+                        .map(|(k, by)| {
+                            branch_used = Some(by);
+                            k
+                        })
                 } else if self.current_note_step < active_indices.len() {
-                    answers(self, self.current_note_step).map(|_| self.current_note_step)
+                    answers(self, self.current_note_step).map(|by| {
+                        branch_used = Some(by);
+                        self.current_note_step
+                    })
                 } else {
                     return;
                 };
@@ -2289,6 +2310,7 @@ impl MyApp {
                         if k < self.collected_notes.len() {
                             self.collected_notes[k] = true;
                         }
+                        self.credit_branch = branch_used;
                         self.credit_class(all_targets[step.degree], step.octave);
                         self.answering_step = None;
                         self.success_timer = 0.0;
@@ -2474,7 +2496,72 @@ impl MyApp {
         }
     }
 
+    /// Writes down one row, with the clock and the exercise's own context on
+    /// it. Costs nothing when SOLITITO_RECORD is unset.
+    fn journal_row(&mut self, event: &str, mut row: serde_json::Value) {
+        if self.journal.is_none() {
+            return;
+        }
+        let chord = self.chords.get(self.current_chord_index)
+            .map(|c| format!("{} {}", c.root.to_string(), c.quality.to_string()));
+        if let Some(map) = row.as_object_mut() {
+            map.insert("event".into(), event.into());
+            map.insert("hop".into(), self.capture_hop.into());
+            map.insert(
+                "t".into(),
+                serde_json::json!(
+                    self.capture_hop as f64 * crate::audio::HOP_LENGTH as f64
+                        / crate::audio::TARGET_SR as f64
+                ),
+            );
+            map.insert("mode".into(), format!("{:?}", self.app_mode).into());
+            map.insert("chord".into(), serde_json::json!(chord));
+            map.insert("step".into(), self.current_note_step.into());
+        }
+        if let Some(journal) = self.journal.as_mut() {
+            journal.write(&row);
+        }
+    }
+
+    /// A new request: which step is wanted now. Written whether or not anything
+    /// answers it, because a request nobody answered is the other half of the
+    /// measurement - the half this session kept forgetting to look at.
+    fn journal_ask(&mut self) {
+        if self.journal.is_none() {
+            return;
+        }
+        let now = (self.current_chord_index, self.current_note_step);
+        if self.logged_ask == Some(now) {
+            return;
+        }
+        self.logged_ask = Some(now);
+        self.journal_row("ask", serde_json::json!({}));
+    }
+
     fn credit_class(&mut self, pc: usize, octave: i8) {
+        if self.journal.is_some() {
+            // The three strongest pitch-head answers, so a rule can be tried
+            // against this row later without playing anything again.
+            let mut top: Vec<(usize, f32)> = (0..12).map(|i| (i, self.last_pitches[i])).collect();
+            top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let row = serde_json::json!({
+                "pc": pc % 12,
+                "octave": octave,
+                "by": self.credit_branch,
+                "ear": self.cqt_pitch,
+                "semitone": self.cqt_semitone,
+                "flux": self.flux_id,
+                "onset": self.onset_id,
+                "onset_age": self.onset_age,
+                "top": top.iter().take(3).map(|&(i, v)| serde_json::json!([i, v])).collect::<Vec<_>>(),
+            });
+            self.journal_row("credit", row);
+        }
+        self.credit_branch = None;
+        self.credit_class_inner(pc, octave)
+    }
+
+    fn credit_class_inner(&mut self, pc: usize, octave: i8) {
         self.credited[pc % 12] = Some(Credit {
             onset: self.onset_id,
             strike: self.strike_id[pc % 12],
@@ -2586,6 +2673,7 @@ impl MyApp {
                 self.flux_seen = true;
             }
             self.flux_id = state.flux_id;
+            self.capture_hop = state.hops;
             self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
         }
@@ -2992,6 +3080,7 @@ pub(crate) mod tests {
             input_level: 0.0,
             onset_id: 0,
             flux_id: 0,
+            hops: 0,
             frames_since_onset: 0,
             cqt_pitch: None,
             gate_open: false,

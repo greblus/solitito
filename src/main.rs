@@ -6,6 +6,7 @@ mod audio;
 mod brain;
 mod diagrams;
 mod flux;
+mod journal;
 mod formulas;
 mod fretboard;
 mod i18n;
@@ -757,6 +758,7 @@ fn main() -> Result<(), slint::PlatformError> {
         frame_live: [false; 48],
         onset_id: 0,
         flux_id: 0,
+        hops: 0,
         frames_since_onset: 0,
         spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
