@@ -72,6 +72,10 @@ pub struct AudioAnalysis {
     pub flux_id: u64,
     /// Hops of audio seen, gate or no gate: the recording's own clock.
     pub hops: u64,
+    /// Which pitch classes are genuinely sounding, one bit each, from
+    /// `voices::voices` - the spectrum explained rather than ranked, so a class
+    /// that is only somebody else's harmonic is not in here.
+    pub voices: u16,
     /// Frames since the last attack. Below CTX_FRAMES the context window still
     /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
@@ -818,7 +822,13 @@ pub fn start_audio_stream(
                             }
                         }
                         let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n);
+                        // Four is a grip: more voices than that in one frame is
+                        // not a thing six strings under one hand can be.
+                        let sounding = crate::voices::voices(&cqt, 4)
+                            .iter()
+                            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
                         if let Ok(mut state) = shared_state.lock() {
+                            state.voices = sounding;
                             state.cqt_pitch = mono.map(|n| n % 12);
                             state.cqt_semitone = mono;
                             state.gate_open = true;
@@ -917,7 +927,11 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 .map(|(note, _)| note);
             let attack = flux.push(short.of(chunk)).1;
             
+            let sounding = crate::voices::voices(&cqt, 4)
+                .iter()
+                .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
             if let Ok(mut state) = shared_state.lock() {
+                state.voices = sounding;
                 state.cqt_pitch = heard.map(|n| n % 12);
                 state.cqt_semitone = heard;
                 state.gate_open = true;
@@ -1056,6 +1070,7 @@ mod fill_tests {
             onset_id: 0,
             flux_id: 0,
             hops: 0,
+            voices: 0,
             frames_since_onset: 0,
             spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],

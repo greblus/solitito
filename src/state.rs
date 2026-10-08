@@ -493,6 +493,9 @@ pub struct MyApp {
     journal: Option<crate::journal::Journal>,
     /// The recording's hop clock, so a journal row is a position in the WAV.
     capture_hop: u64,
+    /// Pitch classes genuinely sounding, one bit each, mirrored from the audio
+    /// thread. See `voices::voices`.
+    voices: u16,
     /// Which of the four ways credited this, where the call site knew.
     credit_branch: Option<u8>,
     /// The (chord, step) pair last written down, to notice a new request.
@@ -669,6 +672,7 @@ impl MyApp {
             onset_id: 0,
             journal: crate::journal::Journal::open(),
             capture_hop: 0,
+            voices: 0,
             credit_branch: None,
             logged_ask: None,
             flux_id: 0,
@@ -2240,15 +2244,13 @@ impl MyApp {
                     // in both, and the ear names a median of 2 classes per half
                     // second in both. See `audio::voices_diagnostics`.
                     //
-                    // The exception STAYS, because the feature and the fault
-                    // are one code path on one input and removing it would take
-                    // strummed grips with it. "One note at a time" already
-                    // switches it off for anyone who would rather have the
-                    // stricter rule, and that is the measured one: over 49
-                    // notes the permissive path credited 110 things nobody
-                    // played against the steady estimate's 33, missing nothing.
+                    // The exception now asks whether the tones are actually
+                    // in the air, which is what it always meant to ask. It used
+                    // to ask whether the model had named the chord - and one
+                    // plucked root names it, which is how a third nobody
+                    // touched was being credited.
                     if me.cqt_pitch.is_some_and(|now| now != target % 12)
-                        && !(me.interval_chord_confirmed && !me.single_notes)
+                        && !(me.heard_together(target) && !me.single_notes)
                     {
                         return None;
                     }
@@ -2387,6 +2389,21 @@ impl MyApp {
     /// Fretboard, and Intervals when the option says so. Everywhere else a
     /// strummed chord is allowed to walk its intervals off a single attack -
     /// see `a_strummed_chord_still_walks_its_intervals`.
+    /// Several strings sounding at once, one of them the note being asked for.
+    ///
+    /// This is what the chord-name exception was reaching for and could not
+    /// reach: a confidently recognised chord says the model knows the shape,
+    /// not that its tones are in the air - and one plucked root is enough for
+    /// it to recognise the shape. `voices` explains the spectrum instead of
+    /// ranking it, so a class that is only the root's harmonic is not in it.
+    ///
+    /// Both halves. More than one voice alone would let any ringing pair carry
+    /// a third nobody touched; the target being among them alone is branch 1
+    /// wearing a disguise.
+    fn heard_together(&self, pc: usize) -> bool {
+        self.voices.count_ones() >= 2 && self.voices & (1 << (pc % 12)) != 0
+    }
+
     fn one_at_a_time(&self) -> bool {
         self.single_notes
             || matches!(
@@ -2674,6 +2691,7 @@ impl MyApp {
             }
             self.flux_id = state.flux_id;
             self.capture_hop = state.hops;
+            self.voices = state.voices;
             self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
         }
@@ -2835,7 +2853,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn intervals_accept_a_confirmed_strum_but_not_in_single_note_mode() {
+    fn intervals_accept_a_strum_but_not_in_single_note_mode() {
         for single in [false, true] {
             let mut a = app();
             a.set_mode(AppMode::Intervals as i32);
@@ -2843,15 +2861,56 @@ pub(crate) mod tests {
             let chord = a.chords[a.current_chord_index].clone();
             let root = chord.root as usize;
             let name = format!("{} {}", chord.root.to_string(), chord.quality.to_string());
+            // A strum: every tone of the grip genuinely in the air, which is
+            // what `voices` reports and what the exception now asks for.
+            let sounding = chord.get_target_indices().iter()
+                .fold(0u16, |mask, &pc| mask | 1 << (pc % 12));
             for _ in 0..28 {
                 a.last_pitches = [0.0; 12];
                 for pc in chord.get_target_indices() { a.last_pitches[pc] = 0.99; }
                 a.check_progress_with_ai(0.016, &name, 0.99);
+                {
+                    let mut audio = a.analysis_state.lock().unwrap();
+                    audio.voices = sounding;
+                }
                 interval_audio(&mut a, Some(root), 1);
             }
             let count = a.collected_notes.iter().filter(|&&done| done).count();
             assert_eq!(count, if single { 1 } else { a.collected_notes.len() });
         }
+    }
+
+    /// The reported fault, refused at last: the root is plucked, the model
+    /// recognises the chord from it and the pitch head offers the whole shape -
+    /// but only one string is sounding, so only one tone counts.
+    ///
+    /// The old exception asked whether the chord had been named, and one
+    /// plucked root names it. This one asks what is in the air.
+    #[test]
+    fn a_plucked_root_does_not_credit_the_third_above_it() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Minor7 }];
+        a.current_chord_index = 0;
+        a.single_notes = false;
+        a.note_threshold = 0.5;
+        a.require_onset = false;
+        a.reset_logic_state();
+        for _ in 0..40 {
+            // The model answers with the whole chord it thinks it hears.
+            a.last_pitches = [0.0; 12];
+            for pc in [0usize, 3, 7, 10] { a.last_pitches[pc] = 0.95; }
+            a.last_pitches[0] = 1.0;
+            a.check_progress_with_ai(0.016, "C m7", 0.99);
+            {
+                // But one string is sounding, and it is the root.
+                let mut audio = a.analysis_state.lock().unwrap();
+                audio.voices = 1 << 0;
+            }
+            interval_audio(&mut a, Some(0), 1);
+        }
+        let credited: Vec<usize> = (0..12).filter(|&pc| a.credited[pc].is_some()).collect();
+        assert_eq!(credited, vec![0], "credited {credited:?} off one plucked root");
     }
 
     #[test]
@@ -3081,6 +3140,7 @@ pub(crate) mod tests {
             onset_id: 0,
             flux_id: 0,
             hops: 0,
+            voices: 0,
             frames_since_onset: 0,
             cqt_pitch: None,
             gate_open: false,
