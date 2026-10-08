@@ -74,7 +74,7 @@ pub(crate) const DEVIATIONS: f32 = 60.0;
 /// notes on AtoA; short enough to pass them it let a single pluck report twice.
 /// A string hit once keeps rising for about seven frames, so no fixed number
 /// separates "still the same attack" from "the next one".
-const REFRACTORY: usize = 5;
+const REFRACTORY: usize = 14;
 
 /// A class is ready to report again once the flux falls to this fraction of the
 /// value that last fired. The same shape of latch the model's own events use.
@@ -96,7 +96,21 @@ const FLOOR: f32 = 1e-4;
 /// median and deviation both collapse, so the bar falls to the noise and the
 /// detector reports attacks in silence. One of those at frame 2389 disarmed the
 /// latch and the real pluck at 2398 was not reported until 2401.
-const OF_RECENT: f32 = 0.08;
+///
+/// 0.35 with a refractory of 14 is where sesja-g1 and AtoA both keep every note
+/// they had - 84 of 87 credited notes and 47 of 51 labelled ones - while the
+/// reports with nothing becoming audible fall from 96 to 81 and the total from
+/// 238 to 189. Tightening further costs notes on both.
+///
+/// A fourth mechanism was tried and dropped: requiring the rise to be worth a
+/// fraction of what the bins it rose in were holding, which is the physical
+/// difference between a struck string and a ringing one beating. It separates
+/// nothing here. Meaningful on sesja-g1 only at settings that cost four of
+/// AtoA's notes, and those four are quiet attacks over a ringing note - the one
+/// thing this detector exists to hear. A small new thing and a small change in
+/// a big thing look alike in this representation, which is also why counting
+/// fundamentals failed.
+const OF_RECENT: f32 = 0.35;
 
 /// How fast the recent-worth level forgets, per 16 ms frame. About a second to
 /// half: long enough to carry across a phrase, short enough to follow someone
@@ -381,6 +395,7 @@ mod diagnostics {
             signal.push(mono[i] + f * (mono[i + 1] - mono[i]));
             read += ratio;
         }
+        let mut analyzer = crate::audio::CqtAnalyzer::new("dsp_weights.json")?;
         let mut short = crate::audio::ShortSpectrum::new();
         let mut flux = Flux::with_deviations(
             std::env::var("SOLITITO_FLUX_DEVIATIONS")
@@ -399,9 +414,20 @@ mod diagnostics {
         let mut frame = 0usize;
         while at <= signal.len() {
             let (value, attack) = flux.push(short.of(&signal[at - crate::audio::SHORT_FFT..at]));
+            // The ear too, so an attack can be asked the only question that
+            // settles it without labels: did a note become audible here?
+            let ear = (at >= crate::audio::FFT_SIZE)
+                .then(|| {
+                    let chunk = &signal[at - crate::audio::FFT_SIZE..at];
+                    let (cqt, _, _, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
+                    crate::audio::mono_pitch(&cqt)
+                        .filter(|&(_, score)| score >= crate::audio::MONO_MIN_SCORE)
+                        .map(|(note, _)| note)
+                })
+                .flatten();
             rows.push(serde_json::json!({
                 "t": frame as f64 * crate::audio::HOP_LENGTH as f64 / crate::audio::TARGET_SR as f64,
-                "flux": value, "attack": attack,
+                "flux": value, "attack": attack, "ear": ear,
             }));
             at += crate::audio::HOP_LENGTH;
             frame += 1;
