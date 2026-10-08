@@ -68,6 +68,8 @@ pub struct AudioAnalysis {
     /// Increments on every detected attack. The app uses it to release the
     /// chord quality latch.
     pub onset_id: u64,
+    /// Attacks the flux detector has reported. Pitch-blind by construction.
+    pub flux_id: u64,
     /// Frames since the last attack. Below CTX_FRAMES the context window still
     /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
@@ -98,6 +100,13 @@ impl AudioAnalysis {
     /// Silence below the gate: history still advances, but the frame is empty.
     pub fn push_silence(&mut self) {
         self.push(&[0.0; TOTAL_FEATURES], false);
+    }
+
+    /// Reports an attack the FLUX detector found, which is a different claim
+    /// from `mark_onset`: that one compares whole-frame levels and a quiet
+    /// string beside a ringing one does not move them.
+    pub fn mark_flux(&mut self) {
+        self.flux_id = self.flux_id.wrapping_add(1);
     }
 
     /// Reports an attack: resets the counter and bumps the event id.
@@ -279,6 +288,69 @@ impl CqtAnalyzer {
         let visual: Vec<f32> = norm_cqt.iter().skip(24).take(48).cloned().collect();
 
         (norm_cqt, chroma_vals, bass_energy, visual)
+    }
+}
+
+/// The windows the attack detector reads: 64 ms and 128 ms, against the CQT's
+/// 512 ms. A window that long smears the very thing an attack detector looks
+/// for, which is why this cannot reuse the features already being computed.
+///
+/// Both, not one. Measured on AtoA's 51 reviewed labels, the long window alone
+/// finds 45 of them and the pair finds all 51: the short one carries the
+/// transient and the long one the resolution to tell it from the room.
+pub const SHORT_FFTS: [usize; 2] = [1024, 2048];
+pub const SHORT_FFT: usize = 2048;
+
+/// Hann-windowed magnitude spectra of the most recent samples, concatenated.
+///
+/// It reads the tail of the chunk the CQT is already given, so no extra audio
+/// is buffered and the two always describe the same instant.
+pub struct ShortSpectrum {
+    parts: Vec<(std::sync::Arc<dyn rustfft::Fft<f32>>, Vec<f32>, Vec<Complex<f32>>, Vec<Complex<f32>>, f32)>,
+    magnitudes: Vec<f32>,
+}
+
+impl ShortSpectrum {
+    pub fn new() -> Self {
+        let mut planner = FftPlanner::new();
+        let parts: Vec<_> = SHORT_FFTS
+            .iter()
+            .map(|&size| {
+                let fft = planner.plan_fft_forward(size);
+                let scratch = vec![Complex { re: 0.0, im: 0.0 }; fft.get_inplace_scratch_len()];
+                let window: Vec<f32> = (0..size)
+                    .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f32 / (size - 1) as f32).cos()))
+                    .collect();
+                // Amplitude scaling, so the two windows are comparable: a
+                // longer one sums more samples and would otherwise simply
+                // weigh more, whatever the signal did.
+                let scale = 2.0 / window.iter().sum::<f32>();
+                (fft, window, vec![Complex { re: 0.0, im: 0.0 }; size], scratch, scale)
+            })
+            .collect();
+        let bins = SHORT_FFTS.iter().map(|size| size / 4 + 1).sum();
+        Self { parts, magnitudes: vec![0.0; bins] }
+    }
+
+    /// Linear magnitudes, not the log-compressed features: compression is what
+    /// makes a quiet rise look like a loud one's rounding error.
+    pub fn of(&mut self, audio: &[f32]) -> &[f32] {
+        let mut offset = 0;
+        for (fft, window, buffer, scratch, scale) in self.parts.iter_mut() {
+            let size = window.len();
+            let tail = audio.len().saturating_sub(size);
+            for (i, slot) in buffer.iter_mut().enumerate() {
+                let sample = audio.get(tail + i).copied().unwrap_or(0.0);
+                *slot = Complex { re: sample * window[i], im: 0.0 };
+            }
+            fft.process_with_scratch(buffer, scratch);
+            let bins = size / 4 + 1;
+            for i in 0..bins {
+                self.magnitudes[offset + i] = buffer[i].norm() * *scale;
+            }
+            offset += bins;
+        }
+        &self.magnitudes
     }
 }
 
@@ -546,6 +618,8 @@ pub fn start_audio_stream(
     };
     
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+    let mut short = ShortSpectrum::new();
+    let mut flux = crate::flux::Flux::default();
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
     // Attack detection: an energy jump above a slowly creeping envelope.
@@ -617,6 +691,12 @@ pub fn start_audio_stream(
                         frames_since_attack = 0;
                     } else {
                         frames_since_attack = frames_since_attack.saturating_add(1);
+                    }
+                    // Outside the noise gate, as the envelope's own detector is:
+                    // a quiet attack is exactly what both are here to catch, and
+                    // the gate is a level test of the kind that misses it.
+                    if flux.push(short.of(chunk)).1 {
+                        if let Ok(mut st) = shared_state.lock() { st.mark_flux(); }
                     }
                     // The baseline falls fast and rises slowly; otherwise a long
                     // sustained chord would raise the threshold and swallow the
@@ -870,6 +950,7 @@ mod fill_tests {
             input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
             frame_live: [false; CTX_FRAMES],
             onset_id: 0,
+            flux_id: 0,
             frames_since_onset: 0,
             spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],

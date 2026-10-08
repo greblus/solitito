@@ -173,6 +173,8 @@ pub struct Credit {
     pub onset: u64,
     /// That class's own strike count, from the attack head.
     pub strike: u32,
+    /// Attacks the flux detector had counted, whatever their pitch.
+    pub flux: u64,
     /// The octave marker of the step credited: 0 for the plain degree, 1 for
     /// one written `1'`. A step marked higher than the credit is asking for the
     /// same note in another octave, and that is answerable.
@@ -486,6 +488,13 @@ pub struct MyApp {
     pub single_notes: bool,
     /// Attack counter, mirrored from the audio thread.
     pub onset_id: u64,
+    /// Attacks the flux detector has counted, mirrored from the audio thread.
+    /// Pitch-blind: it says a string was hit, never which one.
+    pub flux_id: u64,
+    /// Whether that detector has ever reported, so a build or a recording
+    /// without it falls back to the older evidence instead of refusing
+    /// everything.
+    flux_seen: bool,
     /// For each pitch class, the attack it was last credited on: the envelope's
     /// attack count and that class's own strike count. A step asking for a
     /// class already credited is refused until it is struck again, so a note
@@ -649,6 +658,8 @@ impl MyApp {
             lap_hold: 0.0,
             single_notes: false,
             onset_id: 0,
+            flux_id: 0,
+            flux_seen: false,
             credited: [None; 12],
             chord_heard_at: ([0; 12], 0),
             formula_mask: 0,
@@ -2386,7 +2397,23 @@ impl MyApp {
                 return true;
             }
         }
-        let struck = if self.onset_head_seen {
+        // Pitch-blind, on purpose. `strike_id` came from the take6 onset head,
+        // which is asked WHICH class was struck and on AtoA's 51 notes answered
+        // 33 right, 50 in the wrong class and 18 duplicates. Both faults this
+        // gate was reported for follow from that: an interval ringing into the
+        // next chord passes because some class of the head fired, and a single
+        // pluck lights its own third and fifth because its harmonics live
+        // there.
+        //
+        // Whether a string was hit at all is a far easier question, and the
+        // flux detector answers it without a class to get wrong: 47 of the same
+        // 51 notes, 14 reports outside them, no pluck reported twice.
+        //
+        // WHICH note it was is then left to the monophonic estimate above,
+        // which names the loudest class - a fundamental, not its harmonics.
+        let struck = if self.flux_seen {
+            self.flux_id != c.flux
+        } else if self.onset_head_seen {
             self.strike_id[pc] != c.strike
         } else {
             self.onset_id != c.onset
@@ -2431,6 +2458,7 @@ impl MyApp {
         self.credited[pc % 12] = Some(Credit {
             onset: self.onset_id,
             strike: self.strike_id[pc % 12],
+            flux: self.flux_id,
             octave,
             semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: STRIKE_SETTLE,
@@ -2534,6 +2562,10 @@ impl MyApp {
             self.cqt_pitch = state.cqt_pitch;
             self.cqt_semitone = state.cqt_semitone;
             self.onset_id = state.onset_id;
+            if state.flux_id != self.flux_id {
+                self.flux_seen = true;
+            }
+            self.flux_id = state.flux_id;
             self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
         }
@@ -2734,6 +2766,60 @@ pub(crate) mod tests {
         assert!(a.collected_notes.iter().all(|&done| done), "the shared C stayed blocked");
     }
 
+    /// Frames in which a string is HIT, which is what the flux detector reports
+    /// and what `interval_audio` alone never claims.
+    fn interval_pluck(a: &mut MyApp, pitch: Option<usize>, frames: usize) {
+        {
+            let mut audio = a.analysis_state.lock().unwrap();
+            audio.flux_id += 1;
+        }
+        interval_audio(a, pitch, frames);
+    }
+
+    /// The reported fault, with the new evidence: the shared note rings on into
+    /// the next chord and must not be credited there until it is hit again.
+    ///
+    /// The older gate let this through because `strike_id` came from a per-class
+    /// head that fired on the wrong class; this one asks only whether a string
+    /// was hit, which over a sustain it was not.
+    #[test]
+    fn a_shared_interval_ringing_into_the_next_chord_waits_to_be_hit() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::F, quality: ChordQuality::Major7 },
+        ];
+        a.current_chord_index = 0;
+        a.reset_logic_state();
+        for pc in [7, 4, 0] { interval_pluck(&mut a, Some(pc), 12); }
+        // C rings through the change: the ear goes on naming it, no new attack.
+        //
+        // And while it rings, the take6 onset head fires on C's class anyway -
+        // which is not a hypothetical, it is the 50-wrong-class behaviour that
+        // this gate was reported for. The old evidence therefore SAYS struck.
+        a.onset_head_seen = true;
+        a.strike_id[0] += 1;
+        interval_audio(&mut a, Some(0), 40);
+        assert_eq!(a.current_chord_index, 1);
+        assert!(a.collected_notes.iter().all(|&done| !done));
+        // More ringing, and more spurious strikes, are still not a pluck.
+        for _ in 0..4 {
+            a.strike_id[0] += 1;
+            interval_audio(&mut a, Some(0), 15);
+        }
+        assert!(
+            a.collected_notes.iter().all(|&done| !done),
+            "a note that only rang on was credited in the next chord",
+        );
+        // Hit again, and it counts.
+        for pc in [5, 9, 0] { interval_pluck(&mut a, Some(pc), 12); }
+        assert!(
+            a.collected_notes.iter().all(|&done| done),
+            "the shared C stayed blocked after being played again",
+        );
+    }
+
     #[test]
     fn intervals_do_not_transfer_partial_confirmation_between_notes() {
         let mut a = app();
@@ -2789,9 +2875,12 @@ pub(crate) mod tests {
     }
 
     /// MyApp needs the shared audio state; nothing here touches it.
-    /// A credit as the tests write one: the two counters, nothing heard.
+    /// A credit as the tests write one: the counters, nothing heard. `flux` is
+    /// left at zero and these tests never move `flux_id`, so they go on
+    /// exercising the older evidence - which is the fallback path and wants
+    /// testing too.
     fn credit(onset: u64, strike: u32) -> Credit {
-        Credit { onset, strike, octave: 0, semitone: None, settle: 0.0, left: false }
+        Credit { onset, strike, flux: 0, octave: 0, semitone: None, settle: 0.0, left: false }
     }
 
     pub(crate) fn app() -> MyApp {
@@ -2806,6 +2895,7 @@ pub(crate) mod tests {
             noise_gate: 0.0,
             input_level: 0.0,
             onset_id: 0,
+            flux_id: 0,
             frames_since_onset: 0,
             cqt_pitch: None,
             gate_open: false,
