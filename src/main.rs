@@ -15,6 +15,7 @@ mod rng;
 mod settings;
 mod state;
 mod tab;
+mod voices;
 
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
