@@ -2776,6 +2776,82 @@ pub(crate) mod tests {
         interval_audio(a, pitch, frames);
     }
 
+    /// The reported fault: the root is played and the minor third is offered up
+    /// with it, because route 2 asks only that the class be within a tenth of
+    /// the loudest - and a head trained on chord shapes answers the whole chord
+    /// when it hears one note of it.
+    ///
+    /// Asked of `sounding_by` directly, which is where the willingness lives.
+    /// Not the attack gate: the third was never credited, so the repeat gate
+    /// returns true without being consulted. This is older than that change.
+    ///
+    /// "One note at a time" is the measured lever: over 49 notes the four
+    /// routes together credited 110 things nobody played, the steady estimate
+    /// alone 33, and it missed nothing.
+    #[test]
+    fn the_model_offers_a_third_nobody_played_unless_notes_come_one_at_a_time() {
+        for single in [false, true] {
+            let mut a = app();
+            a.set_mode(AppMode::Intervals as i32);
+            a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Minor7 }];
+            a.current_chord_index = 0;
+            a.single_notes = single;
+            a.note_threshold = 0.5;
+            a.require_onset = false;
+            a.reset_logic_state();
+            // The ear names the ROOT: that is the note being played. The model
+            // lights the third nearly as loudly beside it.
+            interval_audio(&mut a, Some(0), CQT_STEADY_TICKS as usize);
+            a.last_pitches = [0.0; 12];
+            a.last_pitches[0] = 1.0;
+            a.last_pitches[3] = 0.95;
+            let third = a.sounding_by(3, Some(NoteName::C), 0.99);
+            let root = a.sounding_by(0, Some(NoteName::C), 0.99);
+            assert_eq!(root, Some(1), "the note actually played stopped counting");
+            if single {
+                assert_eq!(third, None, "one note at a time still offered the third");
+            } else {
+                assert_eq!(
+                    third, Some(2),
+                    "route 2 no longer spreads a chord onto its third",
+                );
+            }
+        }
+    }
+
+    /// The regression the pitch-blind gate risks, in the configuration the user
+    /// actually runs: Intervals with "one note at a time" off, where the guard
+    /// against the ear naming something else is switched off too.
+    ///
+    /// A credited note that merely rings must not be credited again because
+    /// some OTHER string was hit. The per-class counter this replaced was bad
+    /// at classes, but it was not nothing.
+    #[test]
+    fn an_attack_on_another_string_does_not_recredit_a_ringing_note() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.single_notes = false;
+        a.reset_logic_state();
+        let chord = a.chords[a.current_chord_index].clone();
+        let all = chord.get_target_indices();
+        let steps = a.ordered_active_indices(&chord);
+        let first = all[steps[0].degree];
+        let other = all[steps[1].degree];
+        interval_pluck(&mut a, Some(first), 12);
+        assert!(a.collected_notes[0], "the first note was not credited at all");
+        let before = a.collected_notes.iter().filter(|&&d| d).count();
+        // Another string is hit, and the ear names THAT one. The first note is
+        // only ringing on underneath.
+        for _ in 0..6 {
+            interval_pluck(&mut a, Some(other), 12);
+        }
+        let credited = a.collected_notes.iter().filter(|&&d| d).count();
+        assert_eq!(
+            credited - before, 1,
+            "{} notes were credited by attacks on another string", credited - before,
+        );
+    }
+
     /// The reported fault, with the new evidence: the shared note rings on into
     /// the next chord and must not be credited there until it is hit again.
     ///
