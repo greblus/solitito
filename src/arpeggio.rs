@@ -46,6 +46,8 @@ pub enum Step {
     /// no tuplet in the file at all. The name follows the book, not the export.
     Triplets,
     /// Up three rungs, back two - two tones skipped, which sounds as sevenths.
+    /// Up three, back two. Written and working, but no setting offers it yet.
+    #[allow(dead_code)]
     SkipTwo,
 }
 

@@ -378,8 +378,8 @@ impl Capture {
 /// Both, not one. Measured on AtoA's 51 reviewed labels, the long window alone
 /// finds 45 of them and the pair finds all 51: the short one carries the
 /// transient and the long one the resolution to tell it from the room.
-pub const SHORT_FFTS: [usize; 2] = [1024, 2048];
 pub const SHORT_FFT: usize = 2048;
+pub const SHORT_FFTS: [usize; 2] = [1024, SHORT_FFT];
 
 /// Hann-windowed magnitude spectra of the most recent samples, concatenated.
 ///

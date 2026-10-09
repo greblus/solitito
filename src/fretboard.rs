@@ -123,10 +123,12 @@ impl Region {
         format!("{} · {}-{}", names.join(" "), self.fret_from, self.fret_to())
     }
 
-    /// Draws the next note, never repeating the previous one.
+    /// Draws the next note, never repeating the previous one. Only the tests
+    /// want the one-note form; the app always has a list to avoid.
     ///
     /// Returns `None` only for an empty region, which the constructors make
     /// impossible - a span of at least one fret always yields pitch classes.
+    #[cfg(test)]
     pub fn draw(&self, rng: &mut Rng, previous: Option<usize>) -> Option<usize> {
         self.draw_avoiding(rng, previous.as_slice())
     }

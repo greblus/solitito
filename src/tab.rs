@@ -60,17 +60,6 @@ impl Spot {
     }
 }
 
-/// Where a note of this pitch class is first found: the lowest string carrying
-/// it inside the first seven frets, which is where a movable shape is read from.
-pub fn first_position(pc: usize) -> (usize, i32) {
-    for string in 0..6 {
-        let fret = (pc as i32 - TUNING[string]).rem_euclid(12);
-        if (1..=7).contains(&fret) {
-            return (string, fret);
-        }
-    }
-    (0, (pc as i32 - TUNING[0]).rem_euclid(12))
-}
 
 /// The phrase laid on the neck.
 ///

@@ -134,6 +134,9 @@ pub struct Strings {
     // the whole translation table.
     pub select_song: &'static str,
     pub select_scale: &'static str,
+    /// Nothing in the UI shows this any more; the translation-coverage test
+    /// still checks it, which a release build cannot see.
+    #[allow(dead_code)]
     pub pattern: &'static str,
     pub key_root: &'static str,
     pub random_hint: &'static str,
