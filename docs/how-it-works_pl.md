@@ -85,10 +85,45 @@ przez co najmniej 200 ms pozwala ponownie zaliczyć tę samą nutę, gdy estymat
 stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie. Sam brak odczytu CQT
 przy otwartej bramce nie jest takim wyciszeniem.
 
-Przy dowolnej kolejności estymator blokuje zaliczanie innych nut z samej odpowiedzi modelu.
-Wyjątkiem jest pewnie rozpoznany akord docelowy: jeśli opcja grania pojedynczo jest wyłączona,
-jego składniki mogą zaliczać się kolejno z jednego uderzenia. Każdy składnik nadal musi być
-potwierdzony przez detektor; sama nazwa akordu nie zalicza całego zestawu.
+Tam, gdzie estymata jednoklatkowa nazywa klasę, żadna inna klasa nie może zaliczyć się
+w tej klatce z odpowiedzi modelu. Obowiązuje to w obu kolejnościach; wcześniej działało
+tylko przy dowolnej, a gra po kolei — czyli domyślna — nie miała nic, co trzymałoby tercję
+zaliczaną z wybrzmiewającej prymy.
+
+Wyjątkiem jest więcej niż jedna brzmiąca struna, i to jest **liczone**, a nie zgadywane —
+patrz *Które dźwięki brzmią* niżej. Dwa głosy to już coś, czym jedna szarpnięta struna być
+nie może. Wcześniej odpowiadała na to nazwa akordu i nie może znowu: jedna szarpnięta pryma
+wystarcza modelowi do rozpoznania kształtu, i tak właśnie zaliczała się tercja, której nikt
+nie dotknął.
+
+Klasa raz zaliczona potrzebuje dwóch rzeczy, żeby policzyć się ponownie: musiała wyjść
+z powietrza, a struna musiała zostać uderzona **teraz**, nie kiedykolwiek od tego czasu.
+Detektor ataków jest z założenia ślepy na wysokość, więc „jakiś atak od zaliczenia"
+spełnia zagranie dowolnego innego stopnia — a do przejścia akordu zdarza się ich kilka.
+Nuta, która tylko wybrzmiewa, jest odrzucana, choćby brzmiała dowolnie długo.
+
+Przy wyłączonej grze pojedynczo, wyłączonej stałej kolejności i wyłączonym „zaliczaj tylko
+to, co uderzone" nie obowiązuje nic z tego: decyduje model i nic z nim nie dyskutuje,
+łącznie z przenoszeniem. To jest wybór, nie przeoczenie — reguły są po to, żeby egzamin był
+rzetelny, a tryb jest też czymś, na czym można pograć akordami dla przyjemności.
+
+### Które dźwięki brzmią
+
+Widmo jest **tłumaczone**, nie rankowane. Bierze się najmocniejszego kandydata, odejmuje
+serię partiali, którą przewiduje, i pyta resztkę, co zostało: klasa w całości wytłumaczona
+jako czyjaś harmoniczna nie zostawia nic i nie jest głosem. Tego rankowanie nie rozstrzygnie,
+bo trzecia harmoniczna prymy leży w klasie kwinty, a piąta w klasie tercji wielkiej.
+
+Kandydat musi też nieść energię tam, gdzie leżałaby jego własna podstawa — to zatrzymuje
+kandydata *poniżej* brzmiącej nuty, który punktuje na pożyczonych partialach.
+
+Zmierzone na nagraniu 51 przesłuchanych pojedynczych dźwięków: dokładnie jeden głos 46 razy
+i ani jednego dodatkowego głosu na interwale harmonicznym; na nagraniu, gdzie dźwięki padają
+co pół sekundy i nachodzą na siebie — dwa głosy 38 razy na 87. Dwie ślepe plamki są znane
+i zapisane w testach: **oktawy nie da się rozstrzygnąć** w ogóle — jej podstawa leży dokładnie
+na drugim partialu dźwięku niższego, więc żaden model harmoniczny ich nie rozdzieli — a kwinta
+znacznie cichsza od dźwięku pod nią jest gubiona. Dlatego wyjątek **liczy** głosy, zamiast
+szukać na liście jednej konkretnej klasy.
 
 ---
 

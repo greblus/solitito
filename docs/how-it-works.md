@@ -83,10 +83,45 @@ A ringing note cannot credit its own repeat. Muting the input below the gate for
 200 ms allows that note to count again once the estimate hears it steadily, even if the
 onset head missed the new pluck. A missing CQT estimate with the gate open is not muting.
 
-In free order, the estimate blocks other notes from passing on the model's answer alone.
-A confidently recognised target chord is the exception: with single-note playing disabled,
-its tones can pass from one strum. Each tone still needs confirmation from the detector;
-the chord name alone does not credit the whole set.
+Where the single-frame estimate names a class, no other class may be credited off the
+model that frame. This holds in both orders; it used to run only in free order, and
+playing in order - the default - had nothing holding a third credited off a ringing root.
+
+More than one string sounding is the exception, and it is counted rather than guessed: see
+*Which notes are sounding* below. Two voices is already something one plucked string
+cannot be. The chord name used to answer this question and must not again - one plucked
+root is enough for the model to recognise the shape, which is how a third nobody touched
+was credited.
+
+A class credited once needs two things before it counts again: it has to have gone out of
+the air, and the string has to have been hit JUST NOW rather than at some point since. The
+attack detector is pitch-blind by design, so "an attack since" is satisfied by any other
+step of the exercise being played - and by the time a chord hands over, several have been.
+A note still ringing is refused however long it rings.
+
+With single-note playing, the fixed order and "only what was struck" all switched off, none
+of this applies: the model decides and nothing argues with it, carry-over included. That is
+a choice, not an oversight - the rules exist to make a test honest, and the mode is also a
+thing to play chords on for fun.
+
+### Which notes are sounding
+
+The spectrum is explained rather than ranked. The strongest candidate is taken, the partial
+series it predicts is subtracted, and the residual is asked what is left: a class fully
+explained as somebody else's harmonic leaves nothing behind and is not a voice. That is the
+question ranking cannot answer, because the third harmonic of a root lands on the fifth and
+the fifth harmonic on the major third.
+
+A candidate also has to carry energy where its own fundamental would be, which stops one
+below a sounding note scoring on borrowed partials.
+
+Measured on a recording of 51 reviewed single notes, this reports exactly one voice 46
+times and not one extra voice on a harmonic interval; on a recording where notes come every
+half second and overlap, it reports two voices 38 times of 87. Two blind spots are known
+and written into the tests: an octave cannot be resolved at all - its fundamental sits
+exactly on the second partial of the note below, so no harmonic model can separate them -
+and a fifth much quieter than the note under it is missed. This is why the exception counts
+voices instead of looking for one particular class in the list.
 
 ---
 

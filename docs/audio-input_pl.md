@@ -34,6 +34,26 @@ Ustawienia mieszkają w `$XDG_CONFIG_HOME/solitito/settings.json` (z odwrotem do
 lub `%APPDATA%`). Brak pliku albo plik uszkodzony oznacza powrót do wartości domyślnych, a
 nie zablokowany start.
 
+## Zapis sesji
+
+```bash
+SOLITITO_RECORD=gdzies/sesja ./solitito
+```
+
+Zapisuje dwa pliki o wspólnej generacji i wspólnym zegarze:
+
+| plik | co w nim jest |
+| --- | --- |
+| `sesja-g1.wav` | mono float32, 16 kHz — dźwięk **po** przepróbkowaniu i **po** wyborze kanału, więc pomiaru nie da się zrobić na złym gnieździe. Każdy hop, także pod bramką szumu: plik z wyciętymi cichymi fragmentami ma w każdym cięciu skok, a skok czyta się jak atak |
+| `sesja-g1.jsonl` | jeden wiersz na żądanie i na zaliczenie, każdy z dowodem, który je wywołał — którą z czterech dróg, co nazywała estymata, jak stary jest ostatni atak, które klasy brzmią, jak długo milczała ta zaliczana |
+
+Pole `hop` w wierszu jest pozycją próbki w nagraniu: `hop * 256 / 16000` sekund. Zegar liczy
+się tam, gdzie zapisuje się dźwięk, a nie z klatek, które widział model — te zatrzymują się
+na bramce szumu.
+
+Uruchomienie z tym samym prefiksem zapisuje `-g2`, `-g3`: raz zrobiony pomiar nie ginie przy
+restarcie. Bez ustawionej zmiennej nic nie jest zapisywane.
+
 Jest też tryb diagnostyczny:
 
 ```bash

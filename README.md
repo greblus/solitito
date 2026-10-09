@@ -47,7 +47,9 @@ chord, the app moves on to the next one.
   detected but the signal is too weak to lock.
 - **Intervals** — play the chord tones one at a time. You choose which degrees to practise
   (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings). '3' matches both
-  3 and b3, '7'  = 7 and b7, etc - depending on current chord's quality.
+  3 and b3, '7'  = 7 and b7, etc - depending on current chord's quality. Strict by default -
+  one note at a time, in order, and only what was struck - or turn those three off and strum
+  the grips instead, with the model deciding and nothing arguing with it.
 - **Scales** — sequential note practice from a scale definition.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
@@ -108,7 +110,7 @@ The rest of the documentation is in `docs/`:
 | | |
 |---|---|
 | [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
-| [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, and the diagnostic modes |
+| [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, the diagnostic modes, and recording a session with what the app made of it |
 | [Settings](docs/settings.md) | Every option in the four tabs, and the shuffle, the pause and the chord strip on the main window |
 | [How it works](docs/how-it-works.md) | Signal path, the model, and why single notes are not judged by the model alone |
 | [Training data and results](docs/training-data.md) | The synthetic set, GuitarSet, and what each fix was worth |
