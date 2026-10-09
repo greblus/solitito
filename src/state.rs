@@ -679,7 +679,9 @@ impl MyApp {
             last_ai_root: None,
             last_ai_conf: 0.0,
             formula_in_order: false,
-            interval_in_order: false,
+            // As the shipped settings have it. Left false here, every test
+            // sat in the relaxed path by accident.
+            interval_in_order: true,
             answering_step: None,
             interval_hold: 0.0,
             interval_model_age: INTERVAL_MODEL_AGE,
@@ -2247,6 +2249,9 @@ impl MyApp {
                 // lower the number the better the evidence, see `sounding_by`.
                 let answers = |me: &Self, k: usize| -> Option<u8> {
                     let target = all_targets[active_indices[k].degree];
+                    if me.relaxed_chords() {
+                        return me.sounding_by(target, ai_root, confidence);
+                    }
                     if !me.struck_since_credit(target) {
                         return None;
                     }
@@ -2444,6 +2449,21 @@ impl MyApp {
     /// Both halves. More than one voice alone would let any ringing pair carry
     /// a third nobody touched; the target being among them alone is branch 1
     /// wearing a disguise.
+    /// All three guards off: the exercise is being played for fun, with chords
+    /// and whatever single tones of them come to hand.
+    ///
+    /// Then the model decides and nothing argues with it - no ear guard, no
+    /// refusing a class because it was credited in the chord before. Those
+    /// rules exist to make a TEST honest, and a player who has turned all of
+    /// them off is not taking one. The strict path is the default and the
+    /// measured one; this is the other thing the mode can be.
+    fn relaxed_chords(&self) -> bool {
+        self.app_mode == AppMode::Intervals
+            && !self.single_notes
+            && !self.require_onset
+            && !self.interval_in_order
+    }
+
     /// More than one string sounding - which one plucked note cannot be.
     ///
     /// Where nothing has ever been reported there is no witness, and the rule
@@ -2843,6 +2863,7 @@ pub(crate) mod tests {
     fn intervals_show_the_complete_set_before_advancing_even_in_silence() {
         let mut a = app();
         a.set_mode(AppMode::Intervals as i32);
+        a.interval_in_order = false; // this one is about free order
         a.transition_delay = 0.0;
         let index = a.current_chord_index;
         let chord = &a.chords[index];
@@ -3010,6 +3031,11 @@ pub(crate) mod tests {
     fn intervals_shared_note_must_be_played_again_across_a_chord_change() {
         let mut a = app();
         a.set_mode(AppMode::Intervals as i32);
+        a.interval_in_order = false;
+        // "Only what was struck" on, so the carry-over rules apply at all: with
+        // every guard off the mode is deliberately permissive, see
+        // `relaxed_chords`.
+        a.require_onset = true;
         a.chords = vec![
             Chord { root: NoteName::C, quality: ChordQuality::Major7 },
             Chord { root: NoteName::F, quality: ChordQuality::Major7 },
@@ -3122,6 +3148,11 @@ pub(crate) mod tests {
     fn a_shared_interval_ringing_into_the_next_chord_waits_to_be_hit() {
         let mut a = app();
         a.set_mode(AppMode::Intervals as i32);
+        a.interval_in_order = false;
+        // "Only what was struck" on, so the carry-over rules apply at all: with
+        // every guard off the mode is deliberately permissive, see
+        // `relaxed_chords`.
+        a.require_onset = true;
         a.chords = vec![
             Chord { root: NoteName::C, quality: ChordQuality::Major7 },
             Chord { root: NoteName::F, quality: ChordQuality::Major7 },
@@ -3214,6 +3245,61 @@ pub(crate) mod tests {
         assert_eq!(
             after, before,
             "a ringing E was credited in the next chord without being struck",
+        );
+    }
+
+    /// With all three guards off the mode is deliberately permissive: the
+    /// model decides and nothing argues with it, carry-over included.
+    ///
+    /// This is a choice, not an oversight. The rules exist to make a test
+    /// honest, and someone who has turned off single notes, "only what was
+    /// struck" and the fixed order is playing chords for fun. The strict path
+    /// is the default and the measured one.
+    #[test]
+    fn with_every_guard_off_the_model_decides_and_carry_over_is_allowed() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::E, quality: ChordQuality::Minor7 },
+        ];
+        a.current_chord_index = 0;
+        a.single_notes = false;
+        a.require_onset = false;
+        a.interval_in_order = false;
+        a.reset_logic_state();
+        assert!(a.relaxed_chords(), "the relaxed path was not entered");
+        // The first chord, played and credited.
+        let mut ringing = 0u16;
+        for pc in [0usize, 4, 7, 11] {
+            ringing |= 1 << pc;
+            {
+                let mut audio = a.analysis_state.lock().unwrap();
+                audio.flux_id += 1;
+                audio.flux_age = 0;
+                audio.voices = ringing;
+            }
+            interval_audio(&mut a, Some(pc), 14);
+        }
+        for _ in 0..200 {
+            if a.current_chord_index == 1 {
+                break;
+            }
+            interval_audio(&mut a, None, 1);
+        }
+        assert_eq!(a.current_chord_index, 1, "the first chord did not hand over");
+        // E rings on into the next chord, which opens on E. Strictly this is
+        // the carry-over the other tests refuse; here it counts.
+        {
+            let mut audio = a.analysis_state.lock().unwrap();
+            audio.voices = ringing;
+            audio.flux_age = u32::MAX;
+        }
+        let before = a.collected_notes.iter().filter(|&&d| d).count();
+        interval_audio(&mut a, Some(4), 60);
+        assert!(
+            a.collected_notes.iter().filter(|&&d| d).count() > before,
+            "the relaxed path refused a ringing note anyway",
         );
     }
 
@@ -4823,6 +4909,7 @@ pub(crate) mod tests {
         for shuffled in [false, true] {
             let mut a = app();
             a.set_mode(AppMode::Intervals as i32);
+        a.interval_in_order = false; // this one is about free order
             a.set_random_mode(shuffled);
             a.note_threshold = 0.5;
             assert!(a.free_order(), "free order is the default");
