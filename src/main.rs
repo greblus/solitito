@@ -759,6 +759,7 @@ fn main() -> Result<(), slint::PlatformError> {
         frame_live: [false; 48],
         onset_id: 0,
         flux_id: 0,
+        flux_age: u32::MAX,
         hops: 0,
         voices: 0,
         frames_since_onset: 0,

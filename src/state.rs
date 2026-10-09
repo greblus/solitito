@@ -71,6 +71,20 @@ const LAP_HOLD: f32 = 0.25;
 /// model's false credits go and the played notes keep passing.
 const ONSET_MIN: f32 = 0.02;
 
+/// Hops within which an attack still counts as happening now: about 0.2 s.
+///
+/// Long enough to cover the ear settling on the note that was struck, short
+/// enough that the attack belonging to the previous chord has expired by the
+/// time this one is shown - `INTERVAL_SHOW` alone is 0.35 s.
+const FLUX_FRESH: u32 = 12;
+
+/// Frames a class has to be absent from `voices` before it counts as having
+/// stopped: about 0.3 s.
+///
+/// Longer than the gaps the list leaves in a note that is still ringing, and
+/// shorter than the pause between one chord and the next.
+const GONE_QUIET: u32 = 19;
+
 /// A class counts as struck again when the head's answer for it rises past
 /// `ONSET_AGAIN`, having been under `ONSET_LOW` since the last one counted.
 ///
@@ -496,6 +510,18 @@ pub struct MyApp {
     /// Pitch classes genuinely sounding, one bit each, mirrored from the audio
     /// thread. See `voices::voices`.
     voices: u16,
+    /// Whether `voices` has ever reported anything, so a build, a replay or a
+    /// test without it falls back to the older reading of `left` instead of
+    /// never setting it at all.
+    voices_seen: bool,
+    /// Frames each class has been absent from `voices` for.
+    ///
+    /// One frame's absence is not a note stopping. Measured on sesja-g1, only
+    /// about half the credits had a second voice reported, so a note ringing
+    /// under the one being played drops out of the list and comes back - and
+    /// taking the first gap for silence is what let a note credited in one
+    /// chord be credited again in the next.
+    quiet_for: [u32; 12],
     /// Which of the four ways credited this, where the call site knew.
     credit_branch: Option<u8>,
     /// The (chord, step) pair last written down, to notice a new request.
@@ -503,6 +529,8 @@ pub struct MyApp {
     /// Attacks the flux detector has counted, mirrored from the audio thread.
     /// Pitch-blind: it says a string was hit, never which one.
     pub flux_id: u64,
+    /// Hops since the last one.
+    flux_age: u32,
     /// Whether that detector has ever reported, so a build or a recording
     /// without it falls back to the older evidence instead of refusing
     /// everything.
@@ -673,9 +701,12 @@ impl MyApp {
             journal: crate::journal::Journal::open(),
             capture_hop: 0,
             voices: 0,
+            voices_seen: false,
+            quiet_for: [0; 12],
             credit_branch: None,
             logged_ask: None,
             flux_id: 0,
+            flux_age: u32::MAX,
             flux_seen: false,
             credited: [None; 12],
             chord_heard_at: ([0; 12], 0),
@@ -2249,8 +2280,21 @@ impl MyApp {
                     // to ask whether the model had named the chord - and one
                     // plucked root names it, which is how a third nobody
                     // touched was being credited.
+                    // HOW MANY voices, not which. Counting them is the part
+                    // of this witness that holds up; asking whether one
+                    // particular class is among them is the part with blind
+                    // spots - an octave cannot be resolved at all and a quiet
+                    // fifth is missed, so a strummed grip would come back
+                    // short and nothing but the note the ear names would
+                    // count. Two voices is already something one string cannot
+                    // be, and it is what the exception needs to know.
+                    //
+                    // The chord name used to answer this and must not again:
+                    // one plucked root is enough for the model to recognise
+                    // the shape, which is how a third nobody touched was
+                    // credited.
                     if me.cqt_pitch.is_some_and(|now| now != target % 12)
-                        && !(me.heard_together(target) && !me.single_notes)
+                        && !(me.several_sounding() && !me.single_notes)
                     {
                         return None;
                     }
@@ -2400,8 +2444,12 @@ impl MyApp {
     /// Both halves. More than one voice alone would let any ringing pair carry
     /// a third nobody touched; the target being among them alone is branch 1
     /// wearing a disguise.
-    fn heard_together(&self, pc: usize) -> bool {
-        self.voices.count_ones() >= 2 && self.voices & (1 << (pc % 12)) != 0
+    /// More than one string sounding - which one plucked note cannot be.
+    ///
+    /// Where nothing has ever been reported there is no witness, and the rule
+    /// is as loose as it was before there was one.
+    fn several_sounding(&self) -> bool {
+        !self.voices_seen || self.voices.count_ones() >= 2
     }
 
     fn one_at_a_time(&self) -> bool {
@@ -2470,8 +2518,18 @@ impl MyApp {
         //
         // WHICH note it was is then left to the monophonic estimate above,
         // which names the loudest class - a fundamental, not its harmonics.
+        // JUST NOW, not merely since. The counter is pitch-blind by design, so
+        // "an attack since the credit" is satisfied by any other step of the
+        // exercise being played - and by the time a chord hands over, several
+        // have been. That is how a note credited in one chord was credited
+        // again in the next while it merely rang on: shuffle put a shared class
+        // at the boundary, the counter had moved, and nothing else objected.
+        //
+        // A string struck again while it still rings is a different thing and
+        // has to keep working, so this cannot ask for silence first - only for
+        // the hit to be happening now.
         let struck = if self.flux_seen {
-            self.flux_id != c.flux
+            self.flux_id != c.flux && self.flux_age <= FLUX_FRESH
         } else if self.onset_head_seen {
             self.strike_id[pc] != c.strike
         } else {
@@ -2493,6 +2551,9 @@ impl MyApp {
         // Steady, not any frame: the estimate flickers onto a ringing note for
         // a frame at a time, and a flicker is not the note stopping.
         let elsewhere = self.steady_note();
+        // Read before the loop below borrows the credits.
+        let quiet_for = self.quiet_for;
+        let know_voices = self.voices_seen;
         for (c, credit) in self.credited.iter_mut().enumerate() {
             if let Some(cr) = credit {
                 if cr.settle > 0.0 {
@@ -2501,12 +2562,28 @@ impl MyApp {
                         cr.strike = strikes[c];
                     }
                 }
-                // Something else has been sounding since: this note has gone
-                // quiet, and what is heard from it next is a new pluck. Without
-                // this a note asked for again a few steps later could not be
-                // credited at all when the attack head missed the pluck - the
-                // fretboard trainer stuck on a note that was plainly right.
-                if cr.settle <= 0.0 && elsewhere.is_some_and(|other| other != c) {
+                // This note has gone quiet, and what is heard from it next is
+                // a new pluck. Without it a note asked for again a few steps
+                // later could not be credited at all when the attack head
+                // missed the pluck - the fretboard trainer stuck on a note that
+                // was plainly right.
+                //
+                // "Something else is the loudest thing" is not that note going
+                // quiet, and taking it for that is how a note credited in one
+                // chord was credited again in the next: by the boundary the
+                // other steps had been heard, so `left` was set, and the note
+                // only had to still be ringing for the new chord to take it.
+                // Shuffle made it show by putting a shared class at the
+                // boundary, which a fixed progression may never do.
+                //
+                // So `voices` decides, which explains the spectrum rather than
+                // ranking it: a class in it is sounding, loudest or not. Where
+                // it says nothing at all - no audio yet - the older reading
+                // stands, and the gate is no stricter than it was.
+                if cr.settle <= 0.0
+                    && elsewhere.is_some_and(|other| other != c)
+                    && (!know_voices || quiet_for[c] >= GONE_QUIET)
+                {
                     cr.left = true;
                 }
             }
@@ -2690,7 +2767,23 @@ impl MyApp {
                 self.flux_seen = true;
             }
             self.flux_id = state.flux_id;
+            self.flux_age = state.flux_age;
             self.capture_hop = state.hops;
+            // On the audio clock, which is also the one the tests drive. A
+            // closed noise gate stops it, and that case has its own rule: see
+            // `interval_silence`.
+            if state.voices != 0 {
+                self.voices_seen = true;
+            }
+            if state.frames_seen != self.audio_frames {
+                for pc in 0..12 {
+                    if state.voices & (1 << pc) == 0 {
+                        self.quiet_for[pc] = self.quiet_for[pc].saturating_add(1);
+                    } else {
+                        self.quiet_for[pc] = 0;
+                    }
+                }
+            }
             self.voices = state.voices;
             self.audio_frames = state.frames_seen;
             gate_open = state.gate_open;
@@ -3063,6 +3156,108 @@ pub(crate) mod tests {
         );
     }
 
+    /// The fault the user found with shuffle on: a note credited in one chord
+    /// is credited again in the next without being struck, because it is still
+    /// ringing and happens to be the loudest thing when the new chord asks for
+    /// its class.
+    ///
+    /// Shuffle only exposes it. It takes two consecutive chords sharing a class
+    /// at the boundary, which a fixed progression may never do and a random
+    /// order does often.
+    #[test]
+    fn a_class_still_ringing_is_not_credited_again_in_the_next_chord() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        // E m7 opens on E, which C Maj7 has just had credited.
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
+            Chord { root: NoteName::E, quality: ChordQuality::Minor7 },
+        ];
+        a.current_chord_index = 0;
+        a.interval_in_order = true;
+        a.single_notes = false;
+        a.reset_logic_state();
+        // The first chord, played one note at a time. Each note goes on
+        // ringing under the next, which is what `voices` reports and what a
+        // guitar does.
+        let mut ringing = 0u16;
+        for pc in [0usize, 4, 7, 11] {
+            ringing |= 1 << pc;
+            {
+                let mut audio = a.analysis_state.lock().unwrap();
+                audio.flux_id += 1;
+                audio.flux_age = 0;
+                audio.voices = ringing;
+            }
+            interval_audio(&mut a, Some(pc), 14);
+        }
+        assert!(a.collected_notes.iter().all(|&d| d), "the first chord was not completed");
+        // Past the hold the finished set is shown for, into the next chord.
+        for _ in 0..200 {
+            if a.current_chord_index == 1 {
+                break;
+            }
+            interval_audio(&mut a, None, 1);
+        }
+        assert_eq!(a.current_chord_index, 1, "the first chord did not hand over");
+        let before = a.collected_notes.iter().filter(|&&done| done).count();
+        // Now nothing is played. The chord rings on, and E outlasts the rest
+        // and becomes the loudest thing - so the ear names it, and the new
+        // chord's first step wants E.
+        {
+            let mut audio = a.analysis_state.lock().unwrap();
+            audio.voices = ringing;
+            audio.flux_age = u32::MAX;
+        }
+        interval_audio(&mut a, Some(4), 60);
+        let after = a.collected_notes.iter().filter(|&&done| done).count();
+        assert_eq!(
+            after, before,
+            "a ringing E was credited in the next chord without being struck",
+        );
+    }
+
+    /// A strum where the witness only sees part of the grip, which is the
+    /// realistic case: an octave in the shape cannot be resolved at all and a
+    /// quiet fifth is missed, so `voices` comes back short.
+    ///
+    /// Counting them rather than looking for the target is what makes this
+    /// work - two voices is already more than one string can be.
+    #[test]
+    fn a_strum_counts_even_when_the_witness_sees_only_part_of_it() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Major7 }];
+        a.current_chord_index = 0;
+        a.single_notes = false;
+        a.note_threshold = 0.5;
+        a.reset_logic_state();
+        let tones = a.chords[0].get_target_indices();
+        let mut best = 0;
+        for _ in 0..120 {
+            a.last_pitches = [0.0; 12];
+            a.last_onsets = [0.0; 12];
+            for &pc in &tones {
+                a.last_pitches[pc] = 0.95;
+                a.last_onsets[pc] = 0.05;
+            }
+            a.onset_age = 0;
+            a.check_progress_with_ai(0.016, "Noise", 0.0);
+            {
+                // Two of the grip's tones, not all of them.
+                let mut audio = a.analysis_state.lock().unwrap();
+                audio.voices = (1 << tones[0]) | (1 << tones[1]);
+            }
+            // The ear names the root throughout, as it does over a strum.
+            interval_audio(&mut a, Some(tones[0]), 1);
+            best = best.max(a.collected_notes.iter().filter(|&&d| d).count());
+        }
+        assert_eq!(
+            best, a.collected_notes.len(),
+            "a strum credited {best} of {} tones", a.collected_notes.len(),
+        );
+    }
+
     #[test]
     fn intervals_do_not_transfer_partial_confirmation_between_notes() {
         let mut a = app();
@@ -3139,6 +3334,7 @@ pub(crate) mod tests {
             input_level: 0.0,
             onset_id: 0,
             flux_id: 0,
+            flux_age: u32::MAX,
             hops: 0,
             voices: 0,
             frames_since_onset: 0,

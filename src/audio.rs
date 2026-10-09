@@ -70,6 +70,9 @@ pub struct AudioAnalysis {
     pub onset_id: u64,
     /// Attacks the flux detector has reported. Pitch-blind by construction.
     pub flux_id: u64,
+    /// Hops since the last of them, so a credit can ask whether a string was
+    /// hit JUST NOW rather than merely at some point since.
+    pub flux_age: u32,
     /// Hops of audio seen, gate or no gate: the recording's own clock.
     pub hops: u64,
     /// Which pitch classes are genuinely sounding, one bit each, from
@@ -113,6 +116,7 @@ impl AudioAnalysis {
     /// string beside a ringing one does not move them.
     pub fn mark_flux(&mut self) {
         self.flux_id = self.flux_id.wrapping_add(1);
+        self.flux_age = 0;
     }
 
     /// Reports an attack: resets the counter and bumps the event id.
@@ -745,6 +749,7 @@ pub fn start_audio_stream(
                     // though `frames_seen` counts only what passed the gate.
                     if let Ok(mut st) = shared_state.lock() {
                         st.hops = st.hops.wrapping_add(1);
+                        st.flux_age = st.flux_age.saturating_add(1);
                     }
                     
                     let (gate, boost_enabled, boost_gain) = {
@@ -936,6 +941,7 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 state.cqt_semitone = heard;
                 state.gate_open = true;
                 state.hops = state.hops.wrapping_add(1);
+                state.flux_age = state.flux_age.saturating_add(1);
                 if attack {
                     state.mark_flux();
                     state.mark_onset();
@@ -1069,6 +1075,7 @@ mod fill_tests {
             frame_live: [false; CTX_FRAMES],
             onset_id: 0,
             flux_id: 0,
+            flux_age: u32::MAX,
             hops: 0,
             voices: 0,
             frames_since_onset: 0,
