@@ -273,7 +273,7 @@ impl Default for Settings {
             startup_mode: 4,
             language: 0,
             short_verdict: false,
-            single_notes: false,
+            single_notes: true,
             require_onset: false,
             interval_require_onset: true,
             shuffle_chords: false,
@@ -574,8 +574,12 @@ mod tests {
     }
 
     #[test]
-    fn single_notes_survives_a_round_trip_and_defaults_off() {
-        assert!(!Settings::default().single_notes, "the strict mode must not be the default");
+    fn single_notes_survives_a_round_trip_and_defaults_on() {
+        // It was off by default until the measurements came in: over 49 notes
+        // the permissive path credited 110 things nobody played against this
+        // one's 33, missing nothing. Only Intervals is affected - the other
+        // single-note modes force it anyway, and Chords does not ask.
+        assert!(Settings::default().single_notes, "the measured mode must be the default");
         let s = Settings { single_notes: true, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert!(back.single_notes, "the option did not survive being saved");
