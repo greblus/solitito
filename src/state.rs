@@ -2449,6 +2449,11 @@ impl MyApp {
     /// Both halves. More than one voice alone would let any ringing pair carry
     /// a third nobody touched; the target being among them alone is branch 1
     /// wearing a disguise.
+    /// Whether that class is sounding at all - not whether it is the loudest.
+    fn voice_heard(&self, pc: usize) -> bool {
+        self.voices & (1 << (pc % 12)) != 0
+    }
+
     /// All three guards off: the exercise is being played for fun, with chords
     /// and whatever single tones of them come to hand.
     ///
@@ -2665,6 +2670,10 @@ impl MyApp {
                 "ear": self.cqt_pitch,
                 "semitone": self.cqt_semitone,
                 "flux": self.flux_id,
+                "flux_age": self.flux_age,
+                "voices": (0..12).filter(|pc| self.voice_heard(*pc)).collect::<Vec<_>>(),
+                "quiet_for": self.quiet_for[pc % 12],
+                "left": self.credited[pc % 12].map(|c| c.left),
                 "onset": self.onset_id,
                 "onset_age": self.onset_age,
                 "top": top.iter().take(3).map(|&(i, v)| serde_json::json!([i, v])).collect::<Vec<_>>(),
