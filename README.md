@@ -114,6 +114,7 @@ The rest of the documentation is in `docs/`:
 | [Settings](docs/settings.md) | Every option in the four tabs, and the shuffle, the pause and the chord strip on the main window |
 | [How it works](docs/how-it-works.md) | Signal path, the model, and why single notes are not judged by the model alone |
 | [Training data and results](docs/training-data.md) | The synthetic set, GuitarSet, and what each fix was worth |
+| [Training the models](docs/training.md) | The two trainers: running them, what they write, training the released models again |
 | [Custom file formats](docs/file-formats.md) | Your own songs and scales |
 | [Running it](docs/running.md) | Packages, and building from source |
 
@@ -142,7 +143,10 @@ The `dist/` directory contains everything used to build the dataset and train th
 |---|---|
 | `dataset_generator_v2.py` | generates the GP5 **and** the annotations; self-tests all shapes |
 | `verify_annotations.py` | checks that labels describe the audio (numpy only, no librosa) |
-| `model_trainer.py` | training; runs on Kaggle, checkpoints to Hugging Face |
+| `model_trainer.py` | training of the chord model, `best_model_v2_take6_onset.onnx`; runs on Kaggle, checkpoints to Hugging Face |
+| `strike_trainer.py` | training of the strike detector, `short_onset_masking_v2.onnx`; one file, runs on Kaggle |
+| `test_strike_trainer.py` | the strike trainer's tests; the feature fixture in `fixtures/` is shared with `src/strike.rs` |
+| `extract_onset_branch.py` | cuts the strike branch out of a combined take7 model (`best_model_v2_take7*.onnx`) |
 | `gen_weights.py` | sparse pseudo-CQT weights for the Rust side |
 | `probe_root.py` | how often the labelled root is actually audible |
 | `probe_quality.py` | where chord quality should come from: the head or the pitch vector |

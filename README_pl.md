@@ -109,6 +109,7 @@ Reszta dokumentacji w `docs/`:
 | [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z czterech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |
 | [Jak to działa](docs/how-it-works_pl.md) | Ścieżka sygnału, model i powód, dla którego pojedynczych dźwięków nie sądzi sam model |
 | [Dane treningowe i wyniki](docs/training-data_pl.md) | Zbiór syntetyczny, GuitarSet i wartość każdej poprawki |
+| [Trening modeli](docs/training_pl.md) | Dwa trenery: uruchamianie, co zapisują, ponowne wytrenowanie wydanych modeli |
 | [Własne formaty plików](docs/file-formats_pl.md) | Własne utwory i skale |
 | [Uruchamianie](docs/running_pl.md) | Paczki i budowanie ze źródeł |
 
@@ -137,7 +138,10 @@ Katalog `dist/` zawiera wszystko, czym zbudowano zbiór danych i wytrenowano mod
 |---|---|
 | `dataset_generator_v2.py` | generuje plik GP5 **i** adnotacje; sam sprawdza wszystkie akordy |
 | `verify_annotations.py` | kontroluje, czy etykiety opisują dźwięk (samo numpy, bez librosy) |
-| `model_trainer.py` | trening; działa na Kaggle, punkty kontrolne na Hugging Face |
+| `model_trainer.py` | trening modelu akordów, `best_model_v2_take6_onset.onnx`; działa na Kaggle, punkty kontrolne na Hugging Face |
+| `strike_trainer.py` | trening detektora uderzeń, `short_onset_masking_v2.onnx`; jeden plik, działa na Kaggle |
+| `test_strike_trainer.py` | testy trenera uderzeń; plik cech w `fixtures/` jest wspólny z `src/strike.rs` |
+| `extract_onset_branch.py` | wycina gałąź uderzeń z połączonego modelu take7 (`best_model_v2_take7*.onnx`) |
 | `gen_weights.py` | rzadkie wagi pseudo-CQT dla strony rustowej |
 | `probe_root.py` | jak często oznaczona pryma jest faktycznie słyszalna |
 | `probe_quality.py` | skąd powinna pochodzić jakość akordu: z głowicy czy z wektora wysokości |

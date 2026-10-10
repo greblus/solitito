@@ -2,7 +2,7 @@
 
 **A real-time guitar chord recognition system**
 
-*Version 0.5.5, August 2026*
+*Version 0.5.8, October 2026*
 
 ---
 
@@ -10,7 +10,7 @@
 
 Solitito is a real-time guitar trainer implemented in Rust. The program takes a signal from a microphone or audio interface, recognises the material being played, and guides the user through jazz standards, intervals, scales, arpeggios, interval formulas and the layout of the neck.
 
-Recognition is performed by a neural network of 7.3 million parameters exported to the ONNX format. All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
+Recognition is performed by a neural network of 7.3 million parameters exported to the ONNX format. A second, small network of 260 thousand parameters answers one narrower question on every 16 ms of audio: which pitch class was just struck. It decides when a note counts again (8.13). All processing — DSP, inference and the user interface — is carried out locally on the CPU, without a network connection and without external services.
 
 Six modes of operation are provided:
 
@@ -56,7 +56,18 @@ Two further tools are not probes but belong to the same set: `gen_weights.py`,
 which produces the sparse CQT kernel shared by the trainer and the application,
 and `gp5_to_arpeggio.py`, which converts a Guitar Pro file into the degree
 notation the Arpeggios mode reads. `hf_cleanup.py` clears the checkpoint
-repository before a run begins from scratch.
+repository before a run begins from scratch. `model_trainer.py` trains the
+chord network and `strike_trainer.py` the strike detector (6.6);
+`extract_onset_branch.py` cuts the strike detector out of a combined take7
+model.
+
+Two more instruments now serve the crediting rules. The application can
+record a session together with a journal of every judgement it made
+(`SOLITITO_RECORD`), so a false credit reported from practice can be replayed
+and explained. And a harness inside the test suite splices the 51 reviewed
+notes of one labelled recording into new signals — a note ringing out, the same
+note struck again, a note ringing into the next chord — and runs the real judge
+over them. The tables in 8.13 come from it.
 
 The methodology proved effective on repeated occasions. Its converse should also be noted: **hypotheses formulated prior to measurement proved to be wrong in a systematic manner.** These cases are catalogued in Chapter 9.
 
@@ -261,6 +272,33 @@ paths. It is also the least precise as to WHICH string was struck, since an
 attack spreads onto the neighbouring ones. Its use in the application is
 described in 8.12.
 
+### 5.4. The strike detector
+
+The onset head shares the recognition model's window and its pace: 0.77 s of
+audio, asked every 40 ms. That is too coarse to tell whether a note that is
+already ringing was just struck again, which is the question repeated notes
+pose. The strike detector is a separate network built for that question alone:
+
+```
+two Hann windows of the newest audio, 1024 and 2048 samples (64 and 128 ms)
+   ↓  magnitudes up to 4 kHz, log1p(1000·a)/log(1001): 770 features per 16 ms hop
+Conv1d 770 → 96  +  Conv1d 770 → 96 on the RISE of each bin over the four frames before
+   ↓
+4 × causal residual Conv1d 96 → 96, kernel 3, dilations 1, 2, 4, 8
+   ↓
+Conv1d 96 → 12   (sigmoid: which pitch classes were struck at this frame)
+```
+
+It is causal and needs 34 past frames plus the current one — 0.56 s. It has
+260,076 parameters and costs 0.7 ms per hop on the CPU, so the application asks
+it on every hop. The rise projection carries the same idea as the onset head's
+input: an attack adds energy to the spectrum and a decay does not.
+
+It was trained as a branch of a combined model beside the frozen chord network
+(6.6). The application loads it cut out of that file, `short_onset_masking_v2.onnx`
+(1 MB), because the branch never reads the chord input: its answer is identical
+to the last digit whatever that input holds.
+
 ---
 
 ## 6. Training
@@ -323,6 +361,47 @@ Chord metrics are computed **exclusively on windows in which the label describes
 Selection of the best checkpoint proceeds by the figure `composite = (root_audible + qual + exact) / 3`. Use of the combined `root_acc` would favour a model that reproduces progressions effectively over one that analyses the signal correctly.
 
 The `TRAIN` diagnostic check, performed every 5 epochs, computes metrics on the training data without augmentation. It addresses the question of whether the model is capable of reproducing its own training data. A negative answer identifies the features or the labels as the source of the constraint rather than generalisation, and indicates that increasing the number of epochs would serve no purpose.
+
+### 6.6. The strike detector
+
+The strike detector is trained apart from the chord network, by a trainer of
+its own: the two networks share no weight and no input, only the application.
+Its material is labelled by attack rather than by chord:
+
+- **GuitarSet** whole takes, solo and comp, with players split whole — 00 to 03
+  for training, 04 for validation, 05 for test. The note starts are annotations,
+  not verified pick attacks.
+- **Synthetic plucks** (Karplus–Strong), whose attack times are exact by
+  construction: notes held, the same note plucked again while it rings, octaves,
+  a third or fifth added over a ringing root, triads re-strummed.
+- **Masking pairs**: a root and third ringing, then an upper fifth struck at
+  −18, −12, −6 or 0 dB relative to them, measured over its first 96 ms. Each
+  comes in three variants sharing background and gain — background alone, the
+  fifth alone, both together — so the only difference between them is the
+  strike.
+
+Training levels vary by ±6 dB. The epoch is chosen on validation at a fixed
+threshold of 0.5, the threshold afterwards on the exported ONNX — what the
+application will actually run — and the test split is scored once, at that
+threshold. The released model came out of three runs, each fine-tuned from the
+previous one's best weights: Rise from scratch, then with the chord base frozen
+(`v2_take7`), then with the masking pairs (`v2_take7_masking_v2`, threshold 0.9).
+
+The strike detector's trainer is one file, `dist/strike_trainer.py`, that can
+be pasted whole into a notebook. It replaced a dozen experiment scripts and
+three generators that assembled them; those experiments remain in the `rise`
+branch. The merge was verified rather than assumed: on CPU the one file trains
+bit for bit like the scripts the released model was trained with — the same
+data, batches, losses, weights, threshold and ONNX outputs, from scratch and
+from a parent checkpoint — and a rerun of the released recipe on a Kaggle GPU
+arrived at the same weights. It writes the application's file straight from the
+trained network; from the released checkpoint that file answers bit for bit
+like the released `short_onset_masking_v2.onnx`. The chord network keeps its own
+trainer, `dist/model_trainer.py`, the one that produced
+`best_model_v2_take6_onset.onnx`: exported from that run's checkpoint, all four
+outputs match the released file bit for bit. The 770 features are computed twice, by the trainer in Python and by the
+application in Rust; a shared fixture holds both to the same numbers, bit for
+bit, from both test suites.
 
 ---
 
@@ -492,7 +571,7 @@ By default the estimate only **adds** a route to a pass, since overruling the mo
 the property that distinguishes this trainer from a monophonic one: the pitch head is polyphonic, so
 a strummed chord walks its intervals one by one. The **Play the notes one at a time** option makes
 the estimate the authority, and additionally requires a fresh attack before a repeated note counts a
-second time.
+second time. Which attack counts is the subject of 8.13.
 
 The residual latency is the 8192-sample FFT window, half a second wide, which is why notes shorter
 than approximately 0.4 s remain difficult. A shorter-window estimator in the time domain
@@ -580,6 +659,57 @@ corrected it was no longer needed for the reported symptom, and it carries a cos
 of its own: on the measurement above it removed 15 false credits at the price of
 4 notes missed altogether.
 
+### 8.13. Repeats: which string was struck
+
+A class credited once may count again only when **that class** has been struck
+since — not when some string was hit, and not when the class is merely still
+sounding. Everything the application had answered one of those two easier
+questions: flux says a string was hit and is blind to which, the ear and the
+voice count say which classes sound and are blind to whether they were just
+struck. Until 0.5.7 the rule was assembled from them, and the harness of
+Chapter 2 measured what that let through: a repeat allowed while the note
+merely rang, 24 times of 51.
+
+The strike detector (5.4) answers the conjunction directly. Three things sit
+between it and the judge, each added because a measurement asked for it:
+
+- **Levelling.** Its features are not level-invariant, and a quiet player reads
+  as a weak attack: on the user's own capture, 11 dB under the recording it had
+  been measured on, it found 42 of 87 notes. A slow gain, settling over about
+  four seconds, brings the playing to the level the model knows: 81 of 87.
+- **A refractory of 0.6 s per class.** The model also fires on decaying notes.
+  In the exercises a class comes back only after a credit, the 0.35 s the
+  finished set is shown for and the player's reply, so nothing real is lost.
+- **An energy check on a class fired again within 2 s.** On three recordings
+  of the user the model fired a class again within 2 s 37 times, in two groups
+  with nothing between: 29 with the energy flat or falling — the note dying
+  away — and 8 with it jumping 3.7 to 49 times — a string struck again. Such a
+  re-fire waits 32 ms and counts only if the energy rose by a quarter. Waiting
+  is the point: decided at the moment of firing, the same check refused real
+  re-strikes, because the new note had barely entered the window.
+
+| measured on the 51 spliced notes | 0.5.7 | 0.5.8 |
+| --- | --- | --- |
+| a repeat allowed while the note only rings | 24 | **0** |
+| struck again after 0.8 s, counted in time | 36, and 11 early | **48**, none early |
+| struck again after 1.2 s, counted in time | 35, and 14 early | **50**, none early |
+| a note ringing into the next chord, credited there | 47 | **0** |
+
+The last row is a rule of its own. What is still sounding when the exercise
+moves to the next chord counts as already used there and needs a strike of its
+own — unless it was struck while the finished set was still shown, which is a
+player reaching the next chord early. Requiring a strike for every first credit
+would close the same leak but costs 7 to 11 of 87 notes the detector does not
+catch; carrying costs nothing where a note is played after it is asked for.
+
+In Intervals, single notes, the fixed order and "only what was struck" are now
+on by default — together they are the measured path. Switched off all three,
+the mode becomes the other thing it can be: the model decides and nothing
+argues with it, carry-over included — chords and single chord tones played for
+fun rather than a test. Without the detector's file the application still
+starts and judges repeats on the older evidence, with its two largest leaks
+closed; that fallback lets 13 ringing notes of 51 through.
+
 ---
 
 ## 9. Hypotheses refuted by measurement
@@ -601,6 +731,9 @@ This chapter documents cases in which measurement refuted a previously held assu
 | The onset head will make the better gate — it is the fastest answer available | on a recording it looked so: 202 ms against 676 ms. Applied live it refused far more than it caught, and on the crediting rule it traded 18 false credits for 4 notes missed |
 | A third credited while the root was played is the fifth harmonic of that root | `--probe` over 364 windows: the false credits fall on +10 and +11 semitones, that is on the PREVIOUS note still inside the window, not on a harmonic |
 | A single fresh answer from the onset head is too short a window to catch a strike | at a threshold of 0.02 the answer stays above the gate for a median of one second after the attack, and not one of 47 notes was left without a frame carrying it — the sixteen-frame memory kept for the purpose was removed |
+| A strike model trained with ±6 dB of level spread does not care how loud the player is | on a capture 11 dB quieter it found 42 of 87 notes; levelled before the model, 81 |
+| A re-fire of the same class can be told from a decay by the energy at that moment | the model fires about 26 ms after the attack, while the window is still dominated by the old note; decided then, the check refused real re-strikes. Decided 32 ms later, it separates them |
+| An octave jump in the pitch estimate means a new pluck | 50 of the 58 false repeats of the older rule came from that one branch; it now needs an attack behind it |
 
 The pattern is unambiguous: **measurement results held consistently, whereas predictions formulated prior to measurement proved wrong in a systematic manner.** This justifies the adopted methodology based on probes.
 
@@ -617,6 +750,8 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 **Splitting the dataset by source.** It lowers the reported figures by more than ten percentage points and is justified.
 
 **Four heads with separated roles.** The note-based modes rely on the pitch vector rather than on the chord name; the fourth head answers for what was struck and is read, logged and offered as an option rather than being wired into the judging.
+
+**A separate network for strikes.** Whether a ringing class was struck again is asked of a small causal network every 16 ms, not of the recognition model's 0.77 s window. It decides repeats and what carries across a chord; the trainer produces it in the file the application loads.
 
 **Two thresholds on the context window rather than one.** The model is asked from half a window and its chord name believed from nine tenths — a single threshold cannot serve both a held chord and a single note.
 
@@ -644,6 +779,7 @@ The pattern is unambiguous: **measurement results held consistently, whereas pre
 - **Changing `CTX_FRAMES` from 48 to 32** — no longer a free choice: the exported model fixes its input at 48 frames, so the change requires retraining. The latency it was intended to address was instead removed from the path where it mattered, by judging single notes on one CQT frame.
 - **A pitch estimator with a shorter window.** Autocorrelation over roughly 100 ms would place the latency of a single note below the 512 ms FFT window, which is what still limits fast passages.
 - **Increasing the quantity of material from a real instrument** — the only factor capable of reducing the 6.5 percentage point difference.
+- **Quiet notes at the noise gate.** A fifth played at −60 dBFS, at the user's own gate, was not credited. The gate, not a crediting rule, is the lever, and no rule was changed for it.
 
 ---
 
@@ -660,7 +796,13 @@ The principal gain in accuracy followed not from changes to the architecture, bu
 
 These four changes moved the `Exact` figure from 44.8% to 92.4%. None of them concerned the structure of the network.
 
+The second network followed the same pattern. What made repeated notes honest was
+not a larger model but a question put precisely — which class was struck, not
+which is sounding — and measured on material where the answer is known: the
+reviewed notes of one recording, spliced into the situations the rules have to
+tell apart.
+
 ---
 
-*This document describes the state as of August 2026, version 0.5.5.*
+*This document describes the state as of October 2026, version 0.5.8.*
 *Repository: https://github.com/greblus/solitito*

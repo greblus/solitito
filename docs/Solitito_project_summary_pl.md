@@ -2,7 +2,7 @@
 
 **System rozpoznawania akordów gitarowych w czasie rzeczywistym**
 
-*Wersja 0.5.5, sierpień 2026*
+*Wersja 0.5.8, październik 2026*
 
 ---
 
@@ -10,7 +10,7 @@
 
 Solitito jest trainerem gitarowym działającym w czasie rzeczywistym, stworzonym w Rust. Program pobiera sygnał interfejsu audio lub mikrofonu, rozpoznaje wykonywany materiał i prowadzi użytkownika przez standardy jazzowe, interwały, skale, arpeggia, formuły interwałowe oraz orientację na gryfie.
 
-Rozpoznawanie realizuje sieć neuronowa o 7,3 mln parametrów, wyeksportowana do formatu ONNX. Całość przetwarzania — DSP, inferencja oraz interfejs użytkownika — wykonywana jest lokalnie na procesorze, bez połączenia sieciowego i bez usług zewnętrznych.
+Rozpoznawanie realizuje sieć neuronowa o 7,3 mln parametrów, wyeksportowana do formatu ONNX. Druga, mała sieć o 260 tys. parametrów odpowiada co 16 ms dźwięku na jedno węższe pytanie: która klasa wysokości została właśnie uderzona. Rozstrzyga ona, kiedy dźwięk liczy się ponownie (8.13). Całość przetwarzania — DSP, inferencja oraz interfejs użytkownika — wykonywana jest lokalnie na procesorze, bez połączenia sieciowego i bez usług zewnętrznych.
 
 System udostępnia sześć trybów pracy:
 
@@ -56,7 +56,17 @@ Dwa dalsze narzędzia nie są sondami, lecz należą do tego samego zestawu:
 `gen_weights.py`, wytwarzający rzadkie jądro CQT wspólne dla trenera i
 aplikacji, oraz `gp5_to_arpeggio.py`, przekładający plik Guitar Pro na zapis
 stopniami, który czyta tryb Arpeggia. `hf_cleanup.py` czyści repozytorium
-punktów kontrolnych przed przebiegiem rozpoczynanym od zera.
+punktów kontrolnych przed przebiegiem rozpoczynanym od zera. `model_trainer.py`
+trenuje sieć akordową, a `strike_trainer.py` detektor uderzeń (6.6);
+`extract_onset_branch.py` wycina detektor uderzeń z połączonego modelu take7.
+
+Regułom zaliczania służą obecnie dwa kolejne narzędzia. Aplikacja potrafi
+nagrać sesję wraz z dziennikiem każdej podjętej oceny (`SOLITITO_RECORD`),
+dzięki czemu zaliczenie fałszywe zgłoszone z ćwiczeń można odtworzyć i
+wyjaśnić. Ponadto harness w zestawie testów skleja 51 zweryfikowanych dźwięków
+jednego opisanego nagrania w nowe sygnały — dźwięk wybrzmiewający, ten sam
+dźwięk uderzony ponownie, dźwięk wybrzmiewający w kolejny akord — i przepuszcza
+przez nie rzeczywisty mechanizm oceny. Z niego pochodzą tabele w 8.13.
 
 Metodyka ta wykazała skuteczność wielokrotnie. Odnotować należy również jej rewers: **hipotezy formułowane przed wykonaniem pomiaru okazywały się błędne w sposób systematyczny.** Zestawienie tych przypadków zawiera rozdział 9.
 
@@ -251,6 +261,34 @@ Głowica przewyższa dopasowanie szablonów do *dokładnie znanego* zbioru dźwi
 
 Wniosek projektowy: głowica jakości pozostaje elementem koniecznym.
 
+### 5.4. Detektor uderzeń
+
+Głowica ataków dzieli z modelem rozpoznawania jego okno i rytm: 0,77 s dźwięku,
+pytanie co 40 ms. To zbyt zgrubnie, by rozstrzygnąć, czy dźwięk już brzmiący
+został właśnie uderzony ponownie — a to jest pytanie, które stawiają dźwięki
+powtórzone. Detektor uderzeń jest osobną siecią zbudowaną wyłącznie dla niego:
+
+```
+dwa okna Hanna najnowszego dźwięku, 1024 i 2048 próbek (64 i 128 ms)
+   ↓  amplitudy do 4 kHz, log1p(1000·a)/log(1001): 770 cech na krok 16 ms
+Conv1d 770 → 96  +  Conv1d 770 → 96 na PRZYROŚCIE każdego binu względem czterech ramek wcześniejszych
+   ↓
+4 × przyczynowy rezydualny Conv1d 96 → 96, jądro 3, dylatacje 1, 2, 4, 8
+   ↓
+Conv1d 96 → 12   (sigmoida: które klasy wysokości uderzono w tej ramce)
+```
+
+Sieć jest przyczynowa i potrzebuje 34 ramek przeszłych oraz bieżącej — 0,56 s.
+Ma 260 076 parametrów i kosztuje 0,7 ms na krok na procesorze, więc aplikacja
+pyta ją w każdym kroku. Rzut przyrostu niesie tę samą myśl co wejście głowicy
+ataków: atak dodaje widmu energii, a wybrzmiewanie nie.
+
+Została wytrenowana jako gałąź modelu połączonego, obok zamrożonej sieci
+akordowej (6.6). Aplikacja ładuje ją wyciętą z tego pliku,
+`short_onset_masking_v2.onnx` (1 MB), ponieważ gałąź nigdy nie czyta wejścia
+akordowego: jej odpowiedź jest identyczna co do ostatniej cyfry niezależnie od
+jego zawartości.
+
 ---
 
 ## 6. Trening
@@ -313,6 +351,48 @@ Metryki akordowe wyznaczane są **wyłącznie na oknach, w których etykieta opi
 Wybór najlepszego checkpointu odbywa się według wskaźnika `composite = (root_audible + qual + exact) / 3`. Zastosowanie łącznego `root_acc` premiowałoby model skutecznie odtwarzający progresje zamiast modelu poprawnie analizującego sygnał.
 
 Kontrola diagnostyczna `TRAIN`, wykonywana co 5 epok, wyznacza metryki na danych treningowych bez augmentacji. Odpowiada na pytanie, czy model jest w stanie odwzorować własne dane treningowe. Odpowiedź negatywna wskazuje na cechy lub etykiety jako źródło ograniczenia, nie na generalizację, i oznacza, że zwiększanie liczby epok jest bezcelowe.
+
+### 6.6. Detektor uderzeń
+
+Detektor uderzeń trenowany jest osobno od sieci akordowej, własnym trenerem:
+obie sieci nie dzielą ani wag, ani wejścia, tylko aplikację. Jego materiał jest
+opisany atakami, nie akordami:
+
+- **GuitarSet**, całe nagrania solo i comp, z graczami dzielonymi w całości —
+  00–03 do treningu, 04 do walidacji, 05 do testu. Początki dźwięków pochodzą
+  z adnotacji, nie są potwierdzonymi atakami kostki.
+- **Syntetyczne szarpnięcia** (Karplus–Strong), których czasy ataku są dokładne
+  z konstrukcji: dźwięki trzymane, ten sam dźwięk szarpnięty ponownie w trakcie
+  wybrzmiewania, oktawy, tercja lub kwinta dodana nad brzmiącą prymą, ponownie
+  uderzone trójdźwięki.
+- **Pary maskujące**: pryma i tercja wybrzmiewają, po czym pada górna kwinta,
+  −18, −12, −6 lub 0 dB względem nich, mierzone w jej pierwszych 96 ms. Każda
+  występuje w trzech wariantach o wspólnym tle i wzmocnieniu — samo tło, sama
+  kwinta, oba razem — tak że jedyną różnicą między nimi jest uderzenie.
+
+Poziom w treningu zmienia się o ±6 dB. Epokę wybiera się na walidacji przy
+stałym progu 0,5, próg następnie na wyeksportowanym ONNX — tym, co aplikacja
+faktycznie uruchomi — a zbiór testowy ocenia się raz, przy tym progu. Wydany
+model powstał w trzech przebiegach, każdy douczany od najlepszych wag
+poprzedniego: Rise od zera, następnie z zamrożoną bazą akordową (`v2_take7`),
+następnie z parami maskującymi (`v2_take7_masking_v2`, próg 0,9).
+
+Trener detektora uderzeń jest jednym plikiem, `dist/strike_trainer.py`, który
+można wkleić w całości do notebooka. Zastąpił kilkanaście skryptów
+eksperymentalnych i trzy generatory, które je składały; same eksperymenty
+pozostają w gałęzi `rise`. Scalenie zweryfikowano, a nie założono: na
+procesorze jeden plik trenuje bit w bit tak samo jak skrypty, którymi
+wytrenowano wydany model — te same dane, partie, straty, wagi, próg i wyjścia
+ONNX, zarówno od zera, jak i od punktu kontrolnego rodzica — a ponowny przebieg
+wydanego przepisu na GPU Kaggle doszedł do tych samych wag. Plik dla aplikacji
+zapisuje wprost z wytrenowanej sieci; z wydanego punktu kontrolnego odpowiada
+on bit w bit tak samo jak wydany `short_onset_masking_v2.onnx`. Sieć akordowa
+ma własny trener, `dist/model_trainer.py`, ten, który wytworzył
+`best_model_v2_take6_onset.onnx`: wyeksportowany z punktu kontrolnego tamtego
+przebiegu daje na wszystkich czterech wyjściach to samo co wydany plik, bit w
+bit. 770 cech liczonych jest dwukrotnie, przez trener w Pythonie i przez
+aplikację w Ruście; wspólny plik testowy utrzymuje obie strony przy tych samych
+liczbach, bit w bit, w obu zestawach testów.
 
 ---
 
@@ -483,7 +563,7 @@ Domyślnie oszacowanie to wyłącznie **dokłada** drogę do zaliczenia, poniewa
 kosztowałoby własność odróżniającą ten trenażer od monofonicznego: głowica wysokości jest polifoniczna,
 więc akord zagrany jednym pociągnięciem zalicza swoje interwały po kolei. Opcja **Graj dźwięki
 pojedynczo** czyni oszacowanie rozstrzygającym i dodatkowo wymaga nowego ataku, zanim powtórzony
-dźwięk zostanie zaliczony po raz drugi.
+dźwięk zostanie zaliczony po raz drugi. Który atak się liczy, opisuje 8.13.
 
 Pozostałe opóźnienie wnosi okno FFT o długości 8192 próbek, czyli pół sekundy, i to ono sprawia, że
 dźwięki krótsze niż około 0,4 s pozostają trudne. Estymator o krótszym oknie, działający w dziedzinie
@@ -570,6 +650,61 @@ poprawieniu granicy przestała być potrzebna dla zgłoszonego objawu, a niesie
 własny koszt: w powyższym pomiarze zdejmowała 15 zaliczeń fałszywych ceną 4
 dźwięków pominiętych zupełnie.
 
+### 8.13. Powtórzenia: która struna została uderzona
+
+Klasa raz zaliczona może liczyć się ponownie wyłącznie wtedy, gdy od tamtej
+chwili **ta klasa** została uderzona — nie gdy uderzono jakąkolwiek strunę i nie
+gdy klasa jedynie nadal brzmi. Wszystko, czym aplikacja dysponowała, odpowiadało
+na jedno z tych dwóch łatwiejszych pytań: strumień zmian widma mówi, że
+uderzono strunę, i jest ślepy na to, którą; ucho i liczba głosów mówią, które
+klasy brzmią, i są ślepe na to, czy właśnie je uderzono. Do wersji 0.5.7 reguła
+była z nich składana, a harness z rozdziału 2 zmierzył, co przepuszczała:
+powtórzenie dozwolone, gdy dźwięk jedynie wybrzmiewał, 24 razy na 51.
+
+Detektor uderzeń (5.4) odpowiada na tę koniunkcję wprost. Między nim a
+mechanizmem oceny stoją trzy elementy, każdy dodany, ponieważ wymagał go pomiar:
+
+- **Wyrównanie poziomu.** Jego cechy nie są niezależne od poziomu, a cichy
+  gracz wygląda jak słaby atak: na własnym nagraniu użytkownika, o 11 dB
+  cichszym od nagrania, na którym go mierzono, znalazł 42 z 87 dźwięków. Powolne
+  wzmocnienie, ustalające się w około cztery sekundy, sprowadza grę do poziomu
+  znanego modelowi: 81 z 87.
+- **Okres refrakcji 0,6 s na klasę.** Model odpala również na wybrzmiewających
+  dźwiękach. W ćwiczeniach klasa wraca dopiero po zaliczeniu, 0,35 s pokazywania
+  ukończonego zestawu i odpowiedzi gracza, więc nic rzeczywistego nie przepada.
+- **Sprawdzenie energii przy ponownym odpaleniu klasy w ciągu 2 s.** Na trzech
+  nagraniach użytkownika model odpalił klasę ponownie w ciągu 2 s 37 razy, w
+  dwóch grupach bez niczego pomiędzy: 29 przy energii stałej lub malejącej —
+  dźwięk zanika — oraz 8 przy jej skoku od 3,7 do 49 razy — struna uderzona
+  ponownie. Takie odpalenie czeka 32 ms i liczy się tylko, jeśli energia wzrosła
+  o jedną czwartą. Czekanie jest istotą rzeczy: rozstrzygane w chwili
+  odpalenia, to samo sprawdzenie odrzucało rzeczywiste ponowne uderzenia, bo
+  nowy dźwięk ledwie wszedł wtedy do okna.
+
+| zmierzone na 51 sklejonych dźwiękach | 0.5.7 | 0.5.8 |
+| --- | --- | --- |
+| powtórzenie dozwolone, gdy dźwięk jedynie wybrzmiewa | 24 | **0** |
+| uderzony ponownie po 0,8 s, zaliczony na czas | 36, oraz 11 za wcześnie | **48**, żadnego za wcześnie |
+| uderzony ponownie po 1,2 s, zaliczony na czas | 35, oraz 14 za wcześnie | **50**, żadnego za wcześnie |
+| dźwięk wybrzmiewający w kolejny akord, zaliczony tam | 47 | **0** |
+
+Ostatni wiersz to osobna reguła. To, co nadal brzmi, gdy ćwiczenie przechodzi
+do kolejnego akordu, liczy się tam jako już wykorzystane i potrzebuje własnego
+uderzenia — chyba że uderzono je, gdy ukończony zestaw był jeszcze pokazywany,
+co oznacza gracza sięgającego po następny akord wcześniej. Wymaganie uderzenia
+przy każdym pierwszym zaliczeniu zamknęłoby ten sam przeciek, lecz kosztuje 7 do
+11 z 87 dźwięków, których detektor nie łapie; przenoszenie nie kosztuje nic tam,
+gdzie dźwięk zagrano po tym, jak o niego poproszono.
+
+W trybie Interwały granie pojedynczo, stała kolejność i „tylko uderzone” są
+teraz domyślnie włączone — razem stanowią zmierzoną ścieżkę. Po wyłączeniu
+wszystkich trzech tryb staje się tym drugim, czym może być: rozstrzyga model i
+nic z nim nie polemizuje, łącznie z przenoszeniem — akordy i pojedyncze dźwięki
+akordowe grane dla przyjemności, nie jako test. Bez pliku detektora aplikacja
+nadal startuje i ocenia powtórzenia na starszych przesłankach, z zamkniętymi
+dwoma największymi przeciekami; ten tryb zastępczy przepuszcza 13 z 51
+wybrzmiewających dźwięków.
+
 ---
 
 ## 9. Hipotezy zweryfikowane negatywnie
@@ -591,6 +726,9 @@ Rozdział dokumentuje przypadki, w których pomiar obalił wcześniej przyjęte 
 | Głowica ataków będzie lepszą bramką — jest najszybszą dostępną odpowiedzią | na nagraniu tak wyglądało: 202 ms wobec 676 ms. Zastosowana na żywo odrzucała znacznie więcej, niż wyłapywała, a w regule zaliczania wymieniła 18 zaliczeń fałszywych na 4 dźwięki pominięte |
 | Tercja zaliczona przy granej prymie to piąta harmoniczna tej prymy | `--probe` na 364 oknach: zaliczenia fałszywe padają na +10 i +11 półtonów, czyli na dźwięk POPRZEDNI, wciąż obecny w oknie, a nie na harmoniczną |
 | Jedna świeża odpowiedź głowicy ataków to okno zbyt krótkie, by uchwycić uderzenie | przy progu 0,02 odpowiedź utrzymuje się nad progiem przez medianę jednej sekundy po ataku, a żaden z 47 dźwięków nie został bez ramki, która by ją niosła — trzymaną w tym celu pamięć szesnastu ramek usunięto |
+| Model uderzeń trenowany z rozrzutem poziomu ±6 dB nie zależy od głośności gracza | na nagraniu cichszym o 11 dB znalazł 42 z 87 dźwięków; po wyrównaniu poziomu przed modelem 81 |
+| Ponowne odpalenie klasy można odróżnić od wybrzmiewania po energii w tej chwili | model odpala około 26 ms po ataku, gdy w oknie dominuje jeszcze stary dźwięk; rozstrzygane wtedy sprawdzenie odrzucało rzeczywiste ponowne uderzenia. Rozstrzygane 32 ms później — rozdziela je |
+| Skok oktawy w oszacowaniu wysokości oznacza nowe szarpnięcie | 50 z 58 fałszywych powtórzeń starszej reguły pochodziło z tej jednej gałęzi; obecnie wymaga ona ataku |
 
 Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwentnie, natomiast przewidywania formułowane przed pomiarem okazywały się błędne w sposób systematyczny.** Uzasadnia to przyjętą metodykę opartą na sondach.
 
@@ -607,6 +745,8 @@ Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwent
 **Podział zbioru po źródle.** Obniża raportowane wskaźniki o kilkanaście punktów procentowych i jest uzasadniony.
 
 **Cztery głowice o rozdzielonych rolach.** Tryby dźwiękowe opierają się na wektorze pitch, nie na nazwie akordu; czwarta głowica odpowiada za to, co uderzone, i jest odczytywana, zapisywana oraz udostępniona jako opcja, zamiast być wpięta w ocenianie.
+
+**Osobna sieć dla uderzeń.** To, czy brzmiąca klasa została uderzona ponownie, rozstrzyga mała przyczynowa sieć pytana co 16 ms, a nie okno 0,77 s modelu rozpoznawania. Decyduje ona o powtórzeniach i o tym, co przechodzi przez granicę akordu; trener wytwarza ją w pliku, który aplikacja ładuje.
 
 **Dwa progi na oknie kontekstowym zamiast jednego.** Model pytany jest od połowy okna, a jego nazwie akordu wierzy się od dziewięciu dziesiątych — jeden próg nie może obsłużyć zarazem trzymanego akordu i pojedynczego dźwięku.
 
@@ -634,6 +774,7 @@ Zależność jest jednoznaczna: **wyniki pomiarów potwierdzały się konsekwent
 - **Zmiana `CTX_FRAMES` z 48 na 32** — przestała być wyborem swobodnym: wyeksportowany model ma wejście ustalone na 48 ramek, więc zmiana wymaga ponownego trenowania. Opóźnienie, któremu miała zaradzić, usunięto natomiast z tej ścieżki, na której miało znaczenie, oceniając pojedyncze dźwięki na jednej ramce CQT.
 - **Estymator wysokości o krótszym oknie.** Autokorelacja w oknie rzędu 100 ms sprowadziłaby opóźnienie pojedynczego dźwięku poniżej okna FFT o długości 512 ms, które pozostaje ograniczeniem w szybkich przebiegach.
 - **Zwiększenie ilości materiału z rzeczywistego instrumentu** — jedyny czynnik zdolny zmniejszyć różnicę 6,5 punktu procentowego.
+- **Ciche dźwięki na bramce szumu.** Kwinta zagrana na poziomie −60 dBFS, na własnej bramce użytkownika, nie została zaliczona. Dźwignią jest bramka, nie reguła zaliczania, i żadnej reguły z tego powodu nie zmieniono.
 
 ---
 
@@ -650,7 +791,13 @@ Zasadniczy przyrost dokładności nie wynikał ze zmian architektury, lecz z czt
 
 Wymienione cztery zmiany przesunęły wskaźnik `Exact` z 44,8% na 92,4%. Żadna z nich nie dotyczyła struktury sieci.
 
+Druga sieć potwierdziła ten wzorzec. Uczciwe powtórzenia dźwięków nie wynikły z
+większego modelu, lecz z precyzyjnie postawionego pytania — która klasa została
+uderzona, a nie która brzmi — zmierzonego na materiale o znanej odpowiedzi:
+zweryfikowanych dźwiękach jednego nagrania, sklejonych w sytuacje, które
+reguły muszą od siebie odróżnić.
+
 ---
 
-*Dokument opisuje stan na sierpień 2026, wersja 0.5.5.*
+*Dokument opisuje stan na październik 2026, wersja 0.5.8.*
 *Repozytorium: https://github.com/greblus/solitito*
