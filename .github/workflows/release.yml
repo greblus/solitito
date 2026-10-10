@@ -19,6 +19,11 @@ env:
   # the onset head as a fourth output; the three the app has always read keep
   # their names, so an older file still works if it is put beside the binary.
   MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+  # Which string was struck: the onset branch of take7_masking_v2, cut out of
+  # the combined file (1 MB). Optional at run time - without it repeats are
+  # judged on the older evidence - so a package missing it still starts.
+  STRIKE_MODEL: short_onset_masking_v2.onnx
+  STRIKE_MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/short_onset_masking_v2.onnx
 
 jobs:
   resolve-ort:
@@ -77,6 +82,7 @@ jobs:
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+          curl -fsSL -o "$NAME/$STRIKE_MODEL" "$STRIKE_MODEL_URL"
 
           # The app opens dsp_weights.json and the model by relative path, so the
           # working directory has to be the package directory. RUNPATH=$ORIGIN
@@ -137,6 +143,7 @@ jobs:
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
+          curl -fsSL -o "$NAME/$STRIKE_MODEL" "$STRIKE_MODEL_URL"
 
           7z a -tzip "$NAME.zip" "$NAME"
           sha256sum "$NAME.zip"
