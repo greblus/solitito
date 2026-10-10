@@ -461,7 +461,6 @@ pub struct MyApp {
     answering_step: Option<usize>,
     interval_hold: f32,
     interval_model_age: f32,
-    interval_chord_confirmed: bool,
     interval_audio_age: f32,
     interval_silence: f32,
     audio_gate_open: bool,
@@ -685,7 +684,6 @@ impl MyApp {
             answering_step: None,
             interval_hold: 0.0,
             interval_model_age: INTERVAL_MODEL_AGE,
-            interval_chord_confirmed: false,
             interval_audio_age: 0.0,
             interval_silence: 0.0,
             audio_gate_open: false,
@@ -1242,7 +1240,6 @@ impl MyApp {
         self.answering_step = None;
         self.interval_hold = 0.0;
         self.interval_model_age = INTERVAL_MODEL_AGE;
-        self.interval_chord_confirmed = false;
         self.interval_audio_age = 0.0;
         self.interval_silence = 0.0;
         self.judged_frame = self.audio_frames;
@@ -1577,8 +1574,7 @@ impl MyApp {
     fn tick_intervals(&mut self, dt: f32) {
         self.interval_model_age += dt;
         if self.interval_model_age >= INTERVAL_MODEL_AGE {
-            self.interval_chord_confirmed = false;
-            self.last_pitches = [0.0; 12];
+                self.last_pitches = [0.0; 12];
             self.prev_pitches = [0.0; 12];
             self.last_onsets = [0.0; 12];
             self.last_ai_root = None;
@@ -1877,8 +1873,7 @@ impl MyApp {
         // Scales and arpeggios are played one note at a time by definition -
         // nobody strums an arpeggio - so the rule is in force there whether the
         // option is ticked or not, and the checkbox is not offered.
-        let one_at_a_time = self.single_notes
-            || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios);
+        let one_at_a_time = self.one_at_a_time();
         if one_at_a_time {
             if self.sounding_now() == Some(target) {
                 return Some(1);
@@ -1907,14 +1902,13 @@ impl MyApp {
 
         // 2. The model, where the target owns the window: a held note, or the
         //    only one in it.
-        let stale = false;
         // The head is believed only while it has something to say: an answer
         // older than one frame is about a note that has already gone. The
         // threshold is low on purpose - what is separated here is "struck" from
         // "no attack at all", not loud from quiet.
         let struck = !self.require_onset
             || (self.onset_age <= 1 && self.last_onsets[target] >= ONSET_MIN);
-        if !stale && struck && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
+        if struck && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
             return Some(2);
         }
 
@@ -1929,8 +1923,7 @@ impl MyApp {
         let best_rise = (0..12)
             .map(|i| self.last_pitches[i] - self.prev_pitches[i])
             .fold(f32::NEG_INFINITY, f32::max);
-        if !stale
-            && struck
+        if struck
             && had_content
             && p_target >= self.note_threshold
             && rise > 0.05
@@ -2003,12 +1996,6 @@ impl MyApp {
             self.last_ai_root = ai_root;
             self.last_ai_conf = confidence;
             self.interval_model_age = 0.0;
-            self.interval_chord_confirmed = self.chords.get(self.current_chord_index)
-                .is_some_and(|chord| {
-                    ai_root == Some(chord.root)
-                        && ai_qual == chord.quality.to_string()
-                        && confidence >= self.chord_confidence
-                });
             self.onset_age = self.onset_age.saturating_add(1);
             return;
         }
@@ -2258,33 +2245,10 @@ impl MyApp {
                     // The model's pitch head spreads a plucked note onto its
                     // neighbours, so where the single-frame estimate names a
                     // class, no OTHER class may be credited off the model that
-                    // frame. This is the test `struck_since_credit` already
-                    // applies to repeats.
+                    // frame - in both orders, since in order the root is
+                    // credited, the target moves to the third while the root
+                    // rings on, and a head trained on chord shapes offers it.
                     //
-                    // In BOTH orders. It used to run only in free order, on the
-                    // reasoning that asking every step still wanted gives the
-                    // model three chances a frame instead of one - but one
-                    // chance is enough: in order, the root is credited, the
-                    // target moves to the third while the root rings on, and
-                    // the head offers the third because a head trained on chord
-                    // shapes answers the whole chord. That is the reported
-                    // fault, and in order there was nothing holding it.
-                    //
-                    // There used to be an exception for a confidently
-                    // recognised target chord, on the premise that its notes
-                    // sound together while CQT can name only one. The premise
-                    // is right and unverifiable: neither candidate witness
-                    // separates a chord from one note, because one note's
-                    // harmonics look like a chord. Measured over AtoA's single
-                    // notes against chord_repeats, the CQT lights ~12 classes
-                    // in both, and the ear names a median of 2 classes per half
-                    // second in both. See `audio::voices_diagnostics`.
-                    //
-                    // The exception now asks whether the tones are actually
-                    // in the air, which is what it always meant to ask. It used
-                    // to ask whether the model had named the chord - and one
-                    // plucked root names it, which is how a third nobody
-                    // touched was being credited.
                     // HOW MANY voices, not which. Counting them is the part
                     // of this witness that holds up; asking whether one
                     // particular class is among them is the part with blind
@@ -2477,12 +2441,15 @@ impl MyApp {
         !self.voices_seen || self.voices.count_ones() >= 2
     }
 
+    /// Whether notes are taken one at a time: by choice in Intervals and the
+    /// fretboard trainer, always in Scales and Arpeggios - nobody strums one.
+    ///
+    /// The one definition. There used to be two: this one forced the rule on
+    /// the fretboard trainer as well, while `sounding_by` kept a copy of its own
+    /// that did not, so the trainer's repeat gate and its sounding check
+    /// disagreed about which mode they were in.
     fn one_at_a_time(&self) -> bool {
-        self.single_notes
-            || matches!(
-                self.app_mode,
-                AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard
-            )
+        self.single_notes || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios)
     }
 
     /// Whether a class asked for again has been played again.

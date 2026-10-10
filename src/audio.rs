@@ -850,9 +850,14 @@ pub fn start_audio_stream(
                             state.chroma_sum = chroma.try_into().unwrap_or([0.0;12]);
                         }
                     } else if let Ok(mut state) = shared_state.lock() {
-                        // In silence push an empty frame to advance the history
+                        // In silence push an empty frame to advance the history.
+                        // Everything read off this frame goes with it: `voices`
+                        // used to keep the last sounding classes through a
+                        // closed gate, and the judge's clock goes on ticking
+                        // here, so it counted them as still in the air.
                         state.cqt_pitch = None;
                         state.cqt_semitone = None;
+                        state.voices = 0;
                         state.gate_open = false;
                         state.push_silence();
                         for x in &mut state.spectrum_visual { *x *= 0.7; }
