@@ -292,14 +292,58 @@ impl Refires {
     }
 }
 
+/// The model's input, one frame per hop: two Hann windows of the newest audio,
+/// 1024 and 2048 samples, magnitudes up to 4 kHz, `ln(1 + 1000 a) / ln(1001)`,
+/// rounded to binary16. The trainer's `onset_features` computes the same thing,
+/// and a test holds the two to it.
+pub struct ShortFeatures {
+    spectra: [Spectrum; 2],
+    audio: VecDeque<f32>,
+}
+
+impl Default for ShortFeatures {
+    fn default() -> Self {
+        Self {
+            spectra: [Spectrum::new(1024), Spectrum::new(2048)],
+            audio: VecDeque::from(vec![0.0; 2048]),
+        }
+    }
+}
+
+impl ShortFeatures {
+    /// One hop in, the frame that ends with it out. The window starts as
+    /// silence, so the first frames see zeros before the first sample - the
+    /// trainer pads the same way.
+    pub fn push(&mut self, hop: &[f32]) -> [f32; FEATURES] {
+        self.audio.drain(..hop.len().min(2048));
+        self.audio.extend(hop.iter().map(|&v| if v.is_finite() { v } else { 0.0 }));
+        let audio = self.audio.make_contiguous();
+        let mut features = [0.0f32; FEATURES];
+        let mut offset = 0;
+        for spectrum in &mut self.spectra {
+            let size = spectrum.window.len();
+            for (i, &sample) in audio[2048 - size..].iter().enumerate() {
+                spectrum.buffer[i] = Complex::new(sample as f64 * spectrum.window[i], 0.0);
+            }
+            spectrum.fft.process_with_scratch(&mut spectrum.buffer, &mut spectrum.scratch);
+            let bins = size / 4 + 1;
+            for (i, value) in spectrum.buffer[..bins].iter().enumerate() {
+                let magnitude = value.norm() * spectrum.scale;
+                features[offset + i] = cache_precision((1000.0 * magnitude).ln_1p() / 1001f64.ln());
+            }
+            offset += bins;
+        }
+        features
+    }
+}
+
 pub struct Strikes {
     session: Session,
     /// A take7 file carries the chord trunk beside the onset branch, and wants
     /// its input fed even though the onset answer does not depend on it
     /// (measured: identical to the last digit with two different trunk inputs).
     combined: bool,
-    spectra: [Spectrum; 2],
-    audio: VecDeque<f32>,
+    features: ShortFeatures,
     history: VecDeque<[f32; FEATURES]>,
     leveller: Leveller,
     pub latch: Latch,
@@ -325,8 +369,7 @@ impl Strikes {
         Ok(Self {
             session,
             combined,
-            spectra: [Spectrum::new(1024), Spectrum::new(2048)],
-            audio: VecDeque::from(vec![0.0; 2048]),
+            features: ShortFeatures::default(),
             history: VecDeque::with_capacity(HISTORY),
             leveller: Leveller::default(),
             latch: Latch::new(threshold),
@@ -342,25 +385,8 @@ impl Strikes {
         self.refires.hear(hop);
         let gain = self.leveller.gain_for(hop);
         let gain = if self.levelled { gain } else { 1.0 };
-        self.audio.drain(..HOP);
-        self.audio.extend(hop.iter().map(|&v| if v.is_finite() { v * gain } else { 0.0 }));
-
-        let audio = self.audio.make_contiguous();
-        let mut features = [0.0f32; FEATURES];
-        let mut offset = 0;
-        for spectrum in &mut self.spectra {
-            let size = spectrum.window.len();
-            for (i, &sample) in audio[2048 - size..].iter().enumerate() {
-                spectrum.buffer[i] = Complex::new(sample as f64 * spectrum.window[i], 0.0);
-            }
-            spectrum.fft.process_with_scratch(&mut spectrum.buffer, &mut spectrum.scratch);
-            let bins = size / 4 + 1;
-            for (i, value) in spectrum.buffer[..bins].iter().enumerate() {
-                let magnitude = value.norm() * spectrum.scale;
-                features[offset + i] = cache_precision((1000.0 * magnitude).ln_1p() / 1001f64.ln());
-            }
-            offset += bins;
-        }
+        let levelled: Vec<f32> = hop.iter().map(|&v| v * gain).collect();
+        let features = self.features.push(&levelled);
         if self.history.len() == HISTORY {
             self.history.pop_front();
         }
@@ -583,6 +609,37 @@ mod tests {
         }
         assert!(lev.gain_for(&loud) >= GAIN_RANGE.0 - 1e-6);
     }
+
+    /// A stored binary16 value, exactly.
+    fn binary16(bits: u16) -> f32 {
+        let fraction = (bits & 0x3ff) as f32;
+        let value = match (bits >> 10) & 0x1f {
+            0 => fraction * 2f32.powi(-24),
+            exponent => (1.0 + fraction / 1024.0) * 2f32.powi(exponent as i32 - 15),
+        };
+        if bits & 0x8000 != 0 { -value } else { value }
+    }
+
+    /// The trainer's frames for the fixture audio (dist/test_strike_trainer.py
+    /// holds the trainer to the same files): the same numbers, not close ones.
+    #[test]
+    fn features_are_the_trainers_to_the_last_bit() -> Result<()> {
+        let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/dist/fixtures/");
+        let audio: Vec<f32> = std::fs::read(format!("{fixtures}short_features.s16"))?
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+            .collect();
+        let expected: Vec<f32> = std::fs::read(format!("{fixtures}short_features.f16"))?
+            .chunks_exact(2)
+            .map(|b| binary16(u16::from_le_bytes([b[0], b[1]])))
+            .collect();
+        let mut features = ShortFeatures::default();
+        let actual: Vec<f32> = audio.chunks_exact(HOP).flat_map(|hop| features.push(hop)).collect();
+        assert_eq!(actual.len(), expected.len());
+        let differing = actual.iter().zip(&expected).filter(|(a, e)| a != e).count();
+        assert_eq!(differing, 0, "{differing} of {} values differ", expected.len());
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -602,6 +659,27 @@ mod diagnostics {
         };
         let ch = channel.min(spec.channels as usize - 1);
         Ok((raw.chunks(spec.channels as usize).map(|f| f[ch]).collect(), spec.sample_rate))
+    }
+
+    /// The app's features for a recording, the first frames of them, so the
+    /// trainer's `onset_features` can be held to them exactly.
+    ///
+    /// SOLITITO_FEATURES_WAV=file.wav SOLITITO_FEATURES_OUTPUT=out.json [SOLITITO_FEATURES_FRAMES=n]
+    #[test]
+    #[ignore = "diagnostic: requires SOLITITO_FEATURES_WAV"]
+    fn export_features() -> Result<()> {
+        let (mono, rate) = mono_of(&std::env::var("SOLITITO_FEATURES_WAV")?, 0)?;
+        let signal = resample_like_trainer(&mono, rate);
+        let frames: usize = std::env::var("SOLITITO_FEATURES_FRAMES")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(400);
+        let mut features = ShortFeatures::default();
+        let rows: Vec<Vec<f32>> = signal
+            .chunks_exact(HOP)
+            .take(frames)
+            .map(|hop| features.push(hop).to_vec())
+            .collect();
+        std::fs::write(std::env::var("SOLITITO_FEATURES_OUTPUT")?, serde_json::to_vec(&rows)?)?;
+        Ok(())
     }
 
     /// Every hop's twelve probabilities and every reported strike, for scoring
