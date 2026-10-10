@@ -173,11 +173,14 @@ jobs:
           find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec sha256sum {} +
       - uses: softprops/action-gh-release@v2
         with:
+          # A tag with a suffix - v0.5.8-beta1 - is a pre-release, and must not
+          # become the "Latest" release people are sent to.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/linux/*.tar.gz
             dist/windows/*.zip
           body: |
             Unpack and run `solitito.sh` (Linux) or `solitito.exe` (Windows).
 
-            The archive contains the binary, ONNX Runtime, the recognition model
-            and the pseudo-CQT weights. Nothing else is needed.
+            The archive contains the binary, ONNX Runtime, the recognition model,
+            the strike model and the pseudo-CQT weights. Nothing else is needed.
