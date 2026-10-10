@@ -88,6 +88,11 @@ const FLUX_FRESH: u32 = 12;
 /// real re-strikes with it.
 const CLASS_FRESH: u32 = 38;
 
+/// A class struck this recently when the exercise moves on was played for the
+/// next part, not left over from the last: the 0.35 s the finished set is shown
+/// for, in hops.
+const JUST_STRUCK: u32 = 22;
+
 /// Frames a class has to be absent from `voices` before it counts as having
 /// stopped: about 0.3 s.
 ///
@@ -2733,7 +2738,36 @@ impl MyApp {
         struck >= CHORD_STRIKES
     }
 
+    /// What is still sounding when the exercise moves on counts as already
+    /// used in the next part of it: it needs a strike of its own there.
+    ///
+    /// The repeat rule only guarded classes credited before, so a note that
+    /// rang out of the last chord WITHOUT being credited - a wrong note, an
+    /// extra one - was free to answer the next chord the moment the ear named
+    /// it. Requiring a strike for every first credit closes that too, but costs
+    /// 7 to 11 of the 87 notes of the user's own session, which the detector
+    /// does not see; this costs nothing where the note is played after it is
+    /// asked for, which is every ordinary credit.
+    ///
+    /// A class struck in the last `JUST_STRUCK` hops is not marked: that is a
+    /// player reaching the next chord early, while the finished one is shown.
+    fn carry_over_what_rings(&mut self) {
+        for pc in 0..12 {
+            if self.credited[pc].is_some() {
+                continue;
+            }
+            let sounding = self.voice_heard(pc) || self.steady_note() == Some(pc);
+            let just_struck = self.strikes_live && self.class_strike_age[pc] <= JUST_STRUCK;
+            if sounding && !just_struck {
+                self.credit_class_inner(pc, 0);
+            }
+        }
+    }
+
     fn advance_chord(&mut self) {
+        // Before anything is forgotten: the ear and the voices still describe
+        // the chord being left, which is what has to be carried.
+        self.carry_over_what_rings();
         // Captured before the reset below wipes it: this is how the chord being
         // left behind was actually matched, and the strip reports that.
         let earned = self.match_status;
@@ -3279,6 +3313,61 @@ pub(crate) mod tests {
         a.analysis_state.lock().unwrap().mark_flux();
         a.sync_audio_settings();
         assert!(a.struck_since_credit(9), "an octave played with an attack was refused");
+    }
+
+    /// The boundary through the whole judge: a note that was never credited
+    /// rings into a chord that wants it. In 0.5.7 that was credited 47 times of
+    /// 51 on AtoA's notes; it now has to be struck again.
+    #[test]
+    fn what_rings_into_the_next_chord_needs_its_own_strike() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Minor7 },
+            Chord { root: NoteName::B, quality: ChordQuality::Major7 },
+        ];
+        a.single_notes = true;
+        a.interval_in_order = true;
+        a.shuffle_chords = false;
+        a.reset_logic_state();
+        a.play_order = vec![0, 1];
+        a.play_pos = 0;
+        a.current_chord_index = 0;
+        // B struck - not a tone of C m7 - and left ringing past the moment.
+        strike_hop(&mut a, &[11], Some(11));
+        for _ in 0..(JUST_STRUCK + 5) {
+            strike_hop(&mut a, &[], Some(11));
+        }
+        a.analysis_state.lock().unwrap().voices = 1 << 11;
+        a.sync_audio_settings();
+        assert!(a.credited[11].is_none(), "B was credited in a chord that does not have it");
+        a.advance_chord();
+        assert_eq!(a.current_chord_index, 1);
+        assert!(!a.struck_since_credit(11), "the ringing B was free to answer B Maj7");
+        strike_hop(&mut a, &[11], Some(11));
+        assert!(a.struck_since_credit(11), "B struck again was refused");
+    }
+
+    /// Played early - while the finished chord is still shown - is played for
+    /// the next one, not left over from the last.
+    #[test]
+    fn a_note_struck_during_the_hold_counts_for_the_next_chord() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::C, quality: ChordQuality::Minor7 },
+            Chord { root: NoteName::B, quality: ChordQuality::Major7 },
+        ];
+        a.single_notes = true;
+        a.reset_logic_state();
+        a.play_order = vec![0, 1];
+        a.play_pos = 0;
+        a.current_chord_index = 0;
+        strike_hop(&mut a, &[11], Some(11));
+        a.analysis_state.lock().unwrap().voices = 1 << 11;
+        a.sync_audio_settings();
+        a.advance_chord();
+        assert!(a.struck_since_credit(11), "an anticipated note was refused");
     }
 
     /// The fault the user found with shuffle on: a note credited in one chord
