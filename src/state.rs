@@ -78,6 +78,16 @@ const ONSET_MIN: f32 = 0.02;
 /// time this one is shown - `INTERVAL_SHOW` alone is 0.35 s.
 const FLUX_FRESH: u32 = 12;
 
+/// Hops within which a strike of a class still counts as just now: 0.6 s.
+///
+/// Longer than `FLUX_FRESH` because the strike is reported at the attack and the
+/// credit waits for the ear to settle on the note, which takes up to 0.4 s.
+///
+/// Asking for a flux attack beside the strike as well was measured and dropped:
+/// on AtoA's notes struck twice it took one false permission away and twelve
+/// real re-strikes with it.
+const CLASS_FRESH: u32 = 38;
+
 /// Frames a class has to be absent from `voices` before it counts as having
 /// stopped: about 0.3 s.
 ///
@@ -189,6 +199,8 @@ pub struct Credit {
     pub strike: u32,
     /// Attacks the flux detector had counted, whatever their pitch.
     pub flux: u64,
+    /// That class's own strike count from `strike::Strikes` at that moment.
+    pub class_strike: u32,
     /// The octave marker of the step credited: 0 for the plain degree, 1 for
     /// one written `1'`. A step marked higher than the credit is asking for the
     /// same note in another octave, and that is answerable.
@@ -530,6 +542,12 @@ pub struct MyApp {
     pub flux_id: u64,
     /// Hops since the last one.
     flux_age: u32,
+    /// Strikes of each class, and hops since each - see `strike::Strikes`.
+    class_strikes: [u32; 12],
+    class_strike_age: [u32; 12],
+    /// Whether that detector is running. Without its model file it is not, and
+    /// the rules fall back to what they were before it existed.
+    strikes_live: bool,
     /// Whether that detector has ever reported, so a build or a recording
     /// without it falls back to the older evidence instead of refusing
     /// everything.
@@ -707,6 +725,9 @@ impl MyApp {
             logged_ask: None,
             flux_id: 0,
             flux_age: u32::MAX,
+            class_strikes: [0; 12],
+            class_strike_age: [u32::MAX; 12],
+            strikes_live: false,
             flux_seen: false,
             credited: [None; 12],
             chord_heard_at: ([0; 12], 0),
@@ -2491,8 +2512,26 @@ impl MyApp {
         if c.left && self.steady_note() == Some(pc) {
             return true;
         }
+        let elsewhere = self.cqt_pitch.is_some_and(|now| now != pc);
+        // THIS class struck since its credit, and just now - the question the
+        // rule always meant to ask, and the first evidence that can answer it.
+        // A note played again an octave away is a strike of the same class and
+        // counts through here; nothing else needs to look at octaves.
+        //
+        // Measured on every note of AtoA spliced with itself: of 58 permissions
+        // given while the note was only ringing, 50 came from the octave branch
+        // below - the estimate flips an octave on a decaying note and the rule
+        // read the flip as a new pluck - and 8 from the pitch-blind attack.
+        if self.strikes_live {
+            return self.class_strikes[pc] != c.class_strike
+                && self.class_strike_age[pc] <= CLASS_FRESH
+                && !(self.one_at_a_time() && elsewhere);
+        }
+        // Without the detector: an octave jump is believed only with an attack
+        // behind it, which is what made it a leak - see above.
+        let fresh_attack = self.flux_seen && self.flux_id != c.flux && self.flux_age <= FLUX_FRESH;
         if let (Some(now), Some(then)) = (self.cqt_semitone, c.semitone) {
-            if now % 12 == pc && (now >= then + 6 || now + 6 <= then) {
+            if fresh_attack && now % 12 == pc && (now >= then + 6 || now + 6 <= then) {
                 return true;
             }
         }
@@ -2529,9 +2568,7 @@ impl MyApp {
         };
         // Not "the estimate names it" but "the estimate does not name something
         // else": a note too quiet for the estimate to score would otherwise
-        // never be creditable a second time. This is the same test `sounding_by`
-        // calls stale.
-        let elsewhere = self.cqt_pitch.is_some_and(|now| now != pc);
+        // never be creditable a second time.
         struck && !(self.one_at_a_time() && elsewhere)
     }
 
@@ -2640,6 +2677,9 @@ impl MyApp {
                 "flux_age": self.flux_age,
                 "voices": (0..12).filter(|pc| self.voice_heard(*pc)).collect::<Vec<_>>(),
                 "quiet_for": self.quiet_for[pc % 12],
+                "class_strikes": self.class_strikes[pc % 12],
+                "class_strike_age": self.class_strike_age[pc % 12],
+                "strikes_live": self.strikes_live,
                 "left": self.credited[pc % 12].map(|c| c.left),
                 "onset": self.onset_id,
                 "onset_age": self.onset_age,
@@ -2656,6 +2696,7 @@ impl MyApp {
             onset: self.onset_id,
             strike: self.strike_id[pc % 12],
             flux: self.flux_id,
+            class_strike: self.class_strikes[pc % 12],
             octave,
             semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: STRIKE_SETTLE,
@@ -2764,6 +2805,9 @@ impl MyApp {
             }
             self.flux_id = state.flux_id;
             self.flux_age = state.flux_age;
+            self.class_strikes = state.class_strikes;
+            self.class_strike_age = state.class_strike_age;
+            self.strikes_live = state.strikes_live;
             self.capture_hop = state.hops;
             // On the audio clock, which is also the one the tests drive. A
             // closed noise gate stops it, and that case has its own rule: see
@@ -3163,6 +3207,80 @@ pub(crate) mod tests {
         );
     }
 
+    /// A hop of audio in which the strike detector reports `struck`.
+    fn strike_hop(a: &mut MyApp, struck: &[usize], ear: Option<usize>) {
+        {
+            let mut st = a.analysis_state.lock().unwrap();
+            st.mark_strikes(struck);
+            st.frames_seen += 1;
+            st.cqt_pitch = ear;
+            st.gate_open = ear.is_some();
+        }
+        a.sync_audio_settings();
+    }
+
+    /// The repeat rule with the strike detector running: a class credited once
+    /// counts again only on a strike of THAT class, and only while it is fresh.
+    #[test]
+    fn a_credited_class_needs_its_own_fresh_strike_to_count_again() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.single_notes = true;
+        strike_hop(&mut a, &[4], Some(4));
+        a.credit_class(4, 0);
+        assert!(!a.struck_since_credit(4), "credited and counted again off one strike");
+        // Ringing on, other strings struck: not a strike of this class.
+        for _ in 0..10 {
+            strike_hop(&mut a, &[], Some(4));
+        }
+        strike_hop(&mut a, &[9], Some(4));
+        assert!(!a.struck_since_credit(4), "another string's strike let a ringing note count");
+        // Struck again: it counts.
+        strike_hop(&mut a, &[4], Some(4));
+        assert!(a.struck_since_credit(4), "a real re-strike was refused");
+        // ...but not for ever: a strike long gone is not "just now".
+        for _ in 0..=CLASS_FRESH {
+            strike_hop(&mut a, &[], Some(4));
+        }
+        assert!(!a.struck_since_credit(4), "a stale strike still counted");
+    }
+
+    /// Without the detector, the octave branch was the leak: the estimate
+    /// flips an octave on a decaying note and the rule took the flip for a new
+    /// pluck - 50 of 58 false permissions on AtoA's notes spliced with
+    /// themselves. A flip now needs an attack behind it.
+    #[test]
+    fn an_octave_flip_without_an_attack_is_not_a_new_pluck() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.single_notes = true;
+        {
+            let mut st = a.analysis_state.lock().unwrap();
+            st.mark_flux();
+            st.frames_seen += 1;
+            st.cqt_pitch = Some(9);
+            st.cqt_semitone = Some(33);
+            st.gate_open = true;
+        }
+        a.sync_audio_settings();
+        a.credit_class(9, 0);
+        // The decaying note read an octave up, with no attack anywhere near.
+        for _ in 0..30 {
+            let mut st = a.analysis_state.lock().unwrap();
+            st.flux_age = st.flux_age.saturating_add(1);
+            st.frames_seen += 1;
+            st.cqt_pitch = Some(9);
+            st.cqt_semitone = Some(45);
+            drop(st);
+            a.sync_audio_settings();
+        }
+        assert!(!a.struck_since_credit(9), "an octave flip passed for a pluck");
+        // The same octave with an attack: a note played an octave away.
+        a.analysis_state.lock().unwrap().mark_flux();
+        a.sync_audio_settings();
+        assert!(a.struck_since_credit(9), "an octave played with an attack was refused");
+    }
+
     /// The fault the user found with shuffle on: a note credited in one chord
     /// is credited again in the next without being struck, because it is still
     /// ringing and happens to be the loudest thing when the new chord asks for
@@ -3380,7 +3498,7 @@ pub(crate) mod tests {
     /// exercising the older evidence - which is the fallback path and wants
     /// testing too.
     fn credit(onset: u64, strike: u32) -> Credit {
-        Credit { onset, strike, flux: 0, octave: 0, semitone: None, settle: 0.0, left: false }
+        Credit { onset, strike, flux: 0, class_strike: 0, octave: 0, semitone: None, settle: 0.0, left: false }
     }
 
     pub(crate) fn app() -> MyApp {
