@@ -96,11 +96,65 @@ nie może. Wcześniej odpowiadała na to nazwa akordu i nie może znowu: jedna s
 wystarcza modelowi do rozpoznania kształtu, i tak właśnie zaliczała się tercja, której nikt
 nie dotknął.
 
-Klasa raz zaliczona potrzebuje dwóch rzeczy, żeby policzyć się ponownie: musiała wyjść
-z powietrza, a struna musiała zostać uderzona **teraz**, nie kiedykolwiek od tego czasu.
-Detektor ataków jest z założenia ślepy na wysokość, więc „jakiś atak od zaliczenia"
-spełnia zagranie dowolnego innego stopnia — a do przejścia akordu zdarza się ich kilka.
-Nuta, która tylko wybrzmiewa, jest odrzucana, choćby brzmiała dowolnie długo.
+### Powtórzenia: która struna została uderzona
+
+Klasa raz zaliczona liczy się ponownie tylko wtedy, gdy od tego czasu została uderzona
+**ta klasa** — nie jakaś struna i nie wtedy, gdy klasa po prostu wciąż brzmi. Wszystko inne
+w aplikacji odpowiada na jedno z tych dwóch łatwiejszych pytań: strumień mówi, że uderzono
+strunę, i jest ślepy na którą, a ucho i `voices` mówią, które klasy brzmią, i są ślepe na
+to, czy właśnie je uderzono. Reguła powtórzeń potrzebuje obu naraz.
+
+Daje to mały, przyczynowy model ataków `short_onset_masking_v2.onnx` — gałąź ataków
+z `best_model_v2_take7_masking_v2.onnx`, wycięta z pliku połączonego tak, żeby nie liczyła
+pnia akordowego: 1 MB i 0,7 ms na hop. Czyta dwa krótkie okna najnowszego dźwięku (64
+i 128 ms), 35 ramek historii i odpowiada dwunastoma prawdopodobieństwami, po jednym na klasę.
+Między nim a sędzią stoją dwie rzeczy:
+
+- **Poziomowanie.** Jego cechy zależą od poziomu, więc ciche granie czyta jako słaby atak:
+  na nagraniu użytkownika, 11 dB ciszej niż materiał, na którym był mierzony, znalazł 42
+  z 87 nut. Wolne wzmocnienie — ok. czterech sekund na ustalenie — doprowadza grę do poziomu,
+  który zna: 81 z 87.
+- **Refrakcja 0,6 s na klasę.** Model odpala też na wygasających nutach, a wtedy energia
+  sygnału spada — mediana 0,95 tego, co było, wobec 3,3 przy prawdziwych atakach. W ćwiczeniu
+  klasa wraca dopiero po zaliczeniu, 0,35 s pokazu skończonego zestawu i odpowiedzi grającego,
+  więc nic prawdziwego na tym nie przepada.
+- **Sprawdzenie energii przy ponownym odpaleniu klasy w ciągu 2 s.** Refrakcja nie sięga
+  dość daleko: na trzech nagraniach użytkownika model odpalił tę samą klasę ponownie w ciągu
+  2 s 37 razy, w dwóch grupach bez niczego pomiędzy — 29 przy energii stojącej albo spadającej
+  (0,89–1,03 tego, co było), czyli nuta wygasała, i 8 przy skoku 3,7–49 razy, czyli struna
+  uderzona ponownie. Jedno z tych 29 trafiło akurat w chwilę, gdy aplikacja prosiła o tę
+  klasę, 0,67 s po uderzeniu — i to było jedyne fałszywe powtórzenie z testu z gitarą. Takie
+  odpalenie czeka więc 32 ms i liczy się tylko wtedy, gdy energia wzrosła o ćwierć. Czekanie
+  jest istotne: bramka decydująca w chwili odpalenia odrzucała prawdziwe ponowne uderzenia,
+  bo nowa nuta ledwie weszła wtedy w okno.
+
+Zmierzone na każdej przesłuchanej nucie AtoA, sklejonej w nowe sygnały — sama nuta,
+wybrzmiewająca, oraz ta sama nuta uderzona ponownie po 0,8 i 1,2 s, przy czym kostka gasi
+starą drgającą strunę:
+
+| | 0.5.7 | teraz |
+| --- | --- | --- |
+| powtórzenie dopuszczone, gdy nuta tylko brzmi | 24 / 51 | **0** / 51 |
+| uderzona ponownie po 0,8 s, zaliczona w porę | 36 / 51, 11 za wcześnie | **48** / 51, żadne za wcześnie |
+| uderzona ponownie po 1,2 s, zaliczona w porę | 35 / 51, 14 za wcześnie | **50** / 51, żadne za wcześnie |
+
+Bez pliku modelu aplikacja dalej startuje i ocenia powtórzenia na starszym dowodzie,
+z dwiema załatanymi dziurami: przeskok oktawy w estymacie liczy się jako nowe szarpnięcie
+tylko z atakiem za nim — sama ta gałąź dawała 50 z 58 fałszywych powtórzeń powyżej. Taki
+tryb zapasowy przepuszcza 13 wybrzmiewających nut z 51.
+
+### Przenoszenie przez akord
+
+To, co jeszcze brzmi, gdy ćwiczenie przechodzi do następnego akordu, liczy się tam jako już
+użyte i potrzebuje własnego uderzenia. Sama reguła powtórzeń pilnowała tylko klas zaliczonych
+wcześniej, więc nuta, która wybrzmiewała z poprzedniego akordu **bez** zaliczenia — zła,
+dodatkowa — mogła odpowiedzieć następnemu akordowi, gdy tylko ucho ją nazwało: na nutach AtoA
+47 razy na 51. Teraz ani razu. Wyjątkiem jest klasa uderzona, gdy skończony zestaw jeszcze
+jest pokazywany: to grający, który sięga do następnego akordu z wyprzedzeniem, a nie resztka.
+
+Wymaganie uderzenia przy każdym pierwszym zaliczeniu też by to zamknęło, ale kosztuje 7–11
+z 87 nut sesji użytkownika, których detektor nie łapie; przenoszenie nie kosztuje nic tam,
+gdzie nuta pada po żądaniu, czyli przy każdym zwykłym zaliczeniu.
 
 Przy wyłączonej grze pojedynczo, wyłączonej stałej kolejności i wyłączonym „zaliczaj tylko
 to, co uderzone" nie obowiązuje nic z tego: decyduje model i nic z nim nie dyskutuje,

@@ -24,7 +24,13 @@ this repository; the model is not, because it is 29 MB:
 
 ```bash
 curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/short_onset_masking_v2.onnx
 ```
+
+The second file (1 MB) says which string was struck, and the repeat rules lean on it: a note
+asked for again counts only when that class has been struck again. It is optional - without it
+the app starts, says so, and judges repeats on older evidence that lets more ringing notes
+through. `short_onset_rise.onnx` is used in its place if it is the one present.
 
 `./solitito --check` loads both and reports whether they are usable, which is
 also what the release workflow runs against every package it builds.

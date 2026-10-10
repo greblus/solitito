@@ -41,7 +41,7 @@ Writes two files sharing a generation and a clock:
 | file | what is in it |
 | --- | --- |
 | `session-g1.wav` | mono float32 at 16 kHz - the audio AFTER resampling and after the channel choice, so a measurement cannot be taken on the wrong socket. Every hop, including below the noise gate: a file with the quiet parts cut has a step at each cut, and a step reads as an attack |
-| `session-g1.jsonl` | one row per request and per credit, each carrying the evidence that produced it - which of the four ways credited it, what the estimate named, how old the last attack is, which classes are sounding, how long the credited one has been quiet |
+| `session-g1.jsonl` | one row per request and per credit, each carrying the evidence that produced it - which of the four ways credited it, what the estimate named, how old the last attack is, which classes are sounding, how long the credited one has been quiet, and the strike detector's count and age for that class |
 
 A row's `hop` is a sample position in the recording: `hop * 256 / 16000` seconds. The clock
 is counted where the audio is written, not from the frames the model saw, which stop at the

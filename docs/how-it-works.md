@@ -93,11 +93,63 @@ cannot be. The chord name used to answer this question and must not again - one 
 root is enough for the model to recognise the shape, which is how a third nobody touched
 was credited.
 
-A class credited once needs two things before it counts again: it has to have gone out of
-the air, and the string has to have been hit JUST NOW rather than at some point since. The
-attack detector is pitch-blind by design, so "an attack since" is satisfied by any other
-step of the exercise being played - and by the time a chord hands over, several have been.
-A note still ringing is refused however long it rings.
+### Repeats: which string was struck
+
+A class credited once counts again only when **that class** has been struck since - not when
+some string was hit, and not when the class is merely still sounding. Everything else in the
+app answers one of those two easier questions: flux says a string was hit and is blind to
+which, the ear and `voices` say which classes sound and are blind to whether they were just
+struck. The repeat rule needs the conjunction.
+
+It comes from a small causal onset model, `short_onset_masking_v2.onnx` - the onset branch of
+`best_model_v2_take7_masking_v2.onnx`, cut out of the combined file so it does not run the
+chord trunk: 1 MB and 0.7 ms a hop. It reads two short windows of the newest audio (64 and
+128 ms), 35 frames of history, and answers twelve per-class probabilities. Two things sit
+between it and the judge:
+
+- **Levelling.** Its features are not level-invariant, and a quiet player reads as a weak
+  attack: on the user's own capture, 11 dB under the recording it was measured on, it found
+  42 of 87 notes. A slow gain - about four seconds to settle - brings the playing to the level
+  it knows: 81 of 87.
+- **A refractory of 0.6 s per class.** The model fires on decaying notes too, and at those
+  moments the signal is losing energy - a median 0.95 of what it had been, against 3.3 at real
+  attacks. In the exercises a class comes back only after a credit, the 0.35 s the finished
+  set is shown for, and the player's reply, so nothing real is lost to it.
+- **An energy check on a class fired again within 2 s.** The refractory does not reach far
+  enough: on the user's three recordings the model fired a class again within 2 s of itself 37
+  times, in two groups with nothing between - 29 with the energy flat or falling (0.89 to 1.03
+  of what it had been), the note dying away, and 8 with it jumping 3.7 to 49 times, a string
+  struck again. One of the 29 landed just as that class was being asked for, at 0.67 s, and
+  was the one false repeat the user saw in testing. So such a re-fire waits 32 ms and counts
+  only if the energy rose by a quarter. Waiting matters: a gate that decided at the moment of
+  firing refused real re-strikes, because the new note had barely entered the window then.
+
+Measured on every reviewed note of AtoA spliced into new signals - the note alone, ringing out,
+and the same note struck again 0.8 and 1.2 s later, with the pick stopping the old vibration:
+
+| | 0.5.7 | now |
+| --- | --- | --- |
+| a repeat allowed while the note only rings | 24 / 51 | **0** / 51 |
+| struck again after 0.8 s, counted in time | 36 / 51, 11 early | **48** / 51, none early |
+| struck again after 1.2 s, counted in time | 35 / 51, 14 early | **50** / 51, none early |
+
+Without the model file the app still starts and judges repeats on the older evidence, with two
+of its leaks closed: an octave jump in the estimate counts as a new pluck only with an attack
+behind it - that one branch gave 50 of the 58 false repeats above - and the same 0.6 s logic
+applies to the pitch-blind attack. That fallback lets 13 ringing notes of 51 through.
+
+### Carrying across a chord
+
+What is still sounding when the exercise moves to the next chord counts as already used there,
+and needs a strike of its own. The repeat rule alone guarded only classes credited before, so a
+note that rang out of the last chord without being credited - a wrong note, an extra one - was
+free to answer the next chord the moment the ear named it: on AtoA's notes, 47 times of 51.
+Now none. A class struck while the finished set is still shown is exempt: that is a player
+reaching the next chord early, not a note left over.
+
+Requiring a strike for every first credit would close this too, but costs 7 to 11 of the 87
+notes of the user's own session, which the detector does not catch; carrying costs nothing
+where the note is played after it is asked for, which is every ordinary credit.
 
 With single-note playing, the fixed order and "only what was struck" all switched off, none
 of this applies: the model decides and nothing argues with it, carry-over included. That is
