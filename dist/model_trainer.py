@@ -1298,7 +1298,10 @@ def export_onnx(model, save_path, threshold=0.5):
                           "quality_logits": {0: "batch"},
                           "pitch_logits": {0: "batch"},
                           "onset_logits": {0: "batch"}},
-            opset_version=14
+            # Torch 2.9+ exports through dynamo by default, which fixes the
+            # batch at 1 and ignores dynamic_axes; the app runs batches of one,
+            # but probe scripts and the tests do not.
+            opset_version=14, dynamo=False
         )
     finally:
         # restore the original requires_grad state
@@ -1353,6 +1356,19 @@ def load_checkpoint_meta():
         return torch.load(local, map_location='cpu', weights_only=False)
     except:
         return None
+
+def fetch_finished_onset():
+    """This run's phase 4 checkpoint from HF, or None if there is none yet.
+
+    Unlike `load_checkpoint_meta`, errors are not swallowed: a network or token
+    failure must not read as "no checkpoint" and start a training that
+    overwrites the one there.
+    """
+    if CKPT_ONSET not in api.list_repo_files(repo_id=HF_REPO_ID):
+        return None
+    local = hf_hub_download(repo_id=HF_REPO_ID, filename=CKPT_ONSET,
+                            local_dir=WORK_DIR, token=hf_token)
+    return torch.load(local, map_location='cpu', weights_only=False)
 
 def resume_from_checkpoint(model, opt, sched):
     """
@@ -2054,7 +2070,16 @@ def main():
         print("\n⏭️  Phase 3 skipped (RUN_PHASE3=False) - see the comment on the flag.")
 
     # --- Phase 4: the onset head ---
-    if RUN_PHASE4:
+    finished_onset = fetch_finished_onset() if RUN_PHASE4 else None
+    if finished_onset:
+        # Training again would overwrite the checkpoint and ONNX the app was
+        # built from - on 2026-09-20 a rerun did exactly that. A new head
+        # needs a new RUN_TAG.
+        load_weights(model, finished_onset['model_state_dict'])
+        export_onnx(model, os.path.join(WORK_DIR, ONNX_ONSET))
+        print(f"\n✅ Phase 4 already done - {CKPT_ONSET} exported as {ONNX_ONSET}, "
+              f"not trained again (onset F1 {finished_onset.get('onset_f1', 0):.3f})")
+    elif RUN_PHASE4:
         if ckpt_meta:
             load_weights(model, ckpt_meta['model_state_dict'])
         # BOTH maps: a path missing from the map is skipped without a word, and
