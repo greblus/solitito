@@ -79,6 +79,14 @@ pub struct AudioAnalysis {
     /// `voices::voices` - the spectrum explained rather than ranked, so a class
     /// that is only somebody else's harmonic is not in here.
     pub voices: u16,
+    /// Strikes of each class, from `strike::Strikes`: THIS class was hit, which
+    /// neither flux (a string was hit) nor the ear (this class sounds) can say.
+    pub class_strikes: [u32; 12],
+    /// Hops since each class was last struck.
+    pub class_strike_age: [u32; 12],
+    /// Whether that detector is running at all. Its model is a separate file,
+    /// and without it the app judges as it did before it existed.
+    pub strikes_live: bool,
     /// Frames since the last attack. Below CTX_FRAMES the context window still
     /// contains part of the PREVIOUS chord.
     pub frames_since_onset: u32,
@@ -117,6 +125,19 @@ impl AudioAnalysis {
     pub fn mark_flux(&mut self) {
         self.flux_id = self.flux_id.wrapping_add(1);
         self.flux_age = 0;
+    }
+
+    /// One hop's answer from the strike detector: every class ages a hop, and
+    /// the ones struck on it start again from nothing.
+    pub fn mark_strikes(&mut self, struck: &[usize]) {
+        self.strikes_live = true;
+        for age in &mut self.class_strike_age {
+            *age = age.saturating_add(1);
+        }
+        for &pc in struck {
+            self.class_strikes[pc] = self.class_strikes[pc].wrapping_add(1);
+            self.class_strike_age[pc] = 0;
+        }
     }
 
     /// Reports an attack: resets the counter and bumps the event id.
@@ -705,6 +726,18 @@ pub fn start_audio_stream(
     let mut short = ShortSpectrum::new();
     let mut flux = crate::flux::Flux::default();
     let mut capture = Capture::from_env();
+    // Optional: without the file the app judges as it did before the detector
+    // existed, and says so once.
+    let mut strikes = match crate::strike::Strikes::load_any() {
+        Ok((s, path)) => {
+            eprintln!("🎯 {path} · próg {:.2}", s.latch.threshold);
+            Some(s)
+        }
+        Err(e) => {
+            eprintln!("🎯 brak modelu uderzeń ({e}) - powtórzenia oceniane bez niego");
+            None
+        }
+    };
     let ratio = mic_sr as f32 / TARGET_SR as f32;
     
     // Attack detection: an energy jump above a slowly creeping envelope.
@@ -792,6 +825,17 @@ pub fn start_audio_stream(
                     // the gate is a level test of the kind that misses it.
                     if flux.push(short.of(chunk)).1 {
                         if let Ok(mut st) = shared_state.lock() { st.mark_flux(); }
+                    }
+                    if let Some(detector) = strikes.as_mut() {
+                        match detector.push(&resampled[resampled.len() - HOP_LENGTH..]) {
+                            Ok((_, struck)) => {
+                                if let Ok(mut st) = shared_state.lock() { st.mark_strikes(&struck); }
+                            }
+                            Err(e) => {
+                                eprintln!("🎯 strike detector stopped: {e}");
+                                strikes = None;
+                            }
+                        }
                     }
                     // The baseline falls fast and rises slowly; otherwise a long
                     // sustained chord would raise the threshold and swallow the
@@ -922,6 +966,7 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
         let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
         let mut short = ShortSpectrum::new();
         let mut flux = crate::flux::Flux::default();
+        let mut strikes = crate::strike::Strikes::load_any().ok().map(|(s, _)| s);
         let mut pos = 0;
         
         while pos + FFT_SIZE < samples.len() {
@@ -936,6 +981,10 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 .filter(|&(_, score)| score >= MONO_MIN_SCORE)
                 .map(|(note, _)| note);
             let attack = flux.push(short.of(chunk)).1;
+            let struck = strikes
+                .as_mut()
+                .and_then(|d| d.push(&chunk[FFT_SIZE - HOP_LENGTH..]).ok())
+                .map(|(_, s)| s);
             
             let sounding = crate::voices::voices(&cqt, 4)
                 .iter()
@@ -950,6 +999,9 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 if attack {
                     state.mark_flux();
                     state.mark_onset();
+                }
+                if let Some(struck) = &struck {
+                    state.mark_strikes(struck);
                 }
                 let mut frame = Vec::with_capacity(TOTAL_FEATURES);
                 frame.extend_from_slice(&cqt);
@@ -1083,6 +1135,9 @@ mod fill_tests {
             flux_age: u32::MAX,
             hops: 0,
             voices: 0,
+            class_strikes: [0; 12],
+            class_strike_age: [u32::MAX; 12],
+            strikes_live: false,
             frames_since_onset: 0,
             spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],

@@ -14,6 +14,7 @@ mod latch;
 mod rng;
 mod settings;
 mod state;
+mod strike;
 mod tab;
 mod voices;
 
@@ -762,6 +763,9 @@ fn main() -> Result<(), slint::PlatformError> {
         flux_age: u32::MAX,
         hops: 0,
         voices: 0,
+        class_strikes: [0; 12],
+        class_strike_age: [u32::MAX; 12],
+        strikes_live: false,
         frames_since_onset: 0,
         spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
@@ -969,6 +973,11 @@ fn main() -> Result<(), slint::PlatformError> {
         match ChordBrain::new(&model_path()) {
             Ok(_) => println!("✅ best_model_v2_take6.onnx"),
             Err(e) => { eprintln!("❌ model: {e}"); ok = false; }
+        }
+        // Optional: without it the app runs, judging repeats on older evidence.
+        match strike::Strikes::load_any() {
+            Ok((s, path)) => println!("✅ {path} (próg {:.2})", s.latch.threshold),
+            Err(e) => println!("⚠️  model uderzeń: {e} - powtórzenia bez niego"),
         }
         keep_console_open(console);
         std::process::exit(if ok { 0 } else { 1 });
