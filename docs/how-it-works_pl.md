@@ -27,12 +27,16 @@ wtedy okno modelu nie może zaliczyć dźwięku poprzedzającego ten pod palcami
 Cokolwiek jest wymagane dwa razy z rzędu — ten sam dźwięk dwukrotnie w arpeggiu, skala
 kończąca się powtórzoną prymą, ten sam akord zapisany dwa razy w utworze — musi zostać
 zagrane dwa razy. To, co wciąż brzmi z poprzedniego razu, pasuje w chwili, w której program
-prosi o to ponownie, więc zaliczenie wymaga świeżego uderzenia: odpowiedź głowicy ataków dla
-danego dźwięku musi przekroczyć 0,60. Akord wymaga dwóch takich uderzeń na własnych
-dźwiękach — zmierzone: pojedyncze potrafi odezwać się samo pod akordem, który tylko
-wybrzmiewa, dwa nie zdarzyły się ani razu.
+prosi o to ponownie, więc zaliczenie wymaga świeżego uderzenia. Dla dźwięku to odpowiedź
+detektora uderzeń dla jego klasy, patrz *Powtórzenia* niżej. Akord zażądany ponownie wymaga
+dowolnego uderzenia z tego detektora: uderzenie akordu zgłasza on jako jedną klasę, rzadko
+dwie, i nie odzywa się, gdy akord tylko wybrzmiewa. Na 17 uderzeniach prawdziwej gitary
+zauważył każde i żadnego z 17 wybrzmiewających akordów nie wziął za uderzenie; głowica ataków
+modelu, która rozstrzygała to wcześniej, zauważyła 9 i odezwała się pod wszystkimi 17, gdy
+wybrzmiewały.
 
-Wykrywacz obwiedni odpowiada na to pytanie wyłącznie w modelu, który nie ma głowicy ataków.
+Bez pliku detektora uderzeń decyduje jak dawniej głowica ataków, a wykrywacz obwiedni
+odpowiada na to pytanie wyłącznie w modelu, który nie ma głowicy ataków.
 Liczy on uderzenia na dowolnej strunie, więc w przebiegu z różnych dźwięków przesuwa się przy
 każdym z nich: w `1 2 3 4 5 6 7 1` sześć dźwięków między prymami uchodziłoby za ponowne
 uderzenie pierwszej prymy. Każdy dźwięk pamiętany jest osobno z pokrewnego powodu — pamięć o
@@ -159,7 +163,28 @@ gdzie nuta pada po żądaniu, czyli przy każdym zwykłym zaliczeniu.
 Przy wyłączonej grze pojedynczo, wyłączonej stałej kolejności i wyłączonym „zaliczaj tylko
 to, co uderzone" nie obowiązuje nic z tego: decyduje model i nic z nim nie dyskutuje,
 łącznie z przenoszeniem. To jest wybór, nie przeoczenie — reguły są po to, żeby egzamin był
-rzetelny, a tryb jest też czymś, na czym można pograć akordami dla przyjemności.
+rzetelny, a bez nich tryb zalicza akordy i pojedyncze dźwięki tak, jak słyszy je model.
+
+### Tylko to, co uderzone
+
+Przy włączonym „zaliczaj tylko to, co uderzone" głowica wysokości modelu może zaliczyć klasę
+tylko wtedy, gdy detektor uderzeń zgłosił jej uderzenie w ostatnich 22 krokach, czyli około
+0,35 s. Estymaty z pojedynczej ramki to nie dotyczy. Zmierzone przez cały potok sędziego —
+model akordowy co 40 ms, detektor co krok — wobec głowicy ataków modelu, która rozstrzygała
+to wcześniej:
+
+| | głowica ataków | detektor uderzeń |
+| --- | --- | --- |
+| AtoA, 51 pojedynczych dźwięków: zaliczone klasy, których nikt nie grał | 165 | **124** |
+| ... w tym przez gałęzie modelu | 57 | **0** |
+| 17 akordów uderzonych całą ręką: zaliczone składniki | **62** / 68 | 47 / 68 |
+| ... klasy spoza akordu | 48 | **42** |
+| 9 akordów granych arpeggiem: składniki / klasy spoza | 34 / 36, 30 | 32 / 36, **24** |
+
+Żaden pojedynczy dźwięk nie przepadł i żaden nie został zaliczony później. Kosztuje akord
+uderzony naraz: detektor zgłasza jedną klasę na uderzenie, więc model zalicza tę jedną,
+a resztę musi nazwać ucho. Pozostałe 124 fałszywe zaliczenia przechodzą przez estymatę, której
+ta opcja nie dotyczy. Bez pliku detektora decyduje jak dawniej głowica ataków.
 
 ### Które dźwięki brzmią
 

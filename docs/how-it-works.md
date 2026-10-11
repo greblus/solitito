@@ -27,11 +27,14 @@ one under your fingers.
 Whatever is asked for twice in a row — the same note twice in an arpeggio, a scale closing on
 its root, the same chord written twice in a song — has to be played twice. What is still
 ringing from the time before matches the moment it is asked for again, so passing needs a
-fresh strike: the attack head's answer for the note in question has to cross 0.60. A chord
-asks for two such strikes on its own notes — measured, a single one fires by itself under a
-chord that is merely ringing, and two do not.
+fresh strike. For a note that is the strike detector's answer for its class, see *Repeats*
+below. A chord asked for again needs any strike from that detector at all: it reports a strum
+as one class, seldom two, and does not fire while a chord only rings. On 17 strums of a real
+guitar it saw every one and took none of the 17 ringing chords for a strum; the model's attack
+head, which judged this before, saw 9 and fired under all 17 while they rang.
 
-The envelope detector answers this only for a model that has no attack head at all. It
+Without the strike detector's file, the attack head decides as before, and the envelope
+detector answers this only for a model that has no attack head at all. It
 counts attacks on any string, so in a run of different notes it moves on every one of them:
 in `1 2 3 4 5 6 7 1` the six notes between the two roots would have counted as the first
 root being struck again. Every note is remembered separately for a related reason —
@@ -153,8 +156,29 @@ where the note is played after it is asked for, which is every ordinary credit.
 
 With single-note playing, the fixed order and "only what was struck" all switched off, none
 of this applies: the model decides and nothing argues with it, carry-over included. That is
-a choice, not an oversight - the rules exist to make a test honest, and the mode is also a
-thing to play chords on for fun.
+a choice, not an oversight - the rules exist to make a test honest, and with them off the
+mode credits chords and single notes as the model hears them.
+
+### Only what was struck
+
+With "only what was struck" on, the model's pitch head may credit a class only while the
+strike detector reports that class struck within the last 22 hops, about 0.35 s. The
+single-frame estimate is not affected. Measured through the whole judge, with the chord model
+every 40 ms and the detector every hop, against the model's own attack head that decided this
+before:
+
+| | attack head | strike detector |
+| --- | --- | --- |
+| AtoA, 51 single notes: classes credited that nobody played | 165 | **124** |
+| ... of them through the model's branches | 57 | **0** |
+| 17 chords struck with the whole hand: chord tones credited | **62** / 68 | 47 / 68 |
+| ... classes outside the chord | 48 | **42** |
+| 9 chords played as arpeggios: chord tones credited / classes outside | 34 / 36, 30 | 32 / 36, **24** |
+
+No single note was missed and none credited later. The cost is a chord struck at once: the
+detector reports one class per strum, so the model credits that one and the ear has to name
+the rest. The 124 false credits that remain come through the estimate, which this option does
+not govern. Without the detector's file the attack head decides, as before.
 
 ### Which notes are sounding
 
