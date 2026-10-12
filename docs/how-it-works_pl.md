@@ -122,7 +122,7 @@ Między nim a sędzią stoją dwie rzeczy:
   sygnału spada — mediana 0,95 tego, co było, wobec 3,3 przy prawdziwych atakach. W ćwiczeniu
   klasa wraca dopiero po zaliczeniu, 0,35 s pokazu skończonego zestawu i odpowiedzi grającego,
   więc nic prawdziwego na tym nie przepada.
-- **Sprawdzenie energii przy ponownym odpaleniu klasy w ciągu 2 s.** Refrakcja nie sięga
+- **Sprawdzenie energii przy ponownym odpaleniu klasy w ciągu 3 s.** Refrakcja nie sięga
   dość daleko: na trzech nagraniach użytkownika model odpalił tę samą klasę ponownie w ciągu
   2 s 37 razy, w dwóch grupach bez niczego pomiędzy — 29 przy energii stojącej albo spadającej
   (0,89–1,03 tego, co było), czyli nuta wygasała, i 8 przy skoku 3,7–49 razy, czyli struna
@@ -130,7 +130,10 @@ Między nim a sędzią stoją dwie rzeczy:
   klasę, 0,67 s po uderzeniu — i to było jedyne fałszywe powtórzenie z testu z gitarą. Takie
   odpalenie czeka więc 32 ms i liczy się tylko wtedy, gdy energia wzrosła o ćwierć. Czekanie
   jest istotne: bramka decydująca w chwili odpalenia odrzucała prawdziwe ponowne uderzenia,
-  bo nowa nuta ledwie weszła wtedy w okno.
+  bo nowa nuta ledwie weszła wtedy w okno. Najpierw sprawdzenie sięgało 2 s, aż wybrzmiewające
+  B♭ odpaliło ponownie 2,43 s po uderzeniu i zaliczyło się w następnym akordzie. Na 113 nutach
+  użytkownika wybrzmiewających w akord, który też je zawierał, 3 s usunęły ten przypadek i nie
+  zmieniły nic innego; 4 s nie dodały nic.
 
 Zmierzone na każdej przesłuchanej nucie AtoA, sklejonej w nowe sygnały — sama nuta,
 wybrzmiewająca, oraz ta sama nuta uderzona ponownie po 0,8 i 1,2 s, przy czym kostka gasi
@@ -208,6 +211,15 @@ dźwięk, którego detektor nie zgłosił, przychodzi później, a nie przepada.
 388 zaliczeń, nie zginęło nic, co aplikacja zaliczała wcześniej. Uderzony akord oddał jeden
 składnik z 68. 22 i 30 kroków nie dały nic ponad 16. Bez pliku detektora uchu wierzy się od
 razu, jak dawniej.
+
+Ucho myli też koniec dźwięku. Gdy nuta wygasa, estymata potrafi ustalić się na innej klasie —
+kwarcie wyżej, czyli dźwięku, którego trzecią harmoniczną jest ta nuta — i nazywać ją stabilnie
+od około 1,8 s. W Formułach znak nie wygasa, więc tam ucho zalicza tylko klasę, którą detektor
+uderzeń zgłosił w ostatnich 3 s. Włączone we wszystkich trybach zmniejszyło fałszywe
+zaliczenia na AtoA z 62 do 3, ale zgubiło 15 z 388 zaliczeń z sesji użytkownika — ciche nuty,
+grane legato, niskie struny, których detektor nie widzi — i większość składników uderzonego
+akordu, dlatego pozostałe tryby obywają się bez niego. W Formułach kosztuje to cichą albo
+legato nutę, którą trzeba zagrać jeszcze raz kostką.
 
 ### Które dźwięki brzmią
 

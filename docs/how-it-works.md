@@ -118,7 +118,7 @@ between it and the judge:
   moments the signal is losing energy - a median 0.95 of what it had been, against 3.3 at real
   attacks. In the exercises a class comes back only after a credit, the 0.35 s the finished
   set is shown for, and the player's reply, so nothing real is lost to it.
-- **An energy check on a class fired again within 2 s.** The refractory does not reach far
+- **An energy check on a class fired again within 3 s.** The refractory does not reach far
   enough: on the user's three recordings the model fired a class again within 2 s of itself 37
   times, in two groups with nothing between - 29 with the energy flat or falling (0.89 to 1.03
   of what it had been), the note dying away, and 8 with it jumping 3.7 to 49 times, a string
@@ -126,6 +126,9 @@ between it and the judge:
   was the one false repeat the user saw in testing. So such a re-fire waits 32 ms and counts
   only if the energy rose by a quarter. Waiting matters: a gate that decided at the moment of
   firing refused real re-strikes, because the new note had barely entered the window then.
+  The check reached 2 s at first, until a ringing Bb fired again 2.43 s after its strike and
+  was credited in the next chord. Of 113 of the user's notes left ringing into a chord that
+  had them too, 3 s took that one out and changed nothing else; 4 s added nothing.
 
 Measured on every reviewed note of AtoA spliced into new signals - the note alone, ringing out,
 and the same note struck again 0.8 and 1.2 s later, with the pick stopping the old vibration:
@@ -202,6 +205,15 @@ No note of AtoA was missed or credited later. On four sessions of the user's own
 credits, nothing was lost that the app credited before. A strummed chord gave up one tone of
 68. 22 and 30 hops did nothing that 16 did not. Without the detector's file the ear is
 believed at once, as before.
+
+The end of a note misleads the ear too. As it dies away the estimate can settle on another
+class - a fourth above, the note whose third harmonic it is - and name it steadily from about
+1.8 s on. In Formulas a mark never expires, so there the ear credits only a class the strike
+detector reported struck in the last 3 s. Tried in every mode, it took AtoA's false credits
+from 62 to 3, but lost 15 of 388 credits of the user's sessions - quiet notes, legato ones,
+the low strings, which the detector does not see - and most of a strummed chord's tones, so
+the other modes do without it. In Formulas the price is a quiet or legato note that has to be
+picked again.
 
 ### Which notes are sounding
 

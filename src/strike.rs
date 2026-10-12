@@ -77,8 +77,13 @@ const FLOOR: f32 = 0.1;
 /// notes struck again 0.8 s later it let 3 of 51 through where this lets 48.
 pub const REFRACTORY: usize = 38;
 
-/// A class reported again within this many hops of its last strike - 2 s -
+/// A class reported again within this many hops of its last strike - 3 s -
 /// has to show the energy RISING around the new one before it counts.
+///
+/// It was 2 s until a ringing Bb fired again 2.43 s after its strike, with no
+/// rise at all, and was credited in the next chord. Of 113 notes of the
+/// user's sessions left ringing into a chord that had them too, 3 s took that
+/// one out and changed nothing else measured; 4 s added nothing.
 ///
 /// The refractory does not reach far enough: the model also fires on decaying
 /// notes later than 0.6 s. On the user's three recordings it fired a class
@@ -87,7 +92,7 @@ pub const REFRACTORY: usize = 38;
 /// away, the false repeat the user reported among them, at 0.67 s - and 8 at
 /// 3.7 to 48.8, a string struck again. Only one of the 29 happened to land when
 /// that class was being asked for, which is why it was seen once.
-const RECHECK: usize = 125;
+const RECHECK: usize = 188;
 
 /// Least energy rise a re-fire within `RECHECK` must show. The gap it sits in
 /// runs from 1.03 to 3.7. At 1.5 it also refused 6 of 51 notes of AtoA struck
@@ -685,6 +690,51 @@ mod diagnostics {
     /// Every hop's twelve probabilities and every reported strike, for scoring
     /// against labelled notes.
     ///
+    /// SOLITITO_STRIKE_WAVS=a.wav,b.wav: every time the model fires a class
+    /// again, how long after that class's last strike and how much the energy
+    /// rose - the measurement `RECHECK` and `REFIRE_RISE` stand on, with no
+    /// re-fire held back so the whole distribution shows.
+    #[test]
+    #[ignore = "diagnostic: requires SOLITITO_STRIKE_WAVS"]
+    fn refires_by_gap() -> Result<()> {
+        let mut rows = Vec::new();
+        for path in std::env::var("SOLITITO_STRIKE_WAVS")?.split(',') {
+            let (mono, rate) = mono_of(path, 0)?;
+            let signal = resample_like_trainer(&mono, rate);
+            let mut strikes = Strikes::load(MODEL)?;
+            strikes.refires.rise = 0.0;
+            let mut rms: VecDeque<f32> = VecDeque::new();
+            let mut last = [None::<usize>; 12];
+            for (n, hop) in signal.chunks_exact(HOP).enumerate() {
+                if rms.len() == 16 {
+                    rms.pop_front();
+                }
+                rms.push_back((hop.iter().map(|v| v * v).sum::<f32>() / HOP as f32).sqrt());
+                for pc in strikes.push(hop)?.1 {
+                    // The same window `Refires::rose` reads, decided LOOK_AHEAD hops on.
+                    let at = |back: usize| rms[rms.len() - 1 - back];
+                    let after = (0..=LOOK_AHEAD + 2).map(at).fold(0.0f32, f32::max);
+                    let before = (LOOK_AHEAD + 5..=LOOK_AHEAD + 8).map(at).sum::<f32>() / 4.0;
+                    if let Some(prev) = last[pc] {
+                        rows.push(((n - prev) as f32 * HOP as f32 / SR as f32, after / before.max(1e-9), path.to_string(), n));
+                    }
+                    last[pc] = Some(n);
+                }
+            }
+        }
+        for r in rows.iter().filter(|r| r.0 >= 2.0 && r.1 < 1.25) {
+            println!("low re-fire after {:.2} s: ratio {:.2} at {:.2} s in {}", r.0, r.1, r.3 as f32 * HOP as f32 / SR as f32, r.2);
+        }
+        for (lo, hi) in [(0.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 6.0), (6.0, 1e9)] {
+            let mut r: Vec<f32> = rows.iter().filter(|x| x.0 >= lo && x.0 < hi).map(|x| x.1).collect();
+            r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let low = r.iter().filter(|&&v| v < 1.25).count();
+            println!("gap {lo:>3}-{hi:<4} s: {:>4} re-fires, {low:>3} under 1.25, ratios {:?}",
+                     r.len(), r.iter().map(|v| (v * 100.0).round() / 100.0).collect::<Vec<_>>());
+        }
+        Ok(())
+    }
+
     /// SOLITITO_STRIKE_WAV=file.wav SOLITITO_STRIKE_OUTPUT=out.json
     #[test]
     #[ignore = "diagnostic: requires SOLITITO_STRIKE_WAV"]

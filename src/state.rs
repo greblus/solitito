@@ -94,6 +94,19 @@ const STRUCK_FRESH: u32 = 22;
 /// cost nothing; 16 hops did all that 22 and 30 did.
 const EAR_SETTLE: u32 = 16;
 
+/// In Formulas, hops back the strike detector must have reported a class for
+/// the ear to credit it at all: 3 s.
+///
+/// As a note dies away the estimate can settle on another class - a fourth
+/// above, the note whose third harmonic it is - and name it steadily from
+/// about 1.8 s on. A mark in Formulas never expires, so there it takes a
+/// strike. Measured with it everywhere: AtoA's false credits 62 -> 3, ringing
+/// notes credited in a next chord with no strike 20 -> 12 of 113 (the rest
+/// played, quietly). The cost kept it out of the other modes: 15 more of 388
+/// session credits lost - quiet notes, legato ones, the low strings, which
+/// the detector does not see - and a strummed chord's tones 46 -> 20 of 68.
+const EAR_BACKED: u32 = 188;
+
 /// Hops within which an attack still counts as happening now: about 0.2 s.
 ///
 /// Long enough to cover the ear settling on the note that was struck, short
@@ -1940,7 +1953,7 @@ impl MyApp {
         // option is ticked or not, and the checkbox is not offered.
         let one_at_a_time = self.one_at_a_time();
         if one_at_a_time {
-            if self.sounding_now() == Some(target) && !self.ear_settling(target) {
+            if self.sounding_now() == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
                 return Some(1);
             }
             let ear = self.steady_note();
@@ -1958,7 +1971,7 @@ impl MyApp {
         }
 
         // 1. One frame, one note - no window to smear across.
-        if self.cqt_pitch == Some(target) && !self.ear_settling(target) {
+        if self.cqt_pitch == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
             return Some(1);
         }
 
@@ -2016,6 +2029,15 @@ impl MyApp {
         self.strikes_live
             && self.class_strike_age.iter().any(|&age| age <= EAR_SETTLE)
             && self.class_strike_age[pc] > EAR_SETTLE
+    }
+
+    /// Whether the ear may credit `pc` at all: outside Formulas, or without
+    /// the detector, always; in Formulas only a class the detector reported
+    /// struck - see `EAR_BACKED`.
+    fn ear_backed(&self, pc: usize) -> bool {
+        !self.strikes_live
+            || self.app_mode != AppMode::Formulas
+            || self.class_strike_age[pc] <= EAR_BACKED
     }
 
     /// Whether `pc` was struck just now, for "credit only what was struck".
@@ -4119,6 +4141,34 @@ pub(crate) mod tests {
         detector_hop(&mut a, &[]);
         a.hears(Some(5));
         assert!(a.note_is_sounding(5, None, 0.0), "the ear was not believed once it settled");
+    }
+
+    /// In Formulas the ear credits only a class the detector struck within 3 s:
+    /// a dying note read as another one is not a mark. Elsewhere the ear is
+    /// believed as before.
+    #[test]
+    fn in_formulas_the_ear_needs_a_strike_behind_it() {
+        for formulas in [true, false] {
+            let mut a = app();
+            if formulas {
+                a.app_mode = AppMode::Formulas;
+            }
+            a.single_notes = true;
+            detector_hop(&mut a, &[10]);           // Bb struck
+            for _ in 0..=EAR_SETTLE {
+                detector_hop(&mut a, &[]);
+            }
+            a.hears(Some(10));
+            assert!(a.note_is_sounding(10, None, 0.0), "the struck Bb was refused");
+            a.hears(Some(3));                      // the dying Bb read as Eb
+            assert_eq!(a.note_is_sounding(3, None, 0.0), !formulas, "formulas = {formulas}");
+            for _ in 0..EAR_BACKED {
+                detector_hop(&mut a, &[]);
+            }
+            a.hears(Some(10));
+            assert_eq!(a.note_is_sounding(10, None, 0.0), !formulas,
+                       "a strike 3 s old still backed the ear, formulas = {formulas}");
+        }
     }
 
     /// Without the detector there is nothing to settle after.
@@ -6918,6 +6968,126 @@ mod repeat_harness {
         None
     }
 
+    /// The user's case: X credited in one chord, the chord changes while X
+    /// rings, and the next chord has X too - in any order. Returns when that
+    /// chord took a credit, which off a note only ringing it must not.
+    fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> (Option<f32>, bool) {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.chords = vec![
+            Chord { root: NoteName::from_index(pc), quality: ChordQuality::Major7 },
+            Chord { root: NoteName::from_index((pc + 5) % 12), quality: ChordQuality::Major7 },
+        ];
+        a.single_notes = true;
+        a.interval_in_order = false;
+        a.require_onset = true;
+        a.shuffle_chords = false;
+        a.reset_logic_state();
+        a.play_order = vec![0, 1];
+        a.play_pos = 0;
+        a.current_chord_index = 0;
+        a.update_collected_notes_size();
+
+        let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
+        let mut short = ShortSpectrum::new();
+        let mut flux = crate::flux::Flux::default();
+        let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).ok();
+        let mut buffer = vec![0.0f32; FFT_SIZE];
+        let mut switched = false;
+        let mut x_credited: Option<f32> = None;
+        for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
+            buffer.drain(..HOP_LENGTH);
+            buffer.extend_from_slice(hop);
+            let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
+            let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
+            let attack = flux.push(short.of(&buffer)).1;
+            let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
+            {
+                let mut st = a.analysis_state.lock().unwrap();
+                st.hops += 1;
+                st.flux_age = st.flux_age.saturating_add(1);
+                if attack {
+                    st.mark_flux();
+                    st.mark_onset();
+                }
+                if let Some(s) = &struck {
+                    st.mark_strikes(s);
+                }
+                if rms > gate {
+                    let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
+                    let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
+                    st.cqt_pitch = heard.map(|x| x % 12);
+                    st.cqt_semitone = heard;
+                    st.voices = crate::voices::voices(&cqt, 4).iter().fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
+                    st.gate_open = true;
+                } else {
+                    st.cqt_pitch = None;
+                    st.cqt_semitone = None;
+                    st.voices = 0;
+                    st.gate_open = false;
+                }
+                st.frames_seen += 1;
+            }
+            a.sync_audio_settings();
+            if x_credited.is_none() && a.credited[pc].is_some() {
+                x_credited = Some(t);
+            }
+            // The app moves on once the chord is done and shown for 0.35 s:
+            // never before X itself was credited there.
+            if !switched && x_credited.is_some_and(|c| t >= switch_at.max(c + 0.35)) {
+                a.advance_chord();
+                switched = true;
+            }
+            a.tick(HOP_LENGTH as f32 / SR);
+            if switched && a.current_chord_index == 1 && a.collected_notes.iter().any(|&c| c) {
+                if std::env::var("SOLITITO_RING_DEBUG").is_ok() {
+                    let classes: Vec<usize> = (0..12).filter(|&c| a.credited[c].is_some()).collect();
+                    eprintln!(
+                        "  X={pc} t={:.2}: ear {:?}, X strikes {} age {}, credit {:?}, why {:?}, credited {classes:?}",
+                        t, a.cqt_pitch, a.class_strikes[pc], a.class_strike_age[pc],
+                        a.credited[pc].map(|c| (c.class_strike, c.left)), why(&a, pc),
+                    );
+                }
+                return (Some(t), true);
+            }
+        }
+        (None, x_credited.is_some())
+    }
+
+    /// Real notes left ringing 3 s and more, from the user's sessions
+    /// (`dist/crediting_measurements/long-rings.csv`: wav,attack,pc,end), each
+    /// credited in one chord and still ringing into the next.
+    #[test]
+    #[ignore = "diagnostic: needs the session recordings"]
+    fn long_rings_into_the_next_chord() {
+        let rows: Vec<(String, f32, usize, f32)> =
+            std::fs::read_to_string("dist/crediting_measurements/long-rings.csv").unwrap()
+                .lines().skip(1).map(|l| {
+                    let f: Vec<&str> = l.split(',').collect();
+                    (f[0].to_string(), f[1].parse().unwrap(), f[2].parse().unwrap(), f[3].parse().unwrap())
+                }).collect();
+        let mut audio = std::collections::HashMap::<String, Vec<f32>>::new();
+        let (mut bad, mut late, mut n, mut never) = (0, 0, 0, 0);
+        for (wav, attack, pc, end) in &rows {
+            let signal = audio.entry(wav.clone()).or_insert_with(|| {
+                hound::WavReader::open(wav).unwrap().samples::<f32>().map(|s| s.unwrap()).collect()
+            });
+            let from = ((attack - 0.05) * SR) as usize;
+            let to = ((*end * SR) as usize).min(signal.len());
+            let mut seg = vec![0.0f32; (PRE * SR) as usize];
+            seg.extend_from_slice(&signal[from..to]);
+            n += 1;
+            let (outcome, credited) = judge_ringing_credited(&seg, *pc, PRE + 0.7, 0.001);
+            never += !credited as u32;
+            if let Some(t) = outcome {
+                bad += 1;
+                late += (t - PRE >= 2.0) as u32;
+                println!("credited while only ringing: {wav} at {attack:.2} s, class {pc}, {:.2} s after the strike", t - PRE);
+            }
+        }
+        println!("rings credited in the next chord: {bad}/{n}, of them 2 s or more after the strike: {late}; X never credited in the first chord: {never}");
+    }
+
     #[test]
     #[ignore = "diagnostic"]
     fn boundary_one_note() {
@@ -7397,7 +7567,15 @@ mod onset_sources {
                     let first = j.iter().filter(|(x, lit, _)| *x >= t - 0.6 && *x <= t + 0.6 && lit.iter().any(|l| l.0 == pc))
                         .map(|r| r.0).next();
                     match first {
-                        None => lost += 1,
+                        None => {
+                            lost += 1;
+                            if let Some(ans) = answers.iter().filter(|a| a.t <= t).last() {
+                                let recent: Vec<(usize, u32)> = (0..12)
+                                    .filter(|&c| ans.strike_age[c] <= 188).map(|c| (c, ans.strike_age[c])).collect();
+                                println!("  lost {:?}: t {t:.2} class {pc}, its last strike {} hops back, struck in 3 s: {recent:?}",
+                                         s, ans.strike_age[pc]);
+                            }
+                        }
                         Some(x) if x > t + 0.1 => late += 1,
                         _ => {}
                     }
