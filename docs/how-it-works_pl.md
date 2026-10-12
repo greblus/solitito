@@ -186,6 +186,29 @@ uderzony naraz: detektor zgłasza jedną klasę na uderzenie, więc model zalicz
 a resztę musi nazwać ucho. Pozostałe 124 fałszywe zaliczenia przechodzą przez estymatę, której
 ta opcja nie dotyczy. Bez pliku detektora decyduje jak dawniej głowica ataków.
 
+### Ucho tuż po uderzeniu
+
+Estymata czyta ramkę pół sekundy, więc tuż po ataku słyszy naraz poprzedni dźwięk i nowy, i
+przez chwilę nie potrafi nazwać żadnego: po C dźwięk D był czytany jako F przez 13 kroków —
+0,2 s — zanim się ustalił. W Formułach jeden taki odczyt to znak do końca ćwiczenia; tak
+zagranie prymy formuły od D zaliczało jej b3, F.
+
+Dlatego przez 16 kroków, około 0,25 s, po uderzeniu zgłoszonym przez detektor ucho może
+zaliczyć tylko klasę, którą detektor zgłosił jako uderzoną. Potem znów mu się wierzy, więc
+dźwięk, którego detektor nie zgłosił, przychodzi później, a nie przepada.
+
+| | wcześniej | teraz |
+| --- | --- | --- |
+| AtoA, akordy dozwolone: zaliczone klasy, których nikt nie grał | 124 | **62** |
+| AtoA, pojedynczo | 82 | **36** |
+| uderzone akordy, pojedynczo: klasy spoza akordu | 26 | **21** |
+| arpeggia, akordy dozwolone: klasy spoza akordu | 24 | **17** |
+
+Żaden dźwięk AtoA nie przepadł ani nie przyszedł później. Na czterech sesjach gry użytkownika,
+388 zaliczeń, nie zginęło nic, co aplikacja zaliczała wcześniej. Uderzony akord oddał jeden
+składnik z 68. 22 i 30 kroków nie dały nic ponad 16. Bez pliku detektora uchu wierzy się od
+razu, jak dawniej.
+
 ### Które dźwięki brzmią
 
 Widmo jest **tłumaczone**, nie rankowane. Bierze się najmocniejszego kandydata, odejmuje

@@ -180,6 +180,29 @@ detector reports one class per strum, so the model credits that one and the ear 
 the rest. The 124 false credits that remain come through the estimate, which this option does
 not govern. Without the detector's file the attack head decides, as before.
 
+### The ear just after a strike
+
+The estimate reads a frame of half a second, so just after an attack it hears the note before
+and the new one together, and for a moment it can name neither: after a C, a D was read as F
+for 13 hops - 0.2 s - before it settled. In Formulas one such reading is a mark for the rest
+of the exercise; this is how playing the root of a formula on D credited its b3, F.
+
+So for 16 hops, about 0.25 s, after the strike detector reports a strike, the ear may credit
+only a class the detector reported struck. Afterwards it is believed again, so a note the
+detector did not report is late, not lost.
+
+| | before | now |
+| --- | --- | --- |
+| AtoA, chords allowed: classes credited that nobody played | 124 | **62** |
+| AtoA, one note at a time | 82 | **36** |
+| strummed chords, one note at a time: classes outside the chord | 26 | **21** |
+| arpeggios, chords allowed: classes outside the chord | 24 | **17** |
+
+No note of AtoA was missed or credited later. On four sessions of the user's own playing, 388
+credits, nothing was lost that the app credited before. A strummed chord gave up one tone of
+68. 22 and 30 hops did nothing that 16 did not. Without the detector's file the ear is
+believed at once, as before.
+
 ### Which notes are sounding
 
 The spectrum is explained rather than ranked. The strongest candidate is taken, the partial

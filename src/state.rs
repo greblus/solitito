@@ -82,6 +82,18 @@ const ONSET_MIN: f32 = 0.02;
 /// the rest wait for the ear.
 const STRUCK_FRESH: u32 = 22;
 
+/// Hops after the strike detector reports a strike during which the ear may
+/// credit only a class the detector reported struck: about 0.25 s.
+///
+/// The FFT window is half a second wide, so just after an attack it holds the
+/// note before and the new one together, and the estimate wanders - after C,
+/// a D read as F for 13 hops before it settled. In Formulas that one reading
+/// is a mark for the rest of the exercise. Measured on AtoA, the ear's false
+/// credits went from 124 to 62 (82 to 36 one note at a time) with no note
+/// missed or later; on four sessions of the user's playing, 388 credits, it
+/// cost nothing; 16 hops did all that 22 and 30 did.
+const EAR_SETTLE: u32 = 16;
+
 /// Hops within which an attack still counts as happening now: about 0.2 s.
 ///
 /// Long enough to cover the ear settling on the note that was struck, short
@@ -1928,7 +1940,7 @@ impl MyApp {
         // option is ticked or not, and the checkbox is not offered.
         let one_at_a_time = self.one_at_a_time();
         if one_at_a_time {
-            if self.sounding_now() == Some(target) {
+            if self.sounding_now() == Some(target) && !self.ear_settling(target) {
                 return Some(1);
             }
             let ear = self.steady_note();
@@ -1946,7 +1958,7 @@ impl MyApp {
         }
 
         // 1. One frame, one note - no window to smear across.
-        if self.cqt_pitch == Some(target) {
+        if self.cqt_pitch == Some(target) && !self.ear_settling(target) {
             return Some(1);
         }
 
@@ -1996,6 +2008,14 @@ impl MyApp {
             && matches!(ai_root, Some(r) if r == NoteName::from_index(target))
             && confidence >= self.chord_confidence;
         if by_root { Some(4) } else { None }
+    }
+
+    /// Whether the ear is still settling after a strike of some OTHER class -
+    /// see `EAR_SETTLE`. Without the detector it never is.
+    fn ear_settling(&self, pc: usize) -> bool {
+        self.strikes_live
+            && self.class_strike_age.iter().any(|&age| age <= EAR_SETTLE)
+            && self.class_strike_age[pc] > EAR_SETTLE
     }
 
     /// Whether `pc` was struck just now, for "credit only what was struck".
@@ -4077,6 +4097,37 @@ pub(crate) mod tests {
         assert!(a.note_is_sounding(7, None, 0.0), "the strike went stale too early");
         detector_hop(&mut a, &[]);
         assert!(!a.note_is_sounding(7, None, 0.0), "a stale strike still counted as just now");
+    }
+
+    /// Just after a strike the ear may name only what was struck: its window
+    /// still holds the note before. Once it has settled, it is believed again,
+    /// so a note the detector did not report is late, not lost.
+    #[test]
+    fn the_ear_settles_after_a_strike_of_another_class() {
+        let mut a = app();
+        a.single_notes = true;
+        detector_hop(&mut a, &[2]);                // D struck
+        a.hears(Some(5));                          // the ear reads F
+        assert!(!a.note_is_sounding(5, None, 0.0), "the ear credited F right after D was struck");
+        a.hears(Some(2));
+        assert!(a.note_is_sounding(2, None, 0.0), "the struck D was refused");
+        for _ in 0..EAR_SETTLE {
+            detector_hop(&mut a, &[]);
+        }
+        a.hears(Some(5));
+        assert!(!a.note_is_sounding(5, None, 0.0), "the ear was believed before it settled");
+        detector_hop(&mut a, &[]);
+        a.hears(Some(5));
+        assert!(a.note_is_sounding(5, None, 0.0), "the ear was not believed once it settled");
+    }
+
+    /// Without the detector there is nothing to settle after.
+    #[test]
+    fn without_the_detector_the_ear_is_believed_at_once() {
+        let mut a = app();
+        a.single_notes = true;
+        a.hears(Some(5));
+        assert!(a.note_is_sounding(5, None, 0.0));
     }
 
     /// The answer for a class under a ringing chord hovers instead of falling
@@ -7187,6 +7238,39 @@ mod onset_sources {
         }
     }
 
+    /// Every false credit on AtoA, by its distance above the note being played
+    /// and the branch that let it through - with the detector, as the app runs.
+    #[test]
+    #[ignore = "diagnostic: needs AtoA.wav, the chord model and the strike model"]
+    fn false_credits_by_interval() {
+        const NAMES: [&str; 12] = ["1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"];
+        let (signal, labels) = super::repeat_harness::load_atoa_pub();
+        let (answers, hops) = answers(&signal, 0.001);
+        for one in [false, true] {
+            let j = judged(&answers, &hops, Source::Detector, one);
+            let mut seen = std::collections::BTreeSet::new();
+            let mut by = std::collections::BTreeMap::<(usize, u8), u32>::new();
+            for (i, &(t0, pc)) in labels.iter().enumerate() {
+                let end = labels.get(i + 1).map_or(t0 + 1.5, |n| n.0).min(t0 + 1.5);
+                for (t, lit, _) in j.iter().filter(|(t, _, _)| *t >= t0 && *t <= end) {
+                    let played: Vec<usize> = labels.iter()
+                        .filter(|(tl, _)| *tl >= t - 2.0 && *tl <= t + 0.05).map(|l| l.1).collect();
+                    for &(c, b) in lit {
+                        if c != pc && !played.contains(&c) && seen.insert((i, c)) {
+                            *by.entry(((c + 12 - pc) % 12, b)).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+            println!("\n{}: false credits by interval above the note played, and branch",
+                     if one { "one note at a time" } else { "chords allowed" });
+            for iv in 1..12 {
+                let row: Vec<String> = (1..=4).map(|b| by.get(&(iv, b)).copied().unwrap_or(0).to_string()).collect();
+                println!("  {:>3}: branch 1/2/3/4 = {}", NAMES[iv], row.join("/"));
+            }
+        }
+    }
+
     #[test]
     #[ignore = "diagnostic: needs AtoA.wav, the chord model and the strike model"]
     fn credit_gate_by_source() {
@@ -7197,7 +7281,7 @@ mod onset_sources {
         println!("answers {}, with a strike in the last 22 hops {}, strike events seen {}", answers.len(), fresh, strikes);
         let sources = [Source::Ungated, Source::OldHead, Source::Strikes(10), Source::Strikes(22),
                        Source::Strikes(38), Source::AnyStrike(22), Source::AnyStrike(38),
-                       Source::Strum(22), Source::Strum(38), Source::Detector];
+                       Source::Detector];
         for one in [false, true] {
             println!("\n{} ({} labelled notes)", if one { "one note at a time" } else { "chords allowed" }, labels.len());
             println!("{:<14} {:>6} {:>6} {:>7} {:>8}   false by branch 1/2/3/4", "source", "false", "notes", "missed", "p50 ms");
@@ -7215,7 +7299,12 @@ mod onset_sources {
     #[ignore = "diagnostic: needs a recording"]
     fn dump_recording() {
         let path = std::env::var("SOLITITO_WAV").unwrap();
-        let signal: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<f32>().map(|s| s.unwrap()).collect();
+        // "atoa" for the labelled reference, resampled as the harness reads it.
+        let signal: Vec<f32> = if path == "atoa" {
+            super::repeat_harness::load_atoa_pub().0
+        } else {
+            hound::WavReader::open(&path).unwrap().samples::<f32>().map(|s| s.unwrap()).collect()
+        };
         let (answers, hops) = answers(&signal, 0.001);
         let doc = serde_json::json!({
             "hops": hops.iter().map(|h| serde_json::json!([h.t, h.ear, h.voices, h.flux, h.struck, h.strike_p])).collect::<Vec<_>>(),
@@ -7248,7 +7337,7 @@ mod onset_sources {
         let (answers, hops) = answers(&signal, 0.001);
         let sources = [Source::Ungated, Source::OldHead, Source::Strikes(22),
                        Source::StrikeP(50, 22), Source::AnyStrike(22), Source::AnyStrike(38),
-                       Source::Strum(22), Source::Strum(38), Source::Detector];
+                       Source::Detector];
         let labelled = groups.iter().filter(|g| g.1.is_some()).count();
         for one in [false, true] {
             println!("\n{} - {path}, {labelled} chords", if one { "one note at a time" } else { "chords allowed" });
@@ -7284,4 +7373,38 @@ mod onset_sources {
             }
         }
     }
+
+    /// SOLITITO_WAV and SOLITITO_NOTES (t,pc - the credits a session's journal
+    /// wrote): does each source still credit what the app credited live, and
+    /// how much later. Where the detector missed a quiet note, a rule leaning
+    /// on it shows here as a note lost.
+    #[test]
+    #[ignore = "diagnostic: needs a session recording and its journal"]
+    fn session_credits_by_source() {
+        let path = std::env::var("SOLITITO_WAV").unwrap();
+        let signal: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<f32>().map(|s| s.unwrap()).collect();
+        let notes: Vec<(f32, usize)> = std::fs::read_to_string(std::env::var("SOLITITO_NOTES").unwrap())
+            .unwrap().lines().skip(1)
+            .map(|l| { let f: Vec<&str> = l.split(',').collect(); (f[0].parse().unwrap(), f[1].parse().unwrap()) })
+            .collect();
+        let (answers, hops) = answers(&signal, 0.001);
+        for one in [true, false] {
+            println!("\n{} - {path}, {} credits in the journal", if one { "one note at a time" } else { "chords allowed" }, notes.len());
+            for s in [Source::OldHead, Source::Detector] {
+                let j = judged(&answers, &hops, s, one);
+                let (mut lost, mut late) = (0, 0);
+                for &(t, pc) in &notes {
+                    let first = j.iter().filter(|(x, lit, _)| *x >= t - 0.6 && *x <= t + 0.6 && lit.iter().any(|l| l.0 == pc))
+                        .map(|r| r.0).next();
+                    match first {
+                        None => lost += 1,
+                        Some(x) if x > t + 0.1 => late += 1,
+                        _ => {}
+                    }
+                }
+                println!("{:<16} lost {lost:>3}   more than 0.1 s later {late:>3}", format!("{s:?}"));
+            }
+        }
+    }
 }
+
