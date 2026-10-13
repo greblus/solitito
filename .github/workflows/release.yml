@@ -167,10 +167,38 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The whole history, for the list of changes below.
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/download-artifact@v4
         with: { path: dist }
       - run: |
           find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec sha256sum {} +
+      - name: Release notes
+        # The subjects of the commits since the last release: a beta lists what
+        # changed since the tag before it, a release since the last release,
+        # skipping the betas between. GitHub's own generated notes are built
+        # from pull requests, and this repository has none.
+        run: |
+          set -eu
+          TAG="$GITHUB_REF_NAME"
+          case "$TAG" in
+            *-*) PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true) ;;
+            *)   PREV=$(git tag --list 'v*' --sort=-v:refname | grep -v -F -e '-' | grep -v -x -F -e "$TAG" | head -1) ;;
+          esac
+          {
+            echo 'Unpack and run `solitito.sh` (Linux) or `solitito.exe` (Windows).'
+            echo
+            echo 'The archive contains the binary, ONNX Runtime, the recognition model,'
+            echo 'the strike model and the pseudo-CQT weights. Nothing else is needed.'
+            if [ -n "$PREV" ]; then
+              echo
+              echo "### Changes since $PREV"
+              echo
+              git log --no-merges --format='- %s' "$PREV..$TAG" | grep -v -E '^- Version [0-9]' || true
+            fi
+          } > notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
           # A tag with a suffix - v0.5.8-beta1 - is a pre-release, and must not
@@ -179,8 +207,4 @@ jobs:
           files: |
             dist/linux/*.tar.gz
             dist/windows/*.zip
-          body: |
-            Unpack and run `solitito.sh` (Linux) or `solitito.exe` (Windows).
-
-            The archive contains the binary, ONNX Runtime, the recognition model,
-            the strike model and the pseudo-CQT weights. Nothing else is needed.
+          body_path: notes.md
