@@ -128,6 +128,9 @@ HIST_CSV   = f"training_history_{RUN_TAG}.csv"
 HIST_FT    = f"training_history_{RUN_TAG}_finetune.csv"
 LOG_TXT    = f"training_log_{RUN_TAG}.txt"
 ONNX_ONSET = f"best_model_{RUN_TAG}_onset.onnx"
+# The same network without the onset head: the file the app loads since 0.5.10,
+# when the strike detector took over everything the head was asked.
+ONNX_CHORDS = f"best_model_{RUN_TAG}_chords.onnx"
 CKPT_ONSET = f"checkpoint_{RUN_TAG}_onset.pth"
 
 # ---- Phase 4: the onset head ----
@@ -1153,6 +1156,16 @@ class ChordTransformer(nn.Module):
         for param in self.parameters():
             param.requires_grad = True
 
+
+class ChordsOnly(nn.Module):
+    """The chord outputs alone, for an export without the onset head."""
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return self.model(x)[:3]
+
 # ==========================================
 # METRYKI
 # ==========================================
@@ -1265,7 +1278,7 @@ def upload_file_safe(file_path, name_in_repo):
                         repo_id=HF_REPO_ID, repo_type="model")
     except: pass
 
-def export_onnx(model, save_path, threshold=0.5):
+def export_onnx(model, save_path, threshold=0.5, onset_head=True):
     """
     Exports the model to ONNX. Temporarily clears requires_grad on all parameters
     - the PyTorch ONNX exporter does not handle a mixed state (some frozen, some
@@ -1288,16 +1301,14 @@ def export_onnx(model, save_path, threshold=0.5):
         _fastpath_prev = None
     try:
         dummy_x = torch.randn(1, CTX_FRAMES, INPUT_FEATURES).to(device)
+        outputs = ["root_logits", "quality_logits", "pitch_logits"]
+        if onset_head:
+            outputs.append("onset_logits")
         torch.onnx.export(
-            model, (dummy_x,), save_path,
+            model if onset_head else ChordsOnly(model), (dummy_x,), save_path,
             input_names=["features"],
-            output_names=["root_logits", "quality_logits", "pitch_logits",
-                          "onset_logits"],
-            dynamic_axes={"features": {0: "batch"},
-                          "root_logits": {0: "batch"},
-                          "quality_logits": {0: "batch"},
-                          "pitch_logits": {0: "batch"},
-                          "onset_logits": {0: "batch"}},
+            output_names=outputs,
+            dynamic_axes={name: {0: "batch"} for name in ["features", *outputs]},
             # Torch 2.9+ exports through dynamo by default, which fixes the
             # batch at 1 and ignores dynamic_axes; the app runs batches of one,
             # but probe scripts and the tests do not.
@@ -2090,6 +2101,14 @@ def main():
     else:
         print("\n⏭️  Phase 4 skipped (RUN_PHASE4=False)")
 
+    # The app's file: phase 4's best weights, chord outputs only.
+    if RUN_PHASE4 and os.path.exists(os.path.join(WORK_DIR, CKPT_ONSET)):
+        best = torch.load(os.path.join(WORK_DIR, CKPT_ONSET), map_location='cpu', weights_only=False)
+        load_weights(model, best['model_state_dict'])
+        export_onnx(model, os.path.join(WORK_DIR, ONNX_CHORDS), onset_head=False)
+        upload_file_safe(os.path.join(WORK_DIR, ONNX_CHORDS), ONNX_CHORDS)
+        print(f"   💾 {ONNX_CHORDS}: the chord outputs, without the onset head")
+
     # The cache is NOT deleted - it is shared by every run with the same signal
     # parameters and rebuilding it costs tens of CPU minutes. Delete it by hand, or
     # uncomment the cleanup at the top of the file, after changing SR/HOP/N_BINS.
@@ -2106,11 +2125,11 @@ def main():
         print(f"   Exact Match: {m.get('chord_exact', 0):.1%}")
     # Without phase 3 the `_finetuned` file is never produced - calling it the
     # final model sent people after an artifact that does not exist.
-    # Phase 4 writes the last file, and it is the one the app wants: it carries
-    # the chord outputs unchanged under their old names plus the onset head.
+    # Phase 4's weights make the file the app wants, without the onset head;
+    # the one with it stays for builds before 0.5.10.
     final_onnx = ONNX_FT if RUN_PHASE3 else ONNX_BEST
-    if RUN_PHASE4 and os.path.exists(os.path.join(WORK_DIR, ONNX_ONSET)):
-        final_onnx = ONNX_ONSET
+    if RUN_PHASE4 and os.path.exists(os.path.join(WORK_DIR, ONNX_CHORDS)):
+        final_onnx = ONNX_CHORDS
     print(f"   Final model: {final_onnx}")
     print("="*60)
 
