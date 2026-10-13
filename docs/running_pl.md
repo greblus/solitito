@@ -21,7 +21,7 @@ Binarka wymaga dwóch plików w katalogu roboczym. `dsp_weights.json` znajduje s
 repozytorium; modelu tu nie ma, ponieważ waży 29 MB:
 
 ```bash
-curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_chords.onnx
 curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/short_onset_masking_v2.onnx
 ```
 

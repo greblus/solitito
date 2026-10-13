@@ -7,7 +7,7 @@ ani wag, ani wejścia, tylko aplikację:
 
 | plik aplikacji | co robi | trener |
 |---|---|---|
-| `best_model_v2_take6_onset.onnx` | pryma i rodzaj akordu, brzmiące dźwięki oraz starsza głowica ataków (wejście CQT) | `model_trainer.py` |
+| `best_model_v2_take6_chords.onnx` | pryma i rodzaj akordu oraz brzmiące dźwięki (wejście CQT) | `model_trainer.py` |
 | `short_onset_masking_v2.onnx` | która klasa wysokości została właśnie **uderzona** (wejście: krótkie widma) | `strike_trainer.py` |
 
 Aplikacja pobiera oba z <https://huggingface.co/greblus/solitito-ai>, a paczki
@@ -17,10 +17,10 @@ wydań mają je w środku. Jak aplikacja korzysta z modelu uderzeń, opisuje
 
 ## Model akordów: `model_trainer.py`
 
-To trener, który wytworzył `best_model_v2_take6_onset.onnx`. Zmieniły się w nim
-tylko dwie rzeczy: eksport ONNX jest przypięty do eksportera TorchScript
-(`dynamo=False`), a faza 4 nie trenuje ponownie, gdy jej checkpoint już
-istnieje. Na Kaggle: notebook z GPU, dołączony zbiór danych i sekret
+To trener, który wytworzył `best_model_v2_take6_onset.onnx`, z trzema zmianami:
+eksport ONNX jest przypięty do eksportera TorchScript (`dynamo=False`), faza 4
+nie trenuje ponownie, gdy jej checkpoint już istnieje, a plik dla aplikacji
+zapisuje się bez głowicy ataków. Na Kaggle: notebook z GPU, dołączony zbiór danych i sekret
 `HF_TOKEN`. Wklej cały plik i uruchom. `RUN_TAG` nazywa przebieg.
 
 Ma cztery fazy, każda wznawiana ze swojego snapshotu na Hugging Face:
@@ -30,18 +30,19 @@ Ma cztery fazy, każda wznawiana ze swojego snapshotu na Hugging Face:
 3. dostrajanie głowic, wyłączone (`RUN_PHASE3 = False`);
 4. głowica ataków `fc_onset`, trenowana przy zamrożonej reszcie. Zapisuje
    `checkpoint_<RUN_TAG>_onset.pth` i `best_model_<RUN_TAG>_onset.onnx`,
-   czyli plik, który ładuje aplikacja.
+   czyli plik z czterema wyjściami, który ładują wersje sprzed 0.5.10.
+
+Z checkpointu fazy 4 trener zapisuje potem `best_model_<RUN_TAG>_chords.onnx`:
+tę samą sieć tylko z prymą, rodzajem i pitch, czyli plik, który ładuje
+aplikacja. Od 0.5.10 aplikacja nie czyta głowicy ataków — o tym, co uderzone,
+mówi model uderzeń — więc głowica zostaje tylko w checkpoincie, a sieć akordowa
+nie zmieniła się ani o bit.
 
 Przy `RUN_TAG = "v2_take6"` i `checkpoint_v2_take6_onset.pth` na Hugging Face
-faza 4 tylko eksportuje. Wyeksportowany plik odpowiada bit w bit tak samo jak
-wydany `best_model_v2_take6_onset.onnx`, na wszystkich czterech wyjściach.
-Ponowny trening nadpisałby checkpoint, z którego powstał plik aplikacji. Raz
-już się to stało, 20.09.2026. Nowa głowica ataków wymaga nowego `RUN_TAG`.
-
-Aplikacja czyta prymę, rodzaj i pitch, a także czwarte wyjście,
-`onset_logits`. Sędzia wciąż z niego korzysta: „Zaliczaj tylko to, co
-uderzone” i sprawdzenie, czy akord został uderzony. Model uderzeń działa obok
-niego, nie zamiast.
+faza 4 tylko eksportuje. Plik z czterema wyjściami odpowiada bit w bit tak samo
+jak wydany `best_model_v2_take6_onset.onnx`, a `best_model_v2_take6_chords.onnx`
+jak jego pierwsze trzy wyjścia. Ponowny trening fazy 4 nadpisałby checkpoint,
+z którego powstały te pliki. Raz już się to stało, 20.09.2026.
 
 ## Model uderzeń: `strike_trainer.py`
 

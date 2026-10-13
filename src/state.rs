@@ -66,10 +66,6 @@ const LAP_HOLD: f32 = 0.25;
 /// the run was rarely reached before the next note began. Four of five
 /// forgives one stray frame and still refuses a reading that cannot make up its
 /// mind: an estimate alternating between two classes reaches two, never three.
-/// How much attack the onset head has to report for a class to count as struck,
-/// when the option asking for one is on. Measured: at 0.02 two thirds of the
-/// model's false credits go and the played notes keep passing.
-const ONSET_MIN: f32 = 0.02;
 
 /// Hops after the strike detector reports a class within which that class
 /// counts as struck for "credit only what was struck": about 0.35 s.
@@ -136,41 +132,10 @@ const JUST_STRUCK: u32 = 22;
 /// shorter than the pause between one chord and the next.
 const GONE_QUIET: u32 = 19;
 
-/// A class counts as struck again when the head's answer for it rises past
-/// `ONSET_AGAIN`, having been under `ONSET_LOW` since the last one counted.
-///
-/// Both numbers are measured, on the six re-plucks of `dist/latency_material.py`.
-/// The head's answer does not settle after the spike - it wobbles - so at 0.40
-/// one pluck was counted as more than one: seven strikes for six plucks. At
-/// 0.60 it is exactly six for six. Higher costs recall: 0.80 sees only two.
-///
-/// Re-arming is relative, not absolute. On a single plucked string the answer
-/// does fall to nothing between plucks, but under a strummed chord left ringing
-/// it hovers - measured between 0.11 and 0.29 for a whole second - and an
-/// absolute floor of 0.10 would never re-arm, so the next strum could not be
-/// seen at all. A class is armed again once its answer drops below three tenths
-/// of the peak that counted the last strike, and never above `ONSET_LOW`.
-const ONSET_AGAIN: f32 = 0.60;
-const ONSET_LOW: f32 = 0.10;
-const ONSET_REARM: f32 = 0.3;
-
-/// How many strikes of the take6 onset head on a chord's own notes count as
-/// strumming it again, where the strike detector is not running. One is not
-/// enough: on the measured material a single class fired by itself while
-/// the chord merely rang, and the repeat passed untouched. Two never did, and
-/// a strum supplies two or more anyway - it caught all six re-strums, 0.20 to
-/// 0.33 s after the strings were hit.
-const CHORD_STRIKES: u32 = 2;
-
-/// How long the attack head may still be answering about a pluck already
-/// credited. Measured: its answer arrives 0.2 to 0.5 s after the string is hit,
-/// which is after the estimate has named the note and the step has been
-/// credited on it. Left alone, that late strike answers the NEXT step asking
-/// for the same note - the closing root of a run handing the next lap its first
-/// step, off nothing but its own ringing. While it lasts, and while the same
-/// note is still the one the estimate reads, the credit keeps up with the
-/// counter instead.
-const STRIKE_SETTLE: f32 = 0.5;
+/// How long after a credit its note cannot yet count as having left - see
+/// `Credit::left`. Set when a late attack answer had to be kept with the credit
+/// it belonged to, and kept because `left` is measured with it.
+const CREDIT_SETTLE: f32 = 0.5;
 
 /// How long the fretboard trainer keeps a note it has just credited on screen,
 /// green, before drawing the next one.
@@ -235,8 +200,6 @@ const LEFT_TICKS: u32 = 3;
 /// The attack counters as they stood when the current chord became the target.
 #[derive(Clone, Copy, Default, Debug)]
 struct ChordHeard {
-    /// The take6 onset head's, per class.
-    strike_id: [u32; 12],
     /// The envelope's.
     onset_id: u64,
     /// The strike detector's, per class.
@@ -248,8 +211,6 @@ struct ChordHeard {
 pub struct Credit {
     /// The envelope's attack count at that moment.
     pub onset: u64,
-    /// That class's own strike count, from the attack head.
-    pub strike: u32,
     /// Attacks the flux detector had counted, whatever their pitch.
     pub flux: u64,
     /// That class's own strike count from `strike::Strikes` at that moment.
@@ -260,12 +221,12 @@ pub struct Credit {
     pub octave: i8,
     /// What the single-frame estimate was reading, as an absolute semitone.
     pub semitone: Option<usize>,
-    /// Seconds left in which the head may still be answering about the pluck
-    /// this credit was earned on - see `STRIKE_SETTLE`.
+    /// Seconds left before the note can count as having left - see
+    /// `CREDIT_SETTLE`.
     pub settle: f32,
     /// Whether something else has been heard, steadily, since this note was
     /// credited. Then the note has stopped sounding and anything heard from it
-    /// afterwards is a fresh pluck - whether or not the attack head noticed.
+    /// afterwards is a fresh pluck - whether or not a detector noticed.
     pub left: bool,
 }
 
@@ -444,54 +405,25 @@ pub struct MyApp {
     /// credits the older one on level; the newer one only stands out by how much
     /// it rose, which is what this is for.
     pub prev_pitches: [f32; 12],
-    /// Probability that each pitch class was STRUCK in the last few frames, from
-    /// the model's onset head. All zeros with a model that has none.
+    /// "Credit only what was struck": the model's branches may credit a class
+    /// only while it counts as struck just now - see `struck_just_now`.
     ///
-    /// The distinction is the whole reason the head exists: measured on a real
-    /// recording, the pitch head is right about what SOUNDS in 94% of frames and
-    /// still leaves 78% of notes with some class lit that nobody played - an
-    /// open string ringing in sympathy is sounding, and so is the note before.
-    /// The model's two branches may only credit a class the onset head says was
-    /// STRUCK. Off by default; the option reads "credit only what was struck".
+    /// The pitch head answers what SOUNDS: measured on a real recording it is
+    /// right about that in 94% of frames and still leaves 78% of notes with
+    /// some class lit that nobody played - an open string ringing in sympathy
+    /// is sounding, and so is the note before. Off by default.
     ///
     /// Measured on a recording of single notes (`--probe`, 364 frames the app
     /// would ask about): of 83 credits the model would hand out for a class
     /// other than the one being played, two thirds carry no attack at all, and
     /// almost all of those are the PREVIOUS note still inside the model's
-    /// 0.77 s window - which is the very thing the head was trained to tell
-    /// apart. The notes themselves keep passing on the CQT branch, which this
+    /// 0.77 s window - which is what this tells apart. The notes themselves keep passing on the CQT branch, which this
     /// does not touch, so on that recording it costs nothing; an earlier
     /// measurement of the whole crediting rule put the cost at 4 missed notes
     /// in 49, so it is not free everywhere. Hence an option, not a default.
     pub require_onset: bool,
-    /// How many times each class has been STRUCK, by the model's onset head: a
-    /// counter per class, stepped when the head's answer for it crosses upward.
-    ///
-    /// The envelope detector cannot do this job. Its level is the RMS of a
-    /// 512 ms window, so a second pluck of a string already ringing barely
-    /// moves it: measured on the test material it caught 2 of 6 re-plucks,
-    /// where the head caught 6 of 6. What makes the head usable here and not as
-    /// a credit gate is that the class is already known - the question is only
-    /// "again?", not "which one".
-    pub strike_id: [u32; 12],
-    /// Whether a class has been quiet enough since its last counted strike for
-    /// the next rise to count as a new one.
-    onset_armed: [bool; 12],
-    /// Whether the model in use answers about attacks at all. An older
-    /// three-head model reports nothing but zeros, and everything that asks
-    /// "was this struck again" then falls back to the envelope detector.
-    onset_head_seen: bool,
-    /// The answer that counted each class's last strike. Re-arming is measured
-    /// against it - see `ONSET_REARM`.
-    onset_peak: [f32; 12],
-    pub last_onsets: [f32; 12],
-    /// Ticks since the model last answered. The app asks it only once the
-    /// context window is nine tenths full, which after a pause is 688 ms of
-    /// playing - so between phrases this runs away and the head's answer is
-    /// about a note that has already gone.
-    onset_age: u32,
-    /// Judge formulas the strict way - the steady single-frame estimate with
-    /// the onset head vouching for it - instead of the rule the note modes use.
+    /// Judge formulas the strict way - the steady single-frame estimate alone -
+    /// instead of the rule the note modes use.
     ///
     /// On by default: the loose rule credits whatever is sounding, which after
     /// a few notes is most of the formula. `SOLITITO_FORMULA_STRICT=0` gives
@@ -735,12 +667,6 @@ impl MyApp {
             last_pitches: [0.0; 12],
             prev_pitches: [0.0; 12],
             require_onset: false,
-            strike_id: [0; 12],
-            onset_armed: [true; 12],
-            onset_head_seen: false,
-            onset_peak: [1.0; 12],
-            last_onsets: [0.0; 12],
-            onset_age: u32::MAX,
             strict_formulas: std::env::var("SOLITITO_FORMULA_STRICT")
                 .map(|v| v != "0")
                 .unwrap_or(true),
@@ -1304,8 +1230,6 @@ impl MyApp {
     fn forget_what_was_heard(&mut self) {
         self.last_pitches = [0.0; 12];
         self.prev_pitches = [0.0; 12];
-        self.last_onsets = [0.0; 12];
-        self.onset_age = u32::MAX;
         self.ear_window = [None; EAR_WINDOW];
         self.cqt_run_pitch = None;
         self.cqt_run = 0;
@@ -1318,7 +1242,6 @@ impl MyApp {
         self.interval_silence = 0.0;
         self.judged_frame = self.audio_frames;
         self.chord_heard_at = ChordHeard {
-            strike_id: self.strike_id,
             onset_id: self.onset_id,
             class_strikes: self.class_strikes,
         };
@@ -1654,7 +1577,6 @@ impl MyApp {
         if self.interval_model_age >= INTERVAL_MODEL_AGE {
                 self.last_pitches = [0.0; 12];
             self.prev_pitches = [0.0; 12];
-            self.last_onsets = [0.0; 12];
             self.last_ai_root = None;
             self.last_ai_conf = 0.0;
         }
@@ -1709,33 +1631,6 @@ impl MyApp {
             return;
         }
         self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
-    }
-
-    /// A fresh answer from the model's onset head.
-    ///
-    /// Set through this rather than by hand: the age is what tells a gate that
-    /// knows something from one repeating an answer about a note long gone.
-    pub fn set_onsets(&mut self, v: [f32; 12]) {
-        // A strike is a crossing, not a level: the head's answer lingers for a
-        // few hundred milliseconds after the pluck, so counting "above the
-        // threshold" would call one strike several. It is latched rather than
-        // compared with the previous frame, because the rise is gradual - 15,
-        // 25, 36, 41 over four frames on the measured material - and by the time
-        // it passes the threshold the frame before it is no longer low.
-        if v.iter().any(|&x| x > 0.0) {
-            self.onset_head_seen = true;
-        }
-        for c in 0..12 {
-            if v[c] < (ONSET_REARM * self.onset_peak[c]).max(ONSET_LOW) {
-                self.onset_armed[c] = true;
-            } else if self.onset_armed[c] && v[c] >= ONSET_AGAIN {
-                self.onset_armed[c] = false;
-                self.onset_peak[c] = v[c];
-                self.strike_id[c] = self.strike_id[c].wrapping_add(1);
-            }
-        }
-        self.last_onsets = v;
-        self.onset_age = 0;
     }
 
     /// Starts the standing formula again, exactly as it stands.
@@ -1855,21 +1750,16 @@ impl MyApp {
         //
         //   the three ways in together      110 false credits, 0 notes missed
         //   the steady estimate alone         33 false credits, 0 notes missed
-        //   and with the onset head           15 false credits, 4 notes missed
+        //   and with the take6 onset head     15 false credits, 4 notes missed
         //
         // So the model's pitch head is struck out here. It answers "what is
         // sounding", and a string ringing on - or one resonating in sympathy,
         // which is why the fourth and the fifth kept lighting up - is sounding
         // without having been played. It was 99 of those 110.
         //
-        // The onset head is not consulted. On a recording it looked the answer:
-        // sure about WHEN at 202 ms against the other paths' 676. Live it
-        // answered 0.09 for notes plainly being played, so as a gate it refused
-        // far more than it caught. That was measured while the model was asked
-        // only from a nine tenths full context window, which playing one note at
-        // a time never filled; it is asked from half a window now, so the
-        // reading is worth taking again before the head is written off. It is
-        // still read and printed, against a recording at playing speed.
+        // The take6 onset head was tried as a gate here and dropped: live it
+        // answered 0.09 for notes plainly being played, refusing far more than
+        // it caught. The strike detector backs the ear instead - `EAR_BACKED`.
         // In order: only the lowest function not yet marked off may count. The
         // set is written low to high, so this is the same set read as a line -
         // and nothing else is refused loudly, it simply does not count yet.
@@ -1885,10 +1775,7 @@ impl MyApp {
                 continue;
             };
             // Strict: the single-frame estimate, and it has to have been saying
-            // so. The onset head is NOT asked - live it answered 0.09 for notes
-            // plainly being played, so as a gate it refused more than it caught.
-            // It is still read and logged, to be measured against a recording
-            // at playing speed rather than argued about.
+            // so.
             //
             // Loose (the default): the rule the note modes use, any of the four
             // ways in at once. It credited 110 things nobody played over 49
@@ -1980,10 +1867,7 @@ impl MyApp {
 
         // 2. The model, where the target owns the window: a held note, or the
         //    only one in it.
-        // The head is believed only while it has something to say: an answer
-        // older than one frame is about a note that has already gone. The
-        // threshold is low on purpose - what is separated here is "struck" from
-        // "no attack at all", not loud from quiet.
+        // Struck just now, or the class is only ringing - see `struck_just_now`.
         let struck = !self.require_onset || self.struck_just_now(target);
         if struck && p_target >= self.note_threshold && p_target >= p_max * 0.9 {
             return Some(2);
@@ -2041,14 +1925,13 @@ impl MyApp {
     }
 
     /// Whether `pc` was struck just now, for "credit only what was struck".
-    /// The strike detector where it runs - see `STRUCK_FRESH` - and the onset
-    /// head otherwise, whose answer older than one frame is about a note that
-    /// has already gone.
+    /// The strike detector where it runs - see `STRUCK_FRESH`. Without it only
+    /// flux is left, which says that a string was hit but not which.
     fn struck_just_now(&self, pc: usize) -> bool {
         if self.strikes_live {
             return self.class_strike_age[pc] <= STRUCK_FRESH;
         }
-        self.onset_age <= 1 && self.last_onsets[pc] >= ONSET_MIN
+        self.flux_seen && self.flux_age <= FLUX_FRESH
     }
 
     /// Draws a fresh practice region: a set of strings and a fret window.
@@ -2101,7 +1984,6 @@ impl MyApp {
             self.last_ai_root = ai_root;
             self.last_ai_conf = confidence;
             self.interval_model_age = 0.0;
-            self.onset_age = self.onset_age.saturating_add(1);
             return;
         }
         self.check_progress(dt, ai_root, &ai_qual, confidence);
@@ -2109,7 +1991,6 @@ impl MyApp {
 
     fn check_progress(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
         if self.app_mode != AppMode::Intervals {
-            self.onset_age = self.onset_age.saturating_add(1);
             self.settle_credits(dt);
         }
 
@@ -2137,7 +2018,7 @@ impl MyApp {
             }
             let Some(target) = self.fret_target else { self.next_fret_target(); return; };
             // The same rule as the note modes': a note drawn twice in a row has
-            // to be struck twice. See `strike_id`.
+            // to be struck twice. See `struck_since_credit`.
             let fresh = self.struck_since_credit(target);
             if fresh && self.note_is_sounding(target, ai_root, confidence) {
                 self.success_timer += dt;
@@ -2259,7 +2140,7 @@ impl MyApp {
                 // the target is set and the progression runs itself.
                 if (exact_match || partial_match)
                     && self.chord_repeats(target_chord)
-                    && !self.chord_struck_since(&all_targets)
+                    && !self.chord_struck_since()
                 {
                     self.match_status = MatchStatus::None;
                     self.success_timer = 0.0;
@@ -2572,14 +2453,11 @@ impl MyApp {
     ///
     /// Otherwise the class's own strike counter has to have moved - and, where
     /// notes are played one at a time, the estimate must not be reading some
-    /// other note. The second half is what the strike counter cannot supply: the
-    /// attack head spreads an attack over notes nobody played, so the root
-    /// collects strikes of its own while the degrees above it are played, two
-    /// of them on the test run. Those strays land while the estimate is reading
-    /// the note actually being played, so they no longer pass.
+    /// other note: a strike reported for the wrong class lands while the
+    /// estimate reads the note actually being played, so it does not pass.
     ///
-    /// The envelope's attack counter stands in for the strike counter only for
-    /// a model with no attack head - the older three-head one.
+    /// Without the strike detector, flux - which says a string was hit, not
+    /// which - stands in, and the envelope where flux has never reported.
     fn struck_since_credit(&self, pc: usize) -> bool {
         let pc = pc % 12;
         let Some(c) = self.credited[pc] else {
@@ -2619,13 +2497,9 @@ impl MyApp {
                 return true;
             }
         }
-        // Pitch-blind, on purpose. `strike_id` came from the take6 onset head,
-        // which is asked WHICH class was struck and on AtoA's 51 notes answered
-        // 33 right, 50 in the wrong class and 18 duplicates. Both faults this
-        // gate was reported for follow from that: an interval ringing into the
-        // next chord passes because some class of the head fired, and a single
-        // pluck lights its own third and fifth because its harmonics live
-        // there.
+        // Pitch-blind, on purpose. The take6 onset head, asked WHICH class was
+        // struck, answered 33 of AtoA's 51 notes right, 50 in the wrong class
+        // and 18 twice.
         //
         // Whether a string was hit at all is a far easier question, and the
         // flux detector answers it without a class to get wrong: 47 of the same
@@ -2645,8 +2519,6 @@ impl MyApp {
         // the hit to be happening now.
         let struck = if self.flux_seen {
             self.flux_id != c.flux && self.flux_age <= FLUX_FRESH
-        } else if self.onset_head_seen {
-            self.strike_id[pc] != c.strike
         } else {
             self.onset_id != c.onset
         };
@@ -2656,11 +2528,9 @@ impl MyApp {
         struck && !(self.one_at_a_time() && elsewhere)
     }
 
-    /// See `STRIKE_SETTLE`: a strike still arriving from the pluck a note was
-    /// credited on belongs to that credit, not to the next step asking for the
-    /// same note.
+    /// Counts down each credit's `settle`, and marks a note `left` once it has
+    /// gone quiet - see `Credit::left`.
     fn settle_credits(&mut self, dt: f32) {
-        let (now, strikes) = (self.cqt_pitch, self.strike_id);
         // Steady, not any frame: the estimate flickers onto a ringing note for
         // a frame at a time, and a flicker is not the note stopping.
         let elsewhere = self.steady_note();
@@ -2671,14 +2541,11 @@ impl MyApp {
             if let Some(cr) = credit {
                 if cr.settle > 0.0 {
                     cr.settle = (cr.settle - dt).max(0.0);
-                    if now == Some(c) {
-                        cr.strike = strikes[c];
-                    }
                 }
                 // This note has gone quiet, and what is heard from it next is
                 // a new pluck. Without it a note asked for again a few steps
-                // later could not be credited at all when the attack head
-                // missed the pluck - the fretboard trainer stuck on a note that
+                // later could not be credited at all when no detector caught
+                // the pluck - the fretboard trainer stuck on a note that
                 // was plainly right.
                 //
                 // "Something else is the loudest thing" is not that note going
@@ -2766,7 +2633,6 @@ impl MyApp {
                 "strikes_live": self.strikes_live,
                 "left": self.credited[pc % 12].map(|c| c.left),
                 "onset": self.onset_id,
-                "onset_age": self.onset_age,
                 "top": top.iter().take(3).map(|&(i, v)| serde_json::json!([i, v])).collect::<Vec<_>>(),
             });
             self.journal_row("credit", row);
@@ -2778,12 +2644,11 @@ impl MyApp {
     fn credit_class_inner(&mut self, pc: usize, octave: i8) {
         self.credited[pc % 12] = Some(Credit {
             onset: self.onset_id,
-            strike: self.strike_id[pc % 12],
             flux: self.flux_id,
             class_strike: self.class_strikes[pc % 12],
             octave,
             semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
-            settle: STRIKE_SETTLE,
+            settle: CREDIT_SETTLE,
             left: false,
         });
     }
@@ -2807,23 +2672,15 @@ impl MyApp {
     /// The strike detector answers it with any strike at all: it reports a
     /// strum as one class, seldom two, and it does not fire on a chord that
     /// only rings. Measured on 17 strums of a real guitar (`onset_sources`):
-    /// every strum seen and no ringing chord taken for one, where the onset
-    /// head's two strikes on the chord's notes saw 9 strums and fired on all
-    /// 17 chords while they rang. Without the detector, the onset head or the
-    /// envelope as before. See `strike_id`.
-    fn chord_struck_since(&self, classes: &[usize]) -> bool {
+    /// every strum seen and no ringing chord taken for one, where the take6
+    /// onset head's two strikes on the chord's notes saw 9 strums and fired on
+    /// all 17 chords while they rang. Without the detector, the envelope.
+    fn chord_struck_since(&self) -> bool {
         let then = &self.chord_heard_at;
         if self.strikes_live {
             return self.class_strikes != then.class_strikes;
         }
-        if !self.onset_head_seen {
-            return self.onset_id != then.onset_id;
-        }
-        let struck: u32 = classes
-            .iter()
-            .map(|c| self.strike_id[c % 12].wrapping_sub(then.strike_id[c % 12]))
-            .sum();
-        struck >= CHORD_STRIKES
+        self.onset_id != then.onset_id
     }
 
     /// What is still sounding when the exercise moves on counts as already
@@ -3068,7 +2925,6 @@ pub(crate) mod tests {
         a.set_mode(AppMode::Intervals as i32);
         a.intervals_input = "1 1 3".into();
         a.reset_logic_state();
-        a.onset_head_seen = true;
         let root = a.chords[a.current_chord_index].root as usize;
         interval_audio(&mut a, Some(root), 40);
         assert_eq!(&a.collected_notes[..2], &[true, false], "one pluck counted twice");
@@ -3184,7 +3040,6 @@ pub(crate) mod tests {
         ];
         a.current_chord_index = 0;
         a.reset_logic_state();
-        a.onset_head_seen = true; // no artificial attack counters in this test
         for pc in [7, 4, 0] { interval_audio(&mut a, Some(pc), 12); }
         interval_audio(&mut a, Some(0), 40); // C rings through the transition
         assert_eq!(a.current_chord_index, 1);
@@ -3303,18 +3158,11 @@ pub(crate) mod tests {
         a.reset_logic_state();
         for pc in [7, 4, 0] { interval_pluck(&mut a, Some(pc), 12); }
         // C rings through the change: the ear goes on naming it, no new attack.
-        //
-        // And while it rings, the take6 onset head fires on C's class anyway -
-        // which is not a hypothetical, it is the 50-wrong-class behaviour that
-        // this gate was reported for. The old evidence therefore SAYS struck.
-        a.onset_head_seen = true;
-        a.strike_id[0] += 1;
         interval_audio(&mut a, Some(0), 40);
         assert_eq!(a.current_chord_index, 1);
         assert!(a.collected_notes.iter().all(|&done| !done));
-        // More ringing, and more spurious strikes, are still not a pluck.
+        // More ringing is still not a pluck.
         for _ in 0..4 {
-            a.strike_id[0] += 1;
             interval_audio(&mut a, Some(0), 15);
         }
         assert!(
@@ -3593,12 +3441,9 @@ pub(crate) mod tests {
         let mut best = 0;
         for _ in 0..120 {
             a.last_pitches = [0.0; 12];
-            a.last_onsets = [0.0; 12];
             for &pc in &tones {
                 a.last_pitches[pc] = 0.95;
-                a.last_onsets[pc] = 0.05;
             }
-            a.onset_age = 0;
             a.check_progress_with_ai(0.016, "Noise", 0.0);
             {
                 // Two of the grip's tones, not all of them.
@@ -3674,8 +3519,8 @@ pub(crate) mod tests {
     /// left at zero and these tests never move `flux_id`, so they go on
     /// exercising the older evidence - which is the fallback path and wants
     /// testing too.
-    fn credit(onset: u64, strike: u32) -> Credit {
-        Credit { onset, strike, flux: 0, class_strike: 0, octave: 0, semitone: None, settle: 0.0, left: false }
+    fn credit(onset: u64) -> Credit {
+        Credit { onset, flux: 0, class_strike: 0, octave: 0, semitone: None, settle: 0.0, left: false }
     }
 
     pub(crate) fn app() -> MyApp {
@@ -4007,46 +3852,11 @@ pub(crate) mod tests {
         }
         assert_eq!(a.current_chord_index, 1, "the ring passed the repeat by itself");
 
-        // Struck again: the attack head answers for the chord's own notes.
-        let mut v = [0.0; 12];
-        for c in [0, 4, 7, 11] { v[c] = 0.9; }     // C E G B
-        a.set_onsets(v);
+        // Struck again: without the strike detector, the envelope says so.
+        a.analysis_state.lock().unwrap().mark_onset();
+        a.sync_audio_settings();
         a.check_progress_with_ai(0.02, "C Maj7", 0.99);
         assert_ne!(a.current_chord_index, 1, "a real second strum was refused");
-    }
-
-    /// One note of the chord speaking up is not a strum. Measured on the
-    /// generated strums, a single class fired by itself while a chord merely
-    /// rang on; two never did.
-    #[test]
-    fn one_note_speaking_up_is_not_a_strum() {
-        let mut a = app();
-        a.app_mode = AppMode::Chords;
-        a.set_random_mode(false);
-        a.short_verdict = true;
-        a.transition_delay = 0.25;
-        a.chords = vec![
-            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
-            Chord { root: NoteName::C, quality: ChordQuality::Major7 },
-        ];
-        a.reset_logic_state();
-        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
-        let after_first = a.current_chord_index;
-        assert_eq!(after_first, 1, "the first strum did not pass");
-
-        let mut one = [0.0; 12];
-        one[4] = 0.9;                              // E alone
-        a.set_onsets(one);
-        for _ in 0..20 { a.check_progress_with_ai(0.02, "C Maj7", 0.99); }
-        assert_eq!(a.current_chord_index, after_first, "one note passed as a strum");
-
-        let mut two = [0.0; 12];
-        two[0] = 0.05; two[4] = 0.05; two[7] = 0.05;
-        a.set_onsets(two);                         // everything falls back
-        two[0] = 0.9; two[7] = 0.9;
-        a.set_onsets(two);
-        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
-        assert_ne!(a.current_chord_index, after_first, "two notes struck did not pass");
     }
 
     /// The detector's strikes, as the audio thread reports them, one hop of
@@ -4061,7 +3871,7 @@ pub(crate) mod tests {
     }
 
     /// With the strike detector running, a repeated chord waits for its strike,
-    /// not for the onset head - which fires while a chord only rings.
+    /// however long the chord rings.
     #[test]
     fn a_ringing_chord_is_not_a_strum_to_the_strike_detector() {
         let mut a = app();
@@ -4078,17 +3888,12 @@ pub(crate) mod tests {
         a.check_progress_with_ai(0.02, "C Maj7", 0.99);
         assert_eq!(a.current_chord_index, 1, "the first strum did not pass");
 
-        // Ringing: the onset head fires on the chord's own notes, the detector
-        // stays quiet.
-        let mut v = [0.0; 12];
-        for c in [0, 4, 7, 11] { v[c] = 0.9; }
+        // Ringing: the detector stays quiet.
         for _ in 0..20 {
-            a.set_onsets([0.0; 12]);
-            a.set_onsets(v);
             detector_hop(&mut a, &[]);
             a.check_progress_with_ai(0.02, "C Maj7", 0.99);
         }
-        assert_eq!(a.current_chord_index, 1, "the onset head passed a ringing chord as a strum");
+        assert_eq!(a.current_chord_index, 1, "a ringing chord passed as a strum");
 
         // One class reported is a strum: the detector rarely reports more.
         detector_hop(&mut a, &[4]);
@@ -4098,7 +3903,7 @@ pub(crate) mod tests {
 
     /// "Credit only what was struck" asks the detector which class was struck:
     /// the model's pitch head may credit that class, and only while the strike
-    /// is fresh - whatever the onset head says about the others.
+    /// is fresh.
     #[test]
     fn the_strike_detector_decides_what_the_model_may_credit() {
         let mut a = app();
@@ -4108,11 +3913,9 @@ pub(crate) mod tests {
         a.last_pitches = [0.0; 12];
         a.last_pitches[7] = 1.0;
         a.last_pitches[4] = 0.95;
-        a.last_onsets[4] = 1.0;
-        a.onset_age = 0;
         detector_hop(&mut a, &[7]);
         assert!(a.note_is_sounding(7, None, 0.0), "the struck class was refused");
-        assert!(!a.note_is_sounding(4, None, 0.0), "the onset head let an unstruck class through");
+        assert!(!a.note_is_sounding(4, None, 0.0), "an unstruck class passed");
         for _ in 0..STRUCK_FRESH {
             detector_hop(&mut a, &[]);
         }
@@ -4180,27 +3983,6 @@ pub(crate) mod tests {
         assert!(a.note_is_sounding(5, None, 0.0));
     }
 
-    /// The answer for a class under a ringing chord hovers instead of falling
-    /// to nothing, so re-arming is measured against the strike before it.
-    #[test]
-    fn a_strike_counts_over_a_ringing_chord() {
-        let mut a = app();
-        let pc = 0;
-        let mut v = [0.0; 12];
-        v[pc] = 0.9;
-        a.set_onsets(v);                           // struck
-        let first = a.strike_id[pc];
-        // It never falls below 0.10 again - the chord is still ringing.
-        for level in [0.40, 0.25, 0.20, 0.25] {
-            v[pc] = level;
-            a.set_onsets(v);
-        }
-        assert_eq!(a.strike_id[pc], first, "the hover counted as a strike");
-        v[pc] = 0.85;                              // struck again
-        a.set_onsets(v);
-        assert_eq!(a.strike_id[pc], first + 1, "the second strike was missed");
-    }
-
     /// A m7b5 has no shell of its own: the shell is root, seventh and third,
     /// and the flat fifth is the one note it leaves out. With shells the only
     /// shapes on screen, the m7 shell IS the shape asked for.
@@ -4217,32 +3999,6 @@ pub(crate) mod tests {
             for _ in 0..40 { a.check_progress_with_ai(0.02, "A m7", 0.99); }
             assert_eq!(a.prev_status(), want, "shells_only = {shells_only}");
         }
-    }
-
-    /// The strike has to be one of the chord's own notes. Something else being
-    /// plucked nearby does not pass the repeat.
-    #[test]
-    fn a_strike_elsewhere_does_not_pass_the_repeat() {
-        let mut a = app();
-        a.app_mode = AppMode::Chords;
-        a.set_random_mode(false);
-        a.short_verdict = true;
-        a.transition_delay = 0.25;
-        a.chords = vec![Chord { root: NoteName::C, quality: ChordQuality::Major7 }];
-        a.reset_logic_state();
-
-        a.check_progress_with_ai(0.02, "C Maj7", 0.99);
-        let after_first = a.current_chord_index;
-
-        let mut v = [0.0; 12];
-        v[1] = 0.9;                                 // Db, in no C Maj7
-        a.set_onsets(v);
-        let onset = a.onset_id;                     // and the envelope heard nothing
-        a.onset_id = onset;
-        for _ in 0..40 {
-            a.check_progress_with_ai(0.02, "C Maj7", 0.99);
-        }
-        assert_eq!(a.current_chord_index, after_first, "a stray note passed the chord");
     }
 
     /// Passing has to be visible, and on the right chord. Advancing changes
@@ -4622,17 +4378,15 @@ pub(crate) mod tests {
         a.set_mode(AppMode::Intervals as i32);
         a.last_pitches = [0.9; 12];
         a.prev_pitches = [0.8; 12];
-        a.set_onsets([0.5; 12]);
-        a.credited[3] = Some(credit(7, 0));
+        a.credited[3] = Some(credit(7));
 
         a.advance_chord();
 
         assert_eq!(a.last_pitches, [0.0; 12], "the previous chord came along");
-        assert_eq!(a.last_onsets, [0.0; 12]);
         // The credit is the exception: it outlives the chord on purpose, so
         // that the same note asked for on both sides of the boundary needs the
         // string struck again. It can only refuse, never credit.
-        assert_eq!(a.credited[3], Some(credit(7, 0)), "the credit was dropped at the boundary");
+        assert_eq!(a.credited[3], Some(credit(7)), "the credit was dropped at the boundary");
     }
 
     /// Entering a mode is a fresh start for the ear as well as for the exercise.
@@ -4641,15 +4395,13 @@ pub(crate) mod tests {
         let mut a = app();
         a.last_pitches = [0.9; 12];
         a.prev_pitches = [0.8; 12];
-        a.set_onsets([0.5; 12]);
-        a.credited[3] = Some(credit(7, 0));
+        a.credited[3] = Some(credit(7));
         a.cqt_pitch = Some(3);
 
         a.set_mode(AppMode::Intervals as i32);
 
         assert_eq!(a.last_pitches, [0.0; 12], "the model's last answer came along");
         assert_eq!(a.prev_pitches, [0.0; 12]);
-        assert_eq!(a.last_onsets, [0.0; 12], "an attack from before the switch");
         assert_eq!(a.credited[3], None, "a note credited in another mode still counted");
         // And nothing passes on it: the pitch head has nothing to say until the
         // next audio frame arrives.
@@ -4675,23 +4427,14 @@ pub(crate) mod tests {
         assert!(a.note_is_sounding(10, None, 0.0));
 
         a.require_onset = true;
-        let mut onsets = [0.0; 12];
-        onsets[0] = 0.4;                     // only C was struck
-        a.set_onsets(onsets);
+        detector_hop(&mut a, &[0]);          // only C was struck
+        a.cqt_pitch = Some(0);
         assert!(a.note_is_sounding(0, None, 0.0), "the struck note stopped passing");
         assert!(!a.note_is_sounding(10, None, 0.0), "the ringing note still counted");
-
-        // An answer from before this frame says nothing about now - checked
-        // with the CQT silent, since that branch credits on its own and this
-        // gate deliberately does not touch it.
+        // With the CQT silent the model's own branch answers for C - this gate
+        // deliberately leaves the estimate alone, so it is checked without it.
         a.cqt_pitch = None;
         assert!(a.note_is_sounding(0, None, 0.0), "the model lost its own branch");
-        a.check_progress_with_ai(0.016, "", 0.0);
-        a.check_progress_with_ai(0.016, "", 0.0);
-        assert!(
-            !a.note_is_sounding(0, None, 0.0),
-            "a stale answer from the head was taken for a fresh attack"
-        );
     }
 
     /// Dwa różne losowania pod jednym przyciskiem: kolejność akordów i kolejność
@@ -5092,10 +4835,7 @@ pub(crate) mod tests {
         for (n, step) in steps.iter().enumerate() {
             let pc = all[step.degree] % 12;
             // Played: the string struck, the estimate on it, the model too.
-            let mut v = [0.0; 12];
-            v[pc] = 0.9;
-            a.set_onsets(v);
-            a.set_onsets([0.0; 12]);
+            detector_hop(&mut a, &[pc]);
             a.last_pitches = [0.0; 12];
             a.last_pitches[pc] = 1.0;
             for _ in 0..4 {
@@ -5125,8 +4865,6 @@ pub(crate) mod tests {
         // The model is sure, loudly, and the ear says nothing: no credit.
         a.last_pitches = [0.0; 12];
         a.last_pitches[7] = 1.0;
-        a.last_onsets[7] = 1.0;
-        a.onset_age = 0;
         // The ear says nothing at all, so the model's pitch head may answer -
         // a note too quiet for the estimate has to stay playable.
         assert!(a.note_is_sounding(7, None, 0.0), "a quiet note became uncreditable");
@@ -5157,8 +4895,6 @@ pub(crate) mod tests {
         a.note_threshold = 0.5;
         a.last_pitches = [0.0; 12];
         a.last_pitches[7] = 1.0;
-        a.last_onsets[7] = 1.0;
-        a.onset_age = 0;
         a.hears(Some(2));                        // the ear on another note
         assert!(!a.note_is_sounding(7, None, 0.0), "the model overruled the ear");
         a.hears(Some(7));
@@ -5174,13 +4910,11 @@ pub(crate) mod tests {
         a.single_notes = false;
         a.require_onset = true;
         a.note_threshold = 0.5;
-        a.onset_age = 99;                        // nothing struck for a while
         assert!(
             !a.note_is_sounding(7, Some(NoteName::G), 1.0),
             "a chord name credited a note with no attack behind it"
         );
-        a.last_onsets[7] = 1.0;
-        a.onset_age = 0;
+        detector_hop(&mut a, &[7]);
         assert!(
             a.note_is_sounding(7, Some(NoteName::G), 1.0),
             "a struck note went uncredited"
@@ -5677,7 +5411,7 @@ pub(crate) mod tests {
         a.onset_id = 1;                            // strings struck again
         for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(
-            a.credited[target % 12], Some(credit(1, 0)),
+            a.credited[target % 12], Some(credit(1)),
             "a fresh attack on the right note did not count"
         );
     }
@@ -5710,9 +5444,7 @@ pub(crate) mod tests {
         for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, 0, "the ringing root opened the next pass");
 
-        let mut v = [0.0; 12];
-        v[root_pc] = 0.9;
-        a.set_onsets(v);                            // played again
+        detector_hop(&mut a, &[root_pc]);           // played again
         for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, 1, "a real second pluck did not count");
     }
@@ -5735,28 +5467,20 @@ pub(crate) mod tests {
         assert_eq!(pcs.first(), pcs.last(), "the run does not close on its root");
 
         // The run played note by note, each one left ringing. The estimate
-        // follows the newest string, and the head spreads every attack onto the
-        // root as well - which is what it does on the measured material.
+        // follows the newest string.
         let low = 24 + pcs[0];                      // where the run starts
-        let mut onsets;
         for (i, pc) in pcs.iter().take(steps.len() - 1).enumerate() {
             a.last_pitches[*pc] = 1.0;
             a.hears(Some(*pc));
             a.cqt_semitone = Some(low + [0, 2, 4, 5, 7, 9, 11][i]);
-            onsets = [0.0; 12];
-            onsets[*pc] = 0.9;
-            onsets[pcs[0]] = 0.7;                   // the stray
-            a.set_onsets(onsets);
-            a.set_onsets([0.0; 12]);                // and it falls back
             a.onset_id += 1;
             for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         }
-        assert!(a.strike_id[pcs[0]] > 1, "the strays did not reach the root's counter");
         assert_eq!(a.current_note_step, steps.len() - 1, "the run did not reach its last step");
 
-        // Nothing is played now. The opening root goes on ringing, its own
-        // counter has moved from the strays, and the estimate is reading the
-        // seventh degree - the string that was hit last.
+        // Nothing is played now. The opening root goes on ringing, the
+        // envelope's counter has moved, and the estimate is reading the seventh
+        // degree - the string that was hit last.
         for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, steps.len() - 1, "the opening root closed the run");
 
@@ -5766,45 +5490,6 @@ pub(crate) mod tests {
         a.cqt_semitone = Some(low + 12);
         for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, 0, "playing the closing root did not end the run");
-    }
-
-    /// The reported case, and the one the head's own latency causes: the strike
-    /// for the pluck that closed the run arrives after the step was credited on
-    /// it, and would then answer the next lap's first step off the same ringing
-    /// string.
-    #[test]
-    fn the_late_strike_belongs_to_the_pluck_that_earned_it() {
-        let mut a = app();
-        a.set_mode(AppMode::Scales as i32);
-        a.set_random_mode(false);
-        a.scale_repeat_root = true;
-        a.note_threshold = 0.5;
-        let chord = a.chords[0].clone();
-        let steps = a.get_active_indices(&chord);
-        let pc = chord.get_target_indices()[steps[0].degree] % 12;
-        let high = 24 + pc + 12;
-
-        // Standing on the closing root, just credited on the pluck that is
-        // still ringing and still what the estimate reads.
-        a.current_note_step = 0;
-        a.last_pitches[pc] = 1.0;
-        a.hears(Some(pc));
-        a.cqt_semitone = Some(high);
-        a.credit_class(pc, 1);
-
-        // The head answers about that pluck a third of a second later.
-        let mut v = [0.0; 12];
-        v[pc] = 0.9;
-        for _ in 0..3 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
-        a.set_onsets(v);
-        for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
-        assert_eq!(a.current_note_step, 0, "the pluck's own strike opened the next lap");
-
-        // Struck again, well after: that is a second pluck and it counts.
-        a.set_onsets([0.0; 12]);
-        a.set_onsets(v);
-        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
-        assert_eq!(a.current_note_step, 1, "a real second pluck did not count");
     }
 
     /// And the run that closes where it started, in the same octave - a shape
@@ -5834,18 +5519,17 @@ pub(crate) mod tests {
         assert_eq!(a.current_note_step, steps.len() - 1, "the ring closed the run");
 
         // Struck again, in the same octave, with the estimate reading it.
-        let mut v = [0.0; 12];
-        v[pc] = 0.9;
-        a.set_onsets(v);
+        detector_hop(&mut a, &[pc]);
+        a.hears(Some(pc));
+        a.cqt_semitone = Some(low);
         for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
         assert_eq!(a.current_note_step, 0, "a note played again in its own octave never counted");
     }
 
-    /// The onset head is the other way a repeat is recognised, and the one that
-    /// works when the string is still ringing: the envelope detector reads the
-    /// RMS of a 512 ms window, where a second pluck barely shows.
+    /// A second strike of the note just credited is a second pluck; the note
+    /// lingering is not.
     #[test]
-    fn a_second_strike_is_seen_by_the_onset_head() {
+    fn a_second_strike_is_seen_by_the_detector() {
         let mut a = app();
         a.single_notes = false;
         a.set_mode(AppMode::Fretboard as i32);
@@ -5853,29 +5537,21 @@ pub(crate) mod tests {
         a.note_threshold = 0.5;
         let target = a.fret_target.unwrap();
         let pc = target % 12;
+        detector_hop(&mut a, &[pc]);
         a.last_pitches = [0.0; 12];
         a.last_pitches[pc] = 1.0;
+        a.credit_class(pc, 0);                       // credited on that strike
 
-        // A strike: the head's answer for that class rises past the threshold.
-        let mut v = [0.0; 12];
-        v[pc] = 0.8;
-        a.set_onsets(v);
-        let first = a.strike_id[pc];
-        a.credit_class(pc, 0);                       // and it has been credited
-
-        // The answer lingering does not count as another strike.
-        a.set_onsets(v);
+        // The note lingering does not count as another strike.
         for _ in 0..10 {
+            detector_hop(&mut a, &[]);
             a.check_progress_with_ai(0.1, "Noise", 0.0);
             a.tick(0.1);
         }
-        assert_eq!(a.fret_target, Some(target), "a lingering answer counted as a new pluck");
+        assert_eq!(a.fret_target, Some(target), "a lingering note counted as a new pluck");
 
-        // Decayed and struck again: that is a second strike, with no help from
-        // the envelope detector, whose counter has not moved.
-        a.set_onsets([0.0; 12]);
-        a.set_onsets(v);
-        assert_ne!(a.strike_id[pc], first, "the crossing was not counted");
+        // Struck again: that is a second pluck.
+        detector_hop(&mut a, &[pc]);
         for _ in 0..10 {
             a.check_progress_with_ai(0.1, "Noise", 0.0);
             a.tick(0.1);
@@ -7206,20 +6882,9 @@ mod onset_sources {
 
     #[derive(Clone, Copy, Debug)]
     enum Source {
+        /// "Credit only what was struck" off.
         Ungated,
-        OldHead,
-        /// Struck, by the strike detector, within this many hops.
-        Strikes(u32),
-        /// The strike detector's raw probability, in percent, at least once
-        /// in this many hops - without its latch.
-        StrikeP(u32, u32),
-        /// Any class struck within this many hops lets every class through.
-        AnyStrike(u32),
-        /// Only the struck class, unless two or more were struck within this
-        /// many hops - a strum - which lets every class through.
-        Strum(u32),
-        /// What the judge itself reads with the detector running: its strike
-        /// ages, beside the onset head's answer.
+        /// On, with the strike detector running - the judge as the app runs it.
         Detector,
     }
 
@@ -7227,10 +6892,8 @@ mod onset_sources {
     struct Answer {
         t: f32,
         pitches: [f32; 12],
-        onsets: [f32; 12],
         strike_age: [u32; 12],
-        /// The strike detector's probabilities over the last 50 hops, newest last.
-        strike_p: Vec<[f32; 12]>,
+        class_strikes: [u32; 12],
         cqt_pitch: Option<usize>,
         root: Option<NoteName>,
         confidence: f32,
@@ -7249,7 +6912,8 @@ mod onset_sources {
     /// Runs the audio side once; every source is then judged on the same answers.
     fn answers(signal: &[f32], gate: f32) -> (Vec<Answer>, Vec<Hop>) {
         let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
-        let mut brain = crate::brain::ChordBrain::new("best_model_v2_take6_onset.onnx").unwrap();
+        let mut brain = crate::brain::ChordBrain::new(["best_model_v2_take6_chords.onnx", "best_model_v2_take6_onset.onnx"]
+            .into_iter().find(|f| std::path::Path::new(f).exists()).unwrap()).unwrap();
         let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).unwrap();
         let mut short = ShortSpectrum::new();
         let mut flux = crate::flux::Flux::default();
@@ -7258,7 +6922,6 @@ mod onset_sources {
         let (mut out, mut hops) = (Vec::new(), Vec::new());
         let mut next_model = 0.0f32;
         let parser = app();
-        let mut recent: std::collections::VecDeque<[f32; 12]> = Default::default();
         for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
             buffer.drain(..HOP_LENGTH);
             buffer.extend_from_slice(hop);
@@ -7266,10 +6929,6 @@ mod onset_sources {
             let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
             let attack = flux.push(short.of(&buffer)).1;
             let (strike_p, struck) = strikes.push(hop).unwrap();
-            if recent.len() == 50 {
-                recent.pop_front();
-            }
-            recent.push_back(strike_p);
             let mut st = a.analysis_state.lock().unwrap();
             st.hops += 1;
             st.flux_age = st.flux_age.saturating_add(1);
@@ -7306,8 +6965,8 @@ mod onset_sources {
                     let p = brain.predict(&st.input_history).unwrap();
                     let root = if fill >= MIN_FILL_CHORD { parser.parse_ai_prediction(&p.chord).0 } else { None };
                     out.push(Answer {
-                        t, pitches: p.pitches, onsets: p.onsets, strike_age: st.class_strike_age,
-                        strike_p: recent.iter().copied().collect(),
+                        t, pitches: p.pitches, strike_age: st.class_strike_age,
+                        class_strikes: st.class_strikes,
                         cqt_pitch: st.cqt_pitch, root, confidence: p.confidence,
                     });
                 }
@@ -7337,32 +6996,15 @@ mod onset_sources {
             a.cqt_pitch = ans.cqt_pitch;
             a.prev_pitches = a.last_pitches;
             a.last_pitches = ans.pitches;
-            a.set_onsets(match source {
-                Source::Ungated | Source::OldHead | Source::Detector => ans.onsets,
-                Source::Strikes(n) => std::array::from_fn(|c| if ans.strike_age[c] <= n { 1.0 } else { 0.0 }),
-                Source::AnyStrike(n) => {
-                    let any = ans.strike_age.iter().any(|&x| x <= n);
-                    [if any { 1.0 } else { 0.0 }; 12]
-                }
-                Source::Strum(n) => {
-                    let strum = ans.strike_age.iter().filter(|&&x| x <= n).count() >= 2;
-                    std::array::from_fn(|c| if strum || ans.strike_age[c] <= n { 1.0 } else { 0.0 })
-                }
-                Source::StrikeP(percent, n) => std::array::from_fn(|c| {
-                    let seen = ans.strike_p.iter().rev().take(n as usize).fold(0.0f32, |m, p| m.max(p[c]));
-                    if seen * 100.0 >= percent as f32 { 1.0 } else { 0.0 }
-                }),
-            });
-            // As `check_progress` does before judging.
-            a.onset_age = 1;
             if matches!(source, Source::Detector) {
                 a.strikes_live = true;
                 a.class_strike_age = ans.strike_age;
+                a.class_strikes = ans.class_strikes;
             }
             let lit = (0..12)
                 .filter_map(|c| a.sounding_by(c, ans.root, ans.confidence).map(|b| (c, b)))
                 .collect();
-            out.push((ans.t, lit, a.strike_id));
+            out.push((ans.t, lit, a.class_strikes));
         }
         out
     }
@@ -7449,9 +7091,7 @@ mod onset_sources {
         let fresh = answers.iter().filter(|a| a.strike_age.iter().any(|&x| x <= 22)).count();
         let strikes: usize = answers.windows(2).map(|w| (0..12).filter(|&c| w[1].strike_age[c] < w[0].strike_age[c]).count()).sum();
         println!("answers {}, with a strike in the last 22 hops {}, strike events seen {}", answers.len(), fresh, strikes);
-        let sources = [Source::Ungated, Source::OldHead, Source::Strikes(10), Source::Strikes(22),
-                       Source::Strikes(38), Source::AnyStrike(22), Source::AnyStrike(38),
-                       Source::Detector];
+        let sources = [Source::Ungated, Source::Detector];
         for one in [false, true] {
             println!("\n{} ({} labelled notes)", if one { "one note at a time" } else { "chords allowed" }, labels.len());
             println!("{:<14} {:>6} {:>6} {:>7} {:>8}   false by branch 1/2/3/4", "source", "false", "notes", "missed", "p50 ms");
@@ -7479,7 +7119,7 @@ mod onset_sources {
         let doc = serde_json::json!({
             "hops": hops.iter().map(|h| serde_json::json!([h.t, h.ear, h.voices, h.flux, h.struck, h.strike_p])).collect::<Vec<_>>(),
             "answers": answers.iter().map(|a| serde_json::json!({
-                "t": a.t, "pitches": a.pitches, "onsets": a.onsets, "root": a.root.map(|r| r as usize),
+                "t": a.t, "pitches": a.pitches, "root": a.root.map(|r| r as usize),
                 "confidence": a.confidence})).collect::<Vec<_>>(),
         });
         std::fs::write(std::env::var("SOLITITO_DUMP").unwrap(), serde_json::to_vec(&doc).unwrap()).unwrap();
@@ -7505,9 +7145,7 @@ mod onset_sources {
         let signal: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<f32>().map(|s| s.unwrap()).collect();
         let groups = chord_labels(&std::env::var("SOLITITO_LABELS").unwrap());
         let (answers, hops) = answers(&signal, 0.001);
-        let sources = [Source::Ungated, Source::OldHead, Source::Strikes(22),
-                       Source::StrikeP(50, 22), Source::AnyStrike(22), Source::AnyStrike(38),
-                       Source::Detector];
+        let sources = [Source::Ungated, Source::Detector];
         let labelled = groups.iter().filter(|g| g.1.is_some()).count();
         for one in [false, true] {
             println!("\n{} - {path}, {labelled} chords", if one { "one note at a time" } else { "chords allowed" });
@@ -7560,7 +7198,7 @@ mod onset_sources {
         let (answers, hops) = answers(&signal, 0.001);
         for one in [true, false] {
             println!("\n{} - {path}, {} credits in the journal", if one { "one note at a time" } else { "chords allowed" }, notes.len());
-            for s in [Source::OldHead, Source::Detector] {
+            for s in [Source::Detector] {
                 let j = judged(&answers, &hops, s, one);
                 let (mut lost, mut late) = (0, 0);
                 for &(t, pc) in &notes {

@@ -33,19 +33,18 @@ as one class, seldom two, and does not fire while a chord only rings. On 17 stru
 guitar it saw every one and took none of the 17 ringing chords for a strum; the model's attack
 head, which judged this before, saw 9 and fired under all 17 while they rang.
 
-Without the strike detector's file, the attack head decides as before, and the envelope
-detector answers this only for a model that has no attack head at all. It
-counts attacks on any string, so in a run of different notes it moves on every one of them:
-in `1 2 3 4 5 6 7 1` the six notes between the two roots would have counted as the first
+Without the strike detector's file, flux - an attack on any string, whatever its pitch -
+answers instead, and the envelope where flux never reports. Both count attacks on any
+string, so in a run of different notes they move on every one of them: in `1 2 3 4 5 6 7 1` the six notes between the two roots would have counted as the first
 root being struck again. Every note is remembered separately for a related reason —
 remembering only the note before would have forgotten the first root long before the last
 one is due.
 
 A note asked for a second time — the closing `1` of `1 2 3 4 5 6 7 1`, a degree the interval
-box marks with `'`, an arpeggio that comes back to where it began — needs more than the
-attack head alone, because the head spreads an attack over notes nobody played. While the
-six degrees above the root are played, the root collects strikes of its own: two of them on
-the test run, and in a fast run the head produced no strike for the closing root at all.
+box marks with `'`, an arpeggio that comes back to where it began — needs more than a strike
+counter alone. The model's old attack head, which counted strikes before the strike
+detector, spread an attack over notes nobody played: while the six degrees above the root
+were played, the root collected strikes of its own, two on the test run.
 
 Two things can settle it. The estimate reads an absolute pitch and not just a note name, so
 a note sounding six semitones or more from where it was read when it was credited is a
@@ -83,8 +82,8 @@ order. After the last note, the whole set stays green for 350 ms before the next
 Pause holds that transition; silence does not.
 
 A ringing note cannot credit its own repeat. Muting the input below the gate for at least
-200 ms allows that note to count again once the estimate hears it steadily, even if the
-onset head missed the new pluck. A missing CQT estimate with the gate open is not muting.
+200 ms allows that note to count again once the estimate hears it steadily, even if no
+detector caught the new pluck. A missing CQT estimate with the gate open is not muting.
 
 Where the single-frame estimate names a class, no other class may be credited off the
 model that frame. This holds in both orders; it used to run only in free order, and
@@ -181,7 +180,8 @@ before:
 No single note was missed and none credited later. The cost is a chord struck at once: the
 detector reports one class per strum, so the model credits that one and the ear has to name
 the rest. The 124 false credits that remain come through the estimate, which this option does
-not govern. Without the detector's file the attack head decides, as before.
+not govern. Without the detector's file only flux is left, which says that a string was hit
+but not which; the model's old attack head, which decided this before, is gone since 0.5.10.
 
 ### The ear just after a strike
 

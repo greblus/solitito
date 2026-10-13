@@ -500,16 +500,19 @@ fn model_path() -> String {
     if let Ok(p) = std::env::var("SOLITITO_MODEL") {
         return p;
     }
-    // The onset model first: it carries the three older outputs unchanged under
-    // their old names, so nothing that reads them notices, and it adds the head
-    // that says what was STRUCK. Falls back to the plain file where that one
-    // has not been fetched.
-    for name in ["best_model_v2_take6_onset.onnx", "best_model_v2_take6.onnx"] {
+    // The chord outputs alone first. The file with the old onset head carries
+    // the same three unchanged, so a package from before still works; the
+    // plain take6 file is an older network with other answers, the last resort.
+    for name in [
+        "best_model_v2_take6_chords.onnx",
+        "best_model_v2_take6_onset.onnx",
+        "best_model_v2_take6.onnx",
+    ] {
         if std::path::Path::new(name).exists() {
             return name.to_string();
         }
     }
-    "best_model_v2_take6.onnx".to_string()
+    "best_model_v2_take6_chords.onnx".to_string()
 }
 
 fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyhow::Result<()> {
@@ -555,11 +558,8 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
         spec.sample_rate,
         match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
     );
-    // The onset block is printed whether the model has the head or not - a
-    // format that changes shape with the file is a format nothing can parse.
     println!(
-        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B \
-| struck:  C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
+        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
     );
 
     let mut frame = 0usize;
@@ -594,8 +594,6 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
             let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
             let cells: String =
                 p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
-            let struck: String =
-                p.onsets.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
             let cqt = match last_cqt.as_ref().and_then(|c| audio::mono_pitch(c)) {
                 // The octave too: what tells a note struck again from the same
                 // note still ringing below it is which one the estimate reads.
@@ -603,12 +601,11 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
                 None => "  -      ".to_string(),
             };
             println!(
-                "{:6.2} {:6.1} {:4.0}% {} |{}  {}  {} {:.2}{}",
+                "{:6.2} {:6.1} {:4.0}% {}  {}  {} {:.2}{}",
                 at as f32 / TARGET_SR as f32,
                 db,
                 fill * 100.0,
                 cells,
-                struck,
                 cqt,
                 p.chord,
                 p.confidence,
@@ -729,7 +726,7 @@ struct AiResult {
     updated: bool,
     /// How full the context window was when this was asked. The chord NAME is
     /// only believed on a full one - that is what the model was trained on -
-    /// while the pitch and onset heads are read whatever it says.
+    /// while the pitch head is read whatever it says.
     fill: f32,
 }
 
@@ -970,8 +967,9 @@ fn main() -> Result<(), slint::PlatformError> {
             Ok(_) => println!("✅ dsp_weights.json"),
             Err(e) => { eprintln!("❌ dsp_weights.json: {e}"); ok = false; }
         }
-        match ChordBrain::new(&model_path()) {
-            Ok(_) => println!("✅ best_model_v2_take6.onnx"),
+        let model = model_path();
+        match ChordBrain::new(&model) {
+            Ok(_) => println!("✅ {model}"),
             Err(e) => { eprintln!("❌ model: {e}"); ok = false; }
         }
         // Optional: without it the app runs, judging repeats on older evidence.
@@ -1545,9 +1543,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 let score = res.pred.confidence;
                 app.prev_pitches = app.last_pitches;
                 app.last_pitches = res.pred.pitches;
-                // What was STRUCK, as against what is sounding. Zeros with a
-                // model that has no onset head, and the modes fall back.
-                app.set_onsets(res.pred.onsets);
 
                 // clear the flag once consumed
                 res.updated = false;

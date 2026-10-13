@@ -7,7 +7,7 @@ no weights and no input, only the app:
 
 | app file | what it does | trainer |
 |---|---|---|
-| `best_model_v2_take6_onset.onnx` | chord root, quality and the notes sounding, plus the older attack head (CQT input) | `model_trainer.py` |
+| `best_model_v2_take6_chords.onnx` | chord root, quality and the notes sounding (CQT input) | `model_trainer.py` |
 | `short_onset_masking_v2.onnx` | which pitch class was just **struck** (short-spectrum input) | `strike_trainer.py` |
 
 The app downloads both from <https://huggingface.co/greblus/solitito-ai>, and
@@ -17,10 +17,10 @@ the release packages carry them. How the app uses the strike model is in
 
 ## The chord model: `model_trainer.py`
 
-The trainer that produced `best_model_v2_take6_onset.onnx`, unchanged except
-for two things: the ONNX export is pinned to the TorchScript exporter
-(`dynamo=False`), and phase 4 does not train again when its checkpoint already
-exists. On Kaggle: a GPU notebook with the dataset attached and an `HF_TOKEN`
+The trainer that produced `best_model_v2_take6_onset.onnx`, with three changes:
+the ONNX export is pinned to the TorchScript exporter (`dynamo=False`), phase 4
+does not train again when its checkpoint already exists, and the app's file is
+written without the onset head. On Kaggle: a GPU notebook with the dataset attached and an `HF_TOKEN`
 secret, then paste the whole file and run it. `RUN_TAG` names the run.
 
 It runs four phases, each resumed from its Hugging Face snapshot:
@@ -30,18 +30,19 @@ It runs four phases, each resumed from its Hugging Face snapshot:
 3. head fine-tuning, off (`RUN_PHASE3 = False`);
 4. the attack head, `fc_onset`, trained with everything else frozen. It writes
    `checkpoint_<RUN_TAG>_onset.pth` and `best_model_<RUN_TAG>_onset.onnx`, the
-   file the app loads.
+   four-output file builds before 0.5.10 load.
+
+From phase 4's checkpoint the trainer then writes
+`best_model_<RUN_TAG>_chords.onnx`: the same network with root, quality and
+pitch only, the file the app loads. Since 0.5.10 the app reads no onset head -
+the strike model answers what was struck - so the head stays in the checkpoint
+only, and the chord network did not change by a bit.
 
 With `RUN_TAG = "v2_take6"` and `checkpoint_v2_take6_onset.pth` on Hugging
-Face, phase 4 only exports. The exported file answers bit for bit like the
-released `best_model_v2_take6_onset.onnx` on all four outputs. Training it
-again would overwrite the checkpoint the app's file came from, which happened
-once, on 2026-09-20. A new attack head needs a new `RUN_TAG`.
-
-The app reads root, quality and pitch, and also the fourth output,
-`onset_logits`. The judge still uses it: "Credit only what was struck", and
-whether a chord was struck. The strike model works beside it and does not
-replace it.
+Face, phase 4 only exports. The four-output file answers bit for bit like the
+released `best_model_v2_take6_onset.onnx`, and `best_model_v2_take6_chords.onnx`
+like its first three outputs. Training phase 4 again would overwrite the
+checkpoint those files came from, which happened once, on 2026-09-20.
 
 ## The strike model: `strike_trainer.py`
 

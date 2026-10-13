@@ -14,11 +14,11 @@ on:
         default: ""
 
 env:
-  MODEL: best_model_v2_take6_onset.onnx
-  # The model is not in the repository - 29 MB per checkpoint. This one carries
-  # the onset head as a fourth output; the three the app has always read keep
-  # their names, so an older file still works if it is put beside the binary.
-  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+  MODEL: best_model_v2_take6_chords.onnx
+  # The model is not in the repository - 29 MB per checkpoint. The chord outputs
+  # alone; the file with the old onset head as a fourth output still loads if it
+  # is put beside the binary.
+  MODEL_URL: https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_chords.onnx
   # Which string was struck: the onset branch of take7_masking_v2, cut out of
   # the combined file (1 MB). Optional at run time - without it repeats are
   # judged on the older evidence - so a package missing it still starts.

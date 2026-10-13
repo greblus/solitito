@@ -23,7 +23,7 @@ The binary needs two files in its working directory. `dsp_weights.json` is in
 this repository; the model is not, because it is 29 MB:
 
 ```bash
-curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_onset.onnx
+curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/best_model_v2_take6_chords.onnx
 curl -LO https://huggingface.co/greblus/solitito-ai/resolve/main/short_onset_masking_v2.onnx
 ```
 

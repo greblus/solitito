@@ -35,9 +35,9 @@ zauważył każde i żadnego z 17 wybrzmiewających akordów nie wziął za uder
 modelu, która rozstrzygała to wcześniej, zauważyła 9 i odezwała się pod wszystkimi 17, gdy
 wybrzmiewały.
 
-Bez pliku detektora uderzeń decyduje jak dawniej głowica ataków, a wykrywacz obwiedni
-odpowiada na to pytanie wyłącznie w modelu, który nie ma głowicy ataków.
-Liczy on uderzenia na dowolnej strunie, więc w przebiegu z różnych dźwięków przesuwa się przy
+Bez pliku detektora uderzeń odpowiada flux — atak na dowolnej strunie, bez względu na
+wysokość — a wykrywacz obwiedni tam, gdzie flux nigdy się nie odezwał. Oba liczą uderzenia na
+dowolnej strunie, więc w przebiegu z różnych dźwięków przesuwają się przy
 każdym z nich: w `1 2 3 4 5 6 7 1` sześć dźwięków między prymami uchodziłoby za ponowne
 uderzenie pierwszej prymy. Każdy dźwięk pamiętany jest osobno z pokrewnego powodu — pamięć o
 jednym poprzednim zapomniałaby o pierwszej prymie na długo przed tym, nim przyjdzie pora na
@@ -45,9 +45,9 @@ ostatnią.
 
 Dźwięk wymagany po raz drugi — zamykająca `1` w `1 2 3 4 5 6 7 1`, stopień oznaczony w polu
 interwałów apostrofem, arpeggio wracające tam, gdzie się zaczęło — potrzebuje czegoś więcej
-niż samej głowicy ataków, bo głowica rozlewa uderzenie na dźwięki, których nikt nie grał. Gdy
-grane jest sześć stopni nad prymą, pryma zbiera własne uderzenia: dwa na przebiegu testowym,
-a w szybkim przebiegu głowica nie dała dla zamykającej prymy ani jednego.
+niż samego licznika uderzeń. Dawna głowica ataków modelu, która liczyła uderzenia przed
+detektorem, rozlewała uderzenie na dźwięki, których nikt nie grał: gdy grano sześć stopni nad
+prymą, pryma zbierała własne uderzenia, dwa na przebiegu testowym.
 
 Rozstrzygają to dwie rzeczy. Estymata czyta wysokość bezwzględną, nie samą nazwę dźwięku,
 więc dźwięk brzmiący o sześć albo więcej półtonów od miejsca, w którym czytała go przy
@@ -86,7 +86,7 @@ akord. Pauza zatrzymuje to przejście; cisza go nie zatrzymuje.
 
 Wybrzmiewająca nuta nie zalicza swojego powtórzenia. Wyciszenie wejścia poniżej bramki
 przez co najmniej 200 ms pozwala ponownie zaliczyć tę samą nutę, gdy estymator usłyszy ją
-stabilnie — także jeśli głowica ataków przeoczyła nowe szarpnięcie. Sam brak odczytu CQT
+stabilnie — także jeśli żaden detektor nie złapał nowego szarpnięcia. Sam brak odczytu CQT
 przy otwartej bramce nie jest takim wyciszeniem.
 
 Tam, gdzie estymata jednoklatkowa nazywa klasę, żadna inna klasa nie może zaliczyć się
@@ -187,7 +187,9 @@ to wcześniej:
 Żaden pojedynczy dźwięk nie przepadł i żaden nie został zaliczony później. Kosztuje akord
 uderzony naraz: detektor zgłasza jedną klasę na uderzenie, więc model zalicza tę jedną,
 a resztę musi nazwać ucho. Pozostałe 124 fałszywe zaliczenia przechodzą przez estymatę, której
-ta opcja nie dotyczy. Bez pliku detektora decyduje jak dawniej głowica ataków.
+ta opcja nie dotyczy. Bez pliku detektora zostaje tylko flux, który mówi, że uderzono
+strunę, ale nie którą; dawnej głowicy ataków modelu, która rozstrzygała to wcześniej, od 0.5.10
+już nie ma.
 
 ### Ucho tuż po uderzeniu
 
