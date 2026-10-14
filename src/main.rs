@@ -31,6 +31,7 @@ use brain::{ChordBrain, Prediction};
 use latch::ChordLatch;
 use i18n::Lang;
 use settings::Settings;
+use model::NoteName;
 use state::{MyApp, AppMode, MatchStatus};
 
 use slint::{Timer, TimerMode, Model, ModelRc, VecModel, Color, SharedString, PhysicalPosition, PhysicalSize};
@@ -1351,6 +1352,11 @@ fn main() -> Result<(), slint::PlatformError> {
     // Rasterising the SVGs is not free and the shapes only change when the chord
     // QUALITY does, which is far less often than every frame.
     let mut last_diagram_key = String::new();
+    // The progression strip and what is heard, pushed only when they change:
+    // both are lists, and a new model every frame would redraw them for nothing.
+    let mut last_progress: Vec<(String, i32, Color)> = Vec::new();
+    let mut last_heard: (String, Vec<(String, bool)>) = (String::new(), Vec::new());
+    let mut last_heard_push = std::time::Instant::now();
     let mut last_ui_tick: Option<std::time::Instant> = None;
     // The chord list only changes with the formula or its key, and rebuilding it
     // every tick would drop whichever chord the pointer is on sixty times a
@@ -2117,22 +2123,78 @@ fn main() -> Result<(), slint::PlatformError> {
             
             let next_idx = app.next_chord_index();
             set_if_changed(ui.get_next_chord(), app.chord_label(next_idx).into(), |v| ui.set_next_chord(v));
-            set_if_changed(
-                ui.get_prev_chord(),
-                app.prev_chord_index.map(|i| app.chord_label(i)).unwrap_or_default().into(),
-                |v| ui.set_prev_chord(v),
-            );
-            // Same palette as the big name, so one colour means one thing
-            // wherever it appears. Dim grey for a chord stepped over rather
-            // than played.
-            let prev_col = slint::Brush::SolidColor(match app.prev_status() {
-                MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
+            // The progression strip. The chord just left is written in the
+            // colour it was passed on - the big name's palette, so one colour
+            // means one thing wherever it appears; those before it in plain
+            // green, and those to come in grey.
+            let prev_col = match app.prev_status() {
+                MatchStatus::Exact => Color::from_rgb_u8(110, 231, 160),
                 MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
-                MatchStatus::Flicker => Color::from_rgb_u8(255, 50, 50),
+                MatchStatus::Flicker => Color::from_rgb_u8(255, 90, 90),
                 // Stepped over, not played: as quiet as the chord ahead.
-                MatchStatus::None => Color::from_rgb_u8(138, 138, 138),
-            });
-            set_if_changed(ui.get_prev_color(), prev_col, |v| ui.set_prev_color(v));
+                MatchStatus::None => Color::from_rgb_u8(138, 146, 163),
+            };
+            let progress: Vec<(String, i32, Color)> = app
+                .progress_window(2, 4)
+                .into_iter()
+                .map(|(i, d)| {
+                    let fg = match d {
+                        -1 => prev_col,
+                        d if d < 0 => Color::from_rgb_u8(110, 231, 160),
+                        _ => Color::from_rgb_u8(138, 146, 163),
+                    };
+                    (app.chord_label(i), d, fg)
+                })
+                .collect();
+            if progress != last_progress {
+                let chips: Vec<Chip> = progress
+                    .iter()
+                    .map(|(name, d, fg)| Chip { name: name.into(), current: *d == 0, played: *d < 0, fg: *fg })
+                    .collect();
+                ui.set_progress(slint::ModelRc::new(slint::VecModel::from(chips)));
+                last_progress = progress;
+            }
+
+            // What is heard. In Chords the name the model gives the chord; in
+            // the note modes the note the ear holds. Beside it the notes the
+            // pitch head hears sounding, green where the chord asked for has
+            // them - in pitch order, not by loudness: ranked by level they
+            // traded places every frame.
+            let heard_name = if app.app_mode == AppMode::Chords {
+                if last_ai_name == "..." { String::new() } else { last_ai_name.clone() }
+            } else {
+                app.steady_note().map(|pc| NoteName::from_index(pc).to_string().to_string()).unwrap_or_default()
+            };
+            let tones = curr_chord.get_target_indices();
+            let mut sounding: Vec<(usize, f32)> = app
+                .last_pitches
+                .iter()
+                .enumerate()
+                .filter(|&(_, &p)| p >= app.note_threshold)
+                .map(|(pc, &p)| (pc, p))
+                .collect();
+            // The five loudest, then put back in pitch order.
+            sounding.sort_by(|a, b| b.1.total_cmp(&a.1));
+            sounding.truncate(5);
+            sounding.sort_by_key(|&(pc, _)| pc);
+            let notes: Vec<(String, bool)> = sounding
+                .iter()
+                .map(|&(pc, _)| (NoteName::from_index(pc).to_string().to_string(), tones.contains(&pc)))
+                .collect();
+            // At most four times a second: the model answers twenty-five times
+            // and a note on the edge of the threshold blinked in and out.
+            if (heard_name.as_str(), &notes) != (last_heard.0.as_str(), &last_heard.1)
+                && last_heard_push.elapsed() >= Duration::from_millis(250)
+            {
+                last_heard_push = std::time::Instant::now();
+                ui.set_heard_name(heard_name.clone().into());
+                let model: Vec<HeardNote> = notes
+                    .iter()
+                    .map(|(name, in_chord)| HeardNote { name: name.into(), in_chord: *in_chord })
+                    .collect();
+                ui.set_heard_notes(slint::ModelRc::new(slint::VecModel::from(model)));
+                last_heard = (heard_name, notes);
+            }
 
             if app.app_mode != AppMode::Chords {
                 let all_names = curr_chord.quality.interval_names();
@@ -3025,6 +3087,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_settings(t.settings.into());
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
+    g.set_heard(t.heard.into());
     g.set_nav_settings(t.nav_settings.into());
     g.set_tab_audio(t.tab_audio.into());
     g.set_tab_practice(t.tab_practice.into());

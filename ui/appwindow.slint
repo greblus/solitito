@@ -20,6 +20,21 @@ component NoteBar inherits Rectangle {
     }
 }
 
+/// One chord of the progression strip. `fg` is the colour it is written in:
+/// for one already played, the colour it was passed on.
+export struct Chip {
+    name: string,
+    current: bool,
+    played: bool,
+    fg: color,
+}
+
+/// A note the model hears, and whether the chord asked for has it.
+export struct HeardNote {
+    name: string,
+    in_chord: bool,
+}
+
 /// One entry of the side navigation: an icon and a label, the whole row
 /// clickable. The icon is either a stroke path in a 20x20 box or an image.
 component NavItem inherits Rectangle {
@@ -358,6 +373,7 @@ export global Tr {
     in-out property <string> close: "Close";
     in-out property <string> settings_title: "Settings & Calibration";
     in-out property <string> nav_settings: "Settings";
+    in-out property <string> heard: "Hearing";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
     in-out property <string> tab_general: "General";
@@ -515,14 +531,13 @@ export component AppWindow inherits Window {
     in property <brush> chord_text_color: white;
     
     in property <string> ai_text: "";
+    /// The progression around the current chord, in the order it is played.
+    in property <[Chip]> progress;
+    /// What is being heard: the chord the model names in Chords, the note the
+    /// ear reads elsewhere - and the notes the model hears sounding.
+    in property <string> heard_name: "";
+    in property <[HeardNote]> heard_notes;
     in property <string> next_chord: "";
-    /// The chord just left behind, and the colour it earned on the way out -
-    /// green for an exact match, yellow for a triad or a substitution, dim for
-    /// one merely stepped over. The strip along the bottom shows it: a pass
-    /// changes which chord is current, so the only honest place to mark one is
-    /// the chord that earned it.
-    in property <string> prev_chord: "";
-    in property <brush> prev_color: #444;
     /// Stepping through the progression by hand, offered while paused so a
     /// chord that has gone by can be played again. -1 back, +1 forward.
     callback step_chord(int);
@@ -839,9 +854,9 @@ export component AppWindow inherits Window {
                 padding-left: 10px;
                 padding-bottom: 18px;
                 spacing: 10px;
-                height: 46px;
-                Image { width: 26px; height: 26px; source: @image-url("../src/assets/app-icon.png"); }
-                Text { text: "Solitito"; font-size: 18px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
+                height: 62px;
+                Image { width: 44px; height: 44px; source: @image-url("../src/assets/app-icon.png"); }
+                Text { text: "Solitito"; font-size: 20px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
             }
 
             NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.pick_mode(4); }
@@ -902,6 +917,32 @@ export component AppWindow inherits Window {
         // so it is placed by hand below. This holds its space, which is what
         // keeps the top bar from being stretched down into the gap.
         if root.show_settings : Rectangle { }
+
+        // PROGRESSION STRIP: where in the tune the player is. Above the
+        // centred column, so it does not move the chord name up or down.
+        if !root.show_settings && (root.current_mode == 0 || root.current_mode == 1)
+            && root.progress.length > 1 : HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            height: 32px;
+            for c in root.progress : Rectangle {
+                border-radius: 8px;
+                background: c.current ? #2F6FE0 : (c.played ? #17271F : #1C212C);
+                border-width: c.current ? 2px : 0px;
+                border-color: #5A8EF0;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: c.name;
+                        font-size: 13px;
+                        font-weight: c.current ? 700 : 500;
+                        color: c.current ? #FFFFFF : c.fg;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
 
         // --- MAIN PRACTICE VIEW ---
         if !root.show_settings : VerticalLayout {
@@ -1434,11 +1475,22 @@ export component AppWindow inherits Window {
                 // came out pushed off centre.
                 property <length> box_h: min(root.height / 3, 380px);
                 property <length> box_w: min(parent.width, self.box_h * root.tab_aspect);
-                Image {
-                    source: root.tab_image;
-                    image-fit: contain;
+                // On a card, as the chord shapes are: the drawing's ground is
+                // the card colour, so the corners and the border are all there
+                // is to add.
+                Rectangle {
                     width: parent.box_w;
                     height: parent.box_w / root.tab_aspect;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: #222835;
+                    clip: true;
+                    Image {
+                        source: root.tab_image;
+                        image-fit: contain;
+                        width: 100%;
+                        height: 100%;
+                    }
                 }
             }
 
@@ -1463,71 +1515,105 @@ export component AppWindow inherits Window {
             }
         }
         
-        // STOPKA - poprzedni i nastepny akord
+        // FOOTER - what is heard, and the chord to come
         if !root.show_settings : Rectangle {
-            height: 60px;
+            height: 72px;
             // Only where there is a progression to walk. A scale is one item,
             // so the strip showed the same name on both sides of it, cut off at
             // the width of the column - and an arpeggio study is one chord for
             // the same reason: what moves there is the key, not a progression.
             if root.current_mode != 2 && root.current_mode != 4 && root.current_mode != 5
                 && !(root.current_mode == 3 && root.arp_exercise == 0) : HorizontalLayout {
-                alignment: center;
-                spacing: 26px;
+                spacing: 10px;
 
-                // Only while paused: playing would move the chord on again
-                // before the hand got back to the guitar.
-                if root.paused : Text {
-                    text: "‹";
-                    font-size: 34px;
-                    color: back_touch.has-hover ? #fff : #ddd;
-                    vertical-alignment: center;
-                    back_touch := TouchArea { clicked => { root.step_chord(-1); } }
+                Rectangle {
+                    background: #161A22;
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: #222835;
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 14px;
+                        alignment: start;
+                        // Fixed widths: the name changes with every reading,
+                        // and a column sized to it moved the notes beside it
+                        // left and right as it did.
+                        Text {
+                            width: 50px;
+                            text: Tr.heard;
+                            font-size: 12px;
+                            color: #8A92A3;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            width: 130px;
+                            text: root.heard_name;
+                            font-size: 22px;
+                            font-weight: 700;
+                            color: #E8EAF0;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for n in root.heard_notes : VerticalLayout {
+                                alignment: center;
+                                // One width for every note, so a sharp beside a
+                                // natural moves nothing.
+                                Rectangle {
+                                    width: 38px;
+                                    height: 28px;
+                                    border-radius: 7px;
+                                    background: n.in_chord ? #1E3A2C : #232836;
+                                    Text {
+                                        text: n.name;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: n.in_chord ? #6EE7A0 : #8A92A3;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                // Fixed widths, so neither column moves when a name changes
-                // length. The chord being asked for is not repeated here - it
-                // is already the largest thing on the screen.
-                VerticalLayout {
-                    width: 150px;
-                    Text {
-                        text: Tr.previous;
-                        font-size: 12px;
-                        color: #666;
-                        horizontal-alignment: center;
+                // The chord to come; while paused, the arrows step through the
+                // progression - playing would move it on again before the hand
+                // got back to the guitar.
+                Rectangle {
+                    width: 170px;
+                    background: #161A22;
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: #222835;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 6px;
+                        if root.paused : Text {
+                            text: "‹";
+                            font-size: 30px;
+                            color: back_touch.has-hover ? #fff : #A9B0C0;
+                            vertical-alignment: center;
+                            back_touch := TouchArea { clicked => { root.step_chord(-1); } }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Text { text: Tr.next; font-size: 12px; color: #8A92A3; }
+                            Text { text: root.next_chord; font-size: 20px; font-weight: 700; color: #E8EAF0; overflow: elide; }
+                        }
+                        if root.paused : Text {
+                            text: "›";
+                            font-size: 30px;
+                            color: fwd_touch.has-hover ? #fff : #A9B0C0;
+                            vertical-alignment: center;
+                            fwd_touch := TouchArea { clicked => { root.step_chord(1); } }
+                        }
                     }
-                    Text {
-                        text: root.prev_chord;
-                        // The colour it was passed on, not just "passed": a
-                        // chord that only ever went yellow should not be
-                        // reported green.
-                        color: root.prev_color;
-                        font-size: 22px;
-                        horizontal-alignment: center;
-                    }
-                }
-                VerticalLayout {
-                    width: 150px;
-                    Text {
-                        text: Tr.next;
-                        font-size: 12px;
-                        color: #666;
-                        horizontal-alignment: center;
-                    }
-                    Text {
-                        text: root.next_chord;
-                        color: white;
-                        font-size: 22px;
-                        horizontal-alignment: center;
-                    }
-                }
-
-                if root.paused : Text {
-                    text: "›";
-                    font-size: 34px;
-                    color: fwd_touch.has-hover ? #fff : #ddd;
-                    vertical-alignment: center;
-                    fwd_touch := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
 

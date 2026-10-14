@@ -927,6 +927,20 @@ impl MyApp {
 
     /// What the strip shows as coming next - the real next entry in the order,
     /// not the chord one further along the song.
+    /// The chords around the current one in the order they are played, within
+    /// this pass of the progression: up to `behind` already played, the
+    /// current one, up to `ahead` still to come. Each with its distance from
+    /// the current one, negative behind it.
+    pub fn progress_window(&self, behind: usize, ahead: usize) -> Vec<(usize, i32)> {
+        let pos = self.play_pos.min(self.play_order.len().saturating_sub(1));
+        let from = pos.saturating_sub(behind);
+        let to = (pos + ahead).min(self.play_order.len().saturating_sub(1));
+        if self.play_order.is_empty() {
+            return Vec::new();
+        }
+        (from..=to).map(|i| (self.play_order[i], i as i32 - pos as i32)).collect()
+    }
+
     pub fn next_chord_index(&self) -> usize {
         if self.play_order.is_empty() {
             return 0;
@@ -3857,6 +3871,20 @@ pub(crate) mod tests {
         a.sync_audio_settings();
         a.check_progress_with_ai(0.02, "C Maj7", 0.99);
         assert_ne!(a.current_chord_index, 1, "a real second strum was refused");
+    }
+
+    /// The strip of the progression: what was played, what is asked, what is
+    /// to come - in the order of this pass, never wrapping into the next one.
+    #[test]
+    fn the_progress_window_follows_the_order_of_play() {
+        let mut a = app();
+        a.play_order = vec![3, 1, 4, 0, 2];
+        a.play_pos = 0;
+        assert_eq!(a.progress_window(2, 2), vec![(3, 0), (1, 1), (4, 2)]);
+        a.play_pos = 3;
+        assert_eq!(a.progress_window(2, 4), vec![(1, -2), (4, -1), (0, 0), (2, 1)]);
+        a.play_order.clear();
+        assert!(a.progress_window(2, 4).is_empty());
     }
 
     /// The detector's strikes, as the audio thread reports them, one hop of

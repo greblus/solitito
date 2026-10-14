@@ -71,6 +71,8 @@ pub struct Strings {
     pub settings_title: &'static str,
     /// The settings entry of the side navigation, which draws its own icon.
     pub nav_settings: &'static str,
+    /// The label of the bar that says what the app hears.
+    pub heard: &'static str,
     pub tab_audio: &'static str,
     pub tab_practice: &'static str,
     pub tab_general: &'static str,
@@ -211,6 +213,7 @@ pub const EN: Strings = Strings {
     close: "Close",
     settings_title: "Settings & Calibration",
     nav_settings: "Settings",
+    heard: "Hearing",
     tab_audio: "Audio",
     tab_practice: "Practice",
     tab_general: "General",
@@ -340,6 +343,7 @@ pub const PL: Strings = Strings {
     close: "Zamknij",
     settings_title: "Ustawienia i kalibracja",
     nav_settings: "Ustawienia",
+    heard: "Słyszę",
     tab_audio: "Dźwięk",
     tab_practice: "Ćwiczenia",
     tab_general: "Ogólne",
@@ -503,6 +507,7 @@ mod tests {
             ("chords", EN.chords, PL.chords),
             ("settings_title", EN.settings_title, PL.settings_title),
             ("nav_settings", EN.nav_settings, PL.nav_settings),
+            ("heard", EN.heard, PL.heard),
             ("gate_hint", EN.gate_hint, PL.gate_hint),
             ("lock_quality", EN.lock_quality, PL.lock_quality),
             ("random_order", EN.random_order, PL.random_order),
