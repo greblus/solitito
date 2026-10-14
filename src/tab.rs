@@ -4,8 +4,8 @@
 //! on the neck is then visible directly, and the octave a note sits in needs no
 //! marker - it is which string the dot is on.
 //!
-//! Drawn in the same language as the chord diagrams in `diagrams`: black
-//! ground, blue `rgba(74, 144, 226)` lines, a red root, white labels in Arial,
+//! Drawn in the same language as the chord diagrams in `diagrams`: the UI's
+//! card for ground (`diagrams::CARD`), blue `rgba(74, 144, 226)` lines, a red root, white labels in Arial,
 //! dots of the same radius. The two are read side by side, so they have to look
 //! like one thing.
 //!
@@ -392,6 +392,7 @@ const GRIP_LEFT: f32 = 52.0;
 /// clears a dot sitting on the top string, whose centre is ON the box's edge.
 const GRIP_TOP: f32 = 88.0;
 const FRET_GAP: f32 = 56.0;
+use crate::diagrams::CARD;
 const BLUE: &str = "rgba(74, 144, 226, 1)";
 const RED: &str = "rgba(208, 2, 27, 1)";
 /// Darker than the green of the interval strip, which is drawn on the black
@@ -430,7 +431,7 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
     let mut out = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
          preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"rgba(0, 0, 0, 1)\"></rect>"
+         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
     );
     // Laid the way the chord diagrams lie: the neck across the picture, the
     // strings along it with the lowest at the bottom, the frets standing up.
@@ -535,7 +536,7 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
     let mut out = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
          preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"rgba(0, 0, 0, 1)\"></rect>"
+         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
     );
     for i in 0..6 {
         let y = GRIP_TOP + i as f32 * STRING_GAP;
@@ -651,7 +652,7 @@ pub fn region(
     let mut out = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
          preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"rgba(0, 0, 0, 1)\"></rect>"
+         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
     );
     // Strings outside the region are drawn dim: they are part of the guitar and
     // not part of the question, and leaving them out entirely would move the
@@ -743,7 +744,7 @@ pub fn svg(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String
     let mut s = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
          preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"rgba(0, 0, 0, 1)\"></rect>"
+         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
     );
     // The strings, high one at the top - the way tab is read.
     for i in 0..6 {

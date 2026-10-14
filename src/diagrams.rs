@@ -9,13 +9,17 @@
 //! release packages would otherwise have: a missing or half-copied asset folder.
 //! Same reasoning as the compiled-in UI strings in `i18n`.
 //!
-//! Colours are left exactly as generated. The lines and dots are blue
-//! (`rgba(74,144,226)`) with a red root, which reads fine on the app's black
-//! background; the only black element is a full-size background rect that
-//! disappears against it.
+//! Colours are left exactly as generated - blue lines and dots
+//! (`rgba(74,144,226)`) with a red root - except the one full-size background
+//! rect, black in the files, which is drawn in `CARD` so a shape sits on the
+//! same card as the rest of the UI.
 
 use crate::model::ChordQuality;
 
+
+/// The card every drawing sits on: the colour of the cards in the UI
+/// (`#161A22` in `appwindow.slint`).
+pub const CARD: &str = "rgba(22, 26, 34, 1)";
 
 /// One shape: which string carries the root, and the drawing itself.
 pub struct Diagram {
@@ -25,6 +29,18 @@ pub struct Diagram {
     #[allow(dead_code)]
     pub label: &'static str,
     pub svg: &'static str,
+}
+
+impl Diagram {
+    /// The drawing on the UI's card instead of the black it was generated on.
+    /// The generator's half-black credit line goes with the background, so it
+    /// stays as invisible as it was on black.
+    pub fn on_card(&self) -> String {
+        let card = format!("fill=\"{CARD}\"");
+        self.svg
+            .replace("fill=\"rgba(0, 0, 0, 1)\"", &card)
+            .replace("fill=\"rgba(0, 0, 0, 0.5)\"", &card)
+    }
 }
 
 macro_rules! diagram {
@@ -285,4 +301,3 @@ mod tests {
         }
     }
 }
-

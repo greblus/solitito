@@ -2057,7 +2057,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let imgs: Vec<slint::Image> = match shapes {
                     Some(kind) => diagrams::for_quality(&curr_chord.quality, kind)
                         .iter()
-                        .filter_map(|d| slint::Image::load_from_svg_data(d.svg.as_bytes()).ok())
+                        .filter_map(|d| slint::Image::load_from_svg_data(d.on_card().as_bytes()).ok())
                         .collect(),
                     None => vec![],
                 };
@@ -3025,6 +3025,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_settings(t.settings.into());
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
+    g.set_nav_settings(t.nav_settings.into());
     g.set_tab_audio(t.tab_audio.into());
     g.set_tab_practice(t.tab_practice.into());
     g.set_tab_general(t.tab_general.into());
