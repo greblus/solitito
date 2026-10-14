@@ -677,6 +677,7 @@ struct SettingsSnapshot {
     interval_in_order: bool,
     debug_console: bool,
     show_input_meter: bool,
+    show_heard: bool,
 }
 
 impl SettingsSnapshot {
@@ -725,6 +726,7 @@ impl SettingsSnapshot {
             interval_in_order: ui.get_interval_in_order(),
             debug_console: ui.get_debug_console(),
             show_input_meter: ui.get_show_input_meter(),
+            show_heard: ui.get_show_heard(),
         }
     }
 }
@@ -1162,6 +1164,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_interval_in_order(cfg.interval_in_order);
         ui.set_debug_console(cfg.debug_console);
         ui.set_show_input_meter(cfg.show_input_meter);
+        ui.set_show_heard(cfg.show_heard);
         ui.set_app_version(env!("CARGO_PKG_VERSION").into());
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_ai_debug_visible(cfg.ai_debug);
@@ -1364,7 +1367,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut last_diagram_key = String::new();
     // The progression strip and what is heard, pushed only when they change:
     // both are lists, and a new model every frame would redraw them for nothing.
-    let mut last_progress: Vec<(String, i32, Color)> = Vec::new();
+    let mut last_progress: Vec<(String, i32, bool, Color)> = Vec::new();
     let mut last_heard: (String, Vec<(String, bool)>) = (String::new(), Vec::new());
     let mut last_heard_push = std::time::Instant::now();
     let mut last_ui_tick: Option<std::time::Instant> = None;
@@ -2043,32 +2046,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 (true, false) => Some(diagrams::Shapes::Full),
                 (false, false) => None,
             };
-            // One row or two, and that depends on the room the window has:
-            // the UI is scaled by min(w/design_w, h/design_h), so a wide screen
-            // spends its slack on WIDTH alone - the logical height is the design
-            // height whatever the window does. Six shapes in one row across
-            // that width are larger than six in two rows, and the second row's
-            // worth of height is freed as well.
-            // The box the shapes are laid in, which is the window less its
-            // margin - the same number the UI divides up, so the choice below
-            // is made on the room the shapes will actually get.
-            let logical_w =
-                ui.window().size().width as f32 / ui.window().scale_factor() * 0.92;
-            // Whichever draws them LARGER, which is not always one row: six
-            // across a 900-wide window come to 127 units each, against 149 in
-            // two rows of three. The arithmetic is the UI's own - `(box_w - 70)
-            // divided by the shapes in the widest row plus their gaps` - capped
-            // by what the height allows: 170 for two rows, twice that for one.
-            let size_for = |per_row: usize, cap: f32| {
-                let n = per_row as f32;
-                ((logical_w - 70.0) / (n + (n - 1.0) / 9.0)).min(cap)
-            };
+            // More than three shapes always take two rows. Chosen by the
+            // window's width, a wide screen put six or ten in one row, and
+            // they came out too small to read.
             let count = match shapes {
                 Some(kind) => diagrams::for_quality(&curr_chord.quality, kind).len(),
                 None => 0,
             };
-            let one_row = count <= 4
-                || size_for(count, 340.0) >= size_for(count.div_ceil(2), 170.0);
+            let one_row = count <= 3;
             let q_key = format!(
                 "{}/{:?}/{}",
                 curr_chord.quality.to_string(),
@@ -2077,24 +2062,30 @@ fn main() -> Result<(), slint::PlatformError> {
             );
             if q_key != last_diagram_key {
                 last_diagram_key = q_key;
-                let imgs: Vec<slint::Image> = match shapes {
+                let labelled: Vec<(&'static str, slint::Image)> = match shapes {
                     Some(kind) => diagrams::for_quality(&curr_chord.quality, kind)
                         .iter()
-                        .filter_map(|d| slint::Image::load_from_svg_data(d.on_card().as_bytes()).ok())
+                        .filter_map(|d| {
+                            slint::Image::load_from_svg_data(d.on_card().as_bytes())
+                                .ok()
+                                .map(|img| (d.label, img))
+                        })
                         .collect(),
                     None => vec![],
                 };
-                // Past four, half of them go to a second row: six side by side
-                // came to 60px each at the smallest window. The split is here
-                // rather than in the UI because a Slint model cannot be sliced.
-                // A window wide enough takes them all in one row instead.
-                let per_row = if imgs.len() > 4 && !one_row {
+                let imgs: Vec<slint::Image> = labelled.iter().map(|(_, img)| img.clone()).collect();
+                // Half of them go to a second row. The split is here rather
+                // than in the UI because a Slint model cannot be sliced.
+                let per_row = if !one_row {
                     imgs.len().div_ceil(2)
                 } else {
                     imgs.len()
                 };
-                let rest = imgs[per_row..].to_vec();
-                let first = imgs[..per_row].to_vec();
+                let grouped = (!one_row).then(|| diagrams::by_root_string(&labelled)).flatten();
+                let (first, rest) = match grouped {
+                    Some((top, bottom)) => (top, bottom),
+                    None => (imgs[..per_row].to_vec(), imgs[per_row..].to_vec()),
+                };
                 ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(first))));
                 ui.set_chord_diagrams_2(ModelRc::from(Rc::new(VecModel::from(rest))));
                 // Captioned whenever the row is not the chord's own shell: a
@@ -2140,33 +2131,32 @@ fn main() -> Result<(), slint::PlatformError> {
             
             let next_idx = app.next_chord_index();
             set_if_changed(ui.get_next_chord(), app.chord_label(next_idx).into(), |v| ui.set_next_chord(v));
-            // The progression strip. The chord just left is written in the
-            // colour it was passed on - the big name's palette, so one colour
-            // means one thing wherever it appears; those before it in plain
-            // green, and those to come in grey.
-            let prev_col = match app.prev_status() {
-                MatchStatus::Exact => Color::from_rgb_u8(110, 231, 160),
-                MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
-                MatchStatus::Flicker => Color::from_rgb_u8(255, 90, 90),
-                // Stepped over, not played: as quiet as the chord ahead.
-                MatchStatus::None => Color::from_rgb_u8(138, 146, 163),
-            };
-            let progress: Vec<(String, i32, Color)> = app
+            // The progression strip. A chord behind the current one is written
+            // in the colour it was passed on - the big name's palette, so one
+            // colour means one thing wherever it appears - and one stepped
+            // over, or still to come, in grey.
+            let progress: Vec<(String, i32, bool, Color)> = app
                 .progress_window(2, 4)
                 .into_iter()
                 .map(|(i, d)| {
-                    let fg = match d {
-                        -1 => prev_col,
-                        d if d < 0 => Color::from_rgb_u8(110, 231, 160),
-                        _ => Color::from_rgb_u8(138, 146, 163),
+                    let result = match d {
+                        -1 => app.prev_status(),
+                        d if d < 0 => app.pass_result(d),
+                        _ => MatchStatus::None,
                     };
-                    (app.chord_label(i), d, fg)
+                    let fg = match result {
+                        MatchStatus::Exact => Color::from_rgb_u8(110, 231, 160),
+                        MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
+                        MatchStatus::Flicker => Color::from_rgb_u8(255, 90, 90),
+                        MatchStatus::None => Color::from_rgb_u8(138, 146, 163),
+                    };
+                    (app.chord_label(i), d, result != MatchStatus::None, fg)
                 })
                 .collect();
             if progress != last_progress {
                 let chips: Vec<Chip> = progress
                     .iter()
-                    .map(|(name, d, fg)| Chip { name: name.into(), current: *d == 0, played: *d < 0, fg: *fg })
+                    .map(|(name, d, played, fg)| Chip { name: name.into(), current: *d == 0, played: *played, fg: *fg })
                     .collect();
                 ui.set_progress(slint::ModelRc::new(slint::VecModel::from(chips)));
                 last_progress = progress;
@@ -2810,6 +2800,14 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        let cur = live_cfg.clone();
+        ui.on_show_heard_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.show_heard = on;
+            cur.save();
+        });
+    }
+    {
         // The star: keep what is on screen, or let go of it. Kept formulas are
         // matched on the set AND the key, because the same functions read from
         // another root are a different exercise.
@@ -3155,6 +3153,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_input_silent(t.input_silent.into());
     g.set_gate_mark(t.gate_mark.into());
     g.set_show_input_meter(t.show_input_meter.into());
+    g.set_show_heard(t.show_heard.into());
     g.set_tile_done(t.tile_done.into());
     g.set_tile_now(t.tile_now.into());
     g.set_tile_next(t.tile_next.into());

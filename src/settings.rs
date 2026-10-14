@@ -199,6 +199,11 @@ pub struct Settings {
     /// whoever wants to see it while playing.
     #[serde(default)]
     pub show_input_meter: bool,
+    /// The "Hearing" bar under the exercise: what the model names and the
+    /// notes it hears. Off by default - while playing it pulls the eye away
+    /// from the shapes - and there for checking what the app makes of a grip.
+    #[serde(default)]
+    pub show_heard: bool,
     /// Show the chords that fit inside the formula, pointing at one lighting up
     /// the functions it is built from. On by default, for the same reason as the
     /// scale: it says what the set can be played over.
@@ -315,6 +320,7 @@ impl Default for Settings {
             interval_in_order: true,
             debug_console: false,
             show_input_meter: false,
+            show_heard: false,
             formula_show_chords: true,
             song: String::new(),
             scale: String::new(),

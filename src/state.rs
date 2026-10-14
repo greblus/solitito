@@ -326,6 +326,12 @@ pub struct MyApp {
     /// a substitution went yellow on the way through and saying green afterwards
     /// would be a nicer report than what happened.
     prev_status: MatchStatus,
+    /// The same for every position of this pass through the order: played,
+    /// the status it was passed on; stepped over with the arrows, or not
+    /// reached yet, `None`. The strip colours the chords further behind from
+    /// this - it used to paint them all green, so stepping forward while
+    /// paused lit chords nobody had played.
+    pass_results: Vec<MatchStatus>,
     
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
@@ -649,6 +655,7 @@ impl MyApp {
             shells_only: false,
             prev_chord_index: None,
             prev_status: MatchStatus::None,
+            pass_results: Vec::new(),
             
             bass_boost_enabled: true,
             bass_boost_gain: 5.0,
@@ -938,6 +945,17 @@ impl MyApp {
         }
         self.play_pos = 0;
         self.current_chord_index = self.play_order.first().copied().unwrap_or(0);
+        self.pass_results = vec![MatchStatus::None; self.play_order.len()];
+    }
+
+    /// How the chord `offset` places from the current one in the order was
+    /// left on this pass - see `pass_results`.
+    pub fn pass_result(&self, offset: i32) -> MatchStatus {
+        let pos = self.play_pos as i32 + offset;
+        usize::try_from(pos)
+            .ok()
+            .and_then(|pos| self.pass_results.get(pos).copied())
+            .unwrap_or(MatchStatus::None)
     }
 
     /// What the strip shows as coming next - the real next entry in the order,
@@ -2787,9 +2805,15 @@ impl MyApp {
         // next chord, and a reshuffle here would break that promise on the very
         // last one - it announced a chord from the order about to be replaced.
         // Toggling shuffle off and on deals a new one.
+        self.pass_results.resize(self.play_order.len(), MatchStatus::None);
+        if let Some(result) = self.pass_results.get_mut(self.play_pos) {
+            *result = earned;
+        }
         self.play_pos += 1;
         if self.play_pos >= self.play_order.len() {
             self.play_pos = 0;
+            // A new pass: what the last one earned is not this one's.
+            self.pass_results.fill(MatchStatus::None);
         }
         self.current_chord_index = self.play_order[self.play_pos];
         // A finished pass earns a new phrase when the generator is selected.
@@ -2897,6 +2921,31 @@ pub(crate) mod tests {
                 assert_ne!(a.note_color(0), (50, 255, 50), "text invented a credit");
             }
         }
+    }
+
+    #[test]
+    fn stepping_forward_while_paused_marks_nothing_as_played() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        a.interval_in_order = false;
+        a.transition_delay = 0.0;
+        let index = a.current_chord_index;
+        let chord = &a.chords[index];
+        let all = chord.get_target_indices();
+        let pitches: Vec<_> = a.ordered_active_indices(chord).iter().map(|s| all[s.degree]).collect();
+        for pc in pitches {
+            interval_audio(&mut a, Some(pc), 12);
+        }
+        interval_audio(&mut a, None, 60);
+        assert_ne!(a.current_chord_index, index, "the set did not advance");
+        assert_eq!(a.pass_result(-1), MatchStatus::Exact, "the played chord lost its mark");
+
+        a.paused = true;
+        a.step_chord(1);
+        a.step_chord(1);
+        assert_eq!(a.pass_result(-1), MatchStatus::None, "a chord stepped over shows as played");
+        assert_eq!(a.pass_result(-2), MatchStatus::None, "a chord stepped over shows as played");
+        assert_eq!(a.pass_result(-3), MatchStatus::Exact, "the played chord lost its mark");
     }
 
     #[test]

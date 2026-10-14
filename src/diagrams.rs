@@ -26,7 +26,6 @@ pub struct Diagram {
     /// Root string the shape sits on, low to high. Not drawn any more - the
     /// captions were noise under a 96px thumbnail - but it documents the table
     /// and names the shape in test failures.
-    #[allow(dead_code)]
     pub label: &'static str,
     pub svg: &'static str,
 }
@@ -117,6 +116,24 @@ static S_DOM7: &[Diagram] = &[
     diagram!("D", "s_7_D.svg"),
     diagram!("D", "s_7_D_1.svg"),
 ];
+
+/// Two rows in columns by root string, when the shapes come in pairs off the
+/// same string - the shells, E E A A D D. The plain split put E E A over
+/// A D D, and the eye had to find which shape belonged to which string. Here
+/// the first of each pair goes on top and the second under it, so a column is
+/// one string. `None` when the shapes do not pair up.
+pub fn by_root_string<T: Clone>(shapes: &[(&'static str, T)]) -> Option<(Vec<T>, Vec<T>)> {
+    if shapes.len() < 4 || shapes.len() % 2 != 0 {
+        return None;
+    }
+    let pairs: Vec<_> = shapes.chunks(2).collect();
+    if pairs.iter().any(|p| p[0].0 != p[1].0) {
+        return None;
+    }
+    let top = pairs.iter().map(|p| p[0].1.clone()).collect();
+    let bottom = pairs.iter().map(|p| p[1].1.clone()).collect();
+    Some((top, bottom))
+}
 
 /// Which set of shapes to draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,6 +226,18 @@ pub fn for_quality(quality: &ChordQuality, shapes: Shapes) -> Vec<&'static Diagr
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shells_go_in_columns_by_root_string() {
+        let shells: Vec<(&str, &str)> = S_MIN7.iter().map(|d| (d.label, d.svg)).collect();
+        let (top, bottom) = by_root_string(&shells).expect("the shells pair up");
+        // Top row the first shape off E, A and D; under each, the second.
+        assert_eq!(top, vec![S_MIN7[0].svg, S_MIN7[2].svg, S_MIN7[4].svg]);
+        assert_eq!(bottom, vec![S_MIN7[1].svg, S_MIN7[3].svg, S_MIN7[5].svg]);
+        // The full grips are one per string and stay as they are.
+        let full: Vec<(&str, &str)> = MAJ7.iter().map(|d| (d.label, d.svg)).collect();
+        assert!(by_root_string(&full).is_none());
+    }
+
     use super::*;
 
     /// include_str! would fail the build on a missing file, so reaching here

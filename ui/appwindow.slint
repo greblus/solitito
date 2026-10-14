@@ -92,6 +92,29 @@ component IntervalCard inherits Rectangle {
     }
 }
 
+/// A step through the progression beside the pause: as large a target as
+/// the pause itself, the arrow only drawn while it does something.
+component StepArrow inherits Rectangle {
+    in property <string> glyph;
+    in property <bool> shown;
+    callback clicked();
+    width: 68px;
+    height: 68px;
+    border-radius: 12px;
+    background: root.shown && touch.has-hover ? #1C212C : transparent;
+    touch := TouchArea {
+        enabled: root.shown;
+        clicked => { root.clicked(); }
+    }
+    if root.shown : Text {
+        text: root.glyph;
+        font-size: 40px;
+        color: touch.has-hover ? #FFFFFF : #A9B0C0;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
 /// One chord of the progression strip.
 component ProgressChip inherits Rectangle {
     in property <Chip> chip;
@@ -517,6 +540,7 @@ export global Tr {
     in-out property <string> input_silent: "silence";
     in-out property <string> gate_mark: "yellow line = silence threshold";
     in-out property <string> show_input_meter: "Input meter in the side bar";
+    in-out property <string> show_heard: "The Hearing bar under the exercise";
     in-out property <string> tile_done: "done";
     in-out property <string> tile_now: "now";
     in-out property <string> tile_next: "later";
@@ -926,6 +950,8 @@ export component AppWindow inherits Window {
     callback debug_console_changed(bool);
     in-out property <bool> show_input_meter: false;
     callback show_input_meter_changed(bool);
+    in-out property <bool> show_heard: false;
+    callback show_heard_changed(bool);
 
     // --- AUDIO INPUT ---
     /// What the stream actually opened with, or why it did not. The only
@@ -981,6 +1007,12 @@ export component AppWindow inherits Window {
                 && root.current_mode >= 1 && root.current_mode <= 4)
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
+    /// A mode that walks a progression: the arrows beside the pause step
+    /// through it, and the Hearing bar names what is played against it. A
+    /// scale is one item, and an arpeggio study one chord - what moves there
+    /// is the key.
+    property <bool> walks_progression: root.current_mode != 2 && root.current_mode != 4
+        && root.current_mode != 5 && !(root.current_mode == 3 && root.arp_exercise == 0);
     property <length> box_w: root.wide_view
         // Two and a half design widths where the shapes are drawn: at 1.7 the
         // five-a-row case still had width binding first, so half the room a
@@ -1252,15 +1284,21 @@ export component AppWindow inherits Window {
                 // and the gap half an em, so n of them come to (1.7n - 0.5)
                 // ems, and that is set equal to the width there is. The cap is
                 // what keeps a five-note formula from turning into a banner.
+                // One card per function, as the degrees are in Intervals. The
+                // row holds anything from one function to all twelve, so the
+                // card width is solved from the width there is, and capped so
+                // a five-note formula does not turn into a banner.
                 func_row := HorizontalLayout {
                     alignment: center;
                     property <int> n: root.formula_functions.length;
                     property <length> avail: root.box_w - 40px;
-                    spacing: self.fsize / 2;
-                    property <length> fsize:
-                        min(48px, self.avail / (1.7 * self.n - 0.5));
-                    for f[i] in root.formula_functions : VerticalLayout {
-                        spacing: 2px;
+                    property <length> gap: 10px;
+                    property <length> card_w:
+                        min(104px, (self.avail - (self.n - 1) * self.gap) / max(1, self.n));
+                    property <length> fsize: self.card_w * 0.42;
+                    spacing: self.gap;
+                    for f[i] in root.formula_functions : card := Rectangle {
+                        width: func_row.card_w;
                         // Pointing at a chord below asks a different question of
                         // this row - not "what has been played" but "what is
                         // this chord made of" - so while one is pointed at, it
@@ -1269,41 +1307,54 @@ export component AppWindow inherits Window {
                         property <bool> in_chord: root.formula_hover >= 0
                             && root.formula_chord_in[
                                 root.formula_hover * root.formula_functions.length + i];
-                        // Above the functions, not below them: the chord is
-                        // the heading of this screen, so what the notes are TO
-                        // the chord belongs directly under it, and the formula's
-                        // own reading stays the big row in the middle.
-                        if root.formula_against.length > i : Text {
-                            text: root.formula_against[i];
-                            font-size: max(11px, func_row.fsize * 0.4);
-                            font-weight: root.formula_is_chord_tone[i] ? 700 : 400;
-                            color: root.formula_is_chord_tone[i] ? #6aa9ff : #666;
-                            horizontal-alignment: center;
-                        }
-                        Text {
-                            text: f;
-                            font-size: func_row.fsize;
-                            font-weight: root.formula_hover >= 0
-                                ? (parent.in_chord ? 700 : 400)
-                                : (root.formula_collected[i] ? 700 : 400);
-                            // Blue while paused: the set is not "played", it is
-                            // yours to play inside, and green is the colour this
-                            // app uses for a thing already done.
-                            color: root.formula_hover >= 0
-                                ? (parent.in_chord ? #6aa9ff : #444)
-                                : (root.paused ? #6aa9ff
-                                   : (root.formula_collected[i] ? #3ecf6a : #ddd));
-                            horizontal-alignment: center;
-                        }
-                        if root.formula_note_names.length > i : Text {
-                            text: root.formula_note_names[i];
-                            // Two-letter names under a small function still
-                            // need to clear their neighbours, so this follows
-                            // the row down - to a floor, below which the names
-                            // stop being readable at all.
-                            font-size: max(11px, func_row.fsize * 0.4);
-                            color: #8a8a8a;
-                            horizontal-alignment: center;
+                        property <bool> pointing: root.formula_hover >= 0;
+                        property <bool> done: !self.pointing && !root.paused
+                            && root.formula_collected[i];
+                        // Blue while paused: the set is not "played", it is
+                        // yours to play inside, and green is the colour this
+                        // app uses for a thing already done.
+                        property <bool> lit: self.pointing ? self.in_chord : root.paused;
+                        border-radius: 14px;
+                        border-width: self.lit ? 2px : 1px;
+                        background: self.done ? #17271F : (self.lit ? #1A2640 : #161A22);
+                        border-color: self.done ? #24563A : (self.lit ? #2F6FE0 : #222835);
+                        animate background, border-color { duration: 150ms; }
+                        VerticalLayout {
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            spacing: 2px;
+                            alignment: center;
+                            // Above the function, not below it: the chord is
+                            // the heading of this screen, so what the notes are TO
+                            // the chord belongs directly under it, and the formula's
+                            // own reading stays the big line of the card.
+                            if root.formula_against.length > i : Text {
+                                text: root.formula_against[i];
+                                font-size: max(11px, func_row.fsize * 0.38);
+                                font-weight: root.formula_is_chord_tone[i] ? 700 : 400;
+                                color: root.formula_is_chord_tone[i] ? #6aa9ff : #6B7385;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: f;
+                                font-size: func_row.fsize;
+                                font-weight: 800;
+                                color: card.done ? #6EE7A0
+                                    : card.pointing
+                                        ? (card.in_chord ? #FFFFFF : #4A5164)
+                                    : root.paused ? #A9C9FF : #E8EAF0;
+                                horizontal-alignment: center;
+                            }
+                            if root.formula_note_names.length > i : Text {
+                                text: root.formula_note_names[i];
+                                // Two-letter names under a small function still
+                                // need to clear their neighbours, so this follows
+                                // the card down - to a floor, below which the
+                                // names stop being readable at all.
+                                font-size: max(11px, func_row.fsize * 0.38);
+                                color: #C9CEDA;
+                                horizontal-alignment: center;
+                            }
                         }
                     }
                 }
@@ -1564,7 +1615,9 @@ export component AppWindow inherits Window {
                 // height as well, so it may be twice as tall - which is what
                 // lets a wide window draw six shapes across it at full size
                 // instead of six small ones stacked in two.
-                property <length> head_room: root.chord_diagrams_2.length > 0 ? 170px : 340px;
+                // Two rows take the footer's height too when it is off.
+                property <length> head_room: root.chord_diagrams_2.length == 0 ? 340px
+                    : root.show_heard ? 172px : 200px;
                 property <length> dw: min(self.head_room,
                     (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
@@ -1588,29 +1641,23 @@ export component AppWindow inherits Window {
                         clicked => { root.diagram_zoom = root.chord_diagrams.length + i; }
                     }
                 }
-                // Said out loud, or the fallback reads as a shell voicing and
-                // the player believes they are leaving the fifth out.
-                // Always here, empty or not. A line that comes and goes resizes
-                // the shapes above it and moves the strip below, so walking onto
-                // a chord that has a substitute made the whole window jump.
-                Text {
-                    height: 18px;
-                    text: root.shapes_note;
-                    font-size: 12px;
-                    color: #777;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
             }
 
             // Chords keeps the line whether the shuffle is on or not: it is
             // what draws the suggestion, and a row that appears with it would
             // rescale the shapes and push the strip down every time it is
             // switched.
+            // One line for two things that held a line each: what stands in for
+            // a shape the chord has none of - said out loud, or the fallback
+            // reads as a shell voicing and the player believes they are leaving
+            // the fifth out - and the string to start from. The two lines and
+            // their gaps were 80 units of empty band under the shapes.
             if root.current_mode == 0 : Text {
                 height: 26px;
-                text: root.start_hint;
-                font-size: 20px;
+                text: root.shapes_note == "" ? root.start_hint
+                    : root.start_hint == "" ? root.shapes_note
+                    : root.shapes_note + "  ·  " + root.start_hint;
+                font-size: root.start_hint == "" ? 14px : 20px;
                 color: #888;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -1738,8 +1785,18 @@ export component AppWindow inherits Window {
             // Chords, under the position line in the fretboard trainer.
             // The fretboard trainer has nothing to hold: the note is drawn at
             // random and the region already stays put.
+            // While paused, the arrows either side step through the progression
+            // - playing would move it on again before the hand got back to the
+            // guitar. Their places are held while playing, so the pause does
+            // not move when they come and go.
             if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
+                spacing: 12px;
+                if root.walks_progression : StepArrow {
+                    glyph: "‹";
+                    shown: root.paused;
+                    clicked => { root.step_chord(-1); }
+                }
                 IconToggle {
                     icon: root.paused ? root.icon_play : root.icon_pause;
                     active: root.paused;
@@ -1751,21 +1808,26 @@ export component AppWindow inherits Window {
                     height: 68px;
                     toggled => { root.paused = !root.paused; }
                 }
+                if root.walks_progression : StepArrow {
+                    glyph: "›";
+                    shown: root.paused;
+                    clicked => { root.step_chord(1); }
+                }
             }
         }
         
-        // FOOTER - what is heard, and the chord to come
-        if !root.show_settings : Rectangle {
+        // FOOTER - what is heard. An option, off by default: while playing it
+        // pulls the eye from the shapes. The chord to come is in the strip
+        // at the top. Formulas keep the row for their own words.
+        if !root.show_settings && (root.current_mode == 5
+            || (root.show_heard && root.walks_progression)) : Rectangle {
             height: root.bar_h;
-            // Only where there is a progression to walk. A scale is one item,
-            // so the strip showed the same name on both sides of it, cut off at
-            // the width of the column - and an arpeggio study is one chord for
-            // the same reason: what moves there is the key, not a progression.
-            if root.current_mode != 2 && root.current_mode != 4 && root.current_mode != 5
-                && !(root.current_mode == 3 && root.arp_exercise == 0) : HorizontalLayout {
-                spacing: 10px;
-
+            if root.current_mode != 5 : HorizontalLayout {
+                alignment: center;
+                // As wide as five notes and a name need, not the window: across
+                // a wide one it was a long bar with everything at its left end.
                 Rectangle {
+                    width: min(parent.width, 520px);
                     background: #161A22;
                     border-radius: 14px;
                     border-width: 1px;
@@ -1819,43 +1881,6 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-
-                // The chord to come; while paused, the arrows step through the
-                // progression - playing would move it on again before the hand
-                // got back to the guitar.
-                Rectangle {
-                    width: 170px;
-                    background: #161A22;
-                    border-radius: 14px;
-                    border-width: 1px;
-                    border-color: #222835;
-                    HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        spacing: 6px;
-                        if root.paused : Text {
-                            text: "‹";
-                            font-size: 30px;
-                            color: back_touch.has-hover ? #fff : #A9B0C0;
-                            vertical-alignment: center;
-                            back_touch := TouchArea { clicked => { root.step_chord(-1); } }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            horizontal-stretch: 1;
-                            Text { text: Tr.next; font-size: 11px; color: #8A92A3; horizontal-alignment: center; }
-                            Text { text: root.next_chord; font-size: 17px; font-weight: 700; color: #E8EAF0;
-                                horizontal-alignment: center; overflow: elide; }
-                        }
-                        if root.paused : Text {
-                            text: "›";
-                            font-size: 30px;
-                            color: fwd_touch.has-hover ? #fff : #A9B0C0;
-                            vertical-alignment: center;
-                            fwd_touch := TouchArea { clicked => { root.step_chord(1); } }
-                        }
-                    }
-                }
             }
 
             // Formulas have no progression to walk, but a formula stands until
@@ -1886,53 +1911,47 @@ export component AppWindow inherits Window {
         }
     }
 
-    // INTERVALS TOP ROW: the progression from the left, the rules from the
-    // right, as one line across the whole content area. Placed by hand: the
-    // practice column is narrower than the two together, and a row of its own
-    // inside the column took its height from the drawing on the neck. The
-    // strip is clipped on the right, so at a narrow window it gives way to
-    // the rules rather than running under them.
-    if !root.show_settings && root.current_mode == 1 : HorizontalLayout {
-        x: root.sidebar_w + 32px;
+    // INTERVALS TOP: the progression centred as in Chords, and the rules in
+    // the top right corner, one under the other. Placed by hand: a row of
+    // its own inside the column took its height from the drawing on the neck.
+    // The strip keeps clear of the rules - moved left only as far as it must,
+    // and clipped on the right when even that is not enough.
+    if !root.show_settings && root.current_mode == 1 : rules := VerticalLayout {
+        width: self.preferred-width;
+        height: self.preferred-height;
+        x: root.width - 32px - self.width;
         y: (root.height - root.design_h) / 2 + 15px;
-        width: root.width - root.sidebar_w - 64px;
-        height: root.bar_h;
-        spacing: 16px;
-        Rectangle {
-            horizontal-stretch: 1;
-            // Without these the strip asks for the width of all its chips,
-            // and the layout gives it that and pushes the rules off screen.
-            min-width: 0px;
-            preferred-width: 0px;
-            clip: true;
-            HorizontalLayout {
-                alignment: start;
-                spacing: 6px;
-                for c in root.progress : ProgressChip { chip: c; }
+        spacing: 6px;
+        RuleChip {
+            text: Tr.chip_single;
+            on: root.single_notes;
+            toggled => {
+                root.single_notes = !root.single_notes;
+                root.single_notes_changed(root.single_notes);
             }
         }
-        VerticalLayout {
-            horizontal-stretch: 0;
-            alignment: center;
-            HorizontalLayout {
-                spacing: 8px;
-                RuleChip {
-                    text: Tr.chip_in_order;
-                    on: root.interval_in_order;
-                    toggled => {
-                        root.interval_in_order = !root.interval_in_order;
-                        root.interval_in_order_changed(root.interval_in_order);
-                    }
-                }
-                RuleChip {
-                    text: Tr.chip_single;
-                    on: root.single_notes;
-                    toggled => {
-                        root.single_notes = !root.single_notes;
-                        root.single_notes_changed(root.single_notes);
-                    }
-                }
+        RuleChip {
+            text: Tr.chip_in_order;
+            on: root.interval_in_order;
+            toggled => {
+                root.interval_in_order = !root.interval_in_order;
+                root.interval_in_order_changed(root.interval_in_order);
             }
+        }
+    }
+    if !root.show_settings && root.current_mode == 1 : Rectangle {
+        x: root.sidebar_w + 32px;
+        y: (root.height - root.design_h) / 2 + 15px;
+        width: root.width - root.sidebar_w - 64px - 16px - 220px;
+        height: root.bar_h;
+        clip: true;
+        // The centre of the content area, in this box's own coordinates.
+        property <length> centre: (root.width - root.sidebar_w) / 2 - 32px;
+        HorizontalLayout {
+            width: self.preferred-width;
+            x: max(0px, min(parent.centre - self.width / 2, parent.width - self.width));
+            spacing: 6px;
+            for c in root.progress : ProgressChip { chip: c; }
         }
     }
 
@@ -2106,6 +2125,16 @@ export component AppWindow inherits Window {
                                     toggled => { root.show_input_meter_changed(self.checked); }
                                 }
                                 Text { text: Tr.show_input_meter; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.show_heard;
+                                    toggled => { root.show_heard_changed(self.checked); }
+                                }
+                                Text { text: Tr.show_heard; color: #aaa; vertical-alignment: center; }
                             }
 
                         }
