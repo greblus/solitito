@@ -69,6 +69,8 @@ pub struct Strings {
     pub settings: &'static str,
     pub close: &'static str,
     pub settings_title: &'static str,
+    /// The settings entry of the side navigation, which draws its own icon.
+    pub nav_settings: &'static str,
     pub tab_audio: &'static str,
     pub tab_practice: &'static str,
     pub tab_general: &'static str,
@@ -208,6 +210,7 @@ pub const EN: Strings = Strings {
     settings: "⚙ Settings",
     close: "Close",
     settings_title: "Settings & Calibration",
+    nav_settings: "Settings",
     tab_audio: "Audio",
     tab_practice: "Practice",
     tab_general: "General",
@@ -336,6 +339,7 @@ pub const PL: Strings = Strings {
     settings: "⚙ Ustawienia",
     close: "Zamknij",
     settings_title: "Ustawienia i kalibracja",
+    nav_settings: "Ustawienia",
     tab_audio: "Dźwięk",
     tab_practice: "Ćwiczenia",
     tab_general: "Ogólne",
@@ -498,6 +502,7 @@ mod tests {
         for (name, en, pl) in [
             ("chords", EN.chords, PL.chords),
             ("settings_title", EN.settings_title, PL.settings_title),
+            ("nav_settings", EN.nav_settings, PL.nav_settings),
             ("gate_hint", EN.gate_hint, PL.gate_hint),
             ("lock_quality", EN.lock_quality, PL.lock_quality),
             ("random_order", EN.random_order, PL.random_order),

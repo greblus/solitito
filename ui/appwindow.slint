@@ -20,25 +20,60 @@ component NoteBar inherits Rectangle {
     }
 }
 
-component ModeButton inherits Rectangle {
+/// One entry of the side navigation: an icon and a label, the whole row
+/// clickable. The icon is either a stroke path in a 20x20 box or an image.
+component NavItem inherits Rectangle {
     in property <string> text;
+    in property <string> path;
+    in property <image> image;
     in property <bool> selected;
+    /// A small dot at the end of the row: the panel holds unsaved changes.
+    in property <bool> marked;
     callback clicked;
-    
-    border-radius: 4px;
-    background: selected ? #0055ff : #222;
-    border-width: 1px;
-    border-color: selected ? #4488ff : #444;
-    
-    TouchArea { clicked => { root.clicked() } }
-    
-    Text {
-        text: root.text;
-        font-size: 12px;
-        color: root.selected ? white : #aaa;
-        font-weight: root.selected ? 700 : 400;
-        vertical-alignment: center;
-        horizontal-alignment: center;
+
+    height: 40px;
+    border-radius: 10px;
+    background: root.selected ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    animate background { duration: 120ms; }
+
+    touch := TouchArea { clicked => { root.clicked(); } }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            width: 20px;
+            if root.path != "" : Path {
+                width: 20px;
+                height: 20px;
+                viewbox-width: 20;
+                viewbox-height: 20;
+                commands: root.path;
+                stroke: root.selected ? #FFFFFF : #A9B0C0;
+                stroke-width: 1.6px;
+                fill: transparent;
+            }
+            if root.path == "" : Image {
+                width: 20px;
+                height: 20px;
+                source: root.image;
+                colorize: root.selected ? #FFFFFF : #A9B0C0;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 14px;
+            color: root.selected ? #FFFFFF : #A9B0C0;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.marked : VerticalLayout {
+            alignment: center;
+            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #F2B233; }
+        }
     }
 }
 
@@ -89,9 +124,15 @@ component ShapeThumb inherits TouchArea {
     width: root.dw;
     height: root.dw * 104 / 112;
 
+    // A card: the drawing's own background is the card colour, so the
+    // rounded corners and the border are all there is to add.
     Rectangle {
         width: 100%;
         height: 100%;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #222835;
+        clip: true;
         Image {
             source: root.shape;
             image-fit: contain;
@@ -316,6 +357,7 @@ export global Tr {
     in-out property <string> settings: "Settings";
     in-out property <string> close: "Close";
     in-out property <string> settings_title: "Settings & Calibration";
+    in-out property <string> nav_settings: "Settings";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
     in-out property <string> tab_general: "General";
@@ -436,8 +478,12 @@ export component AppWindow inherits Window {
     /// the window's scale factor to fit this box, so the UI zooms instead of
     /// reflowing and the proportions are the ones it was designed with. Rust
     /// reads these to compute that factor, so the numbers live only here.
-    out property <length> design_w: 550px;
+    out property <length> design_w: 760px;
     out property <length> design_h: 800px;
+    /// The side navigation on the left, and the practice column that takes
+    /// the rest. The column keeps the width the whole app had before.
+    property <length> sidebar_w: 210px;
+    property <length> content_w: 550px;
 
     // preferred-*, not width/height: a fixed width and height makes the window
     // non-resizable.
@@ -449,7 +495,7 @@ export component AppWindow inherits Window {
     // is what actually stops the window shrinking into unreadability.
     min-width: root.design_w;
     min-height: root.design_h;
-    background: #000000;
+    background: #11141A;
 
     /// Emitted when the window changes size, so Rust can recompute the scale
     /// factor. Reading the size back from Rust rather than passing it keeps the
@@ -766,9 +812,77 @@ export component AppWindow inherits Window {
         // margin: at full width the drawings run into the frame, and a picture
         // touching the edge of its window reads as cut off rather than large.
         ? ((root.current_mode >= 1 && root.current_mode <= 4) || root.current_mode == 0
-            ? root.width * 92 / 100
-            : min(root.width, root.design_w * 17 / 10))
-        : root.design_w;
+            ? (root.width - root.sidebar_w) * 92 / 100
+            : min(root.width - root.sidebar_w, root.content_w * 17 / 10))
+        : root.content_w;
+
+    // SIDE NAVIGATION
+    //
+    // The modes, the shuffle and the settings, down the left edge for the
+    // whole height of the window; the practice box is centred in what is left.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.sidebar_w;
+        height: root.height;
+        background: #161A22;
+        Rectangle { x: parent.width - 1px; width: 1px; background: #222835; }
+
+        VerticalLayout {
+            padding-top: 22px;
+            padding-bottom: 18px;
+            padding-left: 14px;
+            padding-right: 14px;
+            spacing: 4px;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-bottom: 18px;
+                spacing: 10px;
+                height: 46px;
+                Image { width: 26px; height: 26px; source: @image-url("../src/assets/app-icon.png"); }
+                Text { text: "Solitito"; font-size: 18px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
+            }
+
+            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.pick_mode(4); }
+                path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
+            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.pick_mode(0); }
+                path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
+            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.pick_mode(1); }
+                path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
+            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.pick_mode(2); }
+                path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
+            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.pick_mode(3); }
+                path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
+            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.pick_mode(5); }
+                path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
+
+            Rectangle { }
+
+            // Hidden in the fretboard trainer, which draws its own region at
+            // random and has no order to shuffle.
+            if root.current_mode != 4 : NavItem {
+                text: Tr.random_order;
+                image: root.icon_shuffle;
+                selected: root.random_enabled;
+                clicked => { root.random_enabled = !root.random_enabled; }
+            }
+            NavItem {
+                text: Tr.nav_settings;
+                image: root.icon_gear;
+                selected: root.show_settings;
+                marked: root.settings_touched;
+                clicked => {
+                    // The settings open on Practice, always: it is the tab of
+                    // the mode you are in, and landing on whichever tab was
+                    // left open last time meant hunting for the setting you
+                    // came for. Audio and the rest are one click away.
+                    if (!root.show_settings) { root.settings_tab = 2; }
+                    root.show_settings = !root.show_settings;
+                }
+            }
+        }
+    }
 
     VerticalLayout {
         // Explicit design-sized geometry rather than filling the window. The
@@ -778,68 +892,10 @@ export component AppWindow inherits Window {
         // black background that reads as the window simply having margins.
         width: root.box_w;
         height: root.design_h;
-        x: (root.width - self.width) / 2;
+        x: root.sidebar_w + (root.width - root.sidebar_w - self.width) / 2;
         y: (root.height - self.height) / 2;
         padding: 15px;
         spacing: 15px;
-
-        // TOP BAR
-        //
-        // Held at the design width and centred, so widening the box under
-        // Formulas moves the content and not the buttons: the gear would
-        // otherwise walk off to the far right whenever the mode changed.
-        HorizontalLayout {
-            alignment: center;
-            HorizontalLayout {
-            width: root.design_w - 30px;
-            alignment: space-between;
-            
-            HorizontalLayout {
-                spacing: 5px;
-                // 350px over five buttons is 65px each - enough for "Interwały"
-                // at 12px. At the old 320px the longer labels were clipped.
-                // Six buttons now; 420px keeps "Interwały" and "Formuły" whole
-                // at 12px, where 350 over six would clip them.
-                width: 420px;
-                height: 34px;
-                ModeButton { text: Tr.fretboard; selected: root.current_mode == 4; width: 16.6%; clicked => { root.pick_mode(4); } }
-                ModeButton { text: Tr.chords; selected: root.current_mode == 0; width: 16.6%; clicked => { root.pick_mode(0); } }
-                ModeButton { text: Tr.intervals; selected: root.current_mode == 1; width: 16.6%; clicked => { root.pick_mode(1); } }
-                ModeButton { text: Tr.scales; selected: root.current_mode == 2; width: 16.6%; clicked => { root.pick_mode(2); } }
-                ModeButton { text: Tr.arpeggios; selected: root.current_mode == 3; width: 16.6%; clicked => { root.pick_mode(3); } }
-                ModeButton { text: Tr.formulas; selected: root.current_mode == 5; width: 16.6%; clicked => { root.pick_mode(5); } }
-            }
-
-            // Same height as the mode row so the three line up on one axis.
-            // Hidden in the fretboard trainer, which draws its own region at
-            // random and has no order to shuffle.
-            IconToggle {
-                visible: root.current_mode != 4;
-                icon: root.icon_shuffle;
-                active: root.random_enabled;
-                width: 34px;
-                height: 34px;
-                toggled => { root.random_enabled = !root.random_enabled; }
-            }
-
-            // Icon only, same size as the shuffle toggle. Inverted while the
-            // panel is open, which is what the shuffle does for its own state.
-            IconToggle {
-                icon: root.icon_gear;
-                active: root.settings_touched;
-                width: 34px;
-                height: 34px;
-                toggled => {
-                    // The gear opens on Practice, always: it is the tab of the
-                    // mode you are in, and landing on whichever tab was left
-                    // open last time meant hunting for the setting you came
-                    // for. Audio and the rest are one click away.
-                    if (!root.show_settings) { root.settings_tab = 2; }
-                    root.show_settings = !root.show_settings;
-                }
-            }
-        }
-        }
 
         // The settings panel is NOT here. At two thirds of the window it is
         // wider than this 550px box, and a child cannot outgrow its parent,
@@ -895,7 +951,7 @@ export component AppWindow inherits Window {
                 // The lines around the functions grow with the box too, or a
                 // wide window reads as one large row surrounded by fine print.
                 // Held well under the box's own 1.7x: these are captions.
-                property <float> zoom: min(1.35, root.box_w / root.design_w);
+                property <float> zoom: min(1.35, root.box_w / root.content_w);
 
                 // Over a chord the chord is the heading and the key line goes:
                 // the formula is not in a key any more, it is planted on a
@@ -1510,7 +1566,7 @@ export component AppWindow inherits Window {
     // width up to a point; past it the rows are just a label at one end of the
     // screen and a control at the other. The practice view is unaffected and
     // keeps its fixed proportions.
-    property <length> panel_w: min(root.width, root.design_w * 3 / 2) - 30px;
+    property <length> panel_w: min(root.width - root.sidebar_w, root.content_w * 3 / 2) - 30px;
     /// Width every control in the panel gets: two thirds of it, but never more
     /// than what is left beside the widest label. Without the second half a row
     /// at the minimum window size came to 532px inside 490px of content, and the
@@ -1518,8 +1574,8 @@ export component AppWindow inherits Window {
     /// being cut off on the right, far from where the cause was.
     ///   15px padding on each side, 185px the widest label, 10px the row spacing.
     property <length> ctrl_w: min(root.panel_w * 2 / 3, root.panel_w - 30px - 195px);
-    // Aligned to where the top bar ends: box top + padding + bar + spacing.
-    property <length> panel_top: (root.height - root.design_h) / 2 + 64px;
+    // Aligned with the top of the practice box's padding.
+    property <length> panel_top: (root.height - root.design_h) / 2 + 15px;
     // SETTINGS PANEL
     //
     // Three tabs rather than one long column: the list outgrew the window,
@@ -1527,10 +1583,10 @@ export component AppWindow inherits Window {
     // Only one tab is on screen at a time, so there is also a third as much
     // to redraw while playing.
     if root.show_settings : Rectangle {
-        x: (root.width - self.width) / 2;
+        x: root.sidebar_w + (root.width - root.sidebar_w - self.width) / 2;
         y: root.panel_top;
         width: root.panel_w;
-        height: root.design_h - 79px;
+        height: root.design_h - 30px;
         background: #222;
         border-radius: 10px;
         border-width: 1px;
