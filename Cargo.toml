@@ -1,6 +1,6 @@
 [package]
 name = "solitito"
-version = "0.5.11-beta4"
+version = "0.5.11"
 edition = "2021"
 
 [dependencies]
