@@ -32,7 +32,7 @@ use latch::ChordLatch;
 use i18n::Lang;
 use settings::Settings;
 use model::NoteName;
-use state::{MyApp, AppMode, MatchStatus};
+use state::{MyApp, AppMode, MatchStatus, NoteState};
 
 use slint::{Timer, TimerMode, Model, ModelRc, VecModel, Color, SharedString, PhysicalPosition, PhysicalSize};
 
@@ -69,6 +69,12 @@ const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
 ///
 /// The factor is derived from the PHYSICAL size, which the scale factor does not
 /// affect, so setting it cannot feed back into another resize.
+/// Whether the exercise is drawn - as tablature (1) or on the neck (2) -
+/// rather than written as a line of names (0) or as tiles (3).
+fn draws_on_neck(preview: i32) -> bool {
+    preview == 1 || preview == 2
+}
+
 fn fit_ui_to_window(ui: &AppWindow) {
     let size = ui.window().size();
     // Before the window is mapped, and when minimised on some platforms.
@@ -670,6 +676,7 @@ struct SettingsSnapshot {
     in_order: bool,
     interval_in_order: bool,
     debug_console: bool,
+    show_input_meter: bool,
 }
 
 impl SettingsSnapshot {
@@ -717,6 +724,7 @@ impl SettingsSnapshot {
             in_order: ui.get_in_order(),
             interval_in_order: ui.get_interval_in_order(),
             debug_console: ui.get_debug_console(),
+            show_input_meter: ui.get_show_input_meter(),
         }
     }
 }
@@ -1153,6 +1161,8 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_in_order(cfg.formula_in_order);
         ui.set_interval_in_order(cfg.interval_in_order);
         ui.set_debug_console(cfg.debug_console);
+        ui.set_show_input_meter(cfg.show_input_meter);
+        ui.set_app_version(env!("CARGO_PKG_VERSION").into());
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_ai_debug_visible(cfg.ai_debug);
         ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
@@ -1375,6 +1385,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut last_ai_name = String::new();
     let mut last_ai_push = std::time::Instant::now();
     let mut last_level_db = f32::NEG_INFINITY;
+    let mut last_level_push = std::time::Instant::now();
+    let mut last_tiles: Vec<IntervalTile> = Vec::new();
     let mut last_spectrum_push = std::time::Instant::now();
 
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
@@ -1385,10 +1397,15 @@ fn main() -> Result<(), slint::PlatformError> {
             let s = app.analysis_state.lock().unwrap();
             (s.spectrum_visual, s.input_level)
         };
-        // Half a decibel is below what the bar can show anyway.
+        // Half a decibel is below what the bar can show anyway. At most 20
+        // times a second, like the spectrum: the meter in the side navigation
+        // is always on screen, and every new level redraws the window.
         let level_db = lin_to_db(in_level);
-        if (level_db - last_level_db).abs() > 0.5 {
+        if (level_db - last_level_db).abs() > 0.5
+            && last_level_push.elapsed() >= Duration::from_millis(50)
+        {
             last_level_db = level_db;
+            last_level_push = std::time::Instant::now();
             ui.set_input_level_db(level_db);
         }
 
@@ -1924,7 +1941,7 @@ fn main() -> Result<(), slint::PlatformError> {
             // note that is sounding lies, green if it is the one asked for and
             // red if it is not. Nothing before that - drawing the target first
             // would turn the mode into copying a picture.
-            if ui.get_preview() > 0 {
+            if draws_on_neck(ui.get_preview()) {
                 let strings: Vec<usize> = app.region.strings.strings().to_vec();
                 let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
                 // What the JUDGE credited, not a reading of its own. Marking
@@ -2000,7 +2017,7 @@ fn main() -> Result<(), slint::PlatformError> {
             // Nor in Scales or Arpeggios: the drawing says which string every
             // note is on, so a line naming one of them says less than the
             // picture does.
-            let drawn_grip = ui.get_preview() > 0
+            let drawn_grip = draws_on_neck(ui.get_preview())
                 && matches!(
                     app.app_mode,
                     AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
@@ -2225,6 +2242,43 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
                 ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
 
+                // Intervals draws the steps as tiles, with the note each degree
+                // falls on in this chord. Pushed only when something changed:
+                // a new model every frame would rebuild every tile.
+                if app.app_mode == AppMode::Intervals
+                    && ui.get_preview() == settings::PREVIEW_TILES as i32
+                {
+                    let key = formulas::parse_key(curr_chord.root.to_string());
+                    let intervals = curr_chord.quality.intervals();
+                    let tiles: Vec<IntervalTile> = active_indices
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, step)| step.degree < all_names.len())
+                        .map(|(step_idx, step)| {
+                            let note = match (&key, intervals.get(step.degree)) {
+                                (Some(key), Some(&semis)) => formulas::note_name(key, semis as usize % 12),
+                                _ => String::new(),
+                            };
+                            let state = match app.note_state(step_idx) {
+                                NoteState::Waiting => 0,
+                                NoteState::Due => 1,
+                                NoteState::Open => 2,
+                                NoteState::Answering => 3,
+                                NoteState::Done => 4,
+                            };
+                            IntervalTile {
+                                degree: model::with_octave(&all_names[step.degree], step.octave).into(),
+                                note: note.into(),
+                                state,
+                            }
+                        })
+                        .collect();
+                    if tiles != last_tiles {
+                        ui.set_interval_tiles(ModelRc::from(Rc::new(VecModel::from(tiles.clone()))));
+                        last_tiles = tiles;
+                    }
+                }
+
                 // The same phrase again, drawn on the neck: which string each
                 // degree falls on, and the ones already played lit green. Not
                 // in the fretboard trainer, which draws its own region, and not
@@ -2233,7 +2287,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     app.app_mode,
                     AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
                 );
-                if drawable && ui.get_preview() > 0 {
+                if drawable && draws_on_neck(ui.get_preview()) {
                     let done: Vec<bool> = app.collected_notes.clone();
                     // Built from the steps ACTUALLY drawn, not from the text
                     // they were read out of: anything that reorders them - the
@@ -2748,6 +2802,14 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        let cur = live_cfg.clone();
+        ui.on_show_input_meter_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.show_input_meter = on;
+            cur.save();
+        });
+    }
+    {
         // The star: keep what is on screen, or let go of it. Kept formulas are
         // matched on the set AND the key, because the same functions read from
         // another root are a different exercise.
@@ -3088,6 +3150,17 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
     g.set_heard(t.heard.into());
+    g.set_input_card(t.input_card.into());
+    g.set_input_hearing(t.input_hearing.into());
+    g.set_input_silent(t.input_silent.into());
+    g.set_gate_mark(t.gate_mark.into());
+    g.set_show_input_meter(t.show_input_meter.into());
+    g.set_tile_done(t.tile_done.into());
+    g.set_tile_now(t.tile_now.into());
+    g.set_tile_next(t.tile_next.into());
+    g.set_tile_open(t.tile_open.into());
+    g.set_chip_in_order(t.chip_in_order.into());
+    g.set_chip_single(t.chip_single.into());
     g.set_nav_settings(t.nav_settings.into());
     g.set_tab_audio(t.tab_audio.into());
     g.set_tab_practice(t.tab_practice.into());
@@ -3130,6 +3203,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_preview_functions(t.preview_functions.into());
     g.set_preview_note_names_neck(t.preview_note_names_neck.into());
     g.set_preview_functions_neck(t.preview_functions_neck.into());
+    g.set_preview_tiles(t.preview_tiles.into());
     g.set_in_order(t.in_order.into());
     g.set_interval_in_order(t.interval_in_order.into());
     g.set_interval_in_order_hint(t.interval_in_order_hint.into());

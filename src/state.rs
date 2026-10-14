@@ -6,6 +6,21 @@ use crate::rng::Rng;
 use crate::fretboard::Region;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
+/// Where one step of an exercise stands, as `note_state` reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteState {
+    /// Later in the order; not asked for yet.
+    Waiting,
+    /// The one the exercise waits for now.
+    Due,
+    /// Free order: any step not yet played may come next.
+    Open,
+    /// Heard, and being held long enough to count.
+    Answering,
+    /// Credited.
+    Done,
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum AppMode { 
     Chords = 0, 
@@ -1078,17 +1093,29 @@ impl MyApp {
         (!self.free_order()).then_some(self.current_note_step)
     }
 
-    /// Both drawings and the text strip use the judge's marks, including
-    /// credits earned out of order. A cursor is not a record of what was played.
-    pub fn note_color(&self, step: usize) -> (u8, u8, u8) {
+    /// Where one step of the exercise stands. Every drawing of the steps reads
+    /// this, and it reads the judge's marks, including credits earned out of
+    /// order. A cursor is not a record of what was played.
+    pub fn note_state(&self, step: usize) -> NoteState {
         if self.collected_notes.get(step).copied().unwrap_or(false) {
-            (50, 255, 50)
+            NoteState::Done
         } else if self.answering_step == Some(step) && self.success_timer > 0.05 {
-            (200, 255, 50)
-        } else if self.free_order() || self.note_due() == Some(step) {
-            (180, 180, 180)
+            NoteState::Answering
+        } else if self.free_order() {
+            NoteState::Open
+        } else if self.note_due() == Some(step) {
+            NoteState::Due
         } else {
-            (60, 60, 60)
+            NoteState::Waiting
+        }
+    }
+
+    pub fn note_color(&self, step: usize) -> (u8, u8, u8) {
+        match self.note_state(step) {
+            NoteState::Done => (50, 255, 50),
+            NoteState::Answering => (200, 255, 50),
+            NoteState::Open | NoteState::Due => (180, 180, 180),
+            NoteState::Waiting => (60, 60, 60),
         }
     }
 

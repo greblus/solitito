@@ -29,6 +29,114 @@ export struct Chip {
     fg: color,
 }
 
+/// One degree of the chord in Intervals: its function, the note it is on this
+/// chord, and where it stands - 0 later in the order, 1 asked for now, 2 open
+/// (free order), 3 being held long enough to count, 4 credited.
+export struct IntervalTile {
+    degree: string,
+    note: string,
+    state: int,
+}
+
+/// A degree of the chord as a tile: the function large, the note under it,
+/// and a badge saying where it stands.
+component IntervalCard inherits Rectangle {
+    in property <IntervalTile> tile;
+    property <bool> done: root.tile.state == 4;
+    property <bool> now: root.tile.state == 1 || root.tile.state == 3;
+    property <bool> open: root.tile.state == 2;
+
+    border-radius: 16px;
+    background: root.done ? #17271F : (root.now ? #1A2640 : #161A22);
+    border-width: root.now ? 2px : 1px;
+    border-color: root.done ? #24563A : (root.now ? #2F6FE0 : (root.open ? #2D3B5C : #222835));
+    animate background, border-color { duration: 150ms; }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+        Text {
+            text: root.tile.degree;
+            font-size: 40px;
+            font-weight: 800;
+            horizontal-alignment: center;
+            color: root.done ? #6EE7A0
+                : root.tile.state == 3 ? #D4F27A
+                : (root.now || root.open) ? #FFFFFF : #6B7385;
+        }
+        Text {
+            text: root.tile.note;
+            font-size: 16px;
+            horizontal-alignment: center;
+            color: #C9CEDA;
+        }
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                height: 20px;
+                border-radius: 10px;
+                background: root.done ? #1E3A2C : (root.now ? #2F6FE0 : #1C212C);
+                HorizontalLayout {
+                    padding-left: 9px;
+                    padding-right: 9px;
+                    Text {
+                        text: root.done ? Tr.tile_done : root.now ? Tr.tile_now
+                            : root.open ? Tr.tile_open : Tr.tile_next;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        color: root.done ? #6EE7A0 : (root.now ? #FFFFFF : #8A92A3);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One chord of the progression strip.
+component ProgressChip inherits Rectangle {
+    in property <Chip> chip;
+    border-radius: 10px;
+    background: root.chip.current ? #2F6FE0 : (root.chip.played ? #17271F : #1C212C);
+    border-width: root.chip.current ? 2px : 0px;
+    border-color: #5A8EF0;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: root.chip.name;
+            font-size: 15px;
+            font-weight: root.chip.current ? 700 : 500;
+            color: root.chip.current ? #FFFFFF : root.chip.fg;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// A rule switched on the practice screen itself: ticked and outlined in
+/// blue when on, a plain outline when off.
+component RuleChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback toggled();
+
+    height: 36px;
+    border-radius: 18px;
+    border-width: 1px;
+    background: root.on ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    border-color: root.on ? #2F6FE0 : #343B4B;
+    touch := TouchArea { clicked => { root.toggled(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: (root.on ? "✓ " : "") + root.text;
+            font-size: 13px;
+            vertical-alignment: center;
+            color: root.on ? #E8EAF0 : #A9B0C0;
+        }
+    }
+}
+
 /// A note the model hears, and whether the chord asked for has it.
 export struct HeardNote {
     name: string,
@@ -95,6 +203,29 @@ component NavItem inherits Rectangle {
 /// Header of one settings tab. Hand-rolled rather than std-widgets' TabWidget:
 /// that one hard-codes left-aligned titles, and the tab it shows lives inside
 /// the panel, out of reach of the mode buttons above it.
+/// The input level against the silence threshold, on the gate slider's
+/// scale (-72 to 0 dB): blue above the threshold, grey below it, and the
+/// threshold itself a yellow line.
+component LevelMeter inherits Rectangle {
+    in property <float> level_db;
+    in property <float> gate_db;
+
+    background: #11141A;
+    border-radius: 4px;
+    clip: true;
+    Rectangle {
+        x: 0;
+        width: parent.width * Math.max(0.0, Math.min(1.0, (root.level_db + 72) / 72));
+        background: root.level_db > root.gate_db ? #4A90E2 : #2A3142;
+        border-radius: 4px;
+    }
+    Rectangle {
+        x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72)) - 1px;
+        width: 2px;
+        background: #F2B233;
+    }
+}
+
 component TabButton inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
@@ -170,35 +301,44 @@ component Dropdown inherits Rectangle {
     callback deleted(int);
     /// Fired as the list is about to open, for whoever wants to refresh it first.
     callback opened();
+    /// A heading that opens a list rather than a box: no frame, the text as
+    /// large as asked, centred, and the list wider than the text it hangs from.
+    in property <bool> title-look: false;
+    in property <string> title-text;
+    in property <length> title-size: 26px;
 
-    property <length> row-h: 28px;
-    property <int> max-rows: 6;
+    property <length> row-h: root.title-look ? 32px : 28px;
+    property <int> max-rows: root.title-look ? 10 : 6;
     property <bool> overflows: root.model.length > root.max-rows;
     property <length> pad: 4px;
 
-    height: 34px;
+    height: root.title-look ? root.title-size * 1.5 : 34px;
     horizontal-stretch: 1;
-    border-radius: 4px;
-    border-width: 1px;
-    border-color: touch.has-hover && root.enabled ? #555 : #3a3a3a;
-    background: root.enabled ? #2a2a2a : #242424;
+    border-radius: root.title-look ? 10px : 8px;
+    border-width: root.title-look ? 0px : 1px;
+    border-color: touch.has-hover && root.enabled ? #3A4356 : #2D3444;
+    background: root.title-look
+        ? (touch.has-hover ? #1C212C : transparent)
+        : (root.enabled ? #1C212C : #161A22);
 
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 8px;
+        alignment: root.title-look ? center : stretch;
 
         Text {
-            horizontal-stretch: 1;
-            text: root.current-index >= 0 && root.current-index < root.model.length
-                ? root.model[root.current-index] : "";
-            color: root.enabled ? #ddd : #666;
-            font-size: 13px;
+            horizontal-stretch: root.title-look ? 0 : 1;
+            text: root.title-look ? root.title-text
+                : root.current-index >= 0 && root.current-index < root.model.length
+                    ? root.model[root.current-index] : "";
+            color: root.title-look ? #C9CEDA : (root.enabled ? #E8EAF0 : #6B7385);
+            font-size: root.title-look ? root.title-size : 13px;
             vertical-alignment: center;
             overflow: elide;
         }
         Chevron {
-            tint: root.enabled ? #999 : #555;
+            tint: root.enabled ? #A9B0C0 : #555;
             y: (parent.height - self.height) / 2;
         }
     }
@@ -212,18 +352,18 @@ component Dropdown inherits Rectangle {
     }
 
     popup := PopupWindow {
-        x: 0;
-        y: 0;
-        width: root.width;
+        width: root.title-look ? max(root.width * 0.7, 300px) : root.width;
+        x: (root.width - self.width) / 2;
+        y: root.title-look ? root.height : 0;
         height: min(root.model.length, root.max-rows) * root.row-h + 2 * root.pad
                 + (root.overflows ? 14px : 0px);
         close-policy: close-on-click-outside;
 
         Rectangle {
-            background: #2a2a2a;
-            border-radius: 6px;
+            background: #1C212C;
+            border-radius: 10px;
             border-width: 1px;
-            border-color: #4a4a4a;
+            border-color: #2D3444;
 
             VerticalLayout {
                 padding: root.pad;
@@ -237,17 +377,17 @@ component Dropdown inherits Rectangle {
                         alignment: start;
                         for value[index] in root.model : Rectangle {
                             height: root.row-h;
-                            border-radius: 4px;
-                            background: index == root.current-index ? #0055ff
-                                : (row-touch.has-hover ? #383838 : transparent);
+                            border-radius: 6px;
+                            background: index == root.current-index ? #2F6FE0
+                                : (row-touch.has-hover ? #243049 : transparent);
 
                             HorizontalLayout {
                                 padding-left: 8px;
                                 padding-right: root.deletable ? root.row-h : 8px;
                                 Text {
                                     text: value;
-                                    font-size: 13px;
-                                    color: index == root.current-index ? white : #ccc;
+                                    font-size: root.title-look ? 15px : 13px;
+                                    color: index == root.current-index ? white : #C9CEDA;
                                     vertical-alignment: center;
                                     overflow: elide;
                                 }
@@ -372,6 +512,17 @@ export global Tr {
     in-out property <string> settings_title: "Settings & Calibration";
     in-out property <string> nav_settings: "Settings";
     in-out property <string> heard: "Hearing";
+    in-out property <string> input_card: "Input";
+    in-out property <string> input_hearing: "hearing";
+    in-out property <string> input_silent: "silence";
+    in-out property <string> gate_mark: "yellow line = silence threshold";
+    in-out property <string> show_input_meter: "Input meter in the side bar";
+    in-out property <string> tile_done: "done";
+    in-out property <string> tile_now: "now";
+    in-out property <string> tile_next: "later";
+    in-out property <string> tile_open: "play";
+    in-out property <string> chip_in_order: "In order";
+    in-out property <string> chip_single: "Single notes";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
     in-out property <string> tab_general: "General";
@@ -412,6 +563,7 @@ export global Tr {
     in-out property <string> preview_note_names: "Note names";
     in-out property <string> preview_functions: "Interval functions";
     in-out property <string> preview_note_names_neck: "Note names on the neck";
+    in-out property <string> preview_tiles: "Interval tiles";
     in-out property <string> preview_functions_neck: "Interval functions on the neck";
     in-out property <string> tab_frets: "Fret numbers instead of degrees";
     in-out property <string> tab_frets_hint: "";
@@ -484,7 +636,10 @@ export global Tr {
 }
 
 export component AppWindow inherits Window {
-    title: "Solitito";
+    /// Set from Cargo.toml at startup, so a screenshot or a bug report says
+    /// which build it came from.
+    in property <string> app_version: "";
+    title: root.app_version == "" ? "Solitito" : "Solitito " + root.app_version;
     // Window and taskbar icon. Compiled into the binary like the chord shapes,
     // so a release package is still one file with nothing to lose beside it.
     icon: @image-url("../src/assets/app-icon.png");
@@ -566,6 +721,8 @@ export component AppWindow inherits Window {
     in-out property <int> diagram_zoom: -1;
 
     in property <[string]> interval_names;
+    /// The same steps as tiles, in Intervals only.
+    in property <[IntervalTile]> interval_tiles;
     /// Which step is being asked for; the strip scrolls to keep it centred.
     in property <int> interval_step: 0;
     /// Set for the frame the exercise restarts. Walking one step forward wants a
@@ -584,6 +741,8 @@ export component AppWindow inherits Window {
     callback voice_leading_changed(bool);
     /// How the exercise is drawn: 0 the line of names, 1 tablature, 2 the neck.
     in-out property <int> preview: 1;
+    /// Tablature or the neck, as against the line of names (0) or the tiles (3).
+    property <bool> draws_on_neck: root.preview == 1 || root.preview == 2;
     callback preview_changed(int);
     in-out property <bool> tab_frets: false;
     callback tab_frets_changed(bool);
@@ -765,6 +924,8 @@ export component AppWindow inherits Window {
     callback interval_in_order_changed(bool);
     in-out property <bool> debug_console: false;
     callback debug_console_changed(bool);
+    in-out property <bool> show_input_meter: false;
+    callback show_input_meter_changed(bool);
 
     // --- AUDIO INPUT ---
     /// What the stream actually opened with, or why it did not. The only
@@ -816,7 +977,7 @@ export component AppWindow inherits Window {
     // the design width it came out a third of the height it could be.
     property <bool> wide_view: !root.show_settings
         && (root.current_mode == 5
-            || (root.preview > 0 && root.tab_image.width > 0
+            || (root.draws_on_neck && root.tab_image.width > 0
                 && root.current_mode >= 1 && root.current_mode <= 4)
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
@@ -879,6 +1040,57 @@ export component AppWindow inherits Window {
 
             Rectangle { }
 
+            // INPUT CARD: is the guitar heard, and where the silence threshold
+            // sits against it. Always in sight, because a gate set too high
+            // looked like the app not crediting what was played. A click opens
+            // the audio settings, where the threshold is moved.
+            if root.show_input_meter : Rectangle {
+                height: 104px;
+                background: input_touch.has-hover ? #222836 : #1C212C;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: #262D3B;
+                input_touch := TouchArea {
+                    clicked => {
+                        root.settings_tab = 0;
+                        root.show_settings = true;
+                    }
+                }
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        // The channel up here: beside the device name it was
+                        // cut off at the width of the side navigation.
+                        Text {
+                            text: Tr.input_card
+                                + (root.audio_channel_count > 1 ? " · " + root.audio_channels[root.audio_channel_index] : "");
+                            font-size: 12px;
+                            color: #A9B0C0;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "● " + (root.input_level_db > root.gate_db ? Tr.input_hearing : Tr.input_silent);
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: root.input_level_db > root.gate_db ? #6EE7A0 : #6B7385;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    Text {
+                        text: root.audio_devices[root.audio_device_index];
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: #E8EAF0;
+                        overflow: elide;
+                    }
+                    LevelMeter { height: 8px; level_db: root.input_level_db; gate_db: root.gate_db; }
+                    Text { text: Tr.gate_mark; font-size: 11px; color: #8A92A3; overflow: elide; }
+                }
+            }
+            // Air between the card and the entries below it.
+            if root.show_input_meter : Rectangle { height: 12px; }
+
             // Hidden in the fretboard trainer, which draws its own region at
             // random and has no order to shuffle.
             if root.current_mode != 4 : NavItem {
@@ -926,28 +1138,18 @@ export component AppWindow inherits Window {
 
         // PROGRESSION STRIP: where in the tune the player is. Above the
         // centred column, so it does not move the chord name up or down.
-        if !root.show_settings && (root.current_mode == 0 || root.current_mode == 1)
+        if !root.show_settings && root.current_mode == 0
             && root.progress.length > 1 : HorizontalLayout {
             alignment: center;
             spacing: 6px;
             height: root.bar_h;
-            for c in root.progress : Rectangle {
-                border-radius: 10px;
-                background: c.current ? #2F6FE0 : (c.played ? #17271F : #1C212C);
-                border-width: c.current ? 2px : 0px;
-                border-color: #5A8EF0;
-                HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 14px;
-                    Text {
-                        text: c.name;
-                        font-size: 15px;
-                        font-weight: c.current ? 700 : 500;
-                        color: c.current ? #FFFFFF : c.fg;
-                        vertical-alignment: center;
-                    }
-                }
-            }
+            for c in root.progress : ProgressChip { chip: c; }
+        }
+        // Intervals draws its strip in a row of its own, placed by hand
+        // below; this holds the strip's place so the column stands where
+        // it does in Chords.
+        if !root.show_settings && root.current_mode == 1 : Rectangle {
+            height: root.bar_h;
         }
 
         // --- MAIN PRACTICE VIEW ---
@@ -968,15 +1170,29 @@ export component AppWindow inherits Window {
             // `if`, not `visible`: a hidden element still holds its place in
             // the column, and two of them left the formulas block sitting a
             // line lower than every other mode.
-            if root.current_mode != 5 || root.formula_exercise == 2 : Text {
+            // The title is also where the tune is changed: a click opens the
+            // list the settings hold, so trying another one is not a trip
+            // through the panel. In the fretboard trainer there is no list.
+            if root.current_mode != 5 || root.formula_exercise == 2 : HorizontalLayout {
+                alignment: center;
                 // Formulas have no song of their own - but played over the
                 // changes they borrow one, and then its name belongs here as
                 // much as it does in Chords.
-                text: root.song_title;
-                font-size: 26px;
-                color: #aaa;
-                horizontal-alignment: center;
-                wrap: word-wrap;
+                if root.current_mode != 4 : Dropdown {
+                    horizontal-stretch: 0;
+                    title-look: true;
+                    title-text: root.song_title;
+                    model: root.library_items;
+                    current-index <=> root.current_item_index;
+                    selected => { root.item_selected(self.current-index); }
+                }
+                if root.current_mode == 4 : Text {
+                    text: root.song_title;
+                    font-size: 26px;
+                    color: #aaa;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
             }
 
             if root.current_mode != 5 : Text {
@@ -1417,6 +1633,23 @@ export component AppWindow inherits Window {
                 color: white; 
             }
             
+            // INTERVALS drawn as tiles: the chord's degrees, the note each is
+            // on, and where it stands. One of the views the settings offer.
+            if root.current_mode == 1 && root.preview == 3 : HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+                // Sized to the column: four tiles at full size, more of them
+                // narrower, so a long pattern does not run off the edge.
+                property <length> tile_w: min(112px,
+                    (root.content_w - 30px - (root.interval_tiles.length - 1) * 12px)
+                        / max(1, root.interval_tiles.length));
+                for t in root.interval_tiles : IntervalCard {
+                    width: parent.tile_w;
+                    height: 124px;
+                    tile: t;
+                }
+            }
+
             // The strip scrolls under a fixed centre rather than the highlight
             // jumping along a static row: a two-octave arpeggio is fifteen steps,
             // about 1050px, and the window is 550px.
@@ -1468,7 +1701,7 @@ export component AppWindow inherits Window {
             // a third of the height - six strings and a row of labels need the
             // room, and a fixed band left the drawing in a corner of a
             // maximised window.
-            if root.preview > 0 && root.tab_image.width > 0
+            if root.draws_on_neck && root.tab_image.width > 0
                 && root.current_mode >= 1 && root.current_mode <= 4 : HorizontalLayout {
                 alignment: center;
                 // Bounded three ways: the window's width, a quarter of its
@@ -1609,8 +1842,10 @@ export component AppWindow inherits Window {
                         }
                         VerticalLayout {
                             alignment: center;
-                            Text { text: Tr.next; font-size: 11px; color: #8A92A3; }
-                            Text { text: root.next_chord; font-size: 17px; font-weight: 700; color: #E8EAF0; overflow: elide; }
+                            horizontal-stretch: 1;
+                            Text { text: Tr.next; font-size: 11px; color: #8A92A3; horizontal-alignment: center; }
+                            Text { text: root.next_chord; font-size: 17px; font-weight: 700; color: #E8EAF0;
+                                horizontal-alignment: center; overflow: elide; }
                         }
                         if root.paused : Text {
                             text: "›";
@@ -1646,6 +1881,56 @@ export component AppWindow inherits Window {
                     color: draw_word.has-hover ? #6aa9ff : #4a7fd0;
                     vertical-alignment: center;
                     draw_word := TouchArea { clicked => { root.step_chord(1); } }
+                }
+            }
+        }
+    }
+
+    // INTERVALS TOP ROW: the progression from the left, the rules from the
+    // right, as one line across the whole content area. Placed by hand: the
+    // practice column is narrower than the two together, and a row of its own
+    // inside the column took its height from the drawing on the neck. The
+    // strip is clipped on the right, so at a narrow window it gives way to
+    // the rules rather than running under them.
+    if !root.show_settings && root.current_mode == 1 : HorizontalLayout {
+        x: root.sidebar_w + 32px;
+        y: (root.height - root.design_h) / 2 + 15px;
+        width: root.width - root.sidebar_w - 64px;
+        height: root.bar_h;
+        spacing: 16px;
+        Rectangle {
+            horizontal-stretch: 1;
+            // Without these the strip asks for the width of all its chips,
+            // and the layout gives it that and pushes the rules off screen.
+            min-width: 0px;
+            preferred-width: 0px;
+            clip: true;
+            HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+                for c in root.progress : ProgressChip { chip: c; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: center;
+            HorizontalLayout {
+                spacing: 8px;
+                RuleChip {
+                    text: Tr.chip_in_order;
+                    on: root.interval_in_order;
+                    toggled => {
+                        root.interval_in_order = !root.interval_in_order;
+                        root.interval_in_order_changed(root.interval_in_order);
+                    }
+                }
+                RuleChip {
+                    text: Tr.chip_single;
+                    on: root.single_notes;
+                    toggled => {
+                        root.single_notes = !root.single_notes;
+                        root.single_notes_changed(root.single_notes);
+                    }
                 }
             }
         }
@@ -1782,23 +2067,11 @@ export component AppWindow inherits Window {
                                 Slider { width: root.ctrl_w; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
                             }
 
-                            Rectangle {
+                            LevelMeter {
                                 height: 14px;
                                 width: root.ctrl_w;
-                                background: #222;
-                                border-radius: 3px;
-                                Rectangle {
-                                    x: 0; y: 0; height: parent.height;
-                                    width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
-                                    background: root.input_level_db > root.gate_db ? #4a9 : #666;
-                                    border-radius: 3px;
-                                }
-                                // threshold marker
-                                Rectangle {
-                                    x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
-                                    y: 0; width: 2px; height: parent.height;
-                                    background: #e55;
-                                }
+                                level_db: root.input_level_db;
+                                gate_db: root.gate_db;
                             }
 
                             Text {
@@ -1823,6 +2096,16 @@ export component AppWindow inherits Window {
                                     width: root.ctrl_w;
                                     minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
                                 }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.show_input_meter;
+                                    toggled => { root.show_input_meter_changed(self.checked); }
+                                }
+                                Text { text: Tr.show_input_meter; color: #aaa; vertical-alignment: center; }
                             }
 
                         }
@@ -2225,19 +2508,15 @@ export component AppWindow inherits Window {
                                         // carries the same thing as the line, only
                                         // on the neck - unless fret numbers are
                                         // switched on, which is its own option.
-                                        model: [
-                                            root.current_mode == 4
-                                                ? Tr.preview_note_names
-                                                : Tr.preview_functions,
-                                            root.current_mode == 4
-                                                ? Tr.preview_note_names_neck
-                                                : Tr.preview_functions_neck,
-                                        ];
-                                        // One-way and set by hand, because the two
-                                        // entries are 0 and 2 of the same setting.
-                                        current-index: root.preview == 0 ? 0 : 1;
+                                        // Intervals has the tiles as a third entry.
+                                        model: root.current_mode == 4
+                                            ? [Tr.preview_note_names, Tr.preview_note_names_neck]
+                                            : [Tr.preview_functions, Tr.preview_functions_neck, Tr.preview_tiles];
+                                        // One-way and set by hand, because the
+                                        // entries are 0, 2 and 3 of the same setting.
+                                        current-index: root.preview == 0 ? 0 : (root.preview == 3 ? 2 : 1);
                                         selected(v) => {
-                                            root.preview = v == 0 ? 0 : 2;
+                                            root.preview = v == 0 ? 0 : (v == 1 ? 2 : 3);
                                             root.preview_changed(root.preview);
                                         }
                                     }
@@ -2257,7 +2536,7 @@ export component AppWindow inherits Window {
                                 // put the numbers in - and not in the fretboard
                                 // trainer, whose dots carry a note name and never a
                                 // degree.
-                                if root.preview > 0 && root.current_mode != 4 : HorizontalLayout {
+                                if root.draws_on_neck && root.current_mode != 4 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 15px;
                                     CheckBox {
@@ -2269,7 +2548,7 @@ export component AppWindow inherits Window {
                                         color: #aaa; vertical-alignment: center;
                                     }
                                 }
-                                if root.preview > 0 && root.current_mode != 4 : Text {
+                                if root.draws_on_neck && root.current_mode != 4 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.tab_frets_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;

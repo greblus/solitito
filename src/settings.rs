@@ -194,6 +194,11 @@ pub struct Settings {
     /// release build has no console to print it to.
     #[serde(default)]
     pub debug_console: bool,
+    /// The input card in the side navigation: level against the silence
+    /// threshold. Off by default; on while the gate is being set, or for
+    /// whoever wants to see it while playing.
+    #[serde(default)]
+    pub show_input_meter: bool,
     /// Show the chords that fit inside the formula, pointing at one lighting up
     /// the functions it is built from. On by default, for the same reason as the
     /// scale: it says what the set can be played over.
@@ -254,6 +259,10 @@ fn tablature() -> usize {
 /// fretboard trainer one note whose whole point is WHERE it lies. Chords and
 /// Formulas draw neither and keep an entry only so the index stays the
 /// `AppMode` discriminant.
+/// The fourth way to show an exercise, after the line of names, tablature
+/// and the neck: the chord's degrees as tiles. Intervals only.
+pub const PREVIEW_TILES: usize = 3;
+
 pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 2, 1];
 
 fn yes() -> bool {
@@ -305,6 +314,7 @@ impl Default for Settings {
             formula_in_order: false,
             interval_in_order: true,
             debug_console: false,
+            show_input_meter: false,
             formula_show_chords: true,
             song: String::new(),
             scale: String::new(),
@@ -435,7 +445,9 @@ impl Settings {
     /// changed, so the caller can skip writing the file.
     pub fn set_preview_for(&mut self, mode: i32, view: usize) -> bool {
         let i = mode.max(0) as usize;
-        if i >= MODE_NAMES.len() || view > 2 {
+        // The tiles are drawn in Intervals alone.
+        let tiles_here = view == PREVIEW_TILES && i == 1;
+        if i >= MODE_NAMES.len() || (view > 2 && !tiles_here) {
             return false;
         }
         self.fill_previews();
@@ -459,7 +471,8 @@ impl Settings {
         }
         self.previews.truncate(MODE_NAMES.len());
         for (i, v) in self.previews.iter_mut().enumerate() {
-            if *v > 2 {
+            let tiles_here = *v == PREVIEW_TILES && i == 1;
+            if *v > 2 && !tiles_here {
                 *v = DEFAULT_PREVIEWS[i];
             }
         }
@@ -514,6 +527,10 @@ mod tests {
         assert!(!s.set_preview_for(2, 0), "setting the same view changes nothing");
         assert!(!s.set_preview_for(9, 1), "a mode this build has no entry for");
         assert!(!s.set_preview_for(2, 7), "not one of the three views");
+        assert!(!s.set_preview_for(2, PREVIEW_TILES), "tiles outside Intervals");
+        assert!(s.set_preview_for(1, PREVIEW_TILES), "tiles in Intervals");
+        assert_eq!(s.preview_for(1), PREVIEW_TILES);
+        assert!(s.set_preview_for(1, DEFAULT_PREVIEWS[1]), "and back");
         assert_eq!(s.preview_for(2), 0, "and neither refusal moved it");
     }
 
@@ -540,6 +557,17 @@ mod tests {
             .expect("reads");
         s.fill_previews();
         assert_eq!(s.previews, DEFAULT_PREVIEWS.to_vec());
+    }
+
+    /// The tiles survive a reload in Intervals, and only there.
+    #[test]
+    fn tiles_are_kept_in_intervals_alone() {
+        let mut s: Settings = serde_json::from_str(r#"{"startup_mode":0,"previews":[3,3,3,3,3,3]}"#)
+            .expect("reads");
+        s.fill_previews();
+        let mut want = DEFAULT_PREVIEWS.to_vec();
+        want[1] = PREVIEW_TILES;
+        assert_eq!(s.previews, want);
     }
 
     #[test]
