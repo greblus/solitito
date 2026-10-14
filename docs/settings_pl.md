@@ -89,9 +89,12 @@ Trzy elementy sterowania leżą poza panelem ustawień, w samym oknie.
 **Rząd akordów u góry** pokazuje, gdzie w utworze jesteś: dwa akordy wstecz, bieżący i cztery
 następne. Akord zostawiony za sobą zachowuje kolor, na jaki zasłużył — zielony przy trafieniu
 dokładnym, żółty gdy przeszedł triadą albo zamianą — a przewinięty strzałkami zostaje szary.
-**Tytuł utworu** pod nim otwiera listę utworów. W Interwałach w prawym górnym rogu stoją dwie
-zasady, **Pojedyncze dźwięki** i **Po kolei** — te same przełączniki co w ustawieniach
-Ćwiczeń.
+**Tytuł utworu** pod nim otwiera listę utworów.
+
+**Szybkie opcje** rozwijają się w pasku bocznym pod bieżącym trybem: kliknięcie w jego pozycję
+rozwija je albo zwija, a strzałka obok mówi, w którą stronę. Akordy mają **Pełne chwyty**
+i **Shelle**, Interwały i Formuły **Pojedyncze dźwięki** i **Po kolei**, Gryf **Pojedyncze
+dźwięki** — te same przełączniki co w ustawieniach Ćwiczeń.
 
 **Losowanie** znaczy w każdym trybie co innego, bo w każdym co innego warto losować:
 

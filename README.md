@@ -10,15 +10,19 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
-<img width="420" alt="Chords: shell voicings, one column per root string" src="docs/solitito_chords.png" />
-<img width="420" alt="Intervals as tiles" src="docs/solitito_intervals.png" />
+<img width="560" alt="Chords: shell voicings, one column per root string" src="docs/solitito_chords.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
 all twelve keys: the red dot is the root, and the shape moves. Clicking a shape enlarges
-it. The left shot shows the chord as **shell voicings** — third and seventh over the root,
-with the fifth left out — one column per root string (E, A, D), the second voicing under
-the first. The right one is Intervals with the degrees drawn as tiles.
+it. The shot shows the chord as **shell voicings** — third and seventh over the root, with
+the fifth left out — one column per root string (E, A, D), the second voicing under the first.
+Below, Intervals with the degrees as tiles; the quick options of the mode on screen unfold
+under it in the side bar.
+
+<div align="center">
+<img width="560" alt="Intervals as tiles, quick options unfolded in the side bar" src="docs/solitito_intervals.png" />
+</div>
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
 trainer which I still use. Solo is great — but it hears one note at a time — when playing
@@ -55,8 +59,7 @@ chord, the app moves on to the next one.
   builds a fresh one after every pass.
 
 <div align="center">
-<img width="420" alt="An arpeggio over the changes, on the neck" src="docs/solitito_arpeggios.png" />
-<img width="420" alt="Formulas" src="docs/solitito_formulas.png" />
+<img width="560" alt="An arpeggio over the changes, on the neck" src="docs/solitito_arpeggios.png" />
 </div>
 
 - **Formulas** — random selection from all subsets of the 12 chromatic functions that contain "1",
@@ -72,6 +75,10 @@ chord, the app moves on to the next one.
   the name goes on the list in Practice settings, where picking one draws that formula again
   over whatever key is on screen — a formula is key-independent, so only the set is stored.
   The cross on a row throws it out, and the star, filled in, drops the one on screen.
+
+<div align="center">
+<img width="560" alt="Formulas" src="docs/solitito_formulas.png" />
+</div>
 
 The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — possibly the most
 interesting approach to creative improvisation ever put together.

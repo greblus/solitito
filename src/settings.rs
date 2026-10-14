@@ -204,6 +204,10 @@ pub struct Settings {
     /// from the shapes - and there for checking what the app makes of a grip.
     #[serde(default)]
     pub show_heard: bool,
+    /// The quick options of the mode on screen, unfolded under its entry in
+    /// the side navigation. Folded by default.
+    #[serde(default)]
+    pub quick_options_open: bool,
     /// Show the chords that fit inside the formula, pointing at one lighting up
     /// the functions it is built from. On by default, for the same reason as the
     /// scale: it says what the set can be played over.
@@ -321,6 +325,7 @@ impl Default for Settings {
             debug_console: false,
             show_input_meter: false,
             show_heard: false,
+            quick_options_open: false,
             formula_show_chords: true,
             song: String::new(),
             scale: String::new(),

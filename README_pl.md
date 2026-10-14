@@ -10,15 +10,19 @@ Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyek
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
-<img width="420" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/solitito_chords.png" />
-<img width="420" alt="Interwały jako kafelki" src="docs/solitito_intervals.png" />
+<img width="560" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/solitito_chords.png" />
 </div>
 
 Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
 wszystkie dwanaście tonacji: czerwona kropka to pryma, kliknięcie w
-schemat powiększa go. Lewy zrzut pokazuje akord jako **shell voicingi** — tercja i septyma
+schemat powiększa go. Zrzut pokazuje akord jako **shell voicingi** — tercja i septyma
 nad prymą, bez kwinty — po kolumnie na strunę prymy (E, A, D), drugi wariant pod pierwszym.
-Prawy to Interwały ze stopniami w postaci kafelków.
+Niżej Interwały ze stopniami w postaci kafelków; szybkie opcje bieżącego trybu rozwijają się
+pod nim w pasku bocznym.
+
+<div align="center">
+<img width="560" alt="Interwały jako kafelki, szybkie opcje rozwinięte w pasku bocznym" src="docs/solitito_intervals.png" />
+</div>
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
 Androida i iOS, z którego nadal korzystam. Solo jest super — ale słyszy jeden dźwięk naraz —
@@ -51,9 +55,9 @@ akord, przechodzi do następnego.
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu.
+
 <div align="center">
-<img width="420" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/solitito_arpeggios.png" />
-<img width="420" alt="Formuły" src="docs/solitito_formulas.png" />
+<img width="560" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/solitito_arpeggios.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych
@@ -70,6 +74,10 @@ akord, przechodzi do następnego.
   akurat jest na ekranie — formuła jest niezależna od tonacji, więc zapisywany jest sam zbiór interwałów.
   Krzyżyk w wierszu Ulubionych usuwa wpis, a kliknięcie w oknie głównym zaświeconej gwiazdki, porzuca
   formułę widoczną na ekranie.
+
+<div align="center">
+<img width="560" alt="Formuły" src="docs/solitito_formulas.png" />
+</div>
 
 Tryb Formuł jest zainspirowany książką **An Improviser's OS** Wayne'a Krantza — być może
 najciekawszym podejściem do kreatywnej improwizacji, jakie powstało.

@@ -135,35 +135,56 @@ component ProgressChip inherits Rectangle {
     }
 }
 
-/// A rule switched on the practice screen itself: ticked and outlined in
-/// blue when on, a plain outline when off.
-component RuleChip inherits Rectangle {
-    in property <string> text;
-    in property <bool> on;
-    callback toggled();
-
-    height: 36px;
-    border-radius: 18px;
-    border-width: 1px;
-    background: root.on ? #243049 : (touch.has-hover ? #1C212C : transparent);
-    border-color: root.on ? #2F6FE0 : #343B4B;
-    touch := TouchArea { clicked => { root.toggled(); } }
-    HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
-        Text {
-            text: (root.on ? "✓ " : "") + root.text;
-            font-size: 13px;
-            vertical-alignment: center;
-            color: root.on ? #E8EAF0 : #A9B0C0;
-        }
-    }
-}
-
 /// A note the model hears, and whether the chord asked for has it.
 export struct HeardNote {
     name: string,
     in_chord: bool,
+}
+
+/// A quick option of the mode on screen, unfolded under its entry in the
+/// side navigation: the label lined up with the entries' labels, a switch
+/// at the end, the whole row clickable.
+component SideToggle inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback toggled();
+
+    height: 32px;
+    border-radius: 8px;
+    background: touch.has-hover ? #1C212C : transparent;
+    touch := TouchArea { clicked => { root.toggled(); } }
+    HorizontalLayout {
+        padding-left: 44px;
+        padding-right: 12px;
+        spacing: 8px;
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: root.on ? #E8EAF0 : #A9B0C0;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 32px;
+                height: 18px;
+                border-radius: 9px;
+                background: root.on ? #2F6FE0 : #2A3142;
+                animate background { duration: 120ms; }
+                Rectangle {
+                    x: root.on ? 16px : 2px;
+                    y: 2px;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 7px;
+                    background: root.on ? #FFFFFF : #6B7385;
+                    animate x { duration: 120ms; }
+                }
+            }
+        }
+    }
 }
 
 /// One entry of the side navigation: an icon and a label, the whole row
@@ -175,6 +196,10 @@ component NavItem inherits Rectangle {
     in property <bool> selected;
     /// A small dot at the end of the row: the panel holds unsaved changes.
     in property <bool> marked;
+    /// The mode on screen, when it has quick options to unfold under it: a
+    /// click on it then folds them in or out, and the arrow says which.
+    in property <bool> expandable;
+    in property <bool> expanded;
     callback clicked;
 
     height: 40px;
@@ -215,6 +240,21 @@ component NavItem inherits Rectangle {
             font-weight: root.selected ? 600 : 400;
             vertical-alignment: center;
             overflow: elide;
+            horizontal-stretch: 1;
+        }
+        // Points the way a click would go: down to unfold, up to fold.
+        if root.expandable : VerticalLayout {
+            alignment: center;
+            Path {
+                width: 14px;
+                height: 14px;
+                viewbox-width: 14;
+                viewbox-height: 14;
+                commands: root.expanded ? "M 2 9.5 L 7 4.5 L 12 9.5" : "M 2 4.5 L 7 9.5 L 12 4.5";
+                stroke: root.selected ? #FFFFFF : #A9B0C0;
+                stroke-width: 1.8px;
+                fill: transparent;
+            }
         }
         if root.marked : VerticalLayout {
             alignment: center;
@@ -394,7 +434,7 @@ component Dropdown inherits Rectangle {
                 list := ScrollView {
                     // Opens with the current row in view, as the standard widget
                     // does. Scrolling by hand replaces this binding.
-                    viewport-y: -max(0, root.current-index - root.max-rows + 1) * root.row-h;
+                    content-y: -max(0, root.current-index - root.max-rows + 1) * root.row-h;
 
                     VerticalLayout {
                         alignment: start;
@@ -458,7 +498,7 @@ component Dropdown inherits Rectangle {
                 if root.overflows : Rectangle {
                     height: 14px;
                     Chevron {
-                        visible: -list.viewport-y + list.visible-height < list.viewport-height - 1px;
+                        visible: -list.content-y + list.visible-height < list.content-height - 1px;
                         tint: #888;
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
@@ -547,6 +587,8 @@ export global Tr {
     in-out property <string> tile_open: "play";
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
+    in-out property <string> quick_full: "Full chords";
+    in-out property <string> quick_shells: "Shell voicings";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
     in-out property <string> tab_general: "General";
@@ -952,6 +994,24 @@ export component AppWindow inherits Window {
     callback show_input_meter_changed(bool);
     in-out property <bool> show_heard: false;
     callback show_heard_changed(bool);
+    /// The quick options of the mode on screen, unfolded under its entry in
+    /// the side navigation. Remembered.
+    in-out property <bool> quick_open: false;
+    callback quick_open_changed(bool);
+    /// A mode entry clicked: another mode is switched to; the one on screen
+    /// folds its quick options in or out. With the settings open, either one
+    /// closes them first, as it always has.
+    function nav_clicked(mode: int) {
+        if (root.show_settings) {
+            root.show_settings = false;
+            if (mode != root.current_mode) { root.pick_mode(mode); }
+        } else if (mode == root.current_mode) {
+            root.quick_open = !root.quick_open;
+            root.quick_open_changed(root.quick_open);
+        } else {
+            root.pick_mode(mode);
+        }
+    }
 
     // --- AUDIO INPUT ---
     /// What the stream actually opened with, or why it did not. The only
@@ -1057,18 +1117,54 @@ export component AppWindow inherits Window {
                 Text { text: "Solitito"; font-size: 20px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
             }
 
-            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.show_settings = false; root.pick_mode(4); }
+            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
+                expandable: root.current_mode == 4 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
-            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.show_settings = false; root.pick_mode(0); }
+            if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.chip_single; on: root.single_notes;
+                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
+            }
+            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
+                expandable: root.current_mode == 0 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
-            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.show_settings = false; root.pick_mode(1); }
+            if root.current_mode == 0 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.quick_full; on: root.show_full_shapes;
+                    toggled => { root.show_full_shapes = !root.show_full_shapes;
+                        root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
+                SideToggle { text: Tr.quick_shells; on: root.show_shell_shapes;
+                    toggled => { root.show_shell_shapes = !root.show_shell_shapes;
+                        root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
+            }
+            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
+                expandable: root.current_mode == 1 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
+            if root.current_mode == 1 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.chip_single; on: root.single_notes;
+                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
+                SideToggle { text: Tr.chip_in_order; on: root.interval_in_order;
+                    toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
+            }
             NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.show_settings = false; root.pick_mode(2); }
                 path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
             NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
-            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.show_settings = false; root.pick_mode(5); }
+            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
+                expandable: root.current_mode == 5 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
+            if root.current_mode == 5 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.chip_single; on: root.single_notes;
+                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
+                SideToggle { text: Tr.chip_in_order; on: root.in_order;
+                    toggled => { root.in_order = !root.in_order; root.in_order_changed(root.in_order); } }
+            }
 
             Rectangle { }
 
@@ -1170,18 +1266,12 @@ export component AppWindow inherits Window {
 
         // PROGRESSION STRIP: where in the tune the player is. Above the
         // centred column, so it does not move the chord name up or down.
-        if !root.show_settings && root.current_mode == 0
+        if !root.show_settings && (root.current_mode == 0 || root.current_mode == 1)
             && root.progress.length > 1 : HorizontalLayout {
             alignment: center;
             spacing: 6px;
             height: root.bar_h;
             for c in root.progress : ProgressChip { chip: c; }
-        }
-        // Intervals draws its strip in a row of its own, placed by hand
-        // below; this holds the strip's place so the column stands where
-        // it does in Chords.
-        if !root.show_settings && root.current_mode == 1 : Rectangle {
-            height: root.bar_h;
         }
 
         // --- MAIN PRACTICE VIEW ---
@@ -1908,50 +1998,6 @@ export component AppWindow inherits Window {
                     draw_word := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
-        }
-    }
-
-    // INTERVALS TOP: the progression centred as in Chords, and the rules in
-    // the top right corner, one under the other. Placed by hand: a row of
-    // its own inside the column took its height from the drawing on the neck.
-    // The strip keeps clear of the rules - moved left only as far as it must,
-    // and clipped on the right when even that is not enough.
-    if !root.show_settings && root.current_mode == 1 : rules := VerticalLayout {
-        width: self.preferred-width;
-        height: self.preferred-height;
-        x: root.width - 32px - self.width;
-        y: (root.height - root.design_h) / 2 + 15px;
-        spacing: 6px;
-        RuleChip {
-            text: Tr.chip_single;
-            on: root.single_notes;
-            toggled => {
-                root.single_notes = !root.single_notes;
-                root.single_notes_changed(root.single_notes);
-            }
-        }
-        RuleChip {
-            text: Tr.chip_in_order;
-            on: root.interval_in_order;
-            toggled => {
-                root.interval_in_order = !root.interval_in_order;
-                root.interval_in_order_changed(root.interval_in_order);
-            }
-        }
-    }
-    if !root.show_settings && root.current_mode == 1 : Rectangle {
-        x: root.sidebar_w + 32px;
-        y: (root.height - root.design_h) / 2 + 15px;
-        width: root.width - root.sidebar_w - 64px - 16px - 220px;
-        height: root.bar_h;
-        clip: true;
-        // The centre of the content area, in this box's own coordinates.
-        property <length> centre: (root.width - root.sidebar_w) / 2 - 32px;
-        HorizontalLayout {
-            width: self.preferred-width;
-            x: max(0px, min(parent.centre - self.width / 2, parent.width - self.width));
-            spacing: 6px;
-            for c in root.progress : ProgressChip { chip: c; }
         }
     }
 

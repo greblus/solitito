@@ -1165,6 +1165,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_debug_console(cfg.debug_console);
         ui.set_show_input_meter(cfg.show_input_meter);
         ui.set_show_heard(cfg.show_heard);
+        ui.set_quick_open(cfg.quick_options_open);
         ui.set_app_version(env!("CARGO_PKG_VERSION").into());
         ui.set_show_spectrum(cfg.show_spectrum);
         ui.set_ai_debug_visible(cfg.ai_debug);
@@ -2808,6 +2809,14 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        let cur = live_cfg.clone();
+        ui.on_quick_open_changed(move |on| {
+            let mut cur = cur.borrow_mut();
+            cur.quick_options_open = on;
+            cur.save();
+        });
+    }
+    {
         // The star: keep what is on screen, or let go of it. Kept formulas are
         // matched on the set AND the key, because the same functions read from
         // another root are a different exercise.
@@ -3160,6 +3169,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_tile_open(t.tile_open.into());
     g.set_chip_in_order(t.chip_in_order.into());
     g.set_chip_single(t.chip_single.into());
+    g.set_quick_full(t.quick_full.into());
+    g.set_quick_shells(t.quick_shells.into());
     g.set_nav_settings(t.nav_settings.into());
     g.set_tab_audio(t.tab_audio.into());
     g.set_tab_practice(t.tab_practice.into());

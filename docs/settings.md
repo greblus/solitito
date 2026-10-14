@@ -83,9 +83,12 @@ Three controls sit outside the settings panel, on the window itself.
 **The strip along the top** shows where in the tune you are: two chords behind, the current
 one, and four ahead. A chord left behind keeps the colour it earned — green for an exact match,
 yellow if a triad or a substitution got it through — and one stepped over with the arrows
-stays grey. The **song title** under it opens the list of songs. In Intervals the top right
-corner holds two rules, **Single notes** and **In order**, the same switches as in Practice
-settings.
+stays grey. The **song title** under it opens the list of songs.
+
+**Quick options** unfold under the mode on screen in the side bar: a click on the mode's own
+entry folds them in or out, and the arrow beside it says which. Chords has **Full chords** and
+**Shell voicings**, Intervals and Formulas **Single notes** and **In order**, the fretboard
+trainer **Single notes** — the same switches as in Practice settings.
 
 **The shuffle** means something different in each mode, because the modes have different
 things worth randomising:
