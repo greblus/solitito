@@ -10,9 +10,9 @@ Four tabs: **Audio** for the input and the noise gate, **General** for how stric
 play is judged, **Practice** for what to play, and **App** for what the window shows.
 
 <div align="center">
-<img width="220" alt="Settings, Audio tab" src="solitito_settings2.png" />
-<img width="220" alt="Settings, General tab" src="solitito_settings1.png" />
-<img width="220" alt="Settings, App tab" src="solitito_settings4.png" />
+<img width="300" alt="Settings, Audio tab" src="solitito_settings2.png" />
+<img width="300" alt="Settings, General tab" src="solitito_settings1.png" />
+<img width="300" alt="Settings, App tab" src="solitito_settings4.png" />
 </div>
 
 **Practice** holds only what belongs to the mode on screen — a song has nothing to say in
@@ -20,11 +20,11 @@ Formulas, a formula nothing in Chords — so it is a different tab in each of th
 fretboard trainer, which has no settings of its own, does not show it at all:
 
 <div align="center">
-<img width="175" alt="Practice, Chords" src="solitito_settings3.png" />
-<img width="175" alt="Practice, Intervals" src="solitito_settings5.png" />
-<img width="175" alt="Practice, Scales" src="solitito_settings6.png" />
-<img width="175" alt="Practice, Arpeggios" src="solitito_settings7.png" />
-<img width="175" alt="Practice, Formulas" src="solitito_settings8.png" />
+<img width="250" alt="Practice, Chords" src="solitito_settings3.png" />
+<img width="250" alt="Practice, Intervals" src="solitito_settings5.png" />
+<img width="250" alt="Practice, Scales" src="solitito_settings6.png" />
+<img width="250" alt="Practice, Arpeggios" src="solitito_settings7.png" />
+<img width="250" alt="Practice, Formulas" src="solitito_settings8.png" />
 </div>
 
 | Setting | Description |
@@ -33,19 +33,21 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Study** | Arpeggios, in the study exercise: which phrase to walk. The shuffle switch means the KEY here: a new one after every pass. An arpeggio is a phrase, so there is nothing in it to shuffle, and the study itself is left as chosen — the generator is a row in the list for anyone who wants a fresh phrase as well. The three chord-quality studies come first, then the broken thirds and triplets, then plain two-octave runs, and last a generator that builds a fresh phrase after every pass. The second combo beside it holds the key |
 | **Exercise** (arpeggios) | *Study in a key* stands on one chord — its quality is set below, its key beside the study, and the shuffle draws a new key after every pass. *Over the changes* takes the chords from a tune and builds one arpeggio per chord |
 | **Direction** | Over the changes: ascending, descending, or alternating from either side. Descending is the shape the studies use — from the root **downwards** through the chord's own tones, not the ascending phrase read backwards |
-| **View** | Three ways to show the exercise: the line of degree names, tablature, or the neck itself. Kept per mode and remembered — a scale is an order of notes and reads as tablature, a grip is a hand shape and says nothing until it is on the neck. Tablature by default in Scales and Arpeggios, the neck in Intervals and the fretboard trainer. A phrase — a scale or an arpeggio — is drawn on the neck it is played on, with the note due ringed in white and every place already played green. An up-and-down phrase comes back to its own places, so by the turn the shape is green all through and the ring is what says where the player is on the way down — the tablature rings it too, which is what tells you where you are in a scale dealt in a drawn order; the picture is the size of a hand however long the phrase is, so a thirty-note study stays readable. A scale is drawn in a position drawn at random — the shape is the same everywhere, and the point is to know it wherever the hand lands. In the fretboard trainer the picture is the REGION: the strings named down the left, the ones out of play dimmed, the frets in play, and — once the note asked for is played — every place inside the region where it lies, in green. Nothing is drawn before that, and a wrong note is not drawn at all: where the note lies is the exercise. Each dot carries the degree as the exercise writes it, so a scale spelling its altered second `#2` reads `♯2` on the neck too. In Intervals the set is drawn as a GRIP: a chord box like the shape diagrams, strings across and frets down, with the position beside it — a strip has the ORDER of the notes on its horizontal axis, which says nothing about where the fingers go. With **Lead the voices** on — the default — each grip is taken where the fingers have least to move from the one before, so a progression walks itself across the neck. Off, every chord is taken wherever the neck is drawn to offer it, which is how one shape is learned all over the neck instead of in one corner of it; the shuffle switches the leading off as well. With the shuffle on there is no line to lead: the chords come in a drawn order and each grip is taken where the neck offers it. Which string a dot sits on is the octave, so nothing needs an apostrophe; what has been played lights green either way |
+| **View** | Three ways to show the exercise: the line of degree names, tablature, or the neck itself. Kept per mode and remembered — a scale is an order of notes and reads as tablature, a grip is a hand shape and says nothing until it is on the neck. Tablature by default in Scales and Arpeggios, the neck in Intervals and the fretboard trainer. A phrase — a scale or an arpeggio — is drawn on the neck it is played on, with the note due ringed in white and every place already played green. An up-and-down phrase comes back to its own places, so by the turn the shape is green all through and the ring is what says where the player is on the way down — the tablature rings it too, which is what tells you where you are in a scale dealt in a drawn order; the picture is the size of a hand however long the phrase is, so a thirty-note study stays readable. A scale is drawn in a position drawn at random — the shape is the same everywhere, and the point is to know it wherever the hand lands. In the fretboard trainer the picture is the REGION: the strings named down the left, the ones out of play dimmed, the frets in play, and — once the note asked for is played — every place inside the region where it lies, in green. Nothing is drawn before that, and a wrong note is not drawn at all: where the note lies is the exercise. Each dot carries the degree as the exercise writes it, so a scale spelling its altered second `#2` reads `♯2` on the neck too. In Intervals the set is drawn as a GRIP: a chord box like the shape diagrams, strings across and frets down, with the position beside it — a strip has the ORDER of the notes on its horizontal axis, which says nothing about where the fingers go. With **Lead the voices** on — the default — each grip is taken where the fingers have least to move from the one before, so a progression walks itself across the neck. Off, every chord is taken wherever the neck is drawn to offer it, which is how one shape is learned all over the neck instead of in one corner of it; the shuffle switches the leading off as well. With the shuffle on there is no line to lead: the chords come in a drawn order and each grip is taken where the neck offers it. Which string a dot sits on is the octave, so nothing needs an apostrophe; what has been played lights green either way. Intervals has a fourth view, **tiles**: each degree on a card, with the note it falls on this chord and whether it is due, still to come or done |
 | **Fret numbers instead of degrees** | In that drawing only. The root keeps its colour |
 | **Key** | Scales only: the tonic. With random order on, it is redrawn after each pass |
 | **Intervals** | Which degrees to practise. `1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings. `3` matches both major and minor thirds, `5` matches perfect and diminished fifths, according to the chord quality |
 | **Show AI Debug in Main Window** | Shows the raw prediction on the main screen |
 | **Input** | Which capture device to open. *System default* follows whatever the OS is set to. Saved, and falls back to the default if that device is gone |
 | **Channel** | Which input of that device to listen on — a guitar in socket 2 of an interface is channel 2. Shown only when the device has more than one, and there is no mixing option: averaging the inputs pulls in whatever is on the other socket and costs 6 dB |
-| **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked in red — set it just above the noise with the strings untouched |
+| **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked by a yellow line — set it just above the noise with the strings untouched |
+| **Input meter in the side bar** | The same level and yellow line, in a card in the side bar, with the device and channel above it and whether the guitar is heard. Off by default; a click on the card opens the Audio tab |
+| **The Hearing bar under the exercise** | What the model names and the notes it hears, under the exercise. Off by default — while playing it pulls the eye away from the shapes |
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Lock chord quality until new attack** | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
 | **Judge short strums on the attack** | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it. A wrong chord still fails |
 | **Credit only what was struck** | Note modes: the model may credit a note only where the strike detector reported that very note struck in the last 0.35 s — the chord-name reading included, which used to slip through and credit whatever note the model's root happened to be. Measured on a recording of single notes, two thirds of the credits it hands to a note other than the one being played carry no attack at all — almost always the previous note, still ringing inside its 0.77 s window. On by default in Intervals, with a separate saved choice; off by default in other modes. The single-frame estimate is not governed by it; in Formulas it has a rule of its own, see [How it works](how-it-works.md) |
-| **Play the notes one at a time** | Offered in Intervals and the fretboard trainer. In Scales and Arpeggios the rule is in force whatever the setting says — nobody strums a scale — and Chords and Formulas have their own. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, nothing but the single-frame estimate counts, and only once it has held for three audio frames: measured over 49 notes, the four ways in together credited 110 things nobody played, the steady estimate alone 33, and it missed none. **On by default in Intervals**, with the fixed order and "only what was struck" — the three together are the measured path. Turn all three off and the mode becomes the other thing it can be: the model decides and nothing argues with it, carry-over between chords included, which is chords and single chord tones played for fun rather than a test |
+| **Play the notes one at a time** | Offered in Intervals and the fretboard trainer. In Scales and Arpeggios the rule is in force whatever the setting says — nobody strums a scale — and Chords and Formulas have their own. Off, a strummed chord passes its intervals one after another — the pitch head is polyphonic and reports every tone at once. On, nothing but the single-frame estimate counts, and only once it has held for three audio frames: measured over 49 notes, the four ways in together credited 110 things nobody played, the steady estimate alone 33, and it missed none. **On by default in Intervals**, with the fixed order and "only what was struck" — the three together are the measured path. Turn all three off and the mode becomes the other thing it can be: the model decides and nothing argues with it, carry-over between chords included, which is Intervals without “one at a time, in order, only what was struck” |
 | **Random order** | The shuffle icon on the toolbar. In the note modes it shuffles the tones inside each chord; in Chords it reorders the progression, and in Scales it redraws the key after every pass |
 | **Shuffle the chords as well** | Intervals and Arpeggios only, and only with the shuffle on. Off, the progression stays as written and just the tones move — shuffled intervals walking a real progression turn into tunes. On, the chords are drawn at random too, which is the more abstract exercise |
 | **Exercise** (formulas) | *Formula in a key* is the mode as it was. *Over a chord* plants the same formula on one drawn chord, and *Over the changes* plants it on every chord of a tune in turn — the formula is the constant, the harmony moves under it |
@@ -78,10 +80,12 @@ and sample format. `./solitito --help` lists every option. `./solitito --devices
 
 Three controls sit outside the settings panel, on the window itself.
 
-**The strip along the bottom** shows the chord just played, the one being played, and the one
-after it. The chord left behind keeps the colour it earned — green for an exact match, yellow
-if a triad or a substitution got it through — so a pass stays readable once the app has moved
-on.
+**The strip along the top** shows where in the tune you are: two chords behind, the current
+one, and four ahead. A chord left behind keeps the colour it earned — green for an exact match,
+yellow if a triad or a substitution got it through — and one stepped over with the arrows
+stays grey. The **song title** under it opens the list of songs. In Intervals the top right
+corner holds two rules, **Single notes** and **In order**, the same switches as in Practice
+settings.
 
 **The shuffle** means something different in each mode, because the modes have different
 things worth randomising:
@@ -104,6 +108,6 @@ broken exercise.
 
 **Pause** stops the progression while the colours go on reporting whether the chord is right,
 so you can stay on one shape and work it out. While paused, the arrows either side of the
-strip step back and forth through the progression.
+pause button step back and forth through the progression.
 
 Open strings in interval grips appear as unfilled circles outside the fret columns, with the interval inside. They are not drawn on the first fret.

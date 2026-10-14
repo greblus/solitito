@@ -10,15 +10,15 @@ Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyek
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
-<img height="320" alt="Okno główne Solitito" src="docs/solitito_main.png" />
-<img height="320" alt="Shell voicingi" src="docs/solitito_main_shell_voicings.png" />
-<img height="320" alt="Powiększony schemat akordu" src="docs/solitito_chord_diagrams.png" />
+<img width="420" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/solitito_chords.png" />
+<img width="420" alt="Interwały jako kafelki" src="docs/solitito_intervals.png" />
 </div>
 
 Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
 wszystkie dwanaście tonacji: czerwona kropka to pryma, kliknięcie w
-schemat powiększa go. Środkowy zrzut pokazuje ten sam akord jako **shell voicingi** —
-tercja i septyma nad prymą, bez kwinty.
+schemat powiększa go. Lewy zrzut pokazuje akord jako **shell voicingi** — tercja i septyma
+nad prymą, bez kwinty — po kolumnie na strunę prymy (E, A, D), drugi wariant pod pierwszym.
+Prawy to Interwały ze stopniami w postaci kafelków.
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
 Androida i iOS, z którego nadal korzystam. Solo jest super — ale słyszy jeden dźwięk naraz —
@@ -52,13 +52,8 @@ akord, przechodzi do następnego.
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu.
 <div align="center">
-<img height="360" alt="Gryf" src="docs/solitito_fretboard.png" />
-<img height="360" alt="Interwały jako chwyt" src="docs/solitito_intervals.png" />
-</div>
-
-<div align="center">
-<img height="360" alt="Skala na podstrunnicy" src="docs/solitito_scales.png" />
-<img height="360" alt="Studium arpeggiowe jako tabulatura" src="docs/solitito_arpeggios_tab.png" />
+<img width="420" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/solitito_arpeggios.png" />
+<img width="420" alt="Formuły" src="docs/solitito_formulas.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych
@@ -83,9 +78,6 @@ najciekawszym podejściem do kreatywnej improwizacji, jakie powstało.
 Książkę można kupić bezpośrednio u [Wayne'a Krantza](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition).
 Warto też posłuchać jego muzyki, bo to genialny muzyk i improwizator.
 
-<div align="center">
-<img height="479" alt="Formuły" src="docs/solitito_formulas.png" />
-</div>
 
 
 ### Wyświetlanie kształtów na podstrunnicy i tabulatur to pomoc na początku

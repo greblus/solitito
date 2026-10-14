@@ -10,16 +10,15 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
-<img height="320" alt="Solitito main window" src="docs/solitito_main.png" />
-<img height="320" alt="Shell voicings" src="docs/solitito_main_shell_voicings.png" />
-<img height="320" alt="Chord shape, enlarged" src="docs/solitito_chord_diagrams.png" />
+<img width="420" alt="Chords: shell voicings, one column per root string" src="docs/solitito_chords.png" />
+<img width="420" alt="Intervals as tiles" src="docs/solitito_intervals.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
-all twelve keys: the red dot is the root, and the shape moves. Clicking shape of chord 
-enlarges it. The middle shot shows the same chord as **shell voicings** — third and
-seventh over the root, with the fifth left out — which is the other thing the shapes
-can be drawn as.
+all twelve keys: the red dot is the root, and the shape moves. Clicking a shape enlarges
+it. The left shot shows the chord as **shell voicings** — third and seventh over the root,
+with the fifth left out — one column per root string (E, A, D), the second voicing under
+the first. The right one is Intervals with the degrees drawn as tiles.
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
 trainer which I still use. Solo is great — but it hears one note at a time — when playing
@@ -56,13 +55,8 @@ chord, the app moves on to the next one.
   builds a fresh one after every pass.
 
 <div align="center">
-<img height="360" alt="Fretboard trainer" src="docs/solitito_fretboard.png" />
-<img height="360" alt="Intervals as a grip" src="docs/solitito_intervals.png" />
-</div>
-
-<div align="center">
-<img height="360" alt="A scale on the neck" src="docs/solitito_scales.png" />
-<img height="360" alt="An arpeggio study as tablature" src="docs/solitito_arpeggios_tab.png" />
+<img width="420" alt="An arpeggio over the changes, on the neck" src="docs/solitito_arpeggios.png" />
+<img width="420" alt="Formulas" src="docs/solitito_formulas.png" />
 </div>
 
 - **Formulas** — random selection from all subsets of the 12 chromatic functions that contain "1",
@@ -83,10 +77,6 @@ The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — poss
 interesting approach to creative improvisation ever put together.
 
 The book is available from [Wayne Krantz](https://waynekrantz.bandcamp.com/merch/wayne-krantz-an-improvisers-os-2nd-edition) directly.
-
-<div align="center">
-<img height="479" alt="Formulas" src="docs/solitito_formulas.png" />
-</div>
 
 
 ### The chord, scales and arpeggio visual shapes are for the beginning
