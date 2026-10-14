@@ -100,18 +100,16 @@ component TabButton inherits Rectangle {
     in property <bool> selected;
     callback clicked;
 
-    border-radius: 6px;
-    background: root.selected ? #2e2e2e : (touch.has-hover ? #282828 : transparent);
-    border-width: 1px;
-    border-color: root.selected ? #444 : transparent;
+    border-radius: 8px;
+    background: root.selected ? #243049 : (touch.has-hover ? #1C212C : transparent);
 
     touch := TouchArea { clicked => { root.clicked() } }
 
     Text {
         text: root.text;
         font-size: 13px;
-        color: root.selected ? white : #999;
-        font-weight: root.selected ? 700 : 400;
+        color: root.selected ? white : #A9B0C0;
+        font-weight: root.selected ? 600 : 400;
         vertical-alignment: center;
         horizontal-alignment: center;
     }
@@ -500,11 +498,16 @@ export component AppWindow inherits Window {
     /// the rest. The column keeps the width the whole app had before.
     property <length> sidebar_w: 210px;
     property <length> content_w: 550px;
+    /// One height for the strip above the practice column and the cards
+    /// below it, so the two frame the column evenly.
+    property <length> bar_h: 48px;
 
     // preferred-*, not width/height: a fixed width and height makes the window
-    // non-resizable.
-    preferred-width: root.design_w;
-    preferred-height: root.design_h;
+    // non-resizable. The size of a first launch, before there is one saved:
+    // the design size itself opened a narrow window with the UI at its
+    // smallest, and this is what it gets dragged out to anyway.
+    preferred-width: 1300px;
+    preferred-height: 900px;
     // Always satisfied, because `design` is scaled to fit rather than reflowed:
     // the logical size can never fall below the design size. It is here so the
     // backend derives a physical minimum from the current scale factor, which
@@ -855,21 +858,23 @@ export component AppWindow inherits Window {
                 padding-bottom: 18px;
                 spacing: 10px;
                 height: 62px;
-                Image { width: 44px; height: 44px; source: @image-url("../src/assets/app-icon.png"); }
+                // A copy made small beforehand: the renderer shrinking the 256px icon
+                // without smoothing left it speckled.
+                Image { width: 44px; height: 44px; source: @image-url("../src/assets/app-icon-small.png"); }
                 Text { text: "Solitito"; font-size: 20px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
             }
 
-            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.pick_mode(4); }
+            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.show_settings = false; root.pick_mode(4); }
                 path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
-            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.pick_mode(0); }
+            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.show_settings = false; root.pick_mode(0); }
                 path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
-            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.pick_mode(1); }
+            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.show_settings = false; root.pick_mode(1); }
                 path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
-            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.pick_mode(2); }
+            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.show_settings = false; root.pick_mode(2); }
                 path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
-            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.pick_mode(3); }
+            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
-            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.pick_mode(5); }
+            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.show_settings = false; root.pick_mode(5); }
                 path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
 
             Rectangle { }
@@ -910,6 +915,7 @@ export component AppWindow inherits Window {
         x: root.sidebar_w + (root.width - root.sidebar_w - self.width) / 2;
         y: (root.height - self.height) / 2;
         padding: 15px;
+        padding-bottom: 30px;
         spacing: 15px;
 
         // The settings panel is NOT here. At two thirds of the window it is
@@ -924,18 +930,18 @@ export component AppWindow inherits Window {
             && root.progress.length > 1 : HorizontalLayout {
             alignment: center;
             spacing: 6px;
-            height: 32px;
+            height: root.bar_h;
             for c in root.progress : Rectangle {
-                border-radius: 8px;
+                border-radius: 10px;
                 background: c.current ? #2F6FE0 : (c.played ? #17271F : #1C212C);
                 border-width: c.current ? 2px : 0px;
                 border-color: #5A8EF0;
                 HorizontalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
+                    padding-left: 14px;
+                    padding-right: 14px;
                     Text {
                         text: c.name;
-                        font-size: 13px;
+                        font-size: 15px;
                         font-weight: c.current ? 700 : 500;
                         color: c.current ? #FFFFFF : c.fg;
                         vertical-alignment: center;
@@ -1517,7 +1523,7 @@ export component AppWindow inherits Window {
         
         // FOOTER - what is heard, and the chord to come
         if !root.show_settings : Rectangle {
-            height: 72px;
+            height: root.bar_h;
             // Only where there is a progression to walk. A scale is one item,
             // so the strip showed the same name on both sides of it, cut off at
             // the width of the column - and an arpeggio study is one chord for
@@ -1549,7 +1555,7 @@ export component AppWindow inherits Window {
                         Text {
                             width: 130px;
                             text: root.heard_name;
-                            font-size: 22px;
+                            font-size: 20px;
                             font-weight: 700;
                             color: #E8EAF0;
                             vertical-alignment: center;
@@ -1603,8 +1609,8 @@ export component AppWindow inherits Window {
                         }
                         VerticalLayout {
                             alignment: center;
-                            Text { text: Tr.next; font-size: 12px; color: #8A92A3; }
-                            Text { text: root.next_chord; font-size: 20px; font-weight: 700; color: #E8EAF0; overflow: elide; }
+                            Text { text: Tr.next; font-size: 11px; color: #8A92A3; }
+                            Text { text: root.next_chord; font-size: 17px; font-weight: 700; color: #E8EAF0; overflow: elide; }
                         }
                         if root.paused : Text {
                             text: "›";
@@ -1672,996 +1678,1018 @@ export component AppWindow inherits Window {
         x: root.sidebar_w + (root.width - root.sidebar_w - self.width) / 2;
         y: root.panel_top;
         width: root.panel_w;
-        height: root.design_h - 30px;
-        background: #222;
-        border-radius: 10px;
+        height: root.design_h - 45px;
+        background: #161A22;
+        border-radius: 14px;
         border-width: 1px;
-        border-color: #333;
+        border-color: #222835;
 
-        VerticalLayout {
-            padding: 8px;
-            spacing: 8px;
-
-            HorizontalLayout {
-                spacing: 4px;
-                height: 32px;
-                TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
-                TabButton { text: Tr.tab_general; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
-                // Nothing on it in the fretboard trainer: the note is drawn from
-                // the region and judged on its own, so an empty tab is all it
-                // would offer.
-                TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
-                TabButton { text: Tr.tab_app; selected: root.settings_tab == 3; clicked => { root.settings_tab = 3; } }
+        // Escape closes the panel wherever the focus is inside it: a control
+        // that does not want the key passes it up to here.
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.show_settings = false;
+                    return accept;
+                }
+                return reject;
             }
-            if root.settings_tab == 0 : ScrollView {
-                    VerticalLayout {
-                        // Rows keep their own height and the slack falls to the
-                        // bottom; without this the tab shares its spare height
-                        // out among the rows and a one-line combo box ends up
-                        // several centimetres tall.
-                        alignment: start;
-                        padding: 15px;
-                        spacing: 18px;
 
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
+            VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    height: 32px;
+                    TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
+                    TabButton { text: Tr.tab_general; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
+                    // Nothing on it in the fretboard trainer: the note is drawn from
+                    // the region and judged on its own, so an empty tab is all it
+                    // would offer.
+                    TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
+                    TabButton { text: Tr.tab_app; selected: root.settings_tab == 3; clicked => { root.settings_tab = 3; } }
+                    // Where a close is looked for: the panel's top right corner.
+                    Rectangle {
+                        width: 32px;
+                        border-radius: 8px;
+                        background: close_touch.has-hover ? #243049 : transparent;
+                        Text { text: "✕"; font-size: 15px; color: close_touch.has-hover ? #FFFFFF : #A9B0C0;
+                            horizontal-alignment: center; vertical-alignment: center; }
+                        close_touch := TouchArea { clicked => { root.show_settings = false; } }
+                    }
+                }
+                if root.settings_tab == 0 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
                             alignment: start;
-                            spacing: 10px;
-                            Text {
-                                text: Tr.audio_device; color: #aaa;
-                                vertical-alignment: center; width: 100px;
-                            }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                opened => { root.audio_devices_rescan(); }
-                                model: root.audio_devices;
-                                current-index <=> root.audio_device_index;
-                                selected => { root.audio_device_changed(self.current-index); }
-                            }
-                        }
+                            padding: 15px;
+                            spacing: 18px;
 
-                        if root.audio_channel_count > 1 : HorizontalLayout {
-                            spacing: 10px;
-                            Text {
-                                text: Tr.audio_channel; color: #aaa;
-                                vertical-alignment: center; width: 100px;
-                            }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                model: root.audio_channels;
-                                current-index <=> root.audio_channel_index;
-                                selected => { root.audio_channel_changed(self.current-index); }
-                            }
-                        }
-
-                        Text {
-                            text: root.audio_info;
-                            font-size: 11px; color: #777; wrap: word-wrap;
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            // No fixed width: it was set to 130px, then 185px, and
-                            // the value still ran off the end under Linux. A label
-                            // measured in pixels cannot fit every language on every
-                            // platform - the bundled Noto Sans is used only where the
-                            // system has none, and fontconfig resolves the name to a
-                            // face with different metrics. Sized by its own text, it
-                            // fits by construction; the slider takes what is left.
-                            Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
-                            Slider { width: root.ctrl_w; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
-                        }
-
-                        Rectangle {
-                            height: 14px;
-                            width: root.ctrl_w;
-                            background: #222;
-                            border-radius: 3px;
-                            Rectangle {
-                                x: 0; y: 0; height: parent.height;
-                                width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
-                                background: root.input_level_db > root.gate_db ? #4a9 : #666;
-                                border-radius: 3px;
-                            }
-                            // threshold marker
-                            Rectangle {
-                                x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
-                                y: 0; width: 2px; height: parent.height;
-                                background: #e55;
-                            }
-                        }
-
-                        Text {
-                            text: Tr.gate_hint;
-                            color: #666; font-size: 11px; wrap: word-wrap;
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 10px;
                             HorizontalLayout {
                                 // Packed left: with the default stretch the row hands its spare width
                                 // to the control, which undoes the width set on it.
                                 alignment: start;
-                                spacing: 15px;
-                                CheckBox { checked <=> root.boost_enabled; }
-                                Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.audio_device; color: #aaa;
+                                    vertical-alignment: center; width: 100px;
+                                }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    opened => { root.audio_devices_rescan(); }
+                                    model: root.audio_devices;
+                                    current-index <=> root.audio_device_index;
+                                    selected => { root.audio_device_changed(self.current-index); }
+                                }
                             }
-                            if root.boost_enabled : Slider {
+
+                            if root.audio_channel_count > 1 : HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.audio_channel; color: #aaa;
+                                    vertical-alignment: center; width: 100px;
+                                }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    model: root.audio_channels;
+                                    current-index <=> root.audio_channel_index;
+                                    selected => { root.audio_channel_changed(self.current-index); }
+                                }
+                            }
+
+                            Text {
+                                text: root.audio_info;
+                                font-size: 11px; color: #777; wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                // No fixed width: it was set to 130px, then 185px, and
+                                // the value still ran off the end under Linux. A label
+                                // measured in pixels cannot fit every language on every
+                                // platform - the bundled Noto Sans is used only where the
+                                // system has none, and fontconfig resolves the name to a
+                                // face with different metrics. Sized by its own text, it
+                                // fits by construction; the slider takes what is left.
+                                Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
+                                Slider { width: root.ctrl_w; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
+                            }
+
+                            Rectangle {
+                                height: 14px;
                                 width: root.ctrl_w;
-                                minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
+                                background: #222;
+                                border-radius: 3px;
+                                Rectangle {
+                                    x: 0; y: 0; height: parent.height;
+                                    width: parent.width * Math.max(0.0, Math.min(1.0, (root.input_level_db + 72) / 72));
+                                    background: root.input_level_db > root.gate_db ? #4a9 : #666;
+                                    border-radius: 3px;
+                                }
+                                // threshold marker
+                                Rectangle {
+                                    x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72));
+                                    y: 0; width: 2px; height: parent.height;
+                                    background: #e55;
+                                }
                             }
-                        }
 
+                            Text {
+                                text: Tr.gate_hint;
+                                color: #666; font-size: 11px; wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 10px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox { checked <=> root.boost_enabled; }
+                                    Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
+                                }
+                                if root.boost_enabled : Slider {
+                                    width: root.ctrl_w;
+                                    minimum: 1.0; maximum: 20.0; value <=> root.boost_gain;
+                                }
+                            }
+
+                        }
                     }
-                }
-            // GENERAL. How the app judges what it hears, as against Practice,
-            // which holds the exercise itself. Two of these bite on chord names
-            // and two on single notes, so each is shown where it does something:
-            // the latch never engages on a name reading "Note ...", and the
-            // per-strum verdict lives inside the Chords branch alone.
-            if root.settings_tab == 1 : ScrollView {
-                    VerticalLayout {
-                        // Rows keep their own height and the slack falls to the
-                        // bottom; without this the tab shares its spare height
-                        // out among the rows and a one-line combo box ends up
-                        // several centimetres tall.
-                        alignment: start;
-                        padding: 15px;
-                        spacing: 18px;
-
-                        // Chords only: the latch holds a chord through its decay,
-                        // and it refuses to engage on anything the model reports
-                        // as a note.
-                        if root.current_mode == 0 : HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
+                // GENERAL. How the app judges what it hears, as against Practice,
+                // which holds the exercise itself. Two of these bite on chord names
+                // and two on single notes, so each is shown where it does something:
+                // the latch never engages on a name reading "Note ...", and the
+                // per-strum verdict lives inside the Chords branch alone.
+                if root.settings_tab == 1 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
                             alignment: start;
-                            spacing: 15px;
-                            CheckBox { checked <=> root.lock_quality; }
-                            Text {
-                                text: Tr.lock_quality;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
+                            padding: 15px;
+                            spacing: 18px;
 
-                        // Chords only: it is read inside that branch of the
-                        // judge, past the point the other modes return from.
-                        if root.current_mode == 0 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
+                            // Chords only: the latch holds a chord through its decay,
+                            // and it refuses to engage on anything the model reports
+                            // as a note.
+                            if root.current_mode == 0 : HorizontalLayout {
                                 // Packed left: with the default stretch the row hands its spare width
                                 // to the control, which undoes the width set on it.
                                 alignment: start;
                                 spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.short_verdict;
-                                    toggled => { root.short_verdict_changed(self.checked); }
-                                }
+                                CheckBox { checked <=> root.lock_quality; }
                                 Text {
-                                    text: Tr.short_verdict;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                // Explicit width, as everywhere inside an `if`:
-                                // the layout settles the height first and a
-                                // wrapped line would go missing.
-                                width: root.panel_w - 30px;
-                                text: Tr.short_verdict_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // Formulas only: the note modes walk their own order
-                        // already, and a chord has none to walk.
-                        if root.current_mode == 5 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.in_order;
-                                    toggled => { root.in_order_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.in_order;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.in_order_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // The other way round: a strummed chord has no notes to
-                        // take one at a time - and a scale or an arpeggio has
-                        // nothing else, so there the rule is in force and not
-                        // offered. It is left to choose in Intervals, where a
-                        // strummed grip walking its tones is the point, and in
-                        // Formulas, which has its own strict switch.
-                        if root.current_mode == 1 || root.current_mode == 4
-                            || root.current_mode == 5 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.single_notes;
-                                    toggled => { root.single_notes_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.single_notes;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.single_notes_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-
-                            // Beside it, because it answers the same complaint
-                            // from the other end: that one stops the model
-                            // being asked, this one stops it answering about a
-                            // note that is only still ringing.
-                            //
-                            // Not in Formulas: that mode credits on the strict
-                            // rule, which takes the single-frame estimate alone
-                            // and never the model's branches - so this would sit
-                            // there doing nothing.
-                            if root.current_mode != 5 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.require_onset;
-                                    toggled => { root.require_onset_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.require_onset;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            if root.current_mode != 5 : Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.require_onset_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
-                        }
-
-                        // Read only by `note_is_sounding`, which Chords never
-                        // calls - there the verdict comes from the chord name.
-                        if root.current_mode != 0 : HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
-                            Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
-                        }
-
-                    }
-                }
-            if root.settings_tab == 2 : ScrollView {
-                    VerticalLayout {
-                        // Rows keep their own height and the slack falls to the
-                        // bottom; without this the tab shares its spare height
-                        // out among the rows and a one-line combo box ends up
-                        // several centimetres tall.
-                        alignment: start;
-                        padding: 15px;
-                        spacing: 18px;
-
-                        // The fretboard trainer draws its own notes and formulas
-                        // draw their own sets - except over the changes, where
-                        // the tune under the formula comes from this same list.
-                        if root.current_mode != 4
-                           && (root.current_mode != 5 || root.formula_exercise == 2)
-                           : HorizontalLayout {
-                            Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                model: root.library_items;
-                                current-index <=> root.current_item_index;
-                                selected => { root.item_selected(self.current-index); }
-                            }
-                        }
-
-                        if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
-                            Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                model: root.secondary_items;
-                                current-index <=> root.current_secondary_index;
-                                selected => { root.secondary_item_selected(self.current-index); }
-                            }
-                        }
-
-                        if root.current_mode == 1 || root.current_mode == 2
-                           || root.current_mode == 3 : VerticalLayout {
-                            spacing: 8px;
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
-                                LineEdit {
-                                    text <=> root.interval_input_text;
-                                    placeholder-text: Tr.intervals_placeholder;
-                                }
-                            }
-                            Text {
-                                text: Tr.intervals_hint;
-                                // Without this the line runs off to the right rather
-                                // than breaking - it fitted before only because the
-                                // old hint was short.
-                                wrap: word-wrap;
-                                color: #666; font-size: 11px;
-                            }
-                            Rectangle { height: 1px; background: #444; }
-                        }
-
-                        // Neither mode has a written order for the shuffle to
-                        // depart from: formulas are drawn every time, and the
-                        // fretboard trainer picks its own note from the region.
-                        if root.current_mode != 4 && root.current_mode != 5 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox { checked <=> root.random_enabled; }
-                                Text {
-                                    text: Tr.random_order;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                // Explicit width: inside an `if` the layout
-                                // settles the height before the width, so a
-                                // wrapped line goes missing.
-                                width: root.panel_w - 30px;
-                                text: Tr.random_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // Only where the two orders are separable: Intervals and
-                        // Arpeggios. In Chords the shuffle has nothing else to
-                        // mean, in Scales there is no progression to reorder.
-                        //
-                        // NOT tied to the shuffle being on. It was, and the
-                        // setting vanished the moment the shuffle went off -
-                        // which reads as the option disappearing rather than as
-                        // it having nothing to do just now.
-                        if root.current_mode == 1 || root.current_mode == 3 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.shuffle_chords;
-                                    toggled => { root.shuffle_chords_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.shuffle_chords;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                // Explicit width, unlike its neighbours: inside an
-                                // `if` the layout settles the height before the
-                                // width, so a wrapped line goes missing and the
-                                // block ends up one line short. Told the width, it
-                                // can work its own height out.
-                                width: root.panel_w - 30px;
-                                text: Tr.shuffle_chords_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // Arpeggios: which of the two exercises, and what it
-                        // needs. A study stands in a key of its own; over the
-                        // changes the chords come from the tune and the only
-                        // choice left is which way each arpeggio runs.
-                        if root.current_mode == 3 : VerticalLayout {
-                            spacing: 12px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.arp_exercise; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    width: root.ctrl_w;
-                                    model: [Tr.arp_study, Tr.arp_changes];
-                                    current-index <=> root.arp_exercise;
-                                    selected(v) => { root.arp_exercise_changed(v); }
-                                }
-                            }
-                            if root.arp_exercise == 0 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.arp_quality; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    width: root.ctrl_w;
-                                    model: ["m7", "Maj7", "7", "m7b5", "dim7"];
-                                    current-index <=> root.arp_quality;
-                                    selected(v) => { root.arp_quality_changed(v); }
-                                }
-                            }
-                            if root.arp_exercise == 1 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.arp_direction; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    width: root.ctrl_w;
-                                    model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
-                                    current-index <=> root.arp_direction;
-                                    selected(v) => { root.arp_direction_changed(v); }
-                                }
-                            }
-                        }
-
-                        // Wherever there is a phrase to draw: the note modes.
-                        // Chords have their shapes and the fretboard trainer
-                        // draws its own region.
-                        if root.current_mode >= 1 && root.current_mode <= 4 : VerticalLayout {
-                            spacing: 4px;
-                            // Intervals only: the other modes walk a line, and
-                            // a line has no voices to lead.
-                            if root.current_mode == 1 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.voice_leading;
-                                    toggled => { root.voice_leading_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.voice_leading;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            if root.current_mode == 1 : Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.voice_leading_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                            // Intervals only: a scale and an arpeggio ARE an
-                            // order, so there is nothing to offer there.
-                            if root.current_mode == 1 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.interval_in_order;
-                                    toggled => { root.interval_in_order_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.interval_in_order;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            if root.current_mode == 1 : Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.interval_in_order_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.preview; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                // Two entries where tablature has nothing to
-                                // say: it is an ORDER of notes, and neither a
-                                // single note in the fretboard trainer nor a
-                                // grip in Intervals is one - both are drawn on
-                                // the neck whichever of the two is picked, so
-                                // offering both was a control that did nothing.
-                                if root.current_mode == 4 || root.current_mode == 1 : Dropdown {
-                                    width: root.ctrl_w;
-                                    // The fretboard trainer asks for a NOTE and
-                                    // Intervals for a function of the chord.
-                                    // Both entries say which it is: the drawing
-                                    // carries the same thing as the line, only
-                                    // on the neck - unless fret numbers are
-                                    // switched on, which is its own option.
-                                    model: [
-                                        root.current_mode == 4
-                                            ? Tr.preview_note_names
-                                            : Tr.preview_functions,
-                                        root.current_mode == 4
-                                            ? Tr.preview_note_names_neck
-                                            : Tr.preview_functions_neck,
-                                    ];
-                                    // One-way and set by hand, because the two
-                                    // entries are 0 and 2 of the same setting.
-                                    current-index: root.preview == 0 ? 0 : 1;
-                                    selected(v) => {
-                                        root.preview = v == 0 ? 0 : 2;
-                                        root.preview_changed(root.preview);
-                                    }
-                                }
-                                if root.current_mode != 4 && root.current_mode != 1 : Dropdown {
-                                    width: root.ctrl_w;
-                                    model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
-                                    current-index <=> root.preview;
-                                    selected(v) => { root.preview_changed(v); }
-                                }
-                            }
-                            Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.preview_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                            // Only worth offering once there is a drawing to
-                            // put the numbers in - and not in the fretboard
-                            // trainer, whose dots carry a note name and never a
-                            // degree.
-                            if root.preview > 0 && root.current_mode != 4 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.tab_frets;
-                                    toggled => { root.tab_frets_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.tab_frets;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            if root.preview > 0 && root.current_mode != 4 : Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.tab_frets_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // Scales only: the run ends where it started, an octave
-                        // up. A step of its own, so it has to be played.
-                        if root.current_mode == 2 : VerticalLayout {
-                            spacing: 4px;
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.scale_repeat_root;
-                                    toggled => { root.scale_repeat_root_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.repeat_root;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                width: root.panel_w - 30px;
-                                text: Tr.repeat_root_hint;
-                                font-size: 12px; color: #777; wrap: word-wrap;
-                            }
-                        }
-
-                        // FORMULAS. Only in that mode; nothing here means
-                        // anything over a song.
-                        if root.current_mode == 5 : VerticalLayout {
-                            spacing: 12px;
-
-                            // Which of the three exercises. First in the block
-                            // because the rows under it change with it: over a
-                            // chord there is no key to set, and the kind of
-                            // placement only means something once there is one.
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.exercise; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    width: root.ctrl_w;
-                                    model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
-                                    // Two-way, or the pick reaches the file and
-                                    // nothing else: the view reads this property
-                                    // for what to show, and the gear watches it
-                                    // to know the panel has been touched.
-                                    current-index <=> root.formula_exercise;
-                                    selected(v) => { root.formula_exercise_changed(v); }
-                                }
-                            }
-
-                            if root.formula_exercise != 0 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.placement; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    width: root.ctrl_w;
-                                    model: [Tr.placement_any, Tr.placement_defines,
-                                            Tr.placement_colours, Tr.placement_outside];
-                                    current-index <=> root.formula_placement;
-                                    selected(v) => { root.formula_placement_changed(v); }
-                                }
-                            }
-
-                            if root.formula_exercise != 0 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.formula_jazz_names;
-                                    toggled => { root.formula_jazz_names_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.jazz_names;
+                                    text: Tr.lock_quality;
                                     color: #aaa; vertical-alignment: center;
                                 }
                             }
 
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.formula_notes; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                Dropdown {
-                                    // One digit: a control as wide as the song
-                                    // picker would be all air.
-                                    width: 90px;
-                                    model: ["1","2","3","4","5","6","7","8","9","10","11","12"];
-                                    current-index: root.formula_notes - 1;
-                                    selected(v) => {
-                                        root.formula_notes = v + 1;
-                                        root.formula_notes_changed(v + 1);
-                                    }
-                                }
-                            }
-
-                            if root.formula_exercise == 0 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.formula_key; color: #aaa;
-                                    vertical-alignment: center; width: 185px;
-                                }
-                                LineEdit {
-                                    // Bound and nothing else, exactly like the
-                                    // Intervals field: the tick reads it and
-                                    // saves when it changes. An `edited` handler
-                                    // here left the field refusing input.
-                                    width: 90px;
-                                    text <=> root.formula_key_text;
-                                    enabled: !root.formula_random_key;
-                                }
-                                CheckBox {
-                                    checked <=> root.formula_random_key;
-                                    toggled => { root.formula_random_key_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.formula_random; color: #aaa;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            VerticalLayout {
+                            // Chords only: it is read inside that branch of the
+                            // judge, past the point the other modes return from.
+                            if root.current_mode == 0 : VerticalLayout {
                                 spacing: 4px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.short_verdict;
+                                        toggled => { root.short_verdict_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.short_verdict;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    // Explicit width, as everywhere inside an `if`:
+                                    // the layout settles the height first and a
+                                    // wrapped line would go missing.
+                                    width: root.panel_w - 30px;
+                                    text: Tr.short_verdict_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            // Formulas only: the note modes walk their own order
+                            // already, and a chord has none to walk.
+                            if root.current_mode == 5 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.in_order;
+                                        toggled => { root.in_order_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.in_order;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.in_order_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            // The other way round: a strummed chord has no notes to
+                            // take one at a time - and a scale or an arpeggio has
+                            // nothing else, so there the rule is in force and not
+                            // offered. It is left to choose in Intervals, where a
+                            // strummed grip walking its tones is the point, and in
+                            // Formulas, which has its own strict switch.
+                            if root.current_mode == 1 || root.current_mode == 4
+                                || root.current_mode == 5 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.single_notes;
+                                        toggled => { root.single_notes_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.single_notes;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.single_notes_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+
+                                // Beside it, because it answers the same complaint
+                                // from the other end: that one stops the model
+                                // being asked, this one stops it answering about a
+                                // note that is only still ringing.
+                                //
+                                // Not in Formulas: that mode credits on the strict
+                                // rule, which takes the single-frame estimate alone
+                                // and never the model's branches - so this would sit
+                                // there doing nothing.
+                                if root.current_mode != 5 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.require_onset;
+                                        toggled => { root.require_onset_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.require_onset;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                if root.current_mode != 5 : Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.require_onset_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
+                            }
+
+                            // Read only by `note_is_sounding`, which Chords never
+                            // calls - there the verdict comes from the chord name.
+                            if root.current_mode != 0 : HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
+                            }
+
+                        }
+                    }
+                if root.settings_tab == 2 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
+                            alignment: start;
+                            padding: 15px;
+                            spacing: 18px;
+
+                            // The fretboard trainer draws its own notes and formulas
+                            // draw their own sets - except over the changes, where
+                            // the tune under the formula comes from this same list.
+                            if root.current_mode != 4
+                               && (root.current_mode != 5 || root.formula_exercise == 2)
+                               : HorizontalLayout {
+                                Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    model: root.library_items;
+                                    current-index <=> root.current_item_index;
+                                    selected => { root.item_selected(self.current-index); }
+                                }
+                            }
+
+                            if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
+                                Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    model: root.secondary_items;
+                                    current-index <=> root.current_secondary_index;
+                                    selected => { root.secondary_item_selected(self.current-index); }
+                                }
+                            }
+
+                            if root.current_mode == 1 || root.current_mode == 2
+                               || root.current_mode == 3 : VerticalLayout {
+                                spacing: 8px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
+                                    LineEdit {
+                                        text <=> root.interval_input_text;
+                                        placeholder-text: Tr.intervals_placeholder;
+                                    }
+                                }
+                                Text {
+                                    text: Tr.intervals_hint;
+                                    // Without this the line runs off to the right rather
+                                    // than breaking - it fitted before only because the
+                                    // old hint was short.
+                                    wrap: word-wrap;
+                                    color: #666; font-size: 11px;
+                                }
+                                Rectangle { height: 1px; background: #444; }
+                            }
+
+                            // Neither mode has a written order for the shuffle to
+                            // depart from: formulas are drawn every time, and the
+                            // fretboard trainer picks its own note from the region.
+                            if root.current_mode != 4 && root.current_mode != 5 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox { checked <=> root.random_enabled; }
+                                    Text {
+                                        text: Tr.random_order;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    // Explicit width: inside an `if` the layout
+                                    // settles the height before the width, so a
+                                    // wrapped line goes missing.
+                                    width: root.panel_w - 30px;
+                                    text: Tr.random_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            // Only where the two orders are separable: Intervals and
+                            // Arpeggios. In Chords the shuffle has nothing else to
+                            // mean, in Scales there is no progression to reorder.
+                            //
+                            // NOT tied to the shuffle being on. It was, and the
+                            // setting vanished the moment the shuffle went off -
+                            // which reads as the option disappearing rather than as
+                            // it having nothing to do just now.
+                            if root.current_mode == 1 || root.current_mode == 3 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.shuffle_chords;
+                                        toggled => { root.shuffle_chords_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.shuffle_chords;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    // Explicit width, unlike its neighbours: inside an
+                                    // `if` the layout settles the height before the
+                                    // width, so a wrapped line goes missing and the
+                                    // block ends up one line short. Told the width, it
+                                    // can work its own height out.
+                                    width: root.panel_w - 30px;
+                                    text: Tr.shuffle_chords_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            // Arpeggios: which of the two exercises, and what it
+                            // needs. A study stands in a key of its own; over the
+                            // changes the chords come from the tune and the only
+                            // choice left is which way each arpeggio runs.
+                            if root.current_mode == 3 : VerticalLayout {
+                                spacing: 12px;
                                 HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.formula_required; color: #aaa;
+                                        text: Tr.arp_exercise; color: #aaa;
                                         vertical-alignment: center; width: 185px;
                                     }
-                                    LineEdit {
-                                        // No width and no handler, exactly like
-                                        // the Intervals field it works next to.
-                                        // No placeholder either: grey "b3 b7"
-                                        // read as a value that could not be
-                                        // cleared.
-                                        text <=> root.formula_required_text;
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.arp_study, Tr.arp_changes];
+                                        current-index <=> root.arp_exercise;
+                                        selected(v) => { root.arp_exercise_changed(v); }
                                     }
                                 }
-                                Text {
+                                if root.arp_exercise == 0 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.arp_quality; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: ["m7", "Maj7", "7", "m7b5", "dim7"];
+                                        current-index <=> root.arp_quality;
+                                        selected(v) => { root.arp_quality_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 1 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.arp_direction; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
+                                        current-index <=> root.arp_direction;
+                                        selected(v) => { root.arp_direction_changed(v); }
+                                    }
+                                }
+                            }
+
+                            // Wherever there is a phrase to draw: the note modes.
+                            // Chords have their shapes and the fretboard trainer
+                            // draws its own region.
+                            if root.current_mode >= 1 && root.current_mode <= 4 : VerticalLayout {
+                                spacing: 4px;
+                                // Intervals only: the other modes walk a line, and
+                                // a line has no voices to lead.
+                                if root.current_mode == 1 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.voice_leading;
+                                        toggled => { root.voice_leading_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.voice_leading;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                if root.current_mode == 1 : Text {
                                     width: root.panel_w - 30px;
-                                    text: Tr.formula_required_hint;
+                                    text: Tr.voice_leading_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
-                            }
-
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.formula_show_names;
-                                    toggled => { root.formula_show_names_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.formula_note_names; color: #aaa;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.formula_show_similar;
-                                    toggled => { root.formula_show_similar_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.formula_similar_opt; color: #aaa;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.formula_show_chords;
-                                    toggled => { root.formula_show_chords_changed(self.checked); }
-                                }
-                                Text {
-                                    text: Tr.formula_chords_opt; color: #aaa;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            // Kept formulas. Two lines, not one: the list is the
-                            // thing being used and the search is how it is
-                            // narrowed, and side by side they read as one wide
-                            // control that does neither well.
-                            VerticalLayout {
-                                // 12px, not the tab's own 18: the rows above are
-                                // a label beside a control, and the label's line
-                                // is shorter than the control it sits next to, so
-                                // their centres come 47px apart. Three stacked
-                                // controls at 18px came to 53 and read as a
-                                // looser block than everything above it.
-                                spacing: 12px;
-                                // The label takes its own line: below it the
-                                // list and the search sit one above the other at
-                                // the same width, which reads as one control
-                                // with two ways in rather than three columns.
-                                Text {
-                                    text: Tr.fav_pick; color: #aaa;
-                                    vertical-alignment: center;
-                                }
-                                HorizontalLayout {
+                                // Intervals only: a scale and an arpeggio ARE an
+                                // order, so there is nothing to offer there.
+                                if root.current_mode == 1 : HorizontalLayout {
                                     alignment: start;
-                                    Dropdown {
-                                        width: 185px;
-                                        model: root.favourites;
-                                        current-index <=> root.favourite_index;
-                                        deletable: true;
-                                        selected(v) => { root.favourite_picked(v); }
-                                        deleted(v) => { root.favourite_deleted(v); }
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.interval_in_order;
+                                        toggled => { root.interval_in_order_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.interval_in_order;
+                                        color: #aaa; vertical-alignment: center;
                                     }
                                 }
+                                if root.current_mode == 1 : Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.interval_in_order_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+
                                 HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
-                                    LineEdit {
-                                        // The list narrows as this is typed, and
-                                        // Enter - or the button - takes the first
-                                        // that is left, which is the whole point
-                                        // of typing three letters.
-                                        width: 185px;
-                                        text <=> root.favourite_filter;
-                                        accepted => { root.favourite_search(); }
+                                    Text {
+                                        text: Tr.preview; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
                                     }
-                                    Button {
-                                        text: Tr.fav_search;
-                                        clicked => { root.favourite_search(); }
+                                    // Two entries where tablature has nothing to
+                                    // say: it is an ORDER of notes, and neither a
+                                    // single note in the fretboard trainer nor a
+                                    // grip in Intervals is one - both are drawn on
+                                    // the neck whichever of the two is picked, so
+                                    // offering both was a control that did nothing.
+                                    if root.current_mode == 4 || root.current_mode == 1 : Dropdown {
+                                        width: root.ctrl_w;
+                                        // The fretboard trainer asks for a NOTE and
+                                        // Intervals for a function of the chord.
+                                        // Both entries say which it is: the drawing
+                                        // carries the same thing as the line, only
+                                        // on the neck - unless fret numbers are
+                                        // switched on, which is its own option.
+                                        model: [
+                                            root.current_mode == 4
+                                                ? Tr.preview_note_names
+                                                : Tr.preview_functions,
+                                            root.current_mode == 4
+                                                ? Tr.preview_note_names_neck
+                                                : Tr.preview_functions_neck,
+                                        ];
+                                        // One-way and set by hand, because the two
+                                        // entries are 0 and 2 of the same setting.
+                                        current-index: root.preview == 0 ? 0 : 1;
+                                        selected(v) => {
+                                            root.preview = v == 0 ? 0 : 2;
+                                            root.preview_changed(root.preview);
+                                        }
+                                    }
+                                    if root.current_mode != 4 && root.current_mode != 1 : Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
+                                        current-index <=> root.preview;
+                                        selected(v) => { root.preview_changed(v); }
                                     }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
-                                    text: Tr.fav_hint;
+                                    text: Tr.preview_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                                // Only worth offering once there is a drawing to
+                                // put the numbers in - and not in the fretboard
+                                // trainer, whose dots carry a note name and never a
+                                // degree.
+                                if root.preview > 0 && root.current_mode != 4 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.tab_frets;
+                                        toggled => { root.tab_frets_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.tab_frets;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                if root.preview > 0 && root.current_mode != 4 : Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.tab_frets_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
                             }
 
-                        }
-
-                        // Chords only, because that is the only mode that draws
-                        // the shapes - the row of them under the chord name is
-                        // itself gated on the mode.
-                        if root.current_mode == 0 : HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 15px;
-                            CheckBox {
-                                checked <=> root.show_diagrams;
-                                toggled => { root.show_diagrams_changed(self.checked); }
-                            }
-                            Text {
-                                text: Tr.show_diagrams;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
-
-                        // Which set of shapes. Only where there is something to
-                        // draw them for: with the thumbnails off it would be a
-                        // choice about nothing. Two boxes rather than a list of
-                        // three, because "both" is not a third kind - it is the
-                        // two of them at once, and the boxes say so.
-                        if root.current_mode == 0 && root.show_diagrams : HorizontalLayout {
-                            alignment: start;
-                            spacing: 15px;
-                            Text {
-                                text: Tr.shapes_kind; color: #aaa;
-                                vertical-alignment: center; width: 185px;
-                            }
-                            CheckBox {
-                                checked <=> root.show_full_shapes;
-                                toggled => {
-                                    root.shapes_choice_changed(self.checked, root.show_shell_shapes);
+                            // Scales only: the run ends where it started, an octave
+                            // up. A step of its own, so it has to be played.
+                            if root.current_mode == 2 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.scale_repeat_root;
+                                        toggled => { root.scale_repeat_root_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.repeat_root;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.repeat_root_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
                                 }
                             }
-                            Text {
-                                text: Tr.shapes_full;
-                                color: #aaa; vertical-alignment: center;
+
+                            // FORMULAS. Only in that mode; nothing here means
+                            // anything over a song.
+                            if root.current_mode == 5 : VerticalLayout {
+                                spacing: 12px;
+
+                                // Which of the three exercises. First in the block
+                                // because the rows under it change with it: over a
+                                // chord there is no key to set, and the kind of
+                                // placement only means something once there is one.
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.exercise; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
+                                        // Two-way, or the pick reaches the file and
+                                        // nothing else: the view reads this property
+                                        // for what to show, and the gear watches it
+                                        // to know the panel has been touched.
+                                        current-index <=> root.formula_exercise;
+                                        selected(v) => { root.formula_exercise_changed(v); }
+                                    }
+                                }
+
+                                if root.formula_exercise != 0 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.placement; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.placement_any, Tr.placement_defines,
+                                                Tr.placement_colours, Tr.placement_outside];
+                                        current-index <=> root.formula_placement;
+                                        selected(v) => { root.formula_placement_changed(v); }
+                                    }
+                                }
+
+                                if root.formula_exercise != 0 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.formula_jazz_names;
+                                        toggled => { root.formula_jazz_names_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.jazz_names;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.formula_notes; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        // One digit: a control as wide as the song
+                                        // picker would be all air.
+                                        width: 90px;
+                                        model: ["1","2","3","4","5","6","7","8","9","10","11","12"];
+                                        current-index: root.formula_notes - 1;
+                                        selected(v) => {
+                                            root.formula_notes = v + 1;
+                                            root.formula_notes_changed(v + 1);
+                                        }
+                                    }
+                                }
+
+                                if root.formula_exercise == 0 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.formula_key; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    LineEdit {
+                                        // Bound and nothing else, exactly like the
+                                        // Intervals field: the tick reads it and
+                                        // saves when it changes. An `edited` handler
+                                        // here left the field refusing input.
+                                        width: 90px;
+                                        text <=> root.formula_key_text;
+                                        enabled: !root.formula_random_key;
+                                    }
+                                    CheckBox {
+                                        checked <=> root.formula_random_key;
+                                        toggled => { root.formula_random_key_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.formula_random; color: #aaa;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        Text {
+                                            text: Tr.formula_required; color: #aaa;
+                                            vertical-alignment: center; width: 185px;
+                                        }
+                                        LineEdit {
+                                            // No width and no handler, exactly like
+                                            // the Intervals field it works next to.
+                                            // No placeholder either: grey "b3 b7"
+                                            // read as a value that could not be
+                                            // cleared.
+                                            text <=> root.formula_required_text;
+                                        }
+                                    }
+                                    Text {
+                                        width: root.panel_w - 30px;
+                                        text: Tr.formula_required_hint;
+                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.formula_show_names;
+                                        toggled => { root.formula_show_names_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.formula_note_names; color: #aaa;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.formula_show_similar;
+                                        toggled => { root.formula_show_similar_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.formula_similar_opt; color: #aaa;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.formula_show_chords;
+                                        toggled => { root.formula_show_chords_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.formula_chords_opt; color: #aaa;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                // Kept formulas. Two lines, not one: the list is the
+                                // thing being used and the search is how it is
+                                // narrowed, and side by side they read as one wide
+                                // control that does neither well.
+                                VerticalLayout {
+                                    // 12px, not the tab's own 18: the rows above are
+                                    // a label beside a control, and the label's line
+                                    // is shorter than the control it sits next to, so
+                                    // their centres come 47px apart. Three stacked
+                                    // controls at 18px came to 53 and read as a
+                                    // looser block than everything above it.
+                                    spacing: 12px;
+                                    // The label takes its own line: below it the
+                                    // list and the search sit one above the other at
+                                    // the same width, which reads as one control
+                                    // with two ways in rather than three columns.
+                                    Text {
+                                        text: Tr.fav_pick; color: #aaa;
+                                        vertical-alignment: center;
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        Dropdown {
+                                            width: 185px;
+                                            model: root.favourites;
+                                            current-index <=> root.favourite_index;
+                                            deletable: true;
+                                            selected(v) => { root.favourite_picked(v); }
+                                            deleted(v) => { root.favourite_deleted(v); }
+                                        }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        LineEdit {
+                                            // The list narrows as this is typed, and
+                                            // Enter - or the button - takes the first
+                                            // that is left, which is the whole point
+                                            // of typing three letters.
+                                            width: 185px;
+                                            text <=> root.favourite_filter;
+                                            accepted => { root.favourite_search(); }
+                                        }
+                                        Button {
+                                            text: Tr.fav_search;
+                                            clicked => { root.favourite_search(); }
+                                        }
+                                    }
+                                    Text {
+                                        width: root.panel_w - 30px;
+                                        text: Tr.fav_hint;
+                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                    }
+                                }
+
                             }
-                            CheckBox {
-                                checked <=> root.show_shell_shapes;
-                                toggled => {
-                                    root.shapes_choice_changed(root.show_full_shapes, self.checked);
+
+                            // Chords only, because that is the only mode that draws
+                            // the shapes - the row of them under the chord name is
+                            // itself gated on the mode.
+                            if root.current_mode == 0 : HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.show_diagrams;
+                                    toggled => { root.show_diagrams_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.show_diagrams;
+                                    color: #aaa; vertical-alignment: center;
                                 }
                             }
-                            Text {
-                                text: Tr.shapes_shell;
-                                color: #aaa; vertical-alignment: center;
-                            }
-                        }
 
+                            // Which set of shapes. Only where there is something to
+                            // draw them for: with the thumbnails off it would be a
+                            // choice about nothing. Two boxes rather than a list of
+                            // three, because "both" is not a third kind - it is the
+                            // two of them at once, and the boxes say so.
+                            if root.current_mode == 0 && root.show_diagrams : HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                Text {
+                                    text: Tr.shapes_kind; color: #aaa;
+                                    vertical-alignment: center; width: 185px;
+                                }
+                                CheckBox {
+                                    checked <=> root.show_full_shapes;
+                                    toggled => {
+                                        root.shapes_choice_changed(self.checked, root.show_shell_shapes);
+                                    }
+                                }
+                                Text {
+                                    text: Tr.shapes_full;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                                CheckBox {
+                                    checked <=> root.show_shell_shapes;
+                                    toggled => {
+                                        root.shapes_choice_changed(root.show_full_shapes, self.checked);
+                                    }
+                                }
+                                Text {
+                                    text: Tr.shapes_shell;
+                                    color: #aaa; vertical-alignment: center;
+                                }
+                            }
+
+                        }
                     }
-                }
-            if root.settings_tab == 3 : ScrollView {
-                    VerticalLayout {
-                        // Rows keep their own height and the slack falls to the
-                        // bottom; without this the tab shares its spare height
-                        // out among the rows and a one-line combo box ends up
-                        // several centimetres tall.
-                        alignment: start;
-                        padding: 15px;
-                        spacing: 18px;
+                if root.settings_tab == 3 : ScrollView {
+                        VerticalLayout {
+                            // Rows keep their own height and the slack falls to the
+                            // bottom; without this the tab shares its spare height
+                            // out among the rows and a one-line combo box ends up
+                            // several centimetres tall.
+                            alignment: start;
+                            padding: 15px;
+                            spacing: 18px;
 
-                        Text {
-                            text: Tr.ai_prediction + root.ai_text;
-                            font-size: 18px;
-                            font-weight: 700;
-                            horizontal-alignment: center;
-                            color: white;
-                        }
+                            Text {
+                                text: Tr.ai_prediction + root.ai_text;
+                                font-size: 18px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                color: white;
+                            }
 
-                        if root.show_spectrum : Rectangle {
-                            height: 60px;
-                            background: black;
-                            border-radius: 4px;
+                            if root.show_spectrum : Rectangle {
+                                height: 60px;
+                                background: black;
+                                border-radius: 4px;
+                                HorizontalLayout {
+                                    // NOT packed left, unlike the rows of controls
+                                    // above: this one is meant to fill. Packed, the
+                                    // layout gave every bar its 3px minimum and left
+                                    // the rest of the panel black - 48 bars in 191px
+                                    // of a 520px panel.
+                                    padding: 2px;
+                                    spacing: 1px;
+                                    for val[i] in root.spectrum_data : DebugBar {
+                                        level: val;
+                                        active_color: root.spectrum_colors[i];
+                                    }
+                                }
+                            }
+
                             HorizontalLayout {
-                                // NOT packed left, unlike the rows of controls
-                                // above: this one is meant to fill. Packed, the
-                                // layout gave every bar its 3px minimum and left
-                                // the rest of the panel black - 48 bars in 191px
-                                // of a 520px panel.
-                                padding: 2px;
-                                spacing: 1px;
-                                for val[i] in root.spectrum_data : DebugBar {
-                                    level: val;
-                                    active_color: root.spectrum_colors[i];
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.ai_debug_visible;
+                                    toggled => { root.ai_debug_changed(self.checked); }
+                                }
+                                Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.show_spectrum;
+                                    toggled => { root.show_spectrum_changed(self.checked); }
+                                }
+                                Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.debug_console;
+                                    toggled => { root.debug_console_changed(self.checked); }
+                                }
+                                Text { text: Tr.debug_console; color: #aaa; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.startup_mode; color: #aaa;
+                                    vertical-alignment: center; width: 140px;
+                                }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    // Every mode button has an entry here; a mode
+                                    // missing from the list cannot be picked, and
+                                    // the index would then point at its neighbour.
+                                    model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard, Tr.formulas];
+                                    current-index <=> root.startup_mode;
+                                    selected(v) => { root.startup_mode_changed(root.startup_mode); }
                                 }
                             }
-                        }
 
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 15px;
-                            CheckBox {
-                                checked <=> root.ai_debug_visible;
-                                toggled => { root.ai_debug_changed(self.checked); }
+                            HorizontalLayout {
+                                // Packed left: with the default stretch the row hands its spare width
+                                // to the control, which undoes the width set on it.
+                                alignment: start;
+                                spacing: 10px;
+                                Text {
+                                    text: Tr.language; color: #aaa;
+                                    vertical-alignment: center; width: 140px;
+                                }
+                                Dropdown {
+                                        width: root.ctrl_w;
+                                    model: [Tr.lang_auto, "Polski", "English"];
+                                    current-index <=> root.language_idx;
+                                    selected(v) => { root.language_changed(root.language_idx); }
+                                }
                             }
-                            Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
-                        }
 
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 15px;
-                            CheckBox {
-                                checked <=> root.show_spectrum;
-                                toggled => { root.show_spectrum_changed(self.checked); }
-                            }
-                            Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
                         }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 15px;
-                            CheckBox {
-                                checked <=> root.debug_console;
-                                toggled => { root.debug_console_changed(self.checked); }
-                            }
-                            Text { text: Tr.debug_console; color: #aaa; vertical-alignment: center; }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 10px;
-                            Text {
-                                text: Tr.startup_mode; color: #aaa;
-                                vertical-alignment: center; width: 140px;
-                            }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                // Every mode button has an entry here; a mode
-                                // missing from the list cannot be picked, and
-                                // the index would then point at its neighbour.
-                                model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard, Tr.formulas];
-                                current-index <=> root.startup_mode;
-                                selected(v) => { root.startup_mode_changed(root.startup_mode); }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            // Packed left: with the default stretch the row hands its spare width
-                            // to the control, which undoes the width set on it.
-                            alignment: start;
-                            spacing: 10px;
-                            Text {
-                                text: Tr.language; color: #aaa;
-                                vertical-alignment: center; width: 140px;
-                            }
-                            Dropdown {
-                                    width: root.ctrl_w;
-                                model: [Tr.lang_auto, "Polski", "English"];
-                                current-index <=> root.language_idx;
-                                selected(v) => { root.language_changed(root.language_idx); }
-                            }
-                        }
-
                     }
-                }
+            }
         }
     }
 
