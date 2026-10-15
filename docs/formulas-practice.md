@@ -152,7 +152,7 @@ been perfectly clear, and the reverse happens just as often.
 has always been, and it is where to start.
 
 <div align="center">
-<img height="440" alt="Formulas, a formula in a key" src="solitito_formulas.png" />
+<img width="560" alt="Formulas, a formula in a key" src="screenshots/en/solitito_formulas.png" />
 </div>
 
 **How to practise it.**
@@ -178,7 +178,7 @@ alone. That is the moment the mode starts doing its job.
 **Settings that shape this exercise.**
 
 <div align="center">
-<img width="330" alt="Practice settings for Formulas" src="solitito_settings8.png" />
+<img width="330" alt="Practice settings for Formulas" src="screenshots/en/solitito_settings8.png" />
 </div>
 
 | setting | what it is for |

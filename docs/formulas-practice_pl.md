@@ -138,7 +138,7 @@ zupełnie czytelne, a równie często bywa odwrotnie.
 jest tryb w takiej postaci, w jakiej istniał od początku, i od niego należy zacząć.
 
 <div align="center">
-<img height="440" alt="Formuły, formuła w tonacji" src="solitito_formulas.png" />
+<img width="560" alt="Formuły, formuła w tonacji" src="screenshots/pl/solitito_formulas.png" />
 </div>
 
 **Jak ćwiczyć.**
@@ -164,7 +164,7 @@ moment, w którym tryb zaczyna robić swoje.
 **Ustawienia, które kształtują to ćwiczenie.**
 
 <div align="center">
-<img width="330" alt="Ustawienia Ćwiczeń dla Formuł" src="solitito_settings8.png" />
+<img width="330" alt="Ustawienia Ćwiczeń dla Formuł" src="screenshots/pl/solitito_settings8.png" />
 </div>
 
 | ustawienie | do czego służy |

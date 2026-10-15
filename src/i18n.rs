@@ -391,7 +391,7 @@ pub const PL: Strings = Strings {
     tile_next: "dalej",
     tile_open: "zagraj",
     chip_in_order: "Po kolei",
-    chip_single: "Pojedyncze dźwięki",
+    chip_single: "Pojedynczo",
     quick_full: "Pełne chwyty",
     quick_shells: "Shelle",
     tab_audio: "Dźwięk",

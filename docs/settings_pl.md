@@ -10,9 +10,9 @@ Cztery zakładki: **Dźwięk** — wejście i bramka szumów, **Ogólne** — ja
 to, co grasz, **Ćwiczenia** — co grać, oraz **Program** — co pokazuje okno.
 
 <div align="center">
-<img width="300" alt="Ustawienia, zakładka Dźwięk" src="solitito_settings2.png" />
-<img width="300" alt="Ustawienia, zakładka Ogólne" src="solitito_settings1.png" />
-<img width="300" alt="Ustawienia, zakładka Program" src="solitito_settings4.png" />
+<img width="300" alt="Ustawienia, zakładka Dźwięk" src="screenshots/pl/solitito_settings2.png" />
+<img width="300" alt="Ustawienia, zakładka Ogólne" src="screenshots/pl/solitito_settings1.png" />
+<img width="300" alt="Ustawienia, zakładka Program" src="screenshots/pl/solitito_settings4.png" />
 </div>
 
 **Ćwiczenia** zawierają wyłącznie to, co ma sens dla trybu widocznego na ekranie — utwór nie ma
@@ -20,11 +20,11 @@ nic do powiedzenia w Formułach, formuła nic w Akordach — więc w każdym try
 zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej wcale:
 
 <div align="center">
-<img width="250" alt="Ćwiczenia, Akordy" src="solitito_settings3.png" />
-<img width="250" alt="Ćwiczenia, Interwały" src="solitito_settings5.png" />
-<img width="250" alt="Ćwiczenia, Skale" src="solitito_settings6.png" />
-<img width="250" alt="Ćwiczenia, Arpeggia" src="solitito_settings7.png" />
-<img width="250" alt="Ćwiczenia, Formuły" src="solitito_settings8.png" />
+<img width="250" alt="Ćwiczenia, Akordy" src="screenshots/pl/solitito_settings3.png" />
+<img width="250" alt="Ćwiczenia, Interwały" src="screenshots/pl/solitito_settings5.png" />
+<img width="250" alt="Ćwiczenia, Skale" src="screenshots/pl/solitito_settings6.png" />
+<img width="250" alt="Ćwiczenia, Arpeggia" src="screenshots/pl/solitito_settings7.png" />
+<img width="250" alt="Ćwiczenia, Formuły" src="screenshots/pl/solitito_settings8.png" />
 </div>
 
 | Ustawienie | Opis |
@@ -93,8 +93,8 @@ dokładnym, żółty gdy przeszedł triadą albo zamianą — a przewinięty str
 
 **Szybkie opcje** rozwijają się w pasku bocznym pod bieżącym trybem: kliknięcie w jego pozycję
 rozwija je albo zwija, a strzałka obok mówi, w którą stronę. Akordy mają **Pełne chwyty**
-i **Shelle**, Interwały i Formuły **Pojedyncze dźwięki** i **Po kolei**, Gryf **Pojedyncze
-dźwięki** — te same przełączniki co w ustawieniach Ćwiczeń.
+i **Shelle**, Interwały i Formuły **Pojedynczo** i **Po kolei**, Gryf **Pojedynczo** — te same
+przełączniki co w ustawieniach Ćwiczeń.
 
 **Losowanie** znaczy w każdym trybie co innego, bo w każdym co innego warto losować:
 

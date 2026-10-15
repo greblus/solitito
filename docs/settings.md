@@ -10,9 +10,9 @@ Four tabs: **Audio** for the input and the noise gate, **General** for how stric
 play is judged, **Practice** for what to play, and **App** for what the window shows.
 
 <div align="center">
-<img width="300" alt="Settings, Audio tab" src="solitito_settings2.png" />
-<img width="300" alt="Settings, General tab" src="solitito_settings1.png" />
-<img width="300" alt="Settings, App tab" src="solitito_settings4.png" />
+<img width="300" alt="Settings, Audio tab" src="screenshots/en/solitito_settings2.png" />
+<img width="300" alt="Settings, General tab" src="screenshots/en/solitito_settings1.png" />
+<img width="300" alt="Settings, App tab" src="screenshots/en/solitito_settings4.png" />
 </div>
 
 **Practice** holds only what belongs to the mode on screen — a song has nothing to say in
@@ -20,11 +20,11 @@ Formulas, a formula nothing in Chords — so it is a different tab in each of th
 fretboard trainer, which has no settings of its own, does not show it at all:
 
 <div align="center">
-<img width="250" alt="Practice, Chords" src="solitito_settings3.png" />
-<img width="250" alt="Practice, Intervals" src="solitito_settings5.png" />
-<img width="250" alt="Practice, Scales" src="solitito_settings6.png" />
-<img width="250" alt="Practice, Arpeggios" src="solitito_settings7.png" />
-<img width="250" alt="Practice, Formulas" src="solitito_settings8.png" />
+<img width="250" alt="Practice, Chords" src="screenshots/en/solitito_settings3.png" />
+<img width="250" alt="Practice, Intervals" src="screenshots/en/solitito_settings5.png" />
+<img width="250" alt="Practice, Scales" src="screenshots/en/solitito_settings6.png" />
+<img width="250" alt="Practice, Arpeggios" src="screenshots/en/solitito_settings7.png" />
+<img width="250" alt="Practice, Formulas" src="screenshots/en/solitito_settings8.png" />
 </div>
 
 | Setting | Description |

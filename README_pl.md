@@ -10,7 +10,7 @@ Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyek
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
-<img width="560" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/solitito_chords.png" />
+<img width="560" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/screenshots/pl/solitito_chords.png" />
 </div>
 
 Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
@@ -21,7 +21,7 @@ Niżej Interwały ze stopniami w postaci kafelków; szybkie opcje bieżącego tr
 pod nim w pasku bocznym.
 
 <div align="center">
-<img width="560" alt="Interwały jako kafelki, szybkie opcje rozwinięte w pasku bocznym" src="docs/solitito_intervals.png" />
+<img width="560" alt="Interwały jako kafelki, szybkie opcje rozwinięte w pasku bocznym" src="docs/screenshots/pl/solitito_intervals.png" />
 </div>
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
@@ -57,7 +57,7 @@ akord, przechodzi do następnego.
   generator budujący nowe arpeggio po każdym przejściu.
 
 <div align="center">
-<img width="560" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/solitito_arpeggios.png" />
+<img width="560" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych
@@ -76,7 +76,7 @@ akord, przechodzi do następnego.
   formułę widoczną na ekranie.
 
 <div align="center">
-<img width="560" alt="Formuły" src="docs/solitito_formulas.png" />
+<img width="560" alt="Formuły" src="docs/screenshots/pl/solitito_formulas.png" />
 </div>
 
 Tryb Formuł jest zainspirowany książką **An Improviser's OS** Wayne'a Krantza — być może

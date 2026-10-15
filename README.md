@@ -10,7 +10,7 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
-<img width="560" alt="Chords: shell voicings, one column per root string" src="docs/solitito_chords.png" />
+<img width="560" alt="Chords: shell voicings, one column per root string" src="docs/screenshots/en/solitito_chords.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
@@ -21,7 +21,7 @@ Below, Intervals with the degrees as tiles; the quick options of the mode on scr
 under it in the side bar.
 
 <div align="center">
-<img width="560" alt="Intervals as tiles, quick options unfolded in the side bar" src="docs/solitito_intervals.png" />
+<img width="560" alt="Intervals as tiles, quick options unfolded in the side bar" src="docs/screenshots/en/solitito_intervals.png" />
 </div>
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
@@ -59,7 +59,7 @@ chord, the app moves on to the next one.
   builds a fresh one after every pass.
 
 <div align="center">
-<img width="560" alt="An arpeggio over the changes, on the neck" src="docs/solitito_arpeggios.png" />
+<img width="560" alt="An arpeggio over the changes, on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />
 </div>
 
 - **Formulas** — random selection from all subsets of the 12 chromatic functions that contain "1",
@@ -77,7 +77,7 @@ chord, the app moves on to the next one.
   The cross on a row throws it out, and the star, filled in, drops the one on screen.
 
 <div align="center">
-<img width="560" alt="Formulas" src="docs/solitito_formulas.png" />
+<img width="560" alt="Formulas" src="docs/screenshots/en/solitito_formulas.png" />
 </div>
 
 The Formulas mode is inspired by **An Improviser's OS** by Wayne Krantz — possibly the most
