@@ -47,7 +47,8 @@ konstrukcji, albo pobierany z nagrania rzeczywistej gry — po czym plik
 przepuszczany jest przez własną ścieżkę cech aplikacji poleceniem
 `./solitito --probe plik.wav --step 1`, a powstały wydruk czytają dwa ostatnie
 skrypty. `latency_stats.py` rozdziela trzy odpowiedzi, jakimi aplikacja
-dysponuje: głowicę wysokości modelu, estymatę jednoramkową oraz głowicę ataków.
+dysponuje: głowicę wysokości modelu, estymatę jednoramkową oraz — w wydrukach
+sprzed 0.5.10 — głowicę ataków, którą model miał do tamtej pory.
 `latency_rules.py` odtwarza na tym samym wydruku reguły zaliczania i podaje dla
 każdej, ile przyznałaby zaliczeń, których nikt nie zagrał, oraz ile dźwięków
 pominęłaby zupełnie. Tabela w 8.11 pochodzi z tego skryptu.
@@ -224,19 +225,21 @@ CLS
    ├── fc_root     → 13   (12 klas wysokości + „Noise")
    ├── fc_quality  → 11   (maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N)
    └── fc_pitch    → 12   (sigmoid: które klasy wysokości brzmią)
-
-ostatnia ramka oraz ramka ONSET_LOOKBACK wcześniej
-   └── fc_onset    → 12   (sigmoid: które klasy wysokości zostały UDERZONE)
 ```
 
-Łączna liczba parametrów: 7 286 038; głowica ataków dokłada 156 156.
+Łączna liczba parametrów: 7 286 038. To `best_model_v2_take6_chords.onnx`, plik,
+który ładuje aplikacja.
 
-Czwarta głowica nie czyta tokenu CLS. Jej wejście składa się z czterech części —
-ostatniej ramki enkodera, różnicy między nią a ramką sprzed sześciu ramek oraz,
-pobranych z surowych cech, zanim zobaczy je enkoder, PRZYROSTU CQT złożonego na
-klasy wysokości wraz z przyrostem chromy. Uzasadnienie mieści się w jednym
-zdaniu: atak dokłada energii do widma, a wybrzmiewanie nie, więc to, co
-przyrosło, jest wielkością odróżniającą dźwięk uderzany od wciąż brzmiącego.
+Do wersji 0.5.10 sieć miała czwartą głowicę, `fc_onset` (156 156 parametrów,
+trenowaną w fazie 4, 6.1): które klasy wysokości zostały UDERZONE. Nie czytała
+tokenu CLS. Jej wejście składało się z czterech części — ostatniej ramki
+enkodera, różnicy między nią a ramką sprzed sześciu ramek oraz, pobranych z
+surowych cech, zanim zobaczy je enkoder, PRZYROSTU CQT złożonego na klasy
+wysokości wraz z przyrostem chromy: atak dokłada energii do widma, a
+wybrzmiewanie nie. Detektor uderzeń (5.4) odpowiada na to samo pytanie lepiej i
+zastąpił ją w sędzim wszędzie; plik ładowany przez aplikację eksportowany jest
+bez tej głowicy, a jego trzy wyjścia są co do bitu takie jak w pliku
+czterogłowicowym.
 
 ### 5.3. Podział zadań pomiędzy głowicami
 
@@ -247,7 +250,6 @@ Rozróżnienie ról poszczególnych głowic ma charakter kluczowy i zostało pot
 | `pitch_logits` | F1 0,909 | które dźwięki brzmią — podstawa trybów Interwały, Skale, Arpeggia i Gryf |
 | `root_logits` | 98,1% | nazwa prymy |
 | `quality_logits` | ~93% | rodzina akordu |
-| `onset_logits` | F1 0,812 | które klasy zostały uderzone, w odróżnieniu od brzmiących |
 
 Wczesna wersja aplikacji wyprowadzała jakość akordu z wektora pitch przy użyciu progów ustalonych ręcznie. Sonda `probe_quality.py` zestawiła trzy metody na tym samym checkpoincie:
 
@@ -263,8 +265,9 @@ Wniosek projektowy: głowica jakości pozostaje elementem koniecznym.
 
 ### 5.4. Detektor uderzeń
 
-Głowica ataków dzieli z modelem rozpoznawania jego okno i rytm: 0,77 s dźwięku,
-pytanie co 40 ms. To zbyt zgrubnie, by rozstrzygnąć, czy dźwięk już brzmiący
+Żadna z trzech głowic nie mówi, co zostało UDERZONE. Dawna głowica ataków
+dzieliła z modelem rozpoznawania jego okno i rytm: 0,77 s dźwięku, pytanie co
+40 ms. To zbyt zgrubnie, by rozstrzygnąć, czy dźwięk już brzmiący
 został właśnie uderzony ponownie — a to jest pytanie, które stawiają dźwięki
 powtórzone. Detektor uderzeń jest osobną siecią zbudowaną wyłącznie dla niego:
 
@@ -280,8 +283,8 @@ Conv1d 96 → 12   (sigmoida: które klasy wysokości uderzono w tej ramce)
 
 Sieć jest przyczynowa i potrzebuje 34 ramek przeszłych oraz bieżącej — 0,56 s.
 Ma 260 076 parametrów i kosztuje 0,7 ms na krok na procesorze, więc aplikacja
-pyta ją w każdym kroku. Rzut przyrostu niesie tę samą myśl co wejście głowicy
-ataków: atak dodaje widmu energii, a wybrzmiewanie nie.
+pyta ją w każdym kroku. Rzut przyrostu niesie tę samą myśl co wejście dawnej
+głowicy ataków: atak dodaje widmu energii, a wybrzmiewanie nie.
 
 Została wytrenowana jako gałąź modelu połączonego, obok zamrożonej sieci
 akordowej (6.6). Aplikacja ładuje ją wyciętą z tego pliku,
@@ -302,7 +305,7 @@ Procedura treningowa obejmuje cztery fazy, przy czym zasadnicze znaczenie ma faz
 | 1 | trening zasadniczy, 120 epok, cosine LR z rozgrzewką | jedyna wnosząca poprawę |
 | 2 | strojenie progu głowicy pitch | skorygowana — sortowała po metryce niezależnej od progu |
 | 3 | dostrajanie głowic przy zamrożonym enkoderze | **wyłączona** |
-| 4 | głowica ataków, trenowana osobno | dodana później; pozostałe wyjścia bez zmian |
+| 4 | głowica ataków, trenowana osobno | trenowana, już niewydawana: od 0.5.10 eksport ją pomija |
 
 Faza 4 trenuje `fc_onset` przy zamrożonych wszystkich pozostałych parametrach.
 Konstrukcja jest celowa: faza albo daje głowicę wartą użycia, albo zostawia model
@@ -310,6 +313,9 @@ dokładnie takim, jakim był, a trzy wcześniejsze wyjścia nie mogą przesuną�
 miejsce po przecinku. Materiałem jest adnotacja na poziomie dźwięku — okna
 próbkowane wokół rzeczywistych ataków, domyślnie wyłącznie z nagrań solowych,
 bo to one niosą `note_midi`. Trening kończy przegląd progów raportowany jako F1.
+Głowicy nie ma w pliku, który ładuje aplikacja: po fazie 4 trener eksportuje
+sieć akordową bez niej, `best_model_v2_take6_chords.onnx`, a o tym, co
+uderzone, sędzia dowiaduje się od detektora uderzeń (5.4).
 
 Faza 2 skanowała progi w zakresie 0,30–0,70, optymalizując wskaźnik `exact`. Wskaźnik ten stanowi koniunkcję `argmax(root)` oraz `argmax(quality)`, wobec czego przyjmował identyczną wartość dla wszystkich 41 progów, a wybór był losowy. Obecnie sortowanie odbywa się po F1 głowicy pitch, na którą próg faktycznie oddziałuje.
 
@@ -390,7 +396,9 @@ on bit w bit tak samo jak wydany `short_onset_masking_v2.onnx`. Sieć akordowa
 ma własny trener, `dist/model_trainer.py`, ten, który wytworzył
 `best_model_v2_take6_onset.onnx`: wyeksportowany z punktu kontrolnego tamtego
 przebiegu daje na wszystkich czterech wyjściach to samo co wydany plik, bit w
-bit. 770 cech liczonych jest dwukrotnie, przez trener w Pythonie i przez
+bit. Zapisuje też trójwyjściowy plik ładowany przez aplikację,
+`best_model_v2_take6_chords.onnx`, którego wyjścia są co do bitu trzema
+pierwszymi wyjściami pliku czterowyjściowego. 770 cech liczonych jest dwukrotnie, przez trener w Pythonie i przez
 aplikację w Ruście; wspólny plik testowy utrzymuje obie strony przy tych samych
 liczbach, bit w bit, w obu zestawach testów.
 
@@ -405,11 +413,12 @@ Model `v2_take6`, walidacja z podziałem po źródle, z pominięciem okien solow
 | dokładność prymy | **98,1%** |
 | pitch F1 | **0,909** |
 | trafienie dokładne (pryma **i** jakość) | **92,4%** |
-| F1 ataków | **0,812** |
+| F1 ataków (głowica już niewydawana) | **0,812** |
 
 Trzy pierwsze wielkości są identyczne w pliku trójgłowicowym i czterogłowicowym:
 głowica ataków trenowała się przy zamrożonej reszcie sieci. Czwarta podana jest
-przy progu maksymalizującym F1 na zbiorze walidacyjnym.
+przy progu maksymalizującym F1 na zbiorze walidacyjnym; od 0.5.10 głowicy nie ma
+w wydanym modelu.
 
 Dokładność w podziale na jakości przy najlepszym checkpoincie: `dom7` 97%, `min7` 93%, `min` 92%, `sus` 91%, `maj` 89%, `maj7` 89%; klasy `m7b5`, `dim7` oraz `aug` powyżej 97%.
 
@@ -641,14 +650,15 @@ lepiej", „przedtem wykrywanie było szybsze". Nie był ani jednym, ani drugim.
 Pierwszy akord po starcie jest czysty, bo nie ma czego dziedziczyć; każdy
 następny zaczyna, trzymając poprzedni. Poprawka polega na porzuceniu tego, co
 usłyszano, przy każdej takiej granicy — wektora wysokości, poprzedniej ramki,
-odpowiedzi o atakach, okna głosowania i ostatniego zaliczenia. Porzucenie nic nie
+odpowiedzi o uderzeniach, okna głosowania i ostatniego zaliczenia. Porzucenie nic nie
 kosztuje: następna ramka audio jest 16 ms dalej, a następna inferencja 40 ms.
 
-Głowica ataków pozostaje dostępna jako opcja — model może zaliczyć wyłącznie
-klasę, którą raportuje również jako uderzoną — i jest domyślnie wyłączona. Po
-poprawieniu granicy przestała być potrzebna dla zgłoszonego objawu, a niesie
-własny koszt: w powyższym pomiarze zdejmowała 15 zaliczeń fałszywych ceną 4
-dźwięków pominiętych zupełnie.
+Przez pewien czas głowica ataków była dostępna jako opcja — model mógł zaliczyć
+wyłącznie klasę, którą raportował również jako uderzoną. Po poprawieniu granicy
+przestała być potrzebna dla zgłoszonego objawu, a niosła własny koszt: w
+powyższym pomiarze zdejmowała 15 zaliczeń fałszywych ceną 4 dźwięków pominiętych
+zupełnie. Od 0.5.10 głowicy nie ma; „Zaliczaj tylko to, co uderzone” korzysta
+zamiast niej z detektora uderzeń (8.13).
 
 ### 8.13. Powtórzenia: która struna została uderzona
 

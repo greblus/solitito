@@ -234,6 +234,13 @@ conflicting labels, and the duplicate leaked between train and validation.
 
 ## Phase 4 — the onset head
 
+> **Since 0.5.10 the app does not use this head.** What was struck comes from the
+> separate strike detector (`strike_trainer.py`, `short_onset_masking_v2.onnx`),
+> and after this phase the trainer also exports the chord network without the
+> head, `best_model_<tag>_chords.onnx`, which is the file the app loads. The phase
+> is kept because its checkpoint is where that file comes from; what follows is
+> why the head was built.
+
 The app does not need to know what is SOUNDING. It needs to know what was
 STRUCK, and those differ by more than they sound like they should: an open
 string ringing in sympathy is sounding, the note before is still sounding, and

@@ -47,7 +47,8 @@ known by construction, or taken from a recording of real playing — the file is
 then passed through the application's own feature path with
 `./solitito --probe file.wav --step 1`, and the resulting listing is read by the
 last two scripts. `latency_stats.py` separates the three answers the application
-can hold: the model's pitch head, the single-frame estimate and the onset head.
+can hold: the model's pitch head, the single-frame estimate and, in listings made
+before 0.5.10, the onset head the model carried until then.
 `latency_rules.py` replays the crediting rules over the same listing and reports,
 for each, how many credits it would hand out that nobody played and how many
 notes it would miss altogether. The table in 8.11 comes from that script.
@@ -225,20 +226,21 @@ CLS
    ├── fc_root     → 13   (12 pitch classes + "Noise")
    ├── fc_quality  → 11   (maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N)
    └── fc_pitch    → 12   (sigmoid: which pitch classes are sounding)
-
-last frame, and the frame ONSET_LOOKBACK before it
-   └── fc_onset    → 12   (sigmoid: which pitch classes were STRUCK)
 ```
 
-Total parameter count: 7,286,038; the onset head adds a further 156,156.
+Total parameter count: 7,286,038. This is `best_model_v2_take6_chords.onnx`, the
+file the application loads.
 
-The fourth head does not read the CLS token. Its input is assembled from four
-parts — the encoder's last frame, the difference between that frame and the one
-six frames earlier, and, taken from the raw features before the encoder sees
-them, the RISE of the CQT folded onto pitch classes together with the rise of
-the chroma. The reason is stated in one line of the trainer: an attack adds
-energy to the spectrum and a decay does not, so what grew is the quantity that
-separates a note being struck from one still ringing.
+Until 0.5.10 the network carried a fourth head, `fc_onset` (156,156 parameters,
+trained in phase 4, 6.1): which pitch classes were STRUCK. It did not read the
+CLS token. Its input was assembled from four parts — the encoder's last frame,
+the difference between that frame and the one six frames earlier, and, taken
+from the raw features before the encoder sees them, the RISE of the CQT folded
+onto pitch classes together with the rise of the chroma: an attack adds energy
+to the spectrum and a decay does not. The strike detector (5.4) answers the same
+question better, and replaced it everywhere in the judge; the file the
+application loads is exported without the head, and its three outputs are bit
+for bit those of the four-head file.
 
 ### 5.3. Division of tasks between the heads
 
@@ -249,7 +251,6 @@ The distinction between the roles of the individual heads is of central importan
 | `pitch_logits` | F1 0.909 | which notes are sounding — the basis of the Intervals, Scales, Arpeggios and Fretboard modes |
 | `root_logits` | 98.1% | the name of the root |
 | `quality_logits` | ~93% | the chord family |
-| `onset_logits` | F1 0.812 | which classes were struck, as against which are sounding |
 
 An early version of the application derived chord quality from the pitch vector using manually determined thresholds. The `probe_quality.py` probe compared three methods on the same checkpoint:
 
@@ -263,19 +264,18 @@ The head exceeds template matching against a *precisely known* set of notes by 2
 
 Design conclusion: the quality head remains a necessary component.
 
-The onset head answers a question none of the other three is able to put.
-"Sounding" is true of a string ringing on, of one resonating in sympathy, and of
-the note played immediately before — the model's window is 0.77 s wide and holds
-all of them. Measured against a recording it is the fastest answer the
-application has: 202 ms after the strike, against 676 ms for the remaining
-paths. It is also the least precise as to WHICH string was struck, since an
-attack spreads onto the neighbouring ones. Its use in the application is
-described in 8.12.
+None of the three answers what was STRUCK. "Sounding" is true of a string
+ringing on, of one resonating in sympathy, and of the note played immediately
+before — the model's window is 0.77 s wide and holds all of them. The former
+onset head was built for that question; measured against a recording it was the
+fastest answer the application had (202 ms after the strike, against 676 ms),
+but the least precise as to WHICH string was struck, since an attack spreads
+onto the neighbouring ones. The strike detector (5.4) took its place.
 
 ### 5.4. The strike detector
 
-The onset head shares the recognition model's window and its pace: 0.77 s of
-audio, asked every 40 ms. That is too coarse to tell whether a note that is
+The former onset head shared the recognition model's window and its pace: 0.77 s
+of audio, asked every 40 ms. That is too coarse to tell whether a note that is
 already ringing was just struck again, which is the question repeated notes
 pose. The strike detector is a separate network built for that question alone:
 
@@ -291,8 +291,8 @@ Conv1d 96 → 12   (sigmoid: which pitch classes were struck at this frame)
 
 It is causal and needs 34 past frames plus the current one — 0.56 s. It has
 260,076 parameters and costs 0.7 ms per hop on the CPU, so the application asks
-it on every hop. The rise projection carries the same idea as the onset head's
-input: an attack adds energy to the spectrum and a decay does not.
+it on every hop. The rise projection carries the same idea as the former onset
+head's input: an attack adds energy to the spectrum and a decay does not.
 
 It was trained as a branch of a combined model beside the frozen chord network
 (6.6). The application loads it cut out of that file, `short_onset_masking_v2.onnx`
@@ -312,14 +312,17 @@ The training procedure comprises four phases, of which the first is of principal
 | 1 | main training, 120 epochs, cosine LR with warm-up | the only phase yielding improvement |
 | 2 | tuning of the pitch head threshold | corrected — it had sorted by a metric independent of the threshold |
 | 3 | head fine-tuning with the encoder frozen | **disabled** |
-| 4 | the onset head, trained alone | added later; the remaining outputs are unchanged |
+| 4 | the onset head, trained alone | trained, no longer shipped: since 0.5.10 the export leaves it out |
 
 Phase 4 trains `fc_onset` with every other parameter frozen. The construction is
 deliberate: the phase either yields a head worth using or leaves the model
 exactly as it was, and the three earlier outputs cannot move by a decimal place.
 Its material is the note-level annotation — windows sampled around real attacks,
 by default from the solo recordings alone, which are the ones carrying
-`note_midi`. Training ends with a threshold sweep reported as F1.
+`note_midi`. Training ends with a threshold sweep reported as F1. The head is
+not in the file the application loads: after phase 4 the trainer exports the
+chord network without it, `best_model_v2_take6_chords.onnx`, and the judge
+learns what was struck from the strike detector (5.4).
 
 Phase 2 scanned thresholds over the range 0.30–0.70, optimising the `exact` figure. That figure is the conjunction of `argmax(root)` and `argmax(quality)`, and therefore took an identical value across all 41 thresholds, making the selection arbitrary. Sorting is now performed by the F1 of the pitch head, on which the threshold genuinely bears.
 
@@ -399,7 +402,9 @@ trained network; from the released checkpoint that file answers bit for bit
 like the released `short_onset_masking_v2.onnx`. The chord network keeps its own
 trainer, `dist/model_trainer.py`, the one that produced
 `best_model_v2_take6_onset.onnx`: exported from that run's checkpoint, all four
-outputs match the released file bit for bit. The 770 features are computed twice, by the trainer in Python and by the
+outputs match the released file bit for bit. It also writes the three-output
+file the application loads, `best_model_v2_take6_chords.onnx`, whose outputs are
+bit for bit the first three of the four-output one. The 770 features are computed twice, by the trainer in Python and by the
 application in Rust; a shared fixture holds both to the same numbers, bit for
 bit, from both test suites.
 
@@ -414,11 +419,12 @@ Model `v2_take6`, validated with a split by source and with solo windows exclude
 | root accuracy | **98.1%** |
 | pitch F1 | **0.909** |
 | exact match (root **and** quality) | **92.4%** |
-| onset F1 | **0.812** |
+| onset F1 (head no longer shipped) | **0.812** |
 
 The first three figures are identical in the three-head and four-head files: the
 onset head was trained with the rest of the network frozen. The fourth figure is
-taken at the threshold maximising F1 on the validation split.
+taken at the threshold maximising F1 on the validation split; the head is gone
+from the released model since 0.5.10.
 
 Accuracy by quality at the best checkpoint: `dom7` 97%, `min7` 93%, `min` 92%, `sus` 91%, `maj` 89%, `maj7` 89%; the classes `m7b5`, `dim7` and `aug` above 97%.
 
@@ -649,15 +655,16 @@ The symptom was reported as a property of the model: "it was better the first
 time", "recognition used to be faster". It was neither. The first chord after
 launch is clean because there is nothing to inherit; every chord after it starts
 holding the previous one. The correction is to discard what was heard at each
-such boundary — the pitch vector, the previous frame, the onset answer, the
+such boundary — the pitch vector, the previous frame, the strike answer, the
 voting window and the last credit. Nothing is lost by discarding: the next audio
 frame is 16 ms away and the next inference 40 ms.
 
-The onset head remains available as an option — the model may credit only a class
-it also reports as struck — and is off by default. Once the boundary was
-corrected it was no longer needed for the reported symptom, and it carries a cost
-of its own: on the measurement above it removed 15 false credits at the price of
-4 notes missed altogether.
+For a time the onset head was offered as an option — the model could credit only
+a class it also reported as struck. Once the boundary was corrected it was no
+longer needed for the reported symptom, and it carried a cost of its own: on the
+measurement above it removed 15 false credits at the price of 4 notes missed
+altogether. Since 0.5.10 the head is gone; "Credit only what was struck" gates on
+the strike detector instead (8.13).
 
 ### 8.13. Repeats: which string was struck
 

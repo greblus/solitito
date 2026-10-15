@@ -263,7 +263,7 @@ frame.
 
 ### Model
 
-A hybrid CNN + Transformer with four output heads:
+A hybrid CNN + Transformer with three output heads, `best_model_v2_take6_chords.onnx`:
 
 | Stage | Detail |
 |---|---|
@@ -273,7 +273,6 @@ A hybrid CNN + Transformer with four output heads:
 | `root_logits` | 13 classes — 12 pitch classes + "Noise" |
 | `quality_logits` | 11 classes — maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
 | `pitch_logits` | 12 sigmoid outputs — which pitch classes are sounding |
-| `onset_logits` | 12 sigmoid outputs — which pitch classes were STRUCK in the last 6 frames |
 
 The three heads answer different questions and are **not** interchangeable:
 
@@ -281,18 +280,14 @@ The three heads answer different questions and are **not** interchangeable:
   right now", which is exactly what the Intervals / Scales / Arpeggios modes need.
 - `root_logits` names the tonal centre. 98.1%.
 - `quality_logits` names the chord family. This is the hard one.
-- `onset_logits` is the newest, and answers a question the other three cannot: not what is
-  sounding but what was *struck*. Sounding is not enough — an open string ringing in
-  sympathy is sounding, and so is the note before — which matters most in Formulas, where a
-  mark never expires. It was trained on its own, with the rest of the network frozen, so the
-  three heads above are bit-for-bit what they were. Measured against a real recording it is
-  the fastest answer in the app (202 ms after the strike, against 676 ms) but it spreads an
-  attack across neighbouring strings, so it does not decide *what* was played. What it does
-  decide is whether something was struck **again**: a note or a chord asked for twice in a
-  row needs its own strike, and the envelope detector cannot supply one — its level is the
-  RMS of a 512 ms window, so a second pluck of a ringing string barely moves it. Measured on
-  generated material the envelope caught 2 re-plucks of 6 and 2 re-strums of 6; the head
-  caught all six of each, with nothing fired while a chord merely rang on. An older three-head model still runs: the names of the first three
-  outputs did not change.
+
+What none of them answers is what was *struck*, as against what is sounding. That comes from
+the separate strike detector, `short_onset_masking_v2.onnx`, described under
+[Repeats](#repeats-which-string-was-struck). The chord model used to carry a fourth head for
+it, `onset_logits`, trained in a phase of its own with the rest of the network frozen; the
+detector does the job better, and since 0.5.10 the head is gone from the file the app loads.
+The three outputs above are bit for bit what they were with it. An older three-head model,
+`best_model_v2_take6.onnx`, still loads as a fallback, but it is an earlier export and names
+some chords differently.
 
 ---

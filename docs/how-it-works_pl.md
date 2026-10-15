@@ -270,7 +270,7 @@ mniej mnożeń na ramkę.
 
 ### Model
 
-Hybryda CNN i Transformera z czterema głowicami wyjściowymi:
+Hybryda CNN i Transformera z trzema głowicami wyjściowymi, `best_model_v2_take6_chords.onnx`:
 
 | Etap | Szczegół |
 |---|---|
@@ -280,7 +280,6 @@ Hybryda CNN i Transformera z czterema głowicami wyjściowymi:
 | `root_logits` | 13 klas — 12 klas wysokości i „Noise" |
 | `quality_logits` | 11 klas — maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
 | `pitch_logits` | 12 wyjść sigmoidalnych — które klasy wysokości brzmią |
-| `onset_logits` | 12 wyjść sigmoidalnych — które klasy wysokości zostały UDERZONE w ostatnich 6 ramkach |
 
 Głowice odpowiadają na różne pytania i **nie** są wymienne:
 
@@ -289,19 +288,13 @@ Głowice odpowiadają na różne pytania i **nie** są wymienne:
   Arpeggia.
 - `root_logits` nazywa centrum tonalne. 98,1%.
 - `quality_logits` nazywa rodzinę akordu. To jest ta trudna głowica.
-- `onset_logits` jest najnowsza i odpowiada na pytanie, którego trzy pozostałe nie stawiają:
-  nie co brzmi, lecz co zostało *uderzone*. Samo brzmienie nie wystarcza — struna
-  rezonująca współczująco brzmi, brzmi też dźwięk poprzedni — a najbardziej waży to w
-  Formułach, gdzie zaliczenie nigdy nie wygasa. Trenowana była osobno, przy zamrożonej
-  reszcie sieci, więc trzy powyższe głowice są co do bitu tym, czym były. Mierzona na
-  prawdziwym nagraniu okazała się najszybszą odpowiedzią w programie (202 ms po uderzeniu
-  wobec 676 ms), ale rozmywa atak na sąsiednie struny, więc nie rozstrzyga o tym, *co*
-  zostało zagrane. Rozstrzyga natomiast, czy coś zostało uderzone **ponownie**: dźwięk albo
-  akord wymagany dwa razy z rzędu potrzebuje własnego uderzenia, a wykrywacz obwiedni nie
-  potrafi go dostarczyć — jego poziom to RMS okna 512 ms, więc drugie szarpnięcie brzmiącej
-  struny prawie go nie podnosi. Zmierzone na materiale generowanym: obwiednia złapała 2
-  powtórzenia z 6 i 2 powtórzone uderzenia akordu z 6, głowica wszystkie sześć z każdych,
-  nie odzywając się ani razu, gdy akord tylko wybrzmiewał. Starszy, trójgłowicowy model
-  wciąż działa: nazwy trzech pierwszych wyjść się nie zmieniły.
+
+Żadna z nich nie mówi, co zostało *uderzone*, w odróżnieniu od tego, co brzmi. To daje
+osobny detektor uderzeń, `short_onset_masking_v2.onnx`, opisany w części o powtórzeniach.
+Model akordowy miał do tego kiedyś czwartą głowicę, `onset_logits`, trenowaną w osobnej
+fazie przy zamrożonej reszcie sieci; detektor robi to lepiej i od 0.5.10 tej głowicy nie ma
+w pliku, który ładuje aplikacja. Trzy wyjścia powyżej są co do bitu takie same jak z nią.
+Starszy trójgłowicowy model, `best_model_v2_take6.onnx`, wciąż ładuje się jako zapas, ale to
+wcześniejszy eksport i niektóre akordy nazywa inaczej.
 
 ---

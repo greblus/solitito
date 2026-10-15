@@ -141,6 +141,22 @@ export struct HeardNote {
     in_chord: bool,
 }
 
+/// The arrow on anything that opens downwards: the side navigation's folding
+/// entries and the drop-down lists. One shape for both, so it reads as one
+/// gesture wherever it appears.
+component FoldArrow inherits Path {
+    in property <bool> up;
+    in property <brush> tint: #A9B0C0;
+    width: 14px;
+    height: 14px;
+    viewbox-width: 14;
+    viewbox-height: 14;
+    commands: root.up ? "M 2 9.5 L 7 4.5 L 12 9.5" : "M 2 4.5 L 7 9.5 L 12 4.5";
+    stroke: root.tint;
+    stroke-width: 1.8px;
+    fill: transparent;
+}
+
 /// A quick option of the mode on screen, unfolded under its entry in the
 /// side navigation: the label lined up with the entries' labels, a switch
 /// at the end, the whole row clickable.
@@ -245,16 +261,7 @@ component NavItem inherits Rectangle {
         // Points the way a click would go: down to unfold, up to fold.
         if root.expandable : VerticalLayout {
             alignment: center;
-            Path {
-                width: 14px;
-                height: 14px;
-                viewbox-width: 14;
-                viewbox-height: 14;
-                commands: root.expanded ? "M 2 9.5 L 7 4.5 L 12 9.5" : "M 2 4.5 L 7 9.5 L 12 4.5";
-                stroke: root.selected ? #FFFFFF : #A9B0C0;
-                stroke-width: 1.8px;
-                fill: transparent;
-            }
+            FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
         }
         if root.marked : VerticalLayout {
             alignment: center;
@@ -400,9 +407,9 @@ component Dropdown inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        Chevron {
-            tint: root.enabled ? #A9B0C0 : #555;
-            y: (parent.height - self.height) / 2;
+        VerticalLayout {
+            alignment: center;
+            FoldArrow { tint: root.enabled ? #A9B0C0 : #555; }
         }
     }
 
@@ -1336,7 +1343,11 @@ export component AppWindow inherits Window {
                 // The lines around the functions grow with the box too, or a
                 // wide window reads as one large row surrounded by fine print.
                 // Held well under the box's own 1.7x: these are captions.
-                property <float> zoom: min(1.35, root.box_w / root.content_w);
+                // Not over a chord or a tune: those carry two rows more, the
+                // height stays the design height however wide the window, and
+                // grown with the width the column ran off the top and bottom.
+                property <float> zoom: root.formula_exercise == 0
+                    ? min(1.35, root.box_w / root.content_w) : 1.0;
 
                 // Over a chord the chord is the heading and the key line goes:
                 // the formula is not in a key any more, it is planted on a
@@ -1384,7 +1395,8 @@ export component AppWindow inherits Window {
                     property <length> avail: root.box_w - 40px;
                     property <length> gap: 10px;
                     property <length> card_w:
-                        min(104px, (self.avail - (self.n - 1) * self.gap) / max(1, self.n));
+                        min(root.formula_exercise == 0 ? 104px : 92px,
+                            (self.avail - (self.n - 1) * self.gap) / max(1, self.n));
                     property <length> fsize: self.card_w * 0.42;
                     spacing: self.gap;
                     for f[i] in root.formula_functions : card := Rectangle {
