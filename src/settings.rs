@@ -337,6 +337,15 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// The kept formulas whose name contains `filter`, ignoring case; all of
+    /// them when the filter is empty.
+    pub fn favourites_matching<'a>(&'a self, filter: &str) -> impl Iterator<Item = &'a Favourite> + 'a {
+        let needle = filter.to_lowercase();
+        self.favourites
+            .iter()
+            .filter(move |f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
+    }
+
     /// Saved gate for a device, if there is one. `None` means "never set here",
     /// and the caller keeps its own default rather than guessing.
     pub fn gate_for(&self, device: Option<&str>) -> Option<f32> {
@@ -800,5 +809,20 @@ mod tests {
 
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(old.favourites.is_empty(), "a file from before them must read clean");
+    }
+
+    /// The search beside the kept formulas: part of a name, any case, and an
+    /// empty field narrows nothing.
+    #[test]
+    fn favourites_are_matched_by_part_of_the_name() {
+        let mut s = Settings::default();
+        for (name, mask) in [("Lydian bright", 1), ("Dark minor", 2), ("lydian dominant", 3)] {
+            s.favourites.push(Favourite { name: name.into(), mask });
+        }
+        let masks = |filter: &str| s.favourites_matching(filter).map(|f| f.mask).collect::<Vec<_>>();
+        assert_eq!(masks("LYD"), vec![1, 3]);
+        assert_eq!(masks("minor"), vec![2]);
+        assert_eq!(masks(""), vec![1, 2, 3]);
+        assert!(masks("phrygian").is_empty());
     }
 }

@@ -639,49 +639,41 @@ impl UiFrame {
         ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
     }
 
-    fn show_favourites(&mut self, ui: &AppWindow, app: &MyApp) {
-        // The favourites, narrowed by whatever is typed beside them, and
-        // whether what is on screen is one of them. Rebuilt every tick: the
-        // list is short and the filter has to answer as it is typed.
+    /// The favourites, narrowed by whatever is typed beside them, and whether
+    /// what is on screen is one of them. Rebuilt every tick: the list is short
+    /// and the filter has to answer as it is typed.
+    fn show_favourites(&self, ui: &AppWindow, app: &MyApp) {
+        let cfg = self.shared.cfg.borrow();
+        let filter = ui.get_favourite_filter();
+        let shown: Vec<SharedString> = cfg
+            .favourites_matching(&filter)
+            .map(|f| SharedString::from(f.name.as_str()))
+            .collect();
+        if ui.get_favourites().row_count() != shown.len()
+            || (0..shown.len()).any(|i| ui.get_favourites().row_data(i) != Some(shown[i].clone()))
         {
-            let cfg = self.shared.cfg.borrow();
-            let needle = ui.get_favourite_filter().to_string().to_lowercase();
-            let shown: Vec<SharedString> = cfg
-                .favourites
-                .iter()
-                .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
-                .map(|f| SharedString::from(f.name.as_str()))
-                .collect();
-            if ui.get_favourites().row_count() != shown.len()
-                || (0..shown.len()).any(|i| ui.get_favourites().row_data(i) != Some(shown[i].clone()))
-            {
-                ui.set_favourites(ModelRc::from(Rc::new(VecModel::from(shown))));
-            }
-            // What the combo shows: the formula on screen, if it is one of
-            // them. Left at -1 the box was blank even right after a search
-            // had put something there, and the only way to see the result
-            // was to open the list.
-            let here = cfg
-                .favourites
-                .iter()
-                .filter(|f| needle.is_empty() || f.name.to_lowercase().contains(&needle))
-                .position(|f| f.mask == app.formula_mask);
-            set_if_changed(ui.get_formula_starred(), here.is_some(), |v| {
-                ui.set_formula_starred(v)
-            });
-            // The formula on screen when it is one of them; otherwise
-            // whatever was last picked, and failing that the first row.
-            // Falling back to -1 left the box blank whenever the drawn
-            // formula happened not to be a favourite, which is most of the
-            // time, and a blank box reads as an empty list.
-            let shown_len = ui.get_favourites().row_count() as i32;
-            let idx = match here {
-                Some(i) => i as i32,
-                None if shown_len == 0 => -1,
-                None => ui.get_favourite_index().clamp(0, shown_len - 1),
-            };
-            set_if_changed(ui.get_favourite_index(), idx, |v| ui.set_favourite_index(v));
+            ui.set_favourites(ModelRc::from(Rc::new(VecModel::from(shown))));
         }
+        // What the combo shows: the formula on screen, if it is one of
+        // them. Left at -1 the box was blank even right after a search
+        // had put something there, and the only way to see the result
+        // was to open the list.
+        let here = cfg.favourites_matching(&filter).position(|f| f.mask == app.formula_mask);
+        set_if_changed(ui.get_formula_starred(), here.is_some(), |v| {
+            ui.set_formula_starred(v)
+        });
+        // The formula on screen when it is one of them; otherwise
+        // whatever was last picked, and failing that the first row.
+        // Falling back to -1 left the box blank whenever the drawn
+        // formula happened not to be a favourite, which is most of the
+        // time, and a blank box reads as an empty list.
+        let shown_len = ui.get_favourites().row_count() as i32;
+        let idx = match here {
+            Some(i) => i as i32,
+            None if shown_len == 0 => -1,
+            None => ui.get_favourite_index().clamp(0, shown_len - 1),
+        };
+        set_if_changed(ui.get_favourite_index(), idx, |v| ui.set_favourite_index(v));
     }
 
     fn show_formula_chords(&mut self, ui: &AppWindow, app: &MyApp) {
