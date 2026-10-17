@@ -497,97 +497,110 @@ pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
     if norm_cqt.len() < CQT_BINS {
         return None;
     }
-    let score_at = |b: usize| -> f32 {
-        let mut sum = 0.0;
-        let mut used = 0.0;
-        for (h, off) in HARMONIC_OFFSETS.iter().enumerate() {
-            let idx = b + off;
-            if idx >= CQT_BINS {
-                break;
-            }
-            // Later harmonics say less about which note it is, and are the ones
-            // a neighbouring string is most likely to share.
-            let w = 1.0 / (1.0 + h as f32 * 0.35);
-            sum += w * norm_cqt[idx];
-            used += w;
-        }
-        if used > 0.0 { sum / used } else { 0.0 }
-    };
+    let (winner, score) = strongest_bin(norm_cqt)?;
+    let bin = true_fundamental(norm_cqt, winner, score);
+    // The absolute semitone, counted from the lowest CQT bin, not the pitch
+    // class: the octave is what tells a note struck again from the same note
+    // still ringing an octave below it. Callers wanting a class take `% 12`.
+    let semitone = (peak_position(norm_cqt, bin) / BINS_PER_SEMITONE as f32).round() as usize;
+    Some((semitone, score))
+}
 
-    // Every bin, quarter tones included. Restricting the search to semitone
-    // centres was tried and starved the score: a real note sits a few cents off
-    // and leaves most of its energy in the bin next door, which took a plain
-    // reading from 1.00 down to 0.45 - under the gate, so no note reported at
-    // all, and the app left waiting on the model's 0.77 s window. The quarter
-    // tones are where the resolution is; what they must not do is decide the
-    // semitone by rounding, which is what the interpolation below is for.
+/// How well bin `b` explains the frame as a fundamental: the weighted mean of
+/// its first six harmonics.
+fn harmonic_score(norm_cqt: &[f32], b: usize) -> f32 {
+    let mut sum = 0.0;
+    let mut used = 0.0;
+    for (h, off) in HARMONIC_OFFSETS.iter().enumerate() {
+        let idx = b + off;
+        if idx >= CQT_BINS {
+            break;
+        }
+        // Later harmonics say less about which note it is, and are the ones
+        // a neighbouring string is most likely to share.
+        let w = 1.0 / (1.0 + h as f32 * 0.35);
+        sum += w * norm_cqt[idx];
+        used += w;
+    }
+    if used > 0.0 { sum / used } else { 0.0 }
+}
+
+/// The bin with the best harmonic score in the guitar's range, and the score.
+///
+/// Every bin, quarter tones included. Restricting the search to semitone
+/// centres was tried and starved the score: a real note sits a few cents off
+/// and leaves most of its energy in the bin next door, which took a plain
+/// reading from 1.00 down to 0.45 - under the gate, so no note reported at
+/// all, and the app left waiting on the model's 0.77 s window. The quarter
+/// tones are where the resolution is; what they must not do is decide the
+/// semitone by rounding, which is what `peak_position` is for.
+fn strongest_bin(norm_cqt: &[f32]) -> Option<(usize, f32)> {
     let mut best = (F0_LOW_BIN, 0.0f32);
     for b in F0_LOW_BIN..F0_HIGH_BIN.min(CQT_BINS) {
-        let s = score_at(b);
+        let s = harmonic_score(norm_cqt, b);
         if s > best.1 {
             best = (b, s);
         }
     }
-    if best.1 <= 0.0 {
-        return None;
-    }
+    (best.1 > 0.0).then_some(best)
+}
 
-    // Any partial can win the sum, because an impostor sitting on one of them
-    // collects the note's upper harmonics as its own: a fifth above shares the
-    // note's third and sixth, an octave shares every second one, and two octaves
-    // and a major third - the fifth harmonic - is what actually won for a third
-    // of a chromatic run of isolated plucks. The winner is therefore compared
-    // against every candidate that would explain it, lowest first, and the first
-    // one that stands up on its own bin takes it.
-    //
-    // Measured on that run: 6 of 12 correct before, 12 of 12 after, with the
-    // model naming 11 of the same 12 - so the information was in the frame all
-    // along and the sum was the thing throwing it away.
+/// The note whose partial won the sum, which may lie below the winner.
+///
+/// Any partial can win the sum, because an impostor sitting on one of them
+/// collects the note's upper harmonics as its own: a fifth above shares the
+/// note's third and sixth, an octave shares every second one, and two octaves
+/// and a major third - the fifth harmonic - is what actually won for a third
+/// of a chromatic run of isolated plucks. The winner is therefore compared
+/// against every candidate that would explain it, lowest first, and the first
+/// one that stands up on its own bin takes it.
+///
+/// Measured on that run: 6 of 12 correct before, 12 of 12 after, with the
+/// model naming 11 of the same 12 - so the information was in the frame all
+/// along and the sum was the thing throwing it away.
+fn true_fundamental(norm_cqt: &[f32], winner: usize, score: f32) -> usize {
     const IMPOSTOR_OFFSETS: [usize; 6] = [62, 56, 48, 38, 24, 14];
-    let mut b = best.0;
-    for off in IMPOSTOR_OFFSETS {
-        if b < off + F0_LOW_BIN {
-            continue;
-        }
-        let lower = b - off;
+    IMPOSTOR_OFFSETS
+        .iter()
+        .filter(|&&off| winner >= off + F0_LOW_BIN)
+        .map(|&off| winner - off)
         // Looser than a plain "is it better": the bin being defended is the
         // quieter one by construction - that is why it lost - so it has to be
         // comparable rather than dominant. At 0.5 the rule fired too readily on
         // a real recording and pulled readings a fifth down; 0.8 keeps the
         // chromatic run at 12 of 12 and leaves the recording where it was.
-        if score_at(lower) > best.1 * 0.9 && norm_cqt[lower] > norm_cqt[b] * 0.8 {
-            b = lower;
-            break;
-        }
-    }
+        .find(|&lower| {
+            harmonic_score(norm_cqt, lower) > score * 0.9
+                && norm_cqt[lower] > norm_cqt[winner] * 0.8
+        })
+        .unwrap_or(winner)
+}
 
-    // Where the peak really lies, to a fraction of a bin. Three scores around
-    // the winner describe a parabola, and its vertex says how far off centre
-    // the note sits - which is what decides the semitone. Rounding the winning
-    // bin instead answered every quarter-tone reading with the note ABOVE
-    // (`round(18.5)` goes away from zero), so an F# a little sharp came back as
-    // G, and in Formulas - where a mark never expires - the flat second lit up
-    // every time the root was struck.
-    let mut pos = b as f32;
-    if b > 0 && b + 1 < CQT_BINS {
-        // score_at(b), not best.1: the checks above may have moved b, and the
-        // parabola has to be the one around the bin actually chosen.
-        let (l, c, r) = (score_at(b - 1), score_at(b), score_at(b + 1));
-        let denom = l - 2.0 * c + r;
-        if denom.abs() > 1e-6 {
-            let delta = 0.5 * (l - r) / denom;
-            // Beyond half a bin the parabola is describing something other than
-            // this peak, and the shift is not to be trusted.
-            if delta.abs() <= 0.5 {
-                pos += delta;
-            }
-        }
+/// Where the peak around bin `b` really lies, to a fraction of a bin.
+///
+/// Three scores around it describe a parabola, and its vertex says how far off
+/// centre the note sits - which is what decides the semitone. Rounding the
+/// winning bin instead answered every quarter-tone reading with the note ABOVE
+/// (`round(18.5)` goes away from zero), so an F# a little sharp came back as
+/// G, and in Formulas - where a mark never expires - the flat second lit up
+/// every time the root was struck.
+fn peak_position(norm_cqt: &[f32], b: usize) -> f32 {
+    if b == 0 || b + 1 >= CQT_BINS {
+        return b as f32;
     }
-    // The absolute semitone, counted from the lowest CQT bin, not the pitch
-    // class: the octave is what tells a note struck again from the same note
-    // still ringing an octave below it. Callers wanting a class take `% 12`.
-    let semitone = (pos / BINS_PER_SEMITONE as f32).round() as usize;
-    Some((semitone, best.1))
+    let (l, c, r) = (
+        harmonic_score(norm_cqt, b - 1),
+        harmonic_score(norm_cqt, b),
+        harmonic_score(norm_cqt, b + 1),
+    );
+    let denom = l - 2.0 * c + r;
+    if denom.abs() <= 1e-6 {
+        return b as f32;
+    }
+    let delta = 0.5 * (l - r) / denom;
+    // Beyond half a bin the parabola is describing something other than this
+    // peak, and the shift is not to be trusted.
+    if delta.abs() <= 0.5 { b as f32 + delta } else { b as f32 }
 }
 
 /// What the input stream actually opened with.
