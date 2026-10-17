@@ -722,205 +722,7 @@ pub fn start_audio_stream(
         fell_back,
     };
     
-    let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
-    let mut short = ShortSpectrum::new();
-    let mut flux = crate::flux::Flux::default();
-    let mut capture = Capture::from_env();
-    // Optional: without the file the app judges as it did before the detector
-    // existed, and says so once.
-    let mut strikes = match crate::strike::Strikes::load_any() {
-        Ok((s, path)) => {
-            eprintln!("🎯 {path} · próg {:.2}", s.latch.threshold);
-            Some(s)
-        }
-        Err(e) => {
-            eprintln!("🎯 brak modelu uderzeń ({e}) - powtórzenia oceniane bez niego");
-            None
-        }
-    };
-    let ratio = mic_sr as f32 / TARGET_SR as f32;
-    
-    // Attack detection: an energy jump above a slowly creeping envelope.
-    const ATTACK_RATIO: f32 = 1.8;        // multiple of the baseline
-    const ATTACK_FLOOR: f32 = 0.01;       // absolute floor, rejects noise
-    const ATTACK_REFRACTORY: u32 = 12;    // ~0.2 s of detector silence after an attack
-    let mut env_baseline: f32 = 0.0;
-    let loud_ear = std::env::var("SOLITITO_EAR").is_ok();
-    let mut frames_since_attack: u32 = ATTACK_REFRACTORY;
-
-    let mut input_acc = Vec::with_capacity(8192 * 2);
-    let mut resampled = Vec::with_capacity(FFT_SIZE * 2);
-    let mut read_pos: f32 = 0.0;
-
-    // Clamped here rather than per frame: a saved channel from a device with
-    // more inputs than this one must not silently read past the end.
-    let pick = channel.clamp(1, channels.max(1)) - 1;
-    let mut process = move |data: &[f32]| {
-            let mut mono = Vec::with_capacity(data.len() / channels);
-            for f in data.chunks(channels) {
-                mono.push(f.get(pick).copied().unwrap_or(0.0));
-            }
-            input_acc.extend_from_slice(&mono);
-
-            while read_pos + 1.0 < input_acc.len() as f32 {
-                let idx_int = read_pos as usize;
-                let frac = read_pos - idx_int as f32;
-                
-                let s0 = input_acc[idx_int];
-                let s1 = input_acc[idx_int+1];
-                resampled.push(s0 + frac * (s1 - s0));
-                
-                read_pos += ratio;
-                
-                if resampled.len() >= FFT_SIZE && resampled.len() % HOP_LENGTH == 0 {
-                    let chunk = &resampled[resampled.len() - FFT_SIZE..];
-                    if let Some(capture) = capture.as_mut() {
-                        capture.record(&resampled[resampled.len() - HOP_LENGTH..]);
-                    }
-                    // The journal's clock. Bumped here and nowhere else, so a
-                    // row's hop is a sample position in the recording even
-                    // though `frames_seen` counts only what passed the gate.
-                    if let Ok(mut st) = shared_state.lock() {
-                        st.hops = st.hops.wrapping_add(1);
-                        st.flux_age = st.flux_age.saturating_add(1);
-                    }
-                    
-                    let (gate, boost_enabled, boost_gain) = {
-                        let s = shared_state.lock().unwrap();
-                        (s.noise_gate, s.bass_boost_enabled, s.bass_boost_gain)
-                    };
-                    let gain = INPUT_GAIN;
-                    
-                    let rms = (chunk.iter().map(|x| x*x).sum::<f32>() / FFT_SIZE as f32).sqrt();
-
-                    // --- DETEKCJA ATAKU ---
-                    // A strum is an energy jump above a slow envelope. Compared
-                    // against an EMA baseline rather than an absolute threshold,
-                    // which would depend on playing volume. The refractory period
-                    // keeps one strum from firing several attacks.
-                    // The gate and meter level come from RAW rms, without
-                    // INPUT_GAIN, so the scale is true input dBFS (0 dB = full
-                    // scale) rather than "dBFS plus 6", which pushed the whole
-                    // useful range to the end of the slider on a loud microphone.
-                    let level = rms;
-                    if let Ok(mut st) = shared_state.lock() {
-                        // Fast attack, slow release: the meter should show the
-                        // strum peak, not the average of the gaps between chords.
-                        st.input_level = if level > st.input_level {
-                            level
-                        } else {
-                            st.input_level * 0.92 + level * 0.08
-                        };
-                    }
-                    if level > env_baseline * ATTACK_RATIO && level > ATTACK_FLOOR
-                        && frames_since_attack >= ATTACK_REFRACTORY
-                    {
-                        if let Ok(mut st) = shared_state.lock() { st.mark_onset(); }
-                        frames_since_attack = 0;
-                    } else {
-                        frames_since_attack = frames_since_attack.saturating_add(1);
-                    }
-                    // Outside the noise gate, as the envelope's own detector is:
-                    // a quiet attack is exactly what both are here to catch, and
-                    // the gate is a level test of the kind that misses it.
-                    if flux.push(short.of(chunk)).1 {
-                        if let Ok(mut st) = shared_state.lock() { st.mark_flux(); }
-                    }
-                    if let Some(detector) = strikes.as_mut() {
-                        match detector.push(&resampled[resampled.len() - HOP_LENGTH..]) {
-                            Ok((_, struck)) => {
-                                if let Ok(mut st) = shared_state.lock() { st.mark_strikes(&struck); }
-                            }
-                            Err(e) => {
-                                eprintln!("🎯 strike detector stopped: {e}");
-                                strikes = None;
-                            }
-                        }
-                    }
-                    // The baseline falls fast and rises slowly; otherwise a long
-                    // sustained chord would raise the threshold and swallow the
-                    // next attack.
-                    env_baseline = if level > env_baseline {
-                        env_baseline * 0.90 + level * 0.10
-                    } else {
-                        env_baseline * 0.70 + level * 0.30
-                    };
-
-                    if level > gate {
-                        let amplified: Vec<f32> = chunk.iter().map(|&x| x * gain).collect();
-                        let (cqt, chroma, bass, visual) = analyzer.compute_cqt_chroma(
-                            &amplified, boost_enabled, boost_gain
-                        );
-                        
-                        // One frame, one note: no window memory, so a scale is
-                        // tracked instead of smeared. Weak answers are dropped -
-                        // in noise this estimator always names something.
-                        let heard = mono_pitch(&cqt);
-                        // SOLITITO_EAR=1: every reading with its score, the ones
-                        // under the gate included. A note played softly has its
-                        // upper partials down in the noise and scores lower for
-                        // it, and this is the only way to see by how much before
-                        // moving the gate.
-                        if loud_ear {
-                            if let Some((pc, s)) = heard {
-                                println!(
-                                    "ucho {:<3} wynik={s:.2}{}",
-                                    crate::NOTE_NAMES[pc % 12],
-                                    if s >= MONO_MIN_SCORE { "" } else { "   << pod bramka" },
-                                );
-                            }
-                        }
-                        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n);
-                        // Four is a grip: more voices than that in one frame is
-                        // not a thing six strings under one hand can be.
-                        let sounding = crate::voices::voices(&cqt, 4)
-                            .iter()
-                            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
-                        if let Ok(mut state) = shared_state.lock() {
-                            state.voices = sounding;
-                            state.cqt_pitch = mono.map(|n| n % 12);
-                            state.cqt_semitone = mono;
-                            state.gate_open = true;
-                            let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-                            frame.extend_from_slice(&cqt);
-                            frame.extend_from_slice(&chroma);
-                            frame.extend_from_slice(&bass);
-                            
-                            state.push_frame(&frame);
-                            
-                            for k in 0..48 {
-                                if k < visual.len() { state.spectrum_visual[k] = visual[k]; }
-                            }
-                            state.chroma_sum = chroma.try_into().unwrap_or([0.0;12]);
-                        }
-                    } else if let Ok(mut state) = shared_state.lock() {
-                        // In silence push an empty frame to advance the history.
-                        // Everything read off this frame goes with it: `voices`
-                        // used to keep the last sounding classes through a
-                        // closed gate, and the judge's clock goes on ticking
-                        // here, so it counted them as still in the air.
-                        state.cqt_pitch = None;
-                        state.cqt_semitone = None;
-                        state.voices = 0;
-                        state.gate_open = false;
-                        state.push_silence();
-                        for x in &mut state.spectrum_visual { *x *= 0.7; }
-                    }
-                }
-            }
-            
-            if read_pos > 0.0 {
-                let consumed = (read_pos as usize).min(input_acc.len());
-                input_acc.drain(0..consumed);
-                read_pos -= consumed as f32;
-            }
-            
-            if resampled.len() > FFT_SIZE * 2 {
-                let keep = FFT_SIZE; 
-                let drain_cnt = resampled.len().saturating_sub(keep);
-                resampled.drain(0..drain_cnt);
-            }
-    };
+    let mut process = live_processor(shared_state, mic_sr, channels, channel)?;
 
     // One arm runs, so moving `process` into each is fine. Anything other than
     // these three is rare enough that saying so beats guessing at a conversion.
@@ -951,6 +753,316 @@ pub fn start_audio_stream(
     };
     stream.play()?;
     Ok((stream, info))
+}
+
+/// Everything the live input does with a buffer from the device, as the one
+/// callback the stream is built with.
+fn live_processor(
+    shared: Arc<Mutex<AudioAnalysis>>,
+    mic_sr: u32,
+    channels: usize,
+    channel: usize,
+) -> Result<impl FnMut(&[f32])> {
+    let mut listener = Listener::new(shared)?;
+    // Clamped here rather than per frame: a saved channel from a device with
+    // more inputs than this one must not silently read past the end.
+    let pick = channel.clamp(1, channels.max(1)) - 1;
+    let mut resampler = Resampler::new(mic_sr, channels, pick);
+    Ok(move |data: &[f32]| resampler.push(data, |window, hop| listener.hear(window, hop)))
+}
+
+/// The chosen input channel, resampled to `TARGET_SR`, and handed on one hop
+/// at a time together with the analysis window that ends with it.
+struct Resampler {
+    channels: usize,
+    pick: usize,
+    /// Input samples per output sample.
+    ratio: f32,
+    input: Vec<f32>,
+    output: Vec<f32>,
+    /// Where in `input` the next output sample is read, between two samples.
+    read_pos: f32,
+}
+
+impl Resampler {
+    fn new(mic_sr: u32, channels: usize, pick: usize) -> Self {
+        Resampler {
+            channels,
+            pick,
+            ratio: mic_sr as f32 / TARGET_SR as f32,
+            input: Vec::with_capacity(8192 * 2),
+            output: Vec::with_capacity(FFT_SIZE * 2),
+            read_pos: 0.0,
+        }
+    }
+
+    /// Takes one buffer from the device and calls `on_hop(window, hop)` for
+    /// every hop it completes.
+    fn push(&mut self, data: &[f32], mut on_hop: impl FnMut(&[f32], &[f32])) {
+        let pick = self.pick;
+        self.input
+            .extend(data.chunks(self.channels).map(|frame| frame.get(pick).copied().unwrap_or(0.0)));
+
+        // Linear interpolation between the two input samples either side.
+        while self.read_pos + 1.0 < self.input.len() as f32 {
+            let i = self.read_pos as usize;
+            let frac = self.read_pos - i as f32;
+            let (s0, s1) = (self.input[i], self.input[i + 1]);
+            self.output.push(s0 + frac * (s1 - s0));
+            self.read_pos += self.ratio;
+
+            let len = self.output.len();
+            if len >= FFT_SIZE && len % HOP_LENGTH == 0 {
+                on_hop(&self.output[len - FFT_SIZE..], &self.output[len - HOP_LENGTH..]);
+            }
+        }
+        self.drop_what_is_used();
+    }
+
+    /// Input already read past, and output older than one window.
+    fn drop_what_is_used(&mut self) {
+        if self.read_pos > 0.0 {
+            let consumed = (self.read_pos as usize).min(self.input.len());
+            self.input.drain(0..consumed);
+            self.read_pos -= consumed as f32;
+        }
+        if self.output.len() > FFT_SIZE * 2 {
+            let surplus = self.output.len().saturating_sub(FFT_SIZE);
+            self.output.drain(0..surplus);
+        }
+    }
+}
+
+// Attack detection: an energy jump above a slowly creeping envelope.
+const ATTACK_RATIO: f32 = 1.8; // multiple of the baseline
+const ATTACK_FLOOR: f32 = 0.01; // absolute floor, rejects noise
+const ATTACK_REFRACTORY: u32 = 12; // ~0.2 s of detector silence after an attack
+
+/// A strum as an energy jump above a slow envelope. Compared against an EMA
+/// baseline rather than an absolute threshold, which would depend on playing
+/// volume. The refractory period keeps one strum from firing several attacks.
+struct AttackDetector {
+    baseline: f32,
+    hops_since_attack: u32,
+}
+
+impl AttackDetector {
+    fn new() -> Self {
+        AttackDetector { baseline: 0.0, hops_since_attack: ATTACK_REFRACTORY }
+    }
+
+    /// Whether this hop's level is an attack.
+    fn push(&mut self, level: f32) -> bool {
+        let attack = level > self.baseline * ATTACK_RATIO
+            && level > ATTACK_FLOOR
+            && self.hops_since_attack >= ATTACK_REFRACTORY;
+        if attack {
+            self.hops_since_attack = 0;
+        } else {
+            self.hops_since_attack = self.hops_since_attack.saturating_add(1);
+        }
+        // The baseline falls fast and rises slowly; otherwise a long sustained
+        // chord would raise the threshold and swallow the next attack.
+        self.baseline = if level > self.baseline {
+            self.baseline * 0.90 + level * 0.10
+        } else {
+            self.baseline * 0.70 + level * 0.30
+        };
+        attack
+    }
+}
+
+/// What the live input makes of each hop: the meter, the three attack
+/// detectors, and - past the noise gate - the model's features, the ear and
+/// the voices, all written into the shared `AudioAnalysis`.
+struct Listener {
+    shared: Arc<Mutex<AudioAnalysis>>,
+    analyzer: CqtAnalyzer,
+    short: ShortSpectrum,
+    flux: crate::flux::Flux,
+    capture: Option<Capture>,
+    /// Optional: without the file the app judges as it did before the
+    /// detector existed, and says so once.
+    strikes: Option<crate::strike::Strikes>,
+    attack: AttackDetector,
+    /// SOLITITO_EAR=1: print every reading of the ear - see `print_ear`.
+    loud_ear: bool,
+}
+
+impl Listener {
+    fn new(shared: Arc<Mutex<AudioAnalysis>>) -> Result<Self> {
+        let analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+        let short = ShortSpectrum::new();
+        let flux = crate::flux::Flux::default();
+        let capture = Capture::from_env();
+        let strikes = match crate::strike::Strikes::load_any() {
+            Ok((s, path)) => {
+                eprintln!("🎯 {path} · próg {:.2}", s.latch.threshold);
+                Some(s)
+            }
+            Err(e) => {
+                eprintln!("🎯 brak modelu uderzeń ({e}) - powtórzenia oceniane bez niego");
+                None
+            }
+        };
+        Ok(Listener {
+            shared,
+            analyzer,
+            short,
+            flux,
+            capture,
+            strikes,
+            attack: AttackDetector::new(),
+            loud_ear: std::env::var("SOLITITO_EAR").is_ok(),
+        })
+    }
+
+    /// One hop: `window` is the last `FFT_SIZE` samples, `hop` its newest
+    /// `HOP_LENGTH`.
+    fn hear(&mut self, window: &[f32], hop: &[f32]) {
+        if let Some(capture) = self.capture.as_mut() {
+            capture.record(hop);
+        }
+        // The journal's clock. Bumped here and nowhere else, so a row's hop is
+        // a sample position in the recording even though `frames_seen` counts
+        // only what passed the gate.
+        if let Ok(mut st) = self.shared.lock() {
+            st.hops = st.hops.wrapping_add(1);
+            st.flux_age = st.flux_age.saturating_add(1);
+        }
+        let (gate, boost_enabled, boost_gain) = {
+            let s = self.shared.lock().unwrap();
+            (s.noise_gate, s.bass_boost_enabled, s.bass_boost_gain)
+        };
+
+        // The gate and meter level come from RAW rms, without INPUT_GAIN, so
+        // the scale is true input dBFS (0 dB = full scale) rather than "dBFS
+        // plus 6", which pushed the whole useful range to the end of the
+        // slider on a loud microphone.
+        let level = (window.iter().map(|x| x * x).sum::<f32>() / FFT_SIZE as f32).sqrt();
+        self.show_level(level);
+        if self.attack.push(level) {
+            if let Ok(mut st) = self.shared.lock() {
+                st.mark_onset();
+            }
+        }
+        // Outside the noise gate, as the envelope's own detector is: a quiet
+        // attack is exactly what both are here to catch, and the gate is a
+        // level test of the kind that misses it.
+        if self.flux.push(self.short.of(window)).1 {
+            if let Ok(mut st) = self.shared.lock() {
+                st.mark_flux();
+            }
+        }
+        self.listen_for_strikes(hop);
+
+        if level > gate {
+            self.analyse(window, boost_enabled, boost_gain);
+        } else {
+            self.go_quiet();
+        }
+    }
+
+    /// Fast attack, slow release: the meter should show the strum peak, not
+    /// the average of the gaps between chords.
+    fn show_level(&self, level: f32) {
+        if let Ok(mut st) = self.shared.lock() {
+            st.input_level = if level > st.input_level {
+                level
+            } else {
+                st.input_level * 0.92 + level * 0.08
+            };
+        }
+    }
+
+    fn listen_for_strikes(&mut self, hop: &[f32]) {
+        let Some(detector) = self.strikes.as_mut() else {
+            return;
+        };
+        match detector.push(hop) {
+            Ok((_, struck)) => {
+                if let Ok(mut st) = self.shared.lock() {
+                    st.mark_strikes(&struck);
+                }
+            }
+            Err(e) => {
+                eprintln!("🎯 strike detector stopped: {e}");
+                self.strikes = None;
+            }
+        }
+    }
+
+    /// Past the noise gate: the frame's features into the model's window, and
+    /// what the ear and the voices make of it.
+    fn analyse(&mut self, window: &[f32], boost_enabled: bool, boost_gain: f32) {
+        let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
+        let (cqt, chroma, bass, visual) =
+            self.analyzer.compute_cqt_chroma(&amplified, boost_enabled, boost_gain);
+
+        // One frame, one note: no window memory, so a scale is tracked instead
+        // of smeared. Weak answers are dropped - in noise this estimator always
+        // names something.
+        let heard = mono_pitch(&cqt);
+        if self.loud_ear {
+            print_ear(heard);
+        }
+        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n);
+        // Four is a grip: more voices than that in one frame is not a thing
+        // six strings under one hand can be.
+        let sounding = crate::voices::voices(&cqt, 4)
+            .iter()
+            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
+
+        let Ok(mut state) = self.shared.lock() else {
+            return;
+        };
+        state.voices = sounding;
+        state.cqt_pitch = mono.map(|n| n % 12);
+        state.cqt_semitone = mono;
+        state.gate_open = true;
+        let mut frame = Vec::with_capacity(TOTAL_FEATURES);
+        frame.extend_from_slice(&cqt);
+        frame.extend_from_slice(&chroma);
+        frame.extend_from_slice(&bass);
+        state.push_frame(&frame);
+        for (shown, &v) in state.spectrum_visual.iter_mut().zip(&visual) {
+            *shown = v;
+        }
+        state.chroma_sum = chroma.try_into().unwrap_or([0.0; 12]);
+    }
+
+    /// In silence an empty frame is pushed to advance the history. Everything
+    /// read off a frame goes with it: `voices` used to keep the last sounding
+    /// classes through a closed gate, and the judge's clock goes on ticking
+    /// here, so it counted them as still in the air.
+    fn go_quiet(&self) {
+        let Ok(mut state) = self.shared.lock() else {
+            return;
+        };
+        state.cqt_pitch = None;
+        state.cqt_semitone = None;
+        state.voices = 0;
+        state.gate_open = false;
+        state.push_silence();
+        for x in &mut state.spectrum_visual {
+            *x *= 0.7;
+        }
+    }
+}
+
+/// SOLITITO_EAR=1: every reading with its score, the ones under the gate
+/// included. A note played softly has its upper partials down in the noise and
+/// scores lower for it, and this is the only way to see by how much before
+/// moving the gate.
+fn print_ear(heard: Option<(usize, f32)>) {
+    let Some((pc, score)) = heard else {
+        return;
+    };
+    println!(
+        "ucho {:<3} wynik={score:.2}{}",
+        crate::NOTE_NAMES[pc % 12],
+        if score >= MONO_MIN_SCORE { "" } else { "   << pod bramka" },
+    );
 }
 
 pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>) -> Result<()> {
