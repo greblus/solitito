@@ -2839,3 +2839,33 @@ fn hint_appears_only_with_randomisation() {
     assert!(a.start_hint.is_some());
     assert!(a.start_hint.unwrap() < START_STRINGS.len());
 }
+
+/// The ways the model may name the chord asked for, and what each is worth.
+#[test]
+fn chord_readings_against_the_chord_asked_for() {
+    use NoteName::*;
+    let chord = |root, quality| Chord { root, quality };
+    let read = |target: &Chord, root, heard| chord_reading(target, root, heard, false);
+
+    let a_half_dim = chord(A, ChordQuality::HalfDiminished);
+    assert_eq!(read(&a_half_dim, A, "m7b5"), ChordReading::Exact);
+    assert_eq!(read(&a_half_dim, A, "dim"), ChordReading::Partial);
+    assert_eq!(read(&a_half_dim, A, "m7"), ChordReading::Partial);
+    assert_eq!(chord_reading(&a_half_dim, A, "m7", true), ChordReading::Exact, "the m7 shell is the shell asked for");
+    assert_eq!(read(&a_half_dim, C, "m"), ChordReading::Partial, "C m is A m7b5 without its root");
+    assert_eq!(read(&a_half_dim, C, "m7"), ChordReading::Wrong);
+
+    let c_major = chord(C, ChordQuality::Major7);
+    assert_eq!(read(&c_major, C, ""), ChordReading::Partial);
+    assert_eq!(read(&c_major, E, "m7"), ChordReading::Partial, "E m7 is C Maj7 without its root");
+    assert_eq!(read(&c_major, D, "m7"), ChordReading::Wrong);
+
+    let c_dim = chord(C, ChordQuality::Diminished);
+    for root in [C, Ef, Fsh, A] {
+        assert_eq!(read(&c_dim, root, "dim"), ChordReading::Exact, "{root:?} dim is the same chord");
+    }
+    assert_eq!(read(&c_dim, D, "dim"), ChordReading::Wrong);
+
+    assert_eq!(read(&chord(G, ChordQuality::Dominant7), G, ""), ChordReading::Partial);
+    assert_eq!(read(&chord(D, ChordQuality::Minor7), D, "m"), ChordReading::Partial);
+}

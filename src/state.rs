@@ -166,6 +166,10 @@ const CREDIT_SETTLE: f32 = 0.5;
 /// can be set to - would put the flash back.
 const FRET_SHOW: f32 = 0.35;
 
+/// How long a single note has to answer before it is credited. A note is right
+/// the moment it is recognised, so this is much shorter than the chord hold.
+const NOTE_HOLD: f32 = 0.12;
+
 /// Leave the completed interval set visible, including its last mark.
 const INTERVAL_SHOW: f32 = 0.35;
 /// A stopped inference stream must not keep answering new audio frames.
@@ -2052,345 +2056,305 @@ impl MyApp {
         if self.app_mode != AppMode::Intervals {
             self.settle_credits(dt);
         }
-
-        // Formulas have no song either: a drawn set of functions over a drawn
-        // root, played in any order.
-        if self.app_mode == AppMode::Formulas {
-            // Only remember what was said. The judging happens once per audio
-            // frame in `tick`, because this mode credits on a per-frame reading
-            // and the model is asked only while the window is full - which
-            // playing one note at a time never manages, so waiting here meant
-            // waiting for an answer that often never came.
-            self.last_ai_root = ai_root;
-            self.last_ai_conf = confidence;
-            let _ = dt;
-            return;
-        }
-
-        // The fretboard trainer has no song, so it runs before the chord guard.
-        if self.app_mode == AppMode::Fretboard {
-            // The note just answered is still being shown. Nothing to judge
-            // until the next one is drawn - and judging anyway would let the
-            // string still ringing answer for it.
-            if self.fret_hold > 0.0 {
-                return;
-            }
-            let Some(target) = self.fret_target else { self.next_fret_target(); return; };
-            // The same rule as the note modes': a note drawn twice in a row has
-            // to be struck twice. See `struck_since_credit`.
-            let fresh = self.struck_since_credit(target);
-            if fresh && self.note_is_sounding(target, ai_root, confidence) {
-                self.success_timer += dt;
-                self.match_status = MatchStatus::Exact;
-            } else {
-                self.success_timer = 0.0;
-                self.match_status = MatchStatus::None;
-            }
-            // The same short hold the note modes use, not the chord one. A
-            // chord is held while the ear settles on a NAME; a single note is
-            // right the moment it is recognised, and asking it to hold for the
-            // chord delay meant a plucked note decaying out of the estimate's
-            // reach before the timer got there - it lit green, dropped back to
-            // nothing, and the trainer never moved on.
-            let hold = 0.12;
-            if self.success_timer > hold {
-                if self.paused {
-                    self.success_timer = hold;
-                } else {
-                    self.credit_class(target, 0);
-                    // Passed, but not moved on: the note stays where it is,
-                    // green, for as long as `FRET_SHOW` says. The clock for
-                    // that runs in `tick`, every frame, because this one is
-                    // called only when the model answers - and a hold timed on
-                    // answers is a hold that stops when the player does.
-                    self.match_status = MatchStatus::Exact;
-                    self.success_timer = hold;
-                    self.fret_hold = self.transition_delay.max(FRET_SHOW);
-                }
-            }
-            return;
-        }
-
-        if self.chords.is_empty() { return; }
-        
-        let target_chord = &self.chords[self.current_chord_index];
-        let target_root = target_chord.root;
-
-        let active_indices = self.ordered_active_indices(target_chord);
-        let all_targets = target_chord.get_target_indices(); 
-
         match self.app_mode {
-            // Both returned above, before the chord guard - neither has chords.
-            AppMode::Fretboard | AppMode::Formulas => {}
-            AppMode::Chords => {
-                let target_qual_str = target_chord.quality.to_string();
-                let mut exact_match = false;
-                let mut partial_match = false;
-                
-                if ai_qual == "Note" {
-                    self.match_status = MatchStatus::None;
-                    self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
-                    return; 
-                }
-
-                let is_weak_signal = confidence < self.chord_confidence;
-
-                if let Some(r) = ai_root {
-                    // Interval in semitones between detected and target root
-                    let root_diff = (r as i32 - target_root as i32).rem_euclid(12);
-
-                    if r == target_root {
-                        if ai_qual == target_qual_str { 
-                            exact_match = true; 
-                        } else {
-                            match (target_qual_str.as_str(), ai_qual) {
-                                ("Maj7", "") | ("Maj7", "Maj") => partial_match = true, 
-                                ("m7", "m") => partial_match = true,     
-                                ("7", "") => partial_match = true,       
-                                ("m7b5", "dim") => partial_match = true, 
-                                // A shell voicing of a m7b5 is root, third and
-                                // seventh - the m7 shell, note for note, since
-                                // the fifth is the only place the two differ,
-                                // and the shell leaves the fifth out. With
-                                // shells the only shapes on screen, that grip is
-                                // what the app asked for, so playing it is a
-                                // pass and not a substitution: green. Yellow
-                                // otherwise, where the full shape is drawn with
-                                // its flat fifth and a m7 means the fifth was
-                                // missed. Heard as plain m when the seventh dies
-                                // away, exactly as an ordinary m7 is.
-                                ("m7b5", "m7") | ("m7b5", "m") if self.shells_only => {
-                                    exact_match = true
-                                }
-                                ("m7b5", "m7") | ("m7b5", "m") => partial_match = true,
-                                _ => {}
-                            }
-                        }
-                    } else {
-                        // --- JAZZ LOGIC ---
-                        // m7b5 read as m a minor third up, e.g. A m7b5 -> C m
-                        if target_qual_str == "m7b5" && ai_qual == "m" && root_diff == 3 {
-                            partial_match = true;
-                        }
-                        // Maj7 read as m/m7 a major third up, e.g. C Maj7 -> E m
-                        if target_qual_str == "Maj7" && (ai_qual == "m" || ai_qual == "m7") && root_diff == 4 {
-                            partial_match = true;
-                        }
-                        // A diminished seventh is four notes a minor third
-                        // apart, so all four are equally its root: C, Eb, Gb and
-                        // A dim7 are one chord under four names. Which name the
-                        // model gives depends on the voicing, not on what was
-                        // played, so a reading three, six or nine semitones away
-                        // is the chord itself - green, not a substitution.
-                        if target_qual_str == "dim" && ai_qual == "dim" && root_diff % 3 == 0 {
-                            exact_match = true;
-                        }
-                    }
-                }
-                
-                // Green means the target chord was heard, clearly enough to be
-                // trusted - the same condition the bucket paints green on. With
-                // this on, that is the whole test: no waiting for it to be held,
-                // and no decay afterwards to undo it. Nothing runs away, because
-                // advancing changes the target and the chord still ringing stops
-                // matching it.
-                // A chord asked for twice in a row has to be played twice.
-                // Without this the ring of the pass before matches the moment
-                // the target is set and the progression runs itself.
-                if (exact_match || partial_match)
-                    && self.chord_repeats(target_chord)
-                    && !self.chord_struck_since()
-                {
-                    self.match_status = MatchStatus::None;
-                    self.success_timer = 0.0;
-                    return;
-                }
-
-                if self.short_verdict && exact_match && !is_weak_signal {
-                    self.match_status = MatchStatus::Exact;
-                    if !self.paused {
-                        self.advance_chord();
-                    }
-                    return;
-                }
-
-                // LEAKY BUCKET LOGIC
-                if exact_match {
-                    if is_weak_signal {
-                        self.match_status = MatchStatus::Flicker;
-                        self.success_timer = (self.success_timer - dt).max(0.0);
-                    } else {
-                        self.match_status = MatchStatus::Exact;
-                        self.success_timer += dt; 
-                    }
-                } else if partial_match {
-                    if is_weak_signal {
-                        self.match_status = MatchStatus::None;
-                        self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
-                    } else {
-                        self.match_status = MatchStatus::Partial;
-                        self.success_timer += dt;
-                    }
-                } else {
-                    self.match_status = MatchStatus::None;
-                    self.success_timer = (self.success_timer - dt * 4.0).max(0.0);
-                }
-                
-                if self.success_timer > self.transition_delay {
-                    if self.paused {
-                        // Hold the timer at the threshold: it would otherwise
-                        // grow for as long as the pause lasts and the next chord
-                        // would jump the moment play resumes.
-                        self.success_timer = self.transition_delay;
-                    } else {
-                        self.advance_chord();
-                    }
-                }
-            },
-            
-            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
-                // These modes are NOT gated by chord confidence. `confidence` is now
-                // the product of root and quality confidence, so an uncertain quality
-                // would block a note that is perfectly audible. Only the pitch head
-                // matters here - F1 0.90 against ~80% for the chord name.
-                // The marks and the steps have to be the same length. They are
-                // sized together when the exercise is set up, but a setting
-                // that changes the STEPS - the closing root of a scale - can
-                // land between two of those, and then the last step has no mark
-                // to write. Resized rather than rebuilt: what has been played
-                // this lap has been played.
-                if self.collected_notes.len() != active_indices.len() {
-                    self.collected_notes.resize(active_indices.len(), false);
-                }
-                self.journal_ask();
-
-                // Which step is being answered.
-                //
-                // A scale or an arpeggio IS an order - played out of it, it is
-                // not that scale - so there the answer can only be the step due.
-                // A grip is not: three notes under one hand, and which finger
-                // lands first is not the exercise. So Intervals takes them in
-                // any order unless the option asks otherwise, shuffled or not.
-                //
-                // One pluck still credits one step. Without that an exercise
-                // asking for the same pitch class twice runs through both steps
-                // on a single ringing string, with nothing played in between. A
-                // step asking for the class just credited needs the string
-                // struck again - see `struck_since_credit`.
-                // What answers for a step, and by which of the four ways - the
-                // lower the number the better the evidence, see `sounding_by`.
-                let answers = |me: &Self, k: usize| -> Option<u8> {
-                    let target = all_targets[active_indices[k].degree];
-                    if me.relaxed_chords() {
-                        return me.sounding_by(target, ai_root, confidence);
-                    }
-                    if !me.struck_since_credit(target) {
-                        return None;
-                    }
-                    // The model's pitch head spreads a plucked note onto its
-                    // neighbours, so where the single-frame estimate names a
-                    // class, no OTHER class may be credited off the model that
-                    // frame - in both orders, since in order the root is
-                    // credited, the target moves to the third while the root
-                    // rings on, and a head trained on chord shapes offers it.
-                    //
-                    // HOW MANY voices, not which. Counting them is the part
-                    // of this witness that holds up; asking whether one
-                    // particular class is among them is the part with blind
-                    // spots - an octave cannot be resolved at all and a quiet
-                    // fifth is missed, so a strummed grip would come back
-                    // short and nothing but the note the ear names would
-                    // count. Two voices is already something one string cannot
-                    // be, and it is what the exception needs to know.
-                    //
-                    // The chord name used to answer this and must not again:
-                    // one plucked root is enough for the model to recognise
-                    // the shape, which is how a third nobody touched was
-                    // credited.
-                    if me.cqt_pitch.is_some_and(|now| now != target % 12)
-                        && !(me.several_sounding() && !me.single_notes)
-                    {
-                        return None;
-                    }
-                    me.sounding_by(target, ai_root, confidence)
-                };
-                let mut branch_used = None;
-                let answering = if self.free_order() {
-                    // The BEST answer, not the first: taking the lowest-numbered
-                    // step that answered credited whichever of them the model
-                    // happened to name, in the order they were dealt. The
-                    // estimate names one class only, so where it speaks it
-                    // decides; below it, the class the pitch head is loudest on.
-                    (0..active_indices.len())
-                        .filter(|&k| !self.collected_notes.get(k).copied().unwrap_or(false))
-                        .filter_map(|k| answers(self, k).map(|by| (k, by)))
-                        .min_by(|a, b| {
-                            let level = |k: usize| {
-                                self.last_pitches[all_targets[active_indices[k].degree] % 12]
-                            };
-                            a.1.cmp(&b.1).then_with(|| {
-                                level(b.0)
-                                    .partial_cmp(&level(a.0))
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                        })
-                        .map(|(k, by)| {
-                            branch_used = Some(by);
-                            k
-                        })
-                } else if self.current_note_step < active_indices.len() {
-                    answers(self, self.current_note_step).map(|by| {
-                        branch_used = Some(by);
-                        self.current_note_step
-                    })
-                } else {
-                    return;
-                };
-
-                // The count belongs to the step it started on: another step
-                // answering is a new answer, not a continuation of this one.
-                if let Some(k) = answering {
-                    if self.answering_step != Some(k) {
-                        self.answering_step = Some(k);
-                        self.success_timer = 0.0;
-                    }
-                    self.success_timer += dt;
-                } else {
-                    self.answering_step = None;
-                    self.success_timer = 0.0;
-                }
-
-                let note_delay = 0.12;
-                if self.paused && self.success_timer > note_delay {
-                    self.success_timer = note_delay;
-                }
-                if !self.paused && self.success_timer > note_delay {
-                    if let Some(k) = answering {
-                        let step = active_indices[k];
-                        if k < self.collected_notes.len() {
-                            self.collected_notes[k] = true;
-                        }
-                        self.credit_branch = branch_used;
-                        self.credit_class(all_targets[step.degree], step.octave);
-                        self.answering_step = None;
-                        self.success_timer = 0.0;
-                        // Where the exercise stands: the first step still
-                        // wanted. In order that is the next one along, which is
-                        // what it always was.
-                        self.current_note_step = (0..active_indices.len())
-                            .find(|&i| !self.collected_notes.get(i).copied().unwrap_or(false))
-                            .unwrap_or(active_indices.len());
-                        if self.current_note_step >= active_indices.len() {
-                            if self.app_mode == AppMode::Intervals {
-                                self.match_status = MatchStatus::Exact;
-                                self.interval_hold = INTERVAL_SHOW;
-                            } else {
-                                self.advance_chord();
-                            }
-                        }
-                    }
-                }
+            AppMode::Formulas => {
+                // Only remember what was said. The judging happens once per audio
+                // frame in `tick`, because this mode credits on a per-frame reading
+                // and the model is asked only while the window is full - which
+                // playing one note at a time never manages, so waiting here meant
+                // waiting for an answer that often never came.
+                self.last_ai_root = ai_root;
+                self.last_ai_conf = confidence;
             }
+            AppMode::Fretboard => self.check_fretboard(dt, ai_root, confidence),
+            AppMode::Chords => self.check_chord(dt, ai_root, ai_qual, confidence),
+            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios => {
+                self.check_notes(dt, ai_root, confidence)
+            }
+        }
+    }
+
+    /// Whether the success timer has run past `threshold` with play on, so the
+    /// step can be passed. Paused, the timer is held at the threshold: it would
+    /// otherwise grow for as long as the pause lasts and the next step would be
+    /// passed the moment play resumes.
+    fn held_past(&mut self, threshold: f32) -> bool {
+        if self.success_timer <= threshold {
+            return false;
+        }
+        if self.paused {
+            self.success_timer = threshold;
+            return false;
+        }
+        true
+    }
+
+    fn check_fretboard(&mut self, dt: f32, ai_root: Option<NoteName>, confidence: f32) {
+        // The note just answered is still being shown. Nothing to judge
+        // until the next one is drawn - and judging anyway would let the
+        // string still ringing answer for it.
+        if self.fret_hold > 0.0 {
+            return;
+        }
+        let Some(target) = self.fret_target else {
+            self.next_fret_target();
+            return;
+        };
+        // The same rule as the note modes': a note drawn twice in a row has
+        // to be struck twice. See `struck_since_credit`.
+        let fresh = self.struck_since_credit(target);
+        if fresh && self.note_is_sounding(target, ai_root, confidence) {
+            self.success_timer += dt;
+            self.match_status = MatchStatus::Exact;
+        } else {
+            self.success_timer = 0.0;
+            self.match_status = MatchStatus::None;
+        }
+        // The same short hold the note modes use, not the chord one. A
+        // chord is held while the ear settles on a NAME; a single note is
+        // right the moment it is recognised, and asking it to hold for the
+        // chord delay meant a plucked note decaying out of the estimate's
+        // reach before the timer got there - it lit green, dropped back to
+        // nothing, and the trainer never moved on.
+        if !self.held_past(NOTE_HOLD) {
+            return;
+        }
+        self.credit_class(target, 0);
+        // Passed, but not moved on: the note stays where it is, green, for as
+        // long as `FRET_SHOW` says. The clock for that runs in `tick`, every
+        // frame, because this one is called only when the model answers - and
+        // a hold timed on answers is a hold that stops when the player does.
+        self.match_status = MatchStatus::Exact;
+        self.success_timer = NOTE_HOLD;
+        self.fret_hold = self.transition_delay.max(FRET_SHOW);
+    }
+
+    fn check_chord(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
+        let Some(target) = self.chords.get(self.current_chord_index) else {
+            return;
+        };
+        if ai_qual == "Note" {
+            self.match_status = MatchStatus::None;
+            self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
+            return;
+        }
+        let reading = match ai_root {
+            Some(root) => chord_reading(target, root, ai_qual, self.shells_only),
+            None => ChordReading::Wrong,
+        };
+        // A chord asked for twice in a row has to be played twice. Without
+        // this the ring of the pass before matches the moment the target is
+        // set and the progression runs itself.
+        let not_struck_again = reading != ChordReading::Wrong
+            && self.chord_repeats(target)
+            && !self.chord_struck_since();
+        if not_struck_again {
+            self.match_status = MatchStatus::None;
+            self.success_timer = 0.0;
+            return;
+        }
+
+        let is_weak_signal = confidence < self.chord_confidence;
+        // Green means the target chord was heard, clearly enough to be
+        // trusted - the same condition the bucket paints green on. With
+        // this on, that is the whole test: no waiting for it to be held,
+        // and no decay afterwards to undo it. Nothing runs away, because
+        // advancing changes the target and the chord still ringing stops
+        // matching it.
+        if self.short_verdict && reading == ChordReading::Exact && !is_weak_signal {
+            self.match_status = MatchStatus::Exact;
+            if !self.paused {
+                self.advance_chord();
+            }
+            return;
+        }
+
+        self.fill_chord_bucket(reading, is_weak_signal, dt);
+        if self.held_past(self.transition_delay) {
+            self.advance_chord();
+        }
+    }
+
+    /// The leaky bucket: a clear reading of the chord fills the success timer
+    /// at the rate of the clock, anything else drains it - a wrong chord the
+    /// fastest.
+    fn fill_chord_bucket(&mut self, reading: ChordReading, is_weak_signal: bool, dt: f32) {
+        let (status, rate) = match (reading, is_weak_signal) {
+            (ChordReading::Exact, false) => (MatchStatus::Exact, 1.0),
+            (ChordReading::Exact, true) => (MatchStatus::Flicker, -1.0),
+            (ChordReading::Partial, false) => (MatchStatus::Partial, 1.0),
+            (ChordReading::Partial, true) => (MatchStatus::None, -2.0),
+            (ChordReading::Wrong, _) => (MatchStatus::None, -4.0),
+        };
+        self.match_status = status;
+        self.success_timer = (self.success_timer + dt * rate).max(0.0);
+    }
+
+    /// Intervals, Scales and Arpeggios: which step the sound answers, and
+    /// whether it has answered long enough to be credited.
+    ///
+    /// These modes are NOT gated by chord confidence. `confidence` is the
+    /// product of root and quality confidence, so an uncertain quality would
+    /// block a note that is perfectly audible. Only the pitch head matters
+    /// here - F1 0.90 against ~80% for the chord name.
+    fn check_notes(&mut self, dt: f32, ai_root: Option<NoteName>, confidence: f32) {
+        let Some(chord) = self.chords.get(self.current_chord_index) else {
+            return;
+        };
+        let steps = self.ordered_active_indices(chord);
+        let all_targets = chord.get_target_indices();
+        let step_targets: Vec<usize> = steps.iter().map(|step| all_targets[step.degree]).collect();
+
+        // The marks and the steps have to be the same length. They are
+        // sized together when the exercise is set up, but a setting
+        // that changes the STEPS - the closing root of a scale - can
+        // land between two of those, and then the last step has no mark
+        // to write. Resized rather than rebuilt: what has been played
+        // this lap has been played.
+        if self.collected_notes.len() != steps.len() {
+            self.collected_notes.resize(steps.len(), false);
+        }
+        self.journal_ask();
+
+        // Which step is being answered.
+        //
+        // A scale or an arpeggio IS an order - played out of it, it is
+        // not that scale - so there the answer can only be the step due.
+        // A grip is not: three notes under one hand, and which finger
+        // lands first is not the exercise. So Intervals takes them in
+        // any order unless the option asks otherwise, shuffled or not.
+        //
+        // One pluck still credits one step. Without that an exercise
+        // asking for the same pitch class twice runs through both steps
+        // on a single ringing string, with nothing played in between. A
+        // step asking for the class just credited needs the string
+        // struck again - see `struck_since_credit`.
+        let answer = if self.free_order() {
+            self.best_answer(&step_targets, ai_root, confidence)
+        } else if self.current_note_step < steps.len() {
+            let due = self.current_note_step;
+            self.answer_for(step_targets[due], ai_root, confidence)
+                .map(|by| (due, by))
+        } else {
+            return;
+        };
+
+        self.time_the_answer(answer.map(|(step, _)| step), dt);
+        if !self.held_past(NOTE_HOLD) {
+            return;
+        }
+        let Some((step, by)) = answer else {
+            return;
+        };
+        self.credit_step(step, by, steps[step].octave, &step_targets);
+    }
+
+    /// Whether `target` answers for its step, and by which of the four ways -
+    /// the lower the number the better the evidence, see `sounding_by`.
+    fn answer_for(&self, target: usize, ai_root: Option<NoteName>, confidence: f32) -> Option<u8> {
+        if self.relaxed_chords() {
+            return self.sounding_by(target, ai_root, confidence);
+        }
+        if !self.struck_since_credit(target) {
+            return None;
+        }
+        // The model's pitch head spreads a plucked note onto its
+        // neighbours, so where the single-frame estimate names a
+        // class, no OTHER class may be credited off the model that
+        // frame - in both orders, since in order the root is
+        // credited, the target moves to the third while the root
+        // rings on, and a head trained on chord shapes offers it.
+        //
+        // HOW MANY voices, not which. Counting them is the part
+        // of this witness that holds up; asking whether one
+        // particular class is among them is the part with blind
+        // spots - an octave cannot be resolved at all and a quiet
+        // fifth is missed, so a strummed grip would come back
+        // short and nothing but the note the ear names would
+        // count. Two voices is already something one string cannot
+        // be, and it is what the exception needs to know.
+        //
+        // The chord name used to answer this and must not again:
+        // one plucked root is enough for the model to recognise
+        // the shape, which is how a third nobody touched was
+        // credited.
+        let ear_names_another = self.cqt_pitch.is_some_and(|now| now != target % 12);
+        let grip_is_sounding = self.several_sounding() && !self.single_notes;
+        if ear_names_another && !grip_is_sounding {
+            return None;
+        }
+        self.sounding_by(target, ai_root, confidence)
+    }
+
+    /// Under free order, the step that answers best among those still wanted.
+    ///
+    /// The BEST answer, not the first: taking the lowest-numbered step that
+    /// answered credited whichever of them the model happened to name, in the
+    /// order they were dealt. The estimate names one class only, so where it
+    /// speaks it decides; below it, the class the pitch head is loudest on.
+    fn best_answer(
+        &self,
+        step_targets: &[usize],
+        ai_root: Option<NoteName>,
+        confidence: f32,
+    ) -> Option<(usize, u8)> {
+        let louder_first = |a: usize, b: usize| {
+            let level = |step: usize| self.last_pitches[step_targets[step] % 12];
+            level(b).partial_cmp(&level(a)).unwrap_or(std::cmp::Ordering::Equal)
+        };
+        (0..step_targets.len())
+            .filter(|&step| !self.is_collected(step))
+            .filter_map(|step| {
+                self.answer_for(step_targets[step], ai_root, confidence)
+                    .map(|by| (step, by))
+            })
+            .min_by(|a, b| a.1.cmp(&b.1).then_with(|| louder_first(a.0, b.0)))
+    }
+
+    fn is_collected(&self, step: usize) -> bool {
+        self.collected_notes.get(step).copied().unwrap_or(false)
+    }
+
+    /// Runs the success timer for the step answering. The count belongs to
+    /// the step it started on: another step answering is a new answer, not a
+    /// continuation of this one.
+    fn time_the_answer(&mut self, answering: Option<usize>, dt: f32) {
+        let Some(step) = answering else {
+            self.answering_step = None;
+            self.success_timer = 0.0;
+            return;
+        };
+        if self.answering_step != Some(step) {
+            self.answering_step = Some(step);
+            self.success_timer = 0.0;
+        }
+        self.success_timer += dt;
+    }
+
+    /// Marks `step` played, and when it was the last one wanted, finishes the
+    /// set: Intervals shows it complete, the other modes move to the next chord.
+    fn credit_step(&mut self, step: usize, by: u8, octave: i8, step_targets: &[usize]) {
+        if step < self.collected_notes.len() {
+            self.collected_notes[step] = true;
+        }
+        self.credit_branch = Some(by);
+        self.credit_class(step_targets[step], octave);
+        self.answering_step = None;
+        self.success_timer = 0.0;
+        // Where the exercise stands: the first step still wanted. In order
+        // that is the next one along, which is what it always was.
+        let step_count = step_targets.len();
+        self.current_note_step = (0..step_count)
+            .find(|&i| !self.is_collected(i))
+            .unwrap_or(step_count);
+        if self.current_note_step < step_count {
+            return;
+        }
+        if self.app_mode == AppMode::Intervals {
+            self.match_status = MatchStatus::Exact;
+            self.interval_hold = INTERVAL_SHOW;
+        } else {
+            self.advance_chord();
         }
     }
 
@@ -2881,6 +2845,62 @@ impl MyApp {
             self.last_pitches = [0.0; 12];
             self.prev_pitches = [0.0; 12];
         }
+    }
+}
+
+/// What the model's reading makes of the chord asked for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum ChordReading {
+    /// The chord itself, or a name that can only mean it.
+    Exact,
+    /// A substitution that leaves out or shares notes with it.
+    Partial,
+    Wrong,
+}
+
+/// How the model's chord - `root` and quality `heard` - reads against the
+/// chord asked for.
+fn chord_reading(target: &Chord, root: NoteName, heard: &str, shells_only: bool) -> ChordReading {
+    let wanted = target.quality.to_string();
+    if root == target.root {
+        return same_root_reading(&wanted, heard, shells_only);
+    }
+    // Interval in semitones from the root asked for up to the root heard.
+    let interval = (root as i32 - target.root as i32).rem_euclid(12);
+    match (wanted.as_str(), heard) {
+        // m7b5 read as m a minor third up, e.g. A m7b5 -> C m.
+        ("m7b5", "m") if interval == 3 => ChordReading::Partial,
+        // Maj7 read as m/m7 a major third up, e.g. C Maj7 -> E m.
+        ("Maj7", "m") | ("Maj7", "m7") if interval == 4 => ChordReading::Partial,
+        // A diminished seventh is four notes a minor third apart, so all four
+        // are equally its root: C, Eb, Gb and A dim7 are one chord under four
+        // names. Which name the model gives depends on the voicing, not on
+        // what was played, so a reading three, six or nine semitones away is
+        // the chord itself - green, not a substitution.
+        ("dim", "dim") if interval % 3 == 0 => ChordReading::Exact,
+        _ => ChordReading::Wrong,
+    }
+}
+
+fn same_root_reading(wanted: &str, heard: &str, shells_only: bool) -> ChordReading {
+    if heard == wanted {
+        return ChordReading::Exact;
+    }
+    match (wanted, heard) {
+        ("Maj7", "") | ("Maj7", "Maj") | ("m7", "m") | ("7", "") | ("m7b5", "dim") => {
+            ChordReading::Partial
+        }
+        // A shell voicing of a m7b5 is root, third and seventh - the m7
+        // shell, note for note, since the fifth is the only place the two
+        // differ, and the shell leaves the fifth out. With shells the only
+        // shapes on screen, that grip is what the app asked for, so playing
+        // it is a pass and not a substitution: green. Yellow otherwise, where
+        // the full shape is drawn with its flat fifth and a m7 means the fifth
+        // was missed. Heard as plain m when the seventh dies away, exactly as
+        // an ordinary m7 is.
+        ("m7b5", "m7") | ("m7b5", "m") if shells_only => ChordReading::Exact,
+        ("m7b5", "m7") | ("m7b5", "m") => ChordReading::Partial,
+        _ => ChordReading::Wrong,
     }
 }
 
