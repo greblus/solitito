@@ -191,38 +191,7 @@ impl CqtAnalyzer {
         let reader = BufReader::new(file);
         let config: DspConfig = serde_json::from_reader(reader)?;
 
-        // The old format is rejected deliberately: it shipped a different chroma
-        // mapping than cq_to_chroma, i.e. features the model was not trained on.
-        // Accepting it silently would give an app that runs and gets chords wrong.
-        if config.format != "sparse-csr-v1" {
-            anyhow::bail!(
-                "dsp_weights.json is in the old dense format.\n\
-                 Generate a new one: python dist/gen_weights.py  (needs librosa)."
-            );
-        }
-        if config.cqt_offsets.len() != CQT_BINS + 1 {
-            anyhow::bail!(
-                "dsp_weights.json: cqt_offsets has {} entries, expected {}.",
-                config.cqt_offsets.len(), CQT_BINS + 1
-            );
-        }
-        let nnz = config.cqt_fft_idx.len();
-        if config.cqt_re.len() != nnz || config.cqt_im.len() != nnz {
-            anyhow::bail!("dsp_weights.json: inconsistent CQT weight lengths.");
-        }
-        if config.chroma_weights.len() != CQT_BINS * CHROMA_BINS {
-            anyhow::bail!(
-                "dsp_weights.json: chroma has {} weights, expected {}.",
-                config.chroma_weights.len(), CQT_BINS * CHROMA_BINS
-            );
-        }
-        println!(
-            "   Sparse CQT: {} weights ({:.1}% of {}), chroma {}x{}",
-            nnz,
-            100.0 * nnz as f32 / ((FFT_SIZE / 2 + 1) * CQT_BINS) as f32,
-            (FFT_SIZE / 2 + 1) * CQT_BINS,
-            CQT_BINS, CHROMA_BINS
-        );
+        check_weights(&config)?;
 
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
@@ -244,26 +213,18 @@ impl CqtAnalyzer {
         })
     }
 
+    /// One frame's features: the normalised CQT, the chroma, the bass energy,
+    /// and the part of the CQT the spectrum display shows.
     pub fn compute_cqt_chroma(
-        &mut self, 
-        audio_chunk: &[f32], 
-        boost_enabled: bool, 
-        boost_gain: f32
+        &mut self,
+        audio_chunk: &[f32],
+        boost_enabled: bool,
+        boost_gain: f32,
     ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
-        
-        // 1. FFT
-        for (i, &sample) in audio_chunk.iter().enumerate().take(FFT_SIZE) {
-            self.fft_buffer[i] = Complex { re: sample * self.window[i], im: 0.0 };
-        }
-        for i in audio_chunk.len()..FFT_SIZE {
-            self.fft_buffer[i] = Complex { re: 0.0, im: 0.0 };
-        }
-        self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
-        
-        // 2. CQT - sparse multiply per bin.
-        // The previous version scanned all 4097 FFT bins for each of the 144 CQT
-        // bins (590k iterations per frame) and filtered zeros inside the loop.
-        // Now we iterate the non-zeros directly: ~40k iterations, no branch.
+        self.windowed_fft(audio_chunk);
+
+        // The CQT: a sparse multiply per bin, over the non-zero weights only -
+        // ~40k iterations a frame instead of 590k over the dense matrix.
         let mut cqt_mag = sparse_cqt_mag(
             &self.fft_buffer,
             &self.cqt_offsets,
@@ -271,55 +232,114 @@ impl CqtAnalyzer {
             &self.cqt_re,
             &self.cqt_im,
         );
-
-        // --- BASS BOOST ---
         if boost_enabled {
-            for i in 0..BASS_BOOST_CUTOFF {
-                cqt_mag[i] *= boost_gain;
+            for v in &mut cqt_mag[..BASS_BOOST_CUTOFF] {
+                *v *= boost_gain;
             }
         }
 
-        // --- 3. Log Normalize (Per-Frame) ---
-        let frame_max = cqt_mag.iter().fold(0.0f32, |a, &b| a.max(b));
-        let ref_level = frame_max.max(MIN_REF_LEVEL); 
+        let norm_cqt = log_normalise(&cqt_mag);
+        let chroma = self.chroma_of(&norm_cqt);
+        let bass = bass_energy(&norm_cqt);
+        let visual: Vec<f32> = norm_cqt.iter().skip(24).take(48).cloned().collect();
+        (norm_cqt, chroma, bass, visual)
+    }
 
-        let mut norm_cqt = cqt_mag.clone();
-        for x in &mut norm_cqt {
-            let val = x.max(1e-9);
-            let db = 20.0 * (val / ref_level).log10();
-            let n = (db + 80.0) / 80.0;
-            *x = n.clamp(0.0, 1.0);
+    /// The chunk, under the Hann window and zero-padded, through the FFT into
+    /// `fft_buffer`.
+    fn windowed_fft(&mut self, audio_chunk: &[f32]) {
+        for (i, &sample) in audio_chunk.iter().enumerate().take(FFT_SIZE) {
+            self.fft_buffer[i] = Complex { re: sample * self.window[i], im: 0.0 };
         }
+        for i in audio_chunk.len()..FFT_SIZE {
+            self.fft_buffer[i] = Complex { re: 0.0, im: 0.0 };
+        }
+        self.fft.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
+    }
 
-        // 4. Chroma (cq_to_chroma matrix from dsp_weights.json)
-        let mut chroma_vals = vec![0.0; CHROMA_BINS];
-        for i in 0..CHROMA_BINS {
+    /// The chroma through the `cq_to_chroma` matrix from dsp_weights.json, with
+    /// the per-frame max normalisation of librosa's `chroma_cqt` (norm=inf).
+    fn chroma_of(&self, norm_cqt: &[f32]) -> Vec<f32> {
+        let mut chroma = vec![0.0; CHROMA_BINS];
+        for (i, value) in chroma.iter_mut().enumerate() {
             let mut sum = 0.0;
             for k in 0..CQT_BINS {
                 sum += norm_cqt[k] * self.chroma_matrix[k * CHROMA_BINS + i];
             }
-            chroma_vals[i] = sum;
+            *value = sum;
         }
-
-        // Per-frame max normalisation of chroma, as in librosa.chroma_cqt norm=inf.
-        let chroma_max = chroma_vals.iter().cloned().fold(0.0f32, f32::max);
+        let chroma_max = chroma.iter().cloned().fold(0.0f32, f32::max);
         if chroma_max > 1e-9 {
-            for v in &mut chroma_vals { *v /= chroma_max; }
-        }
-
-        // 5. Bass Energy
-        let mut bass_energy = vec![0.0; BASS_ENERGY_BINS];
-        for i in 0..12 {
-            let idx = i * 2;
-            if idx + 1 < CQT_BINS {
-                bass_energy[i] = (norm_cqt[idx] + norm_cqt[idx+1]) / 2.0;
+            for v in &mut chroma {
+                *v /= chroma_max;
             }
         }
-        
-        let visual: Vec<f32> = norm_cqt.iter().skip(24).take(48).cloned().collect();
-
-        (norm_cqt, chroma_vals, bass_energy, visual)
+        chroma
     }
+}
+
+/// The CQT in decibels below the frame's own peak, mapped from -80..0 dB onto
+/// 0..1 - the features the model was trained on.
+fn log_normalise(cqt_mag: &[f32]) -> Vec<f32> {
+    let frame_max = cqt_mag.iter().fold(0.0f32, |a, &b| a.max(b));
+    let ref_level = frame_max.max(MIN_REF_LEVEL);
+    cqt_mag
+        .iter()
+        .map(|&x| {
+            let db = 20.0 * (x.max(1e-9) / ref_level).log10();
+            ((db + 80.0) / 80.0).clamp(0.0, 1.0)
+        })
+        .collect()
+}
+
+/// The bottom two octaves of the CQT, one value per semitone pair of bins.
+fn bass_energy(norm_cqt: &[f32]) -> Vec<f32> {
+    let mut bass = vec![0.0; BASS_ENERGY_BINS];
+    for (i, value) in bass.iter_mut().enumerate().take(12) {
+        let idx = i * 2;
+        if idx + 1 < CQT_BINS {
+            *value = (norm_cqt[idx] + norm_cqt[idx + 1]) / 2.0;
+        }
+    }
+    bass
+}
+
+/// Rejects weights the model was not trained with.
+///
+/// The old format is rejected deliberately: it shipped a different chroma
+/// mapping than cq_to_chroma, i.e. features the model was not trained on.
+/// Accepting it silently would give an app that runs and gets chords wrong.
+fn check_weights(config: &DspConfig) -> Result<()> {
+    if config.format != "sparse-csr-v1" {
+        anyhow::bail!(
+            "dsp_weights.json is in the old dense format.\n\
+             Generate a new one: python dist/gen_weights.py  (needs librosa)."
+        );
+    }
+    if config.cqt_offsets.len() != CQT_BINS + 1 {
+        anyhow::bail!(
+            "dsp_weights.json: cqt_offsets has {} entries, expected {}.",
+            config.cqt_offsets.len(), CQT_BINS + 1
+        );
+    }
+    let nnz = config.cqt_fft_idx.len();
+    if config.cqt_re.len() != nnz || config.cqt_im.len() != nnz {
+        anyhow::bail!("dsp_weights.json: inconsistent CQT weight lengths.");
+    }
+    if config.chroma_weights.len() != CQT_BINS * CHROMA_BINS {
+        anyhow::bail!(
+            "dsp_weights.json: chroma has {} weights, expected {}.",
+            config.chroma_weights.len(), CQT_BINS * CHROMA_BINS
+        );
+    }
+    println!(
+        "   Sparse CQT: {} weights ({:.1}% of {}), chroma {}x{}",
+        nnz,
+        100.0 * nnz as f32 / ((FFT_SIZE / 2 + 1) * CQT_BINS) as f32,
+        (FFT_SIZE / 2 + 1) * CQT_BINS,
+        CQT_BINS, CHROMA_BINS
+    );
+    Ok(())
 }
 
 /// A copy of exactly the 16 kHz hops the detectors see, for measuring on.
@@ -370,26 +390,28 @@ impl Capture {
         }
     }
 
+    fn write_hop(&mut self, hop: &[f32]) -> Result<()> {
+        let Some(writer) = self.writer.as_mut() else {
+            return Ok(());
+        };
+        for &sample in hop {
+            writer.write_sample(sample)?;
+        }
+        self.hops += 1;
+        // The header stays readable if the process is interrupted.
+        if self.hops % 64 == 0 {
+            writer.flush()?;
+        }
+        Ok(())
+    }
+
     /// One hop. Never panics and never fails twice loudly: this runs on the
     /// audio thread, where an unwrap would take the stream down mid-phrase.
     pub fn record(&mut self, hop: &[f32]) {
         if self.failed {
             return;
         }
-        let result = (|| -> Result<()> {
-            if let Some(writer) = self.writer.as_mut() {
-                for &sample in hop {
-                    writer.write_sample(sample)?;
-                }
-                self.hops += 1;
-                // The header stays readable if the process is interrupted.
-                if self.hops % 64 == 0 {
-                    writer.flush()?;
-                }
-            }
-            Ok(())
-        })();
-        if let Err(error) = result {
+        if let Err(error) = self.write_hop(hop) {
             self.failed = true;
             eprintln!("📼 zapis przerwany {}: {error:#}", self.path.display());
         }
