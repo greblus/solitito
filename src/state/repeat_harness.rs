@@ -72,10 +72,6 @@ pub(crate) fn load_atoa_pub() -> (Vec<f32>, Vec<(f32, usize)>) {
     load_atoa()
 }
 
-pub(crate) fn note_pub(signal: &[f32], labels: &[(f32, usize)], i: usize) -> Vec<f32> {
-    note(signal, labels, i)
-}
-
 /// One note of AtoA, from just before its attack to just before the next.
 fn note(signal: &[f32], labels: &[(f32, usize)], i: usize) -> Vec<f32> {
     let start = ((labels[i].0 - 0.05) * SR) as usize;
