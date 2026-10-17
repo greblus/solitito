@@ -1534,24 +1534,27 @@ impl MyApp {
     /// Intervals and Formulas also judge here, but only on a new audio frame;
     /// polling the same CQT sample twice must not count as two observations.
     pub fn tick(&mut self, dt: f32) {
-        if self.app_mode == AppMode::Intervals {
-            self.tick_intervals(dt);
+        match self.app_mode {
+            AppMode::Intervals => self.tick_intervals(dt),
+            AppMode::Fretboard => self.tick_fretboard(dt),
+            AppMode::Formulas => self.tick_formulas(dt),
+            AppMode::Chords | AppMode::Scales | AppMode::Arpeggios => {}
+        }
+    }
+
+    /// The fretboard trainer's show clock, for the same reason as the lap's in
+    /// Formulas: it must not stop when the player does.
+    fn tick_fretboard(&mut self, dt: f32) {
+        if self.fret_hold <= 0.0 || self.paused {
             return;
         }
-        // The fretboard trainer's show clock, for the same reason as the lap's
-        // below: it must not stop when the player does.
-        if self.app_mode == AppMode::Fretboard {
-            if self.fret_hold > 0.0 && !self.paused {
-                self.fret_hold = (self.fret_hold - dt).max(0.0);
-                if self.fret_hold == 0.0 {
-                    self.next_fret_target();
-                }
-            }
-            return;
+        self.fret_hold = (self.fret_hold - dt).max(0.0);
+        if self.fret_hold == 0.0 {
+            self.next_fret_target();
         }
-        if self.app_mode != AppMode::Formulas {
-            return;
-        }
+    }
+
+    fn tick_formulas(&mut self, dt: f32) {
         if self.formula_collected.is_empty() {
             self.next_formula();
             return;
@@ -1561,14 +1564,7 @@ impl MyApp {
         // twice; no less, or the judging waits on the model.
         if self.audio_frames != self.judged_frame {
             self.judged_frame = self.audio_frames;
-            self.ear_window.rotate_left(1);
-            self.ear_window[EAR_WINDOW - 1] = self.cqt_pitch;
-            if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
-                self.cqt_run = self.cqt_run.saturating_add(1);
-            } else {
-                self.cqt_run_pitch = self.cqt_pitch;
-                self.cqt_run = 1;
-            }
+            self.listen_to_new_frame();
             // Paused is "your turn": the whole set lit, nothing judged.
             if !self.paused {
                 let done = self.collect_formula(self.last_ai_root, self.last_ai_conf);
@@ -1592,13 +1588,23 @@ impl MyApp {
         }
     }
 
+    /// The estimate of a new audio frame into the ear's vote, and the run of
+    /// frames it has named the same class.
+    fn listen_to_new_frame(&mut self) {
+        self.ear_window.rotate_left(1);
+        self.ear_window[EAR_WINDOW - 1] = self.cqt_pitch;
+        if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
+            self.cqt_run = self.cqt_run.saturating_add(1);
+        } else {
+            self.cqt_run_pitch = self.cqt_pitch;
+            self.cqt_run = 1;
+        }
+    }
+
     fn tick_intervals(&mut self, dt: f32) {
         self.interval_model_age += dt;
         if self.interval_model_age >= INTERVAL_MODEL_AGE {
-                self.last_pitches = [0.0; 12];
-            self.prev_pitches = [0.0; 12];
-            self.last_ai_root = None;
-            self.last_ai_conf = 0.0;
+            self.forget_model_answer();
         }
         self.settle_credits(dt);
 
@@ -1606,29 +1612,7 @@ impl MyApp {
         let fresh = self.audio_frames != self.judged_frame;
         let elapsed = self.interval_audio_age.min(0.032);
         if fresh {
-            self.judged_frame = self.audio_frames;
-            // A fresh sample after a stalled UI/audio stream does not prove
-            // the note held throughout the gap.
-            if self.interval_audio_age > 0.05 {
-                self.answering_step = None;
-                self.success_timer = 0.0;
-                self.interval_silence = 0.0;
-            }
-            self.interval_audio_age = 0.0;
-            if !self.audio_gate_open {
-                self.interval_silence += elapsed;
-                // Muting between plucks is evidence of a fresh note too. A
-                // missing CQT estimate alone is NOT silence: require the gate.
-                // Track this during the completed-set display as well.
-                if self.interval_silence >= 0.2 {
-                    for credit in self.credited.iter_mut().flatten() {
-                        credit.left = true;
-                        credit.settle = 0.0;
-                    }
-                }
-            } else {
-                self.interval_silence = 0.0;
-            }
+            self.take_interval_frame(elapsed);
         }
 
         // The completed result has its own clock. It stays visible through
@@ -1651,6 +1635,41 @@ impl MyApp {
             return;
         }
         self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
+    }
+
+    /// A stopped inference stream must not keep answering new audio frames.
+    fn forget_model_answer(&mut self) {
+        self.last_pitches = [0.0; 12];
+        self.prev_pitches = [0.0; 12];
+        self.last_ai_root = None;
+        self.last_ai_conf = 0.0;
+    }
+
+    /// A new audio frame in Intervals, `elapsed` seconds after the one before.
+    fn take_interval_frame(&mut self, elapsed: f32) {
+        self.judged_frame = self.audio_frames;
+        // A fresh sample after a stalled UI/audio stream does not prove
+        // the note held throughout the gap.
+        if self.interval_audio_age > 0.05 {
+            self.answering_step = None;
+            self.success_timer = 0.0;
+            self.interval_silence = 0.0;
+        }
+        self.interval_audio_age = 0.0;
+        if self.audio_gate_open {
+            self.interval_silence = 0.0;
+            return;
+        }
+        self.interval_silence += elapsed;
+        // Muting between plucks is evidence of a fresh note too. A missing CQT
+        // estimate alone is NOT silence: require the gate. Track this during
+        // the completed-set display as well.
+        if self.interval_silence >= 0.2 {
+            for credit in self.credited.iter_mut().flatten() {
+                credit.left = true;
+                credit.settle = 0.0;
+            }
+        }
     }
 
     /// Starts the standing formula again, exactly as it stands.
