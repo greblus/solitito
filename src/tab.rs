@@ -239,6 +239,7 @@ pub fn place_voiced(
     from_string: usize,
     close_only: bool,
 ) -> Vec<Spot> {
+    // Each note as its degree and its pitch class.
     let notes: Vec<(usize, i32)> = steps
         .iter()
         .filter_map(|s| {
@@ -249,80 +250,21 @@ pub fn place_voiced(
         .collect();
     // Wider than four voices is not a grip any more: past that the strings run
     // out and the phrase is better read as a phrase.
-    if notes.is_empty() || notes.len() > 4 || notes.len() > 6 {
+    if notes.is_empty() || notes.len() > 4 {
         return place(root_pc, intervals, steps, names);
     }
-
-    // Which voice sits where. Normally the order the steps are DEALT in, so a
-    // set written 1 3 5 is stacked in that order, each voice above the one
-    // below it.
-    //
-    // That is what spread the grips out under the shuffle: a set dealt 5 1 3
-    // has to climb in that order, which is an octave and a half wide and not a
-    // grip anybody plays. Close forms instead stack the set in its written
-    // order and ROTATE it, so the note asked for first is the bass - root
-    // position and its two inversions for a triad, and the same for a shell.
-    // Measured over 12 roots x 3 qualities x 3 inversions: every triad comes
-    // out between 6 and 9 semitones wide.
-    let distinct = {
-        let mut d: Vec<usize> = notes.iter().map(|&(d, _)| d).collect();
-        d.sort_unstable();
-        d.windows(2).all(|w| w[0] != w[1])
-    };
-    let mut order: Vec<usize> = (0..notes.len()).collect();
-    if close_only && distinct {
-        order.sort_by_key(|&i| notes[i].0);
-        let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
-        order.rotate_left(lead);
-    }
+    let order = voice_order(&notes, close_only);
     let stack: Vec<(usize, i32)> = order.iter().map(|&i| notes[i]).collect();
 
     let mut best: Option<(i32, Vec<Spot>)> = None;
     // Every set of strings, low to high, and every hand position on the neck.
     for strings in string_sets(notes.len()) {
         for base in 0..=15 {
-            let mut spots = Vec::with_capacity(notes.len());
-            let mut last_pitch = i32::MIN;
-            let mut ok = true;
-            for (i, &(degree, pc)) in stack.iter().enumerate() {
-                let string = strings[i];
-                // The lowest fret at or above the hand's position that plays it.
-                let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
-                let pitch = TUNING[string] + fret;
-                // A grip covers four frets, and a voicing rises with the
-                // strings: two notes crossing over read as a mistake on paper
-                // even when the hand could take them.
-                if fret > base + 4 || fret > 17 || pitch <= last_pitch {
-                    ok = false;
-                    break;
-                }
-                last_pitch = pitch;
-                spots.push(Spot {
-                    string,
-                    fret,
-                    interval: pitch - (TUNING[strings[0]] + base),
-                    name: names.get(degree).map(|n| spell(n)),
-                });
-            }
-            if !ok {
+            let Some(spots) = stack_grip(&stack, &strings, base, intervals, names) else {
                 continue;
-            }
-            // The interval each dot carries is its degree, not its distance
-            // from the bottom string - recomputed here now the grip is settled.
-            for (spot, &(degree, _)) in spots.iter_mut().zip(stack.iter()) {
-                spot.interval = intervals.get(degree).copied().unwrap_or(0) as i32;
-            }
-            // How wide the grip came out. Only close forms are scored on it.
-            let span = last_pitch - (TUNING[spots[0].string] + spots[0].fret);
+            };
             let cost = match prev {
-                // Voice leading: how far each finger has to travel. Strings
-                // count too, or a grip two strings over with the same frets
-                // would look like no movement at all.
-                Some(prev) => prev
-                    .iter()
-                    .zip(spots.iter())
-                    .map(|(a, b)| (a.fret - b.fret).abs() + (a.string as i32 - b.string as i32).abs() * 2)
-                    .sum::<i32>(),
+                Some(prev) => voice_travel(prev, &spots),
                 // Nothing to lead from: take it where the caller pointed -
                 // the string first, then the fret. Without the string the
                 // lowest set of strings won every tie and a whole progression
@@ -333,25 +275,104 @@ pub fn place_voiced(
                 // on is not asked for - the rotation has already chosen which
                 // NOTE is in the bass, and asking for both left the search
                 // nothing it could satisfy.
-                None if close_only => span * 24 + (base - anchor).abs(),
-                None => {
-                    let low = spots.first().map(|s| s.string).unwrap_or(0) as i32;
-                    (low - from_string as i32).abs() * 24 + (base - anchor).abs()
-                }
+                None if close_only => grip_width(&spots) * 24 + (base - anchor).abs(),
+                None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs(),
             };
             if best.as_ref().is_none_or(|(c, _)| cost < *c) {
-                // Back into the order the steps were dealt in:
-                // `collected_notes` is indexed by that, so a grip handed back
-                // stacked would light the wrong dots green.
-                let mut out = vec![None; spots.len()];
-                for (spot, &i) in spots.into_iter().zip(order.iter()) {
-                    out[i] = Some(spot);
-                }
-                best = Some((cost, out.into_iter().flatten().collect()));
+                best = Some((cost, in_dealt_order(spots, &order)));
             }
         }
     }
     best.map(|(_, s)| s).unwrap_or_else(|| place(root_pc, intervals, steps, names))
+}
+
+/// Which voice sits where, bottom up, as indices into `notes`.
+///
+/// Normally the order the steps are DEALT in, so a set written 1 3 5 is
+/// stacked in that order, each voice above the one below it.
+///
+/// That is what spread the grips out under the shuffle: a set dealt 5 1 3 has
+/// to climb in that order, which is an octave and a half wide and not a grip
+/// anybody plays. Close forms instead stack the set in its written order and
+/// ROTATE it, so the note asked for first is the bass - root position and its
+/// two inversions for a triad, and the same for a shell. Measured over 12 roots
+/// x 3 qualities x 3 inversions: every triad comes out between 6 and 9
+/// semitones wide.
+fn voice_order(notes: &[(usize, i32)], close_only: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..notes.len()).collect();
+    let mut degrees: Vec<usize> = notes.iter().map(|&(degree, _)| degree).collect();
+    degrees.sort_unstable();
+    let distinct = degrees.windows(2).all(|w| w[0] != w[1]);
+    if !close_only || !distinct {
+        return order;
+    }
+    order.sort_by_key(|&i| notes[i].0);
+    let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
+    order.rotate_left(lead);
+    order
+}
+
+/// The stack laid on `strings`, one note each, with the hand at fret `base` -
+/// or `None` where it does not fit under one hand.
+fn stack_grip(
+    stack: &[(usize, i32)],
+    strings: &[usize],
+    base: i32,
+    intervals: &[u8],
+    names: &[String],
+) -> Option<Vec<Spot>> {
+    let mut spots = Vec::with_capacity(stack.len());
+    let mut last_pitch = i32::MIN;
+    for (&(degree, pc), &string) in stack.iter().zip(strings) {
+        // The lowest fret at or above the hand's position that plays it.
+        let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
+        let pitch = TUNING[string] + fret;
+        // A grip covers four frets, and a voicing rises with the strings: two
+        // notes crossing over read as a mistake on paper even when the hand
+        // could take them.
+        if fret > base + 4 || fret > 17 || pitch <= last_pitch {
+            return None;
+        }
+        last_pitch = pitch;
+        spots.push(Spot {
+            string,
+            fret,
+            // The degree, not the distance from the bottom string.
+            interval: intervals.get(degree).copied().unwrap_or(0) as i32,
+            name: names.get(degree).map(|n| spell(n)),
+        });
+    }
+    Some(spots)
+}
+
+/// Voice leading: how far each finger has to travel from the grip before.
+/// Strings count too, or a grip two strings over with the same frets would
+/// look like no movement at all.
+fn voice_travel(prev: &[Spot], spots: &[Spot]) -> i32 {
+    prev.iter()
+        .zip(spots)
+        .map(|(a, b)| (a.fret - b.fret).abs() + (a.string as i32 - b.string as i32).abs() * 2)
+        .sum()
+}
+
+/// Semitones from the lowest voice of a grip to the highest.
+fn grip_width(spots: &[Spot]) -> i32 {
+    let pitch = |spot: &Spot| TUNING[spot.string] + spot.fret;
+    match (spots.first(), spots.last()) {
+        (Some(low), Some(high)) => pitch(high) - pitch(low),
+        _ => 0,
+    }
+}
+
+/// The grip back in the order the steps were dealt in: `collected_notes` is
+/// indexed by that, so a grip handed back stacked would light the wrong dots
+/// green.
+fn in_dealt_order(spots: Vec<Spot>, order: &[usize]) -> Vec<Spot> {
+    let mut out = vec![None; spots.len()];
+    for (spot, &i) in spots.into_iter().zip(order) {
+        out[i] = Some(spot);
+    }
+    out.into_iter().flatten().collect()
 }
 
 /// Sets of `n` strings, low to high, that a hand can take at once: neighbours,
