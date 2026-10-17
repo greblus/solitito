@@ -785,89 +785,46 @@ impl MyApp {
         }
     }
 
+    /// The steps of the exercise over `chord`, read from the interval text -
+    /// or, over the changes, built for the chord.
     pub fn get_active_indices(&self, chord: &Chord) -> Vec<Step> {
         // Over the changes there is no written phrase to read: the arpeggio is
         // built for the chord and for where it falls in the progression.
         if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 1 {
             return self.changes_run(chord, self.changes_descending());
         }
-        let all_names = chord.quality.interval_names(); 
-        let user_tokens: Vec<&str> = self.intervals_input.split_whitespace().collect();
-        let mut indices = Vec::new();
-        
-        if self.app_mode == AppMode::Arpeggios {
-            for token in user_tokens {
-                let (token, octave) = split_octave(token);
-                let target_idx = match token {
-                    "1" | "8" => 0,
-                    "3" => 1,
-                    "5" => 2,
-                    "7" => 3,
-                    "9" => if all_names.len() > 4 { 4 } else if all_names.len() > 1 { 1 } else { 0 },
-                    _ => 999
-                };
-                
-                if target_idx < all_names.len() {
-                    indices.push(Step { degree: target_idx, octave });
-                } else if token == "9" {
-                    if let Some(pos) = all_names.iter().position(|n| n.contains("2") || n.contains("9")) {
-                        indices.push(Step { degree: pos, octave });
-                    }
-                }
-            }
-        } else {
-            for token in user_tokens {
-                 let (token, octave) = split_octave(token);
-                 // An exact name wins wherever it sits, and is looked for
-                 // across the whole set before anything else. The loose rules
-                 // below answer "the third of this chord, whatever it is" for a
-                 // token the set spells differently - but they were being asked
-                 // first, name by name, so in a scale holding both `#2` and `3`
-                 // the token `3` stopped at `#2` and took it. Ten of the
-                 // twenty-six built-in scales walked a step twice that way and
-                 // never asked for the one it had swallowed: the altered scale
-                 // read 1 b2 #2 #2 b5 #5 b7, and Bebop Dominant ended b7 b7.
-                 if let Some(idx) = all_names.iter().position(|n| n == token) {
-                     indices.push(Step { degree: idx, octave });
-                     continue;
-                 }
-                 for (idx, name) in all_names.iter().enumerate() {
-                    let is_match = if token == name { true } else {
-                        match token {
-                            "3" => name.contains("3") || name == "#2",
-                            "5" => name.contains("5") || name == "#4",
-                            "7" => name.contains("7") || name == "6" && name.contains("dim"), 
-                            "2" | "9" => name.contains("2") || name.contains("9"),
-                            "4" | "11" => name.contains("4") || name.contains("11"),
-                            "6" | "13" => name.contains("6") || name.contains("13"),
-                            "b9" => name == "b9", "#9" => name == "#9",
-                            _ => false
-                        }
-                    };
-                    if is_match { indices.push(Step { degree: idx, octave }); break; } 
-                 }
-            }
-        }
-        
+        let names = chord.quality.interval_names();
+        let read_step = |token: &str| {
+            let (token, octave) = split_octave(token);
+            let degree = if self.app_mode == AppMode::Arpeggios {
+                arpeggio_degree(token, &names)
+            } else {
+                scale_degree(token, &names)
+            };
+            degree.map(|degree| Step { degree, octave })
+        };
+        let mut steps: Vec<Step> = self.intervals_input.split_whitespace().filter_map(read_step).collect();
+
         // A scale read as a scale ends where it started: the same note an octave
         // up. It is a step of its own, so it has to be played - and it is marked
         // an octave up, which is what puts the tick on the strip as `1'`.
-        if self.app_mode == AppMode::Scales && self.scale_repeat_root && !indices.is_empty() {
-            indices.push(Step { degree: indices[0].degree, octave: indices[0].octave + 1 });
+        if self.app_mode == AppMode::Scales && self.scale_repeat_root {
+            if let Some(&first) = steps.first() {
+                steps.push(Step { degree: first.degree, octave: first.octave + 1 });
+            }
         }
 
         // Down as often as up: a scale known in one direction is half known -
         // the fingers learn the climb and the ear never hears the descent. The
         // way is drawn with the string it starts from, once per pass.
         if self.app_mode == AppMode::Scales && self.scale_descending {
-            indices.reverse();
+            steps.reverse();
         }
 
-        if indices.is_empty() {
-             if !all_names.is_empty() { vec![Step { degree: 0, octave: 0 }] } else { vec![] }
-        } else {
-            indices
+        if steps.is_empty() && !names.is_empty() {
+            steps.push(Step { degree: 0, octave: 0 });
         }
+        steps
     }
 
     /// `get_active_indices` in play order. Without randomisation this is the
@@ -2845,6 +2802,50 @@ impl MyApp {
             self.last_pitches = [0.0; 12];
             self.prev_pitches = [0.0; 12];
         }
+    }
+}
+
+/// The degree an arpeggio token asks for: the chord tones by number, in the
+/// order the chord's names are written.
+fn arpeggio_degree(token: &str, names: &[String]) -> Option<usize> {
+    let degree = match token {
+        "1" | "8" => 0,
+        "3" => 1,
+        "5" => 2,
+        "7" => 3,
+        "9" if names.len() > 4 => 4,
+        "9" if names.len() > 1 => 1,
+        "9" => 0,
+        _ => return None,
+    };
+    (degree < names.len()).then_some(degree)
+}
+
+/// The degree a scale or interval token asks for.
+///
+/// An exact name wins wherever it sits, and is looked for across the whole set
+/// before anything else. The loose rules answer "the third of this chord,
+/// whatever it is" for a token the set spells differently - asked first, name
+/// by name, they made the token `3` stop at `#2` in a scale holding both.
+fn scale_degree(token: &str, names: &[String]) -> Option<usize> {
+    names
+        .iter()
+        .position(|name| name == token)
+        .or_else(|| names.iter().position(|name| loosely_names(token, name)))
+}
+
+/// Whether `name` is what `token` means, spelled another way.
+fn loosely_names(token: &str, name: &str) -> bool {
+    match token {
+        "3" => name.contains('3') || name == "#2",
+        "5" => name.contains('5') || name == "#4",
+        "7" => name.contains('7') || name == "6" && name.contains("dim"),
+        "2" | "9" => name.contains('2') || name.contains('9'),
+        "4" | "11" => name.contains('4') || name.contains("11"),
+        "6" | "13" => name.contains('6') || name.contains("13"),
+        "b9" => name == "b9",
+        "#9" => name == "#9",
+        _ => false,
     }
 }
 
