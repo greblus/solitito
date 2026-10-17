@@ -1490,26 +1490,28 @@ impl MyApp {
                     self.formula_chord = Some(self.draw_practice_chord());
                 }
             }
-            2 => {
-                if self.chords.is_empty() {
-                    // No tune loaded yet: one drawn chord is better than none,
-                    // and the tune takes over as soon as it arrives.
-                    if self.formula_chord.is_none() {
-                        self.formula_chord = Some(self.draw_practice_chord());
-                    }
-                    return;
-                }
-                if advance {
-                    self.current_chord_index =
-                        (self.current_chord_index + 1) % self.chords.len();
-                }
-                self.formula_chord = Some(self.chords[self.current_chord_index].clone());
-            }
+            2 => self.take_tune_chord(advance),
             _ => {
                 self.formula_chord = None;
                 self.formula_verdict = None;
             }
         }
+    }
+
+    /// Over the changes: the tune's chord, or the next one along when `advance`.
+    fn take_tune_chord(&mut self, advance: bool) {
+        if self.chords.is_empty() {
+            // No tune loaded yet: one drawn chord is better than none, and the
+            // tune takes over as soon as it arrives.
+            if self.formula_chord.is_none() {
+                self.formula_chord = Some(self.draw_practice_chord());
+            }
+            return;
+        }
+        if advance {
+            self.current_chord_index = (self.current_chord_index + 1) % self.chords.len();
+        }
+        self.formula_chord = Some(self.chords[self.current_chord_index].clone());
     }
 
     /// The next chord of the tune, with a placement drawn on it.
@@ -2491,10 +2493,12 @@ impl MyApp {
         // Without the detector: an octave jump is believed only with an attack
         // behind it, which is what made it a leak - see above.
         let fresh_attack = self.flux_seen && self.flux_id != c.flux && self.flux_age <= FLUX_FRESH;
-        if let (Some(now), Some(then)) = (self.cqt_semitone, c.semitone) {
-            if fresh_attack && now % 12 == pc && (now >= then + 6 || now + 6 <= then) {
-                return true;
-            }
+        let played_an_octave_away = match (self.cqt_semitone, c.semitone) {
+            (Some(now), Some(then)) => now % 12 == pc && (now >= then + 6 || now + 6 <= then),
+            _ => false,
+        };
+        if fresh_attack && played_an_octave_away {
+            return true;
         }
         // Pitch-blind, on purpose. The take6 onset head, asked WHICH class was
         // struck, answered 33 of AtoA's 51 notes right, 50 in the wrong class
@@ -2537,34 +2541,34 @@ impl MyApp {
         let quiet_for = self.quiet_for;
         let know_voices = self.voices_seen;
         for (c, credit) in self.credited.iter_mut().enumerate() {
-            if let Some(cr) = credit {
-                if cr.settle > 0.0 {
-                    cr.settle = (cr.settle - dt).max(0.0);
-                }
-                // This note has gone quiet, and what is heard from it next is
-                // a new pluck. Without it a note asked for again a few steps
-                // later could not be credited at all when no detector caught
-                // the pluck - the fretboard trainer stuck on a note that
-                // was plainly right.
-                //
-                // "Something else is the loudest thing" is not that note going
-                // quiet, and taking it for that is how a note credited in one
-                // chord was credited again in the next: by the boundary the
-                // other steps had been heard, so `left` was set, and the note
-                // only had to still be ringing for the new chord to take it.
-                // Shuffle made it show by putting a shared class at the
-                // boundary, which a fixed progression may never do.
-                //
-                // So `voices` decides, which explains the spectrum rather than
-                // ranking it: a class in it is sounding, loudest or not. Where
-                // it says nothing at all - no audio yet - the older reading
-                // stands, and the gate is no stricter than it was.
-                if cr.settle <= 0.0
-                    && elsewhere.is_some_and(|other| other != c)
-                    && (!know_voices || quiet_for[c] >= GONE_QUIET)
-                {
-                    cr.left = true;
-                }
+            let Some(cr) = credit else {
+                continue;
+            };
+            if cr.settle > 0.0 {
+                cr.settle = (cr.settle - dt).max(0.0);
+            }
+            // This note has gone quiet, and what is heard from it next is
+            // a new pluck. Without it a note asked for again a few steps
+            // later could not be credited at all when no detector caught
+            // the pluck - the fretboard trainer stuck on a note that
+            // was plainly right.
+            //
+            // "Something else is the loudest thing" is not that note going
+            // quiet, and taking it for that is how a note credited in one
+            // chord was credited again in the next: by the boundary the
+            // other steps had been heard, so `left` was set, and the note
+            // only had to still be ringing for the new chord to take it.
+            // Shuffle made it show by putting a shared class at the
+            // boundary, which a fixed progression may never do.
+            //
+            // So `voices` decides, which explains the spectrum rather than
+            // ranking it: a class in it is sounding, loudest or not. Where
+            // it says nothing at all - no audio yet - the older reading
+            // stands, and the gate is no stricter than it was.
+            let other_note_heard = elsewhere.is_some_and(|other| other != c);
+            let gone_quiet = !know_voices || quiet_for[c] >= GONE_QUIET;
+            if cr.settle <= 0.0 && other_note_heard && gone_quiet {
+                cr.left = true;
             }
         }
     }
@@ -2762,56 +2766,20 @@ impl MyApp {
         self.update_collected_notes_size();
     }
 
+    /// Hands the audio thread the settings, and takes from it what it has
+    /// heard since the last frame.
     pub fn sync_audio_settings(&mut self) {
-        let mut gate_open = false;
-        if let Ok(mut state) = self.analysis_state.lock() {
-            state.noise_gate = self.noise_gate;
-            state.bass_boost_enabled = self.bass_boost_enabled;
-            state.bass_boost_gain = self.bass_boost_gain;
-            // How long the single-frame estimate has been saying the same
-            // thing. Counted for every mode, not only Formulas, because a
-            // reading that has held for a few frames is the difference between
-            // a note played and the room answering back - see the fretboard
-            // drawing, which flickered on every stray reading before this.
-            if state.frames_seen != self.audio_frames {
-                if state.cqt_pitch.is_some() && state.cqt_pitch == self.steady_pitch {
-                    self.steady_for = self.steady_for.saturating_add(1);
-                } else {
-                    self.steady_pitch = state.cqt_pitch;
-                    self.steady_for = 1;
-                }
+        let analysis = Arc::clone(&self.analysis_state);
+        let gate_open = match analysis.lock() {
+            Ok(mut state) => {
+                state.noise_gate = self.noise_gate;
+                state.bass_boost_enabled = self.bass_boost_enabled;
+                state.bass_boost_gain = self.bass_boost_gain;
+                self.read_audio_frame(&state);
+                state.gate_open
             }
-            self.cqt_pitch = state.cqt_pitch;
-            self.cqt_semitone = state.cqt_semitone;
-            self.onset_id = state.onset_id;
-            if state.flux_id != self.flux_id {
-                self.flux_seen = true;
-            }
-            self.flux_id = state.flux_id;
-            self.flux_age = state.flux_age;
-            self.class_strikes = state.class_strikes;
-            self.class_strike_age = state.class_strike_age;
-            self.strikes_live = state.strikes_live;
-            self.capture_hop = state.hops;
-            // On the audio clock, which is also the one the tests drive. A
-            // closed noise gate stops it, and that case has its own rule: see
-            // `interval_silence`.
-            if state.voices != 0 {
-                self.voices_seen = true;
-            }
-            if state.frames_seen != self.audio_frames {
-                for pc in 0..12 {
-                    if state.voices & (1 << pc) == 0 {
-                        self.quiet_for[pc] = self.quiet_for[pc].saturating_add(1);
-                    } else {
-                        self.quiet_for[pc] = 0;
-                    }
-                }
-            }
-            self.voices = state.voices;
-            self.audio_frames = state.frames_seen;
-            gate_open = state.gate_open;
-        }
+            Err(_) => false,
+        };
         self.audio_gate_open = gate_open;
         // Nothing refreshes the pitch vector while the gate is shut - the model
         // is not even asked - so without this it keeps its last value for as
@@ -2820,6 +2788,58 @@ impl MyApp {
         if !gate_open {
             self.last_pitches = [0.0; 12];
             self.prev_pitches = [0.0; 12];
+        }
+    }
+
+    /// What the audio thread has heard, copied into the judge.
+    fn read_audio_frame(&mut self, state: &AudioAnalysis) {
+        if state.frames_seen != self.audio_frames {
+            self.count_steady_pitch(state.cqt_pitch);
+            self.count_quiet_classes(state.voices);
+        }
+        self.cqt_pitch = state.cqt_pitch;
+        self.cqt_semitone = state.cqt_semitone;
+        self.onset_id = state.onset_id;
+        if state.flux_id != self.flux_id {
+            self.flux_seen = true;
+        }
+        self.flux_id = state.flux_id;
+        self.flux_age = state.flux_age;
+        self.class_strikes = state.class_strikes;
+        self.class_strike_age = state.class_strike_age;
+        self.strikes_live = state.strikes_live;
+        self.capture_hop = state.hops;
+        if state.voices != 0 {
+            self.voices_seen = true;
+        }
+        self.voices = state.voices;
+        self.audio_frames = state.frames_seen;
+    }
+
+    /// How long the single-frame estimate has been saying the same thing.
+    /// Counted for every mode, not only Formulas, because a reading that has
+    /// held for a few frames is the difference between a note played and the
+    /// room answering back - see the fretboard drawing, which flickered on
+    /// every stray reading before this.
+    fn count_steady_pitch(&mut self, pitch: Option<usize>) {
+        if pitch.is_some() && pitch == self.steady_pitch {
+            self.steady_for = self.steady_for.saturating_add(1);
+        } else {
+            self.steady_pitch = pitch;
+            self.steady_for = 1;
+        }
+    }
+
+    /// How many frames each class has been out of the voices. On the audio
+    /// clock, which is also the one the tests drive. A closed noise gate stops
+    /// it, and that case has its own rule: see `interval_silence`.
+    fn count_quiet_classes(&mut self, voices: u16) {
+        for (pc, quiet) in self.quiet_for.iter_mut().enumerate() {
+            if voices & (1 << pc) == 0 {
+                *quiet = quiet.saturating_add(1);
+            } else {
+                *quiet = 0;
+            }
         }
     }
 }
