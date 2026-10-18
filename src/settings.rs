@@ -262,16 +262,45 @@ fn tablature() -> usize {
     1
 }
 
+/// How a mode shows its exercise. Saved per mode as its index, 0 to 3.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum Preview {
+    /// The steps as a line of names, nothing drawn.
+    Names,
+    /// Tablature: one column per note, in the order they are played.
+    Tab,
+    /// The neck: every note where the finger goes.
+    Neck,
+    /// The chord's degrees as tiles. Intervals only.
+    Tiles,
+}
+
+impl Preview {
+    /// Whether the exercise is drawn on strings, as tablature or the neck.
+    pub fn draws_on_neck(self) -> bool {
+        matches!(self, Preview::Tab | Preview::Neck)
+    }
+}
+
+impl From<i32> for Preview {
+    fn from(index: i32) -> Self {
+        match index {
+            1 => Preview::Tab,
+            2 => Preview::Neck,
+            3 => Preview::Tiles,
+            _ => Preview::Names,
+        }
+    }
+}
+
+pub const PREVIEW_TILES: usize = Preview::Tiles as usize;
+
 /// How each mode shows its exercise when nothing has been saved for it.
 /// Tablature where the exercise is a line of notes, the neck where it is a
 /// shape: Intervals hands the fingers three or four notes at once and the
 /// fretboard trainer one note whose whole point is WHERE it lies. Chords and
 /// Formulas draw neither and keep an entry only so the index stays the
 /// `AppMode` discriminant.
-/// The fourth way to show an exercise, after the line of names, tablature
-/// and the neck: the chord's degrees as tiles. Intervals only.
-pub const PREVIEW_TILES: usize = 3;
-
 pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 2, 1];
 
 fn yes() -> bool {

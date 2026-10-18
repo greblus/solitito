@@ -71,10 +71,6 @@ const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
 /// affect, so setting it cannot feed back into another resize.
 /// Whether the exercise is drawn - as tablature (1) or on the neck (2) -
 /// rather than written as a line of names (0) or as tiles (3).
-fn draws_on_neck(preview: i32) -> bool {
-    preview == 1 || preview == 2
-}
-
 fn fit_ui_to_window(ui: &AppWindow) {
     let size = ui.window().size();
     // Before the window is mapped, and when minimised on some platforms.

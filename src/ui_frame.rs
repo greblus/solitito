@@ -16,12 +16,12 @@ use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use crate::i18n::{self, Lang};
 use crate::latch::ChordLatch;
 use crate::model::{self, Chord, NoteName};
-use crate::settings::{self, Settings};
+use crate::settings::{Preview, Settings};
 use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
 use crate::{diagrams, formulas, tab};
 use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Tr};
 use crate::{
-    db_to_lin, draws_on_neck, lin_to_db, rescan_devices, set_if_changed, svg_icon, MIN_FILL_CHORD,
+    db_to_lin, lin_to_db, rescan_devices, set_if_changed, svg_icon, MIN_FILL_CHORD,
 };
 
 /// What the frame shares with the rest of the app.
@@ -692,7 +692,7 @@ impl UiFrame {
     /// is sounding lies, green if it is the one asked for. Nothing before that
     /// - drawing the target first would turn the mode into copying a picture.
     fn draw_fretboard_region(&mut self, ui: &AppWindow, app: &MyApp) {
-        if !draws_on_neck(ui.get_preview()) {
+        if !Preview::from(ui.get_preview()).draws_on_neck() {
             self.clear_drawing(ui);
             return;
         }
@@ -771,7 +771,7 @@ impl UiFrame {
         // Nor in Scales or Arpeggios: the drawing says which string every
         // note is on, so a line naming one of them says less than the
         // picture does.
-        let drawn_grip = draws_on_neck(ui.get_preview())
+        let drawn_grip = Preview::from(ui.get_preview()).draws_on_neck()
             && matches!(
                 app.app_mode,
                 AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
@@ -983,7 +983,7 @@ impl UiFrame {
         // falls on in this chord. Pushed only when something changed:
         // a new model every frame would rebuild every tile.
         if app.app_mode == AppMode::Intervals
-            && ui.get_preview() == settings::PREVIEW_TILES as i32
+            && Preview::from(ui.get_preview()) == Preview::Tiles
         {
             let key = formulas::parse_key(chord.root.to_string());
             let intervals = chord.quality.intervals();
@@ -1026,7 +1026,7 @@ impl UiFrame {
             app.app_mode,
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
         );
-        if !drawable || !draws_on_neck(ui.get_preview()) {
+        if !drawable || !Preview::from(ui.get_preview()).draws_on_neck() {
             self.clear_drawing(ui);
             return;
         }
@@ -1072,7 +1072,7 @@ impl UiFrame {
             // the opposite.
             let due = app.note_due().unwrap_or(spots.len());
             (tab::grip(&spots, done, due, frets), tab::grip_aspect())
-        } else if ui.get_preview() == 1 {
+        } else if Preview::from(ui.get_preview()) == Preview::Tab {
             (tab::svg(&spots, done, app.current_note_step, frets), tab::aspect(spots.len()))
         } else {
             (tab::neck(&spots, done, app.current_note_step, frets), tab::neck_aspect(&spots))
