@@ -116,15 +116,11 @@ impl Credits {
             return true;
         }
         let elsewhere = heard.cqt_pitch.is_some_and(|now| now != pc);
-        // THIS class struck since its credit, and just now - the question the
-        // rule always meant to ask, and the first evidence that can answer it.
-        // A note played again an octave away is a strike of the same class and
-        // counts through here; nothing else needs to look at octaves.
-        //
-        // Measured on every note of AtoA spliced with itself: of 58 permissions
-        // given while the note was only ringing, 50 came from the octave branch
-        // below - the estimate flips an octave on a decaying note and the rule
-        // read the flip as a new pluck - and 8 from the pitch-blind attack.
+        // THIS class struck since its credit, and just now - the question the rule
+        // always meant to ask, and the first evidence that can answer it. A note played
+        // again an octave away is a strike of the same class and counts through here;
+        // nothing else needs to look at octaves. Without the detector, an octave flip
+        // of a decaying note was the main leak: `docs/judge-measurements.md#struck_since`.
         if heard.strikes_live {
             return heard.class_strikes[pc] != c.class_strike
                 && heard.class_strike_age[pc] <= CLASS_FRESH
@@ -140,26 +136,16 @@ impl Credits {
         if fresh_attack && played_an_octave_away {
             return true;
         }
-        // Pitch-blind, on purpose. The take6 onset head, asked WHICH class was
-        // struck, answered 33 of AtoA's 51 notes right, 50 in the wrong class
-        // and 18 twice.
+        // Pitch-blind, on purpose: whether a string was hit is a far easier question
+        // than which one, and the flux detector answers it without a class to get
+        // wrong. WHICH note it was is left to the monophonic estimate, which names the
+        // loudest class - see `docs/judge-measurements.md#struck_since`.
         //
-        // Whether a string was hit at all is a far easier question, and the
-        // flux detector answers it without a class to get wrong: 47 of the same
-        // 51 notes, 14 reports outside them, no pluck reported twice.
-        //
-        // WHICH note it was is then left to the monophonic estimate above,
-        // which names the loudest class - a fundamental, not its harmonics.
-        // JUST NOW, not merely since. The counter is pitch-blind by design, so
-        // "an attack since the credit" is satisfied by any other step of the
-        // exercise being played - and by the time a chord hands over, several
-        // have been. That is how a note credited in one chord was credited
-        // again in the next while it merely rang on: shuffle put a shared class
-        // at the boundary, the counter had moved, and nothing else objected.
-        //
-        // A string struck again while it still rings is a different thing and
-        // has to keep working, so this cannot ask for silence first - only for
-        // the hit to be happening now.
+        // JUST NOW, not merely since. The counter is pitch-blind, so "an attack since
+        // the credit" is satisfied by any other step being played - which is how a note
+        // credited in one chord was credited again in the next while it merely rang on.
+        // A string struck again while it still rings has to keep working, so this
+        // cannot ask for silence first - only for the hit to be happening now.
         let struck = if heard.flux_seen {
             heard.flux_id != c.flux && heard.flux_age <= FLUX_FRESH
         } else {

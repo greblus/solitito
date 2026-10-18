@@ -190,50 +190,31 @@ pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
 /// enough to be over before anyone has played the next note.
 const LAP_HOLD: f32 = 0.25;
 
-/// How steady the single-frame estimate has to be: this many of the last
-/// `EAR_WINDOW` ticks naming the class.
-///
-/// A vote, not a run. A run broke on any single stray frame and had to start
-/// over, and at half a second to the note - which is not fast playing - the
-/// estimate flickers between the note arriving and the one still ringing, so
-/// the run was rarely reached before the next note began. Four of five
-/// forgives one stray frame and still refuses a reading that cannot make up its
-/// mind: an estimate alternating between two classes reaches two, never three.
-
 /// Hops after the strike detector reports a class within which that class
 /// counts as struck for "credit only what was struck": about 0.35 s.
 ///
-/// Measured through the whole judge (`onset_sources`): on AtoA's 51 notes it
-/// took the 57 false credits the onset head let through the model's branches
-/// down to none, with no note missed and no later credit, and anywhere from 6
-/// to 50 hops gave the same. A strummed chord pays for it: the detector
-/// reports one class per strum, so 47 of 68 chord tones passed against 62 -
-/// the rest wait for the ear.
+/// On AtoA it took the false credits of the model's branches from 57 to none,
+/// with no note missed; anything from 6 to 50 hops did the same. A strum pays
+/// for it: the detector reports one class per strum. Measurements:
+/// `docs/judge-measurements.md#struck_fresh`.
 const STRUCK_FRESH: u32 = 22;
 
 /// Hops after the strike detector reports a strike during which the ear may
 /// credit only a class the detector reported struck: about 0.25 s.
 ///
-/// The FFT window is half a second wide, so just after an attack it holds the
-/// note before and the new one together, and the estimate wanders - after C,
-/// a D read as F for 13 hops before it settled. In Formulas that one reading
-/// is a mark for the rest of the exercise. Measured on AtoA, the ear's false
-/// credits went from 124 to 62 (82 to 36 one note at a time) with no note
-/// missed or later; on four sessions of the user's playing, 388 credits, it
-/// cost nothing; 16 hops did all that 22 and 30 did.
+/// Just after an attack the half-second FFT window holds the old note and the
+/// new one together, and the estimate wanders. On AtoA this halved the ear's
+/// false credits, 124 to 62, with no note missed. Measurements:
+/// `docs/judge-measurements.md#ear_settle`.
 const EAR_SETTLE: u32 = 16;
 
 /// In Formulas, hops back the strike detector must have reported a class for
 /// the ear to credit it at all: 3 s.
 ///
-/// As a note dies away the estimate can settle on another class - a fourth
-/// above, the note whose third harmonic it is - and name it steadily from
-/// about 1.8 s on. A mark in Formulas never expires, so there it takes a
-/// strike. Measured with it everywhere: AtoA's false credits 62 -> 3, ringing
-/// notes credited in a next chord with no strike 20 -> 12 of 113 (the rest
-/// played, quietly). The cost kept it out of the other modes: 15 more of 388
-/// session credits lost - quiet notes, legato ones, the low strings, which
-/// the detector does not see - and a strummed chord's tones 46 -> 20 of 68.
+/// A dying note can make the estimate settle on another class, and a mark in
+/// Formulas never expires. On AtoA: false credits 62 to 3. Kept out of the other
+/// modes because there it loses quiet and legato notes. Measurements:
+/// `docs/judge-measurements.md#ear_backed`.
 const EAR_BACKED: u32 = 188;
 
 /// Hops within which an attack still counts as happening now: about 0.2 s.
@@ -247,10 +228,8 @@ const FLUX_FRESH: u32 = 12;
 ///
 /// Longer than `FLUX_FRESH` because the strike is reported at the attack and the
 /// credit waits for the ear to settle on the note, which takes up to 0.4 s.
-///
-/// Asking for a flux attack beside the strike as well was measured and dropped:
-/// on AtoA's notes struck twice it took one false permission away and twelve
-/// real re-strikes with it.
+/// Asking for a flux attack as well was measured and dropped:
+/// `docs/judge-measurements.md#class_fresh`.
 const CLASS_FRESH: u32 = 38;
 
 /// A class struck this recently when the exercise moves on was played for the
@@ -302,6 +281,15 @@ pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
     ("dim7", ChordQuality::Diminished),
 ];
 
+/// How steady the single-frame estimate has to be: this many of the last
+/// `EAR_WINDOW` ticks naming the class.
+///
+/// A vote, not a run. A run broke on any single stray frame and had to start
+/// over, and at half a second to the note - which is not fast playing - the
+/// estimate flickers between the note arriving and the one still ringing, so
+/// the run was rarely reached before the next note began. Four of five
+/// forgives one stray frame and still refuses a reading that cannot make up its
+/// mind: an estimate alternating between two classes reaches two, never three.
 const EAR_VOTES: usize = 4;
 const EAR_WINDOW: usize = 5;
 
@@ -309,28 +297,9 @@ const EAR_WINDOW: usize = 5;
 /// is credited, in audio frames of 16 ms - and how long a DIFFERENT note has to
 /// have been named before the one credited counts as having stopped sounding.
 ///
-/// Measured on a 20 s recording of single notes, at its own level and at 6, 12
-/// and 18 dB below it, against what the estimate reads at full level. Per frame
-/// of a note actually sounding, credited correctly / named as some other note:
-///
-/// | rule          | full   | -6 dB  | -12 dB | -18 dB |
-/// |---------------|--------|--------|--------|--------|
-/// | three frames  | 88/0 % | 86/0 % | 84/1 % | 80/1 % |
-/// | two frames    | 93/0 % | 90/1 % | 87/2 % | 83/3 % |
-/// | 2 of the last 5 | 91/8 % | 90/9 % | 89/9 % | 87/12 % |
-///
-/// Two frames is the whole of the gain: it credits five points more of what is
-/// played at any level and still names almost nothing wrong. A vote over a
-/// window - which is what Formulas uses, see `EAR_VOTES` - buys no more than
-/// that and misnames one frame in ten, which is the "it credits notes I never
-/// played" this mode had before.
-///
-/// What is NOT the constraint: the estimate's own score gate. On that recording
-/// the lowest score of any reading was 0.52 against a `MONO_MIN_SCORE` of 0.50,
-/// so lowering it would have changed nothing. What does bind, before any of
-/// this, is the noise gate: at the recording's own level the default -34 dBFS
-/// passes 78 % of frames to the analyser, 6 dB softer 36 %, and 12 dB softer
-/// none at all.
+/// Two frames credit about five points more of what is played than three, at any
+/// level, and still name almost nothing wrong; a vote over a window misnames one
+/// frame in ten. Measurements: `docs/judge-measurements.md#credit_ticks`.
 const CREDIT_TICKS: u32 = 2;
 const LEFT_TICKS: u32 = 3;
 
@@ -527,22 +496,13 @@ pub struct MyApp {
     /// credits the older one on level; the newer one only stands out by how much
     /// it rose, which is what this is for.
     pub prev_pitches: [f32; 12],
-    /// "Credit only what was struck": the model's branches may credit a class
-    /// only while it counts as struck just now - see `struck_just_now`.
+    /// "Credit only what was struck": the model's branches may credit a class only
+    /// while it counts as struck just now - see `struck_just_now`.
     ///
-    /// The pitch head answers what SOUNDS: measured on a real recording it is
-    /// right about that in 94% of frames and still leaves 78% of notes with
-    /// some class lit that nobody played - an open string ringing in sympathy
-    /// is sounding, and so is the note before. Off by default.
-    ///
-    /// Measured on a recording of single notes (`--probe`, 364 frames the app
-    /// would ask about): of 83 credits the model would hand out for a class
-    /// other than the one being played, two thirds carry no attack at all, and
-    /// almost all of those are the PREVIOUS note still inside the model's
-    /// 0.77 s window - which is what this tells apart. The notes themselves keep passing on the CQT branch, which this
-    /// does not touch, so on that recording it costs nothing; an earlier
-    /// measurement of the whole crediting rule put the cost at 4 missed notes
-    /// in 49, so it is not free everywhere. Hence an option, not a default.
+    /// The pitch head answers what SOUNDS, which includes the previous note still
+    /// inside its 0.77 s window and strings ringing in sympathy. Not free on every
+    /// recording - 4 missed notes in 49 once - hence an option, off by default. See
+    /// `docs/judge-measurements.md#require_onset`.
     pub require_onset: bool,
     /// Judge formulas the strict way - the steady single-frame estimate alone -
     /// instead of the rule the note modes use.

@@ -6,15 +6,11 @@ use super::*;
 impl MyApp {
     /// Is the requested pitch class sounding right now?
     ///
-    /// Shared by the note modes and the fretboard trainer so the two cannot
-    /// drift apart. Four ways in, because no single one covers note practice:
-    ///
-    /// Measured on a scale at 0.6 s per note, the model's pitch head named the
-    /// note actually being played in 7% of windows and the PREVIOUS one in 79% -
-    /// not because it is wrong, but because it is asked about 0.77 s of audio and
-    /// faithfully reports both notes it heard. The CQT estimate looks at one
-    /// frame and got the current note 57% of the time, the previous one the rest,
-    /// and never a note that was not played at all.
+    /// Shared by the note modes and the fretboard trainer so the two cannot drift
+    /// apart. Four ways in, because no single one covers note practice: the model
+    /// hears the last 0.77 s and so mostly the PREVIOUS note, and the single-frame
+    /// estimate never names a note that was not played but misses more. See
+    /// `docs/judge-measurements.md#note_is_sounding`.
     pub(super) fn note_is_sounding(&self, pc: usize, ai_root: Option<NoteName>, confidence: f32) -> bool {
         self.sounding_by(pc, ai_root, confidence).is_some()
     }
@@ -29,14 +25,9 @@ impl MyApp {
         // Played one at a time, the ear decides alone - and has to have been
         // saying so for three frames, not one.
         //
-        // Measured over 49 notes of a real recording: the four ways below
-        // together credited 110 things nobody played, the steady estimate alone
-        // 33, and it missed nothing. Almost all of those 110 were the model's
-        // pitch head answering about a note still ringing inside its 0.77 s
-        // window - which is exactly what this option exists to refuse. Letting
-        // the model through "unless the estimate names something else" was not
-        // enough: it says nothing when the estimate is silent, and the root
-        // head was not held back at all.
+        // With the model's branches as well, almost all false credits were its pitch
+        // head answering about a note still ringing inside its 0.77 s window - see
+        // `docs/judge-measurements.md#one-at-a-time`.
         // Scales and arpeggios are played one note at a time by definition -
         // nobody strums an arpeggio - so the rule is in force there whether the
         // option is ticked or not, and the checkbox is not offered.

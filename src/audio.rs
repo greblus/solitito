@@ -507,14 +507,11 @@ const F0_HIGH_BIN: usize = 112;
 /// context window is 48 frames, so it reports everything that sounded in the
 /// last 0.77 s, and in note practice that is two or three notes at once.
 ///
-/// It has no memory of its own - but it is NOT the quick answer this comment
-/// used to claim. One frame is 512 ms of audio (`FFT_SIZE` at `TARGET_SR`),
-/// refreshed every 16 ms; the hop is what is short, not the window. Measured
-/// against material with known onsets (`dist/latency_material.py`) it names a
-/// new note at a median of 560 ms after the strike, against the model's 620 ms
-/// - the two paths sit on the same floor, and that floor is the window.
+/// It is not quicker than the model, though: one frame is 512 ms of audio, and
+/// both name a new note about 0.6 s after the strike - see `docs/judge-measurements.md#mono_pitch`.
 ///
-/// Returns the pitch class (0 = C) and the score of the winning bin.
+/// Returns the absolute semitone counted from the lowest CQT bin (`% 12` for the
+/// class) and the score of the winning bin.
 pub fn mono_pitch(norm_cqt: &[f32]) -> Option<(usize, f32)> {
     if norm_cqt.len() < CQT_BINS {
         return None;
@@ -569,17 +566,11 @@ fn strongest_bin(norm_cqt: &[f32]) -> Option<(usize, f32)> {
 
 /// The note whose partial won the sum, which may lie below the winner.
 ///
-/// Any partial can win the sum, because an impostor sitting on one of them
-/// collects the note's upper harmonics as its own: a fifth above shares the
-/// note's third and sixth, an octave shares every second one, and two octaves
-/// and a major third - the fifth harmonic - is what actually won for a third
-/// of a chromatic run of isolated plucks. The winner is therefore compared
-/// against every candidate that would explain it, lowest first, and the first
-/// one that stands up on its own bin takes it.
-///
-/// Measured on that run: 6 of 12 correct before, 12 of 12 after, with the
-/// model naming 11 of the same 12 - so the information was in the frame all
-/// along and the sum was the thing throwing it away.
+/// An impostor sitting on one of the note's partials collects its upper
+/// harmonics as its own, so the winner is compared against every candidate that
+/// would explain it, lowest first, and the first one that stands up on its own
+/// bin takes it. A chromatic run of isolated plucks: 6 of 12 right before, 12 of
+/// 12 after - see `docs/judge-measurements.md#true_fundamental`.
 fn true_fundamental(norm_cqt: &[f32], winner: usize, score: f32) -> usize {
     const IMPOSTOR_OFFSETS: [usize; 6] = [62, 56, 48, 38, 24, 14];
     IMPOSTOR_OFFSETS

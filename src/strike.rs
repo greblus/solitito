@@ -63,35 +63,19 @@ const FLOOR: f32 = 0.1;
 /// Hops after a strike of a class during which that class is not reported
 /// again: 0.6 s.
 ///
-/// The model fires on decaying notes: on the user's own playing, levelled, it
-/// reported a class again less than 0.6 s after itself 58 times, and at those
-/// moments the signal was LOSING energy - a median 0.95 of what it had been,
-/// against 3.3 at first firings. In the exercises a class comes back only after
-/// a credit, the 0.35 s the finished set is shown for and the player's reply,
-/// so nothing real is lost to this.
-///
-/// A gate on the class's own energy rising was tried instead, twice, and both
-/// times refused real re-strikes. The model fires about 26 ms after the attack,
-/// when the 128 ms window holds little of the new note and the old one has just
-/// been stopped by the pick, so the energy at that moment is FALLING: on AtoA's
-/// notes struck again 0.8 s later it let 3 of 51 through where this lets 48.
+/// The model fires on decaying notes, and those re-fires come while the signal
+/// is losing energy. In the exercises a class comes back only after a credit and
+/// the player's reply, so nothing real is lost. A gate on rising energy was tried
+/// instead and refused real re-strikes - see `docs/judge-measurements.md#strike-refractory`.
 pub const REFRACTORY: usize = 38;
 
-/// A class reported again within this many hops of its last strike - 3 s -
-/// has to show the energy RISING around the new one before it counts.
+/// A class reported again within this many hops of its last strike - 3 s - has
+/// to show the energy RISING around the new one before it counts.
 ///
-/// It was 2 s until a ringing Bb fired again 2.43 s after its strike, with no
-/// rise at all, and was credited in the next chord. Of 113 notes of the
-/// user's sessions left ringing into a chord that had them too, 3 s took that
-/// one out and changed nothing else measured; 4 s added nothing.
-///
-/// The refractory does not reach far enough: the model also fires on decaying
-/// notes later than 0.6 s. On the user's three recordings it fired a class
-/// again within 2 s of itself 37 times, and they fall in two groups with
-/// nothing between: 29 at an energy ratio of 0.89 to 1.03 - the note dying
-/// away, the false repeat the user reported among them, at 0.67 s - and 8 at
-/// 3.7 to 48.8, a string struck again. Only one of the 29 happened to land when
-/// that class was being asked for, which is why it was seen once.
+/// Past the refractory the model still fires on decaying notes. Those re-fires
+/// sit at an energy ratio near 1 and real re-strikes far above it, with nothing
+/// between. 2 s let a ringing Bb through at 2.43 s; 4 s added nothing. See
+/// `docs/judge-measurements.md#recheck`.
 const RECHECK: usize = 188;
 
 /// Least energy rise a re-fire within `RECHECK` must show. The gap it sits in

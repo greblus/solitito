@@ -40,32 +40,19 @@ const CLAIM: f32 = 0.7;
 /// of the first voice's score. A voice far quieter than the one found first is
 /// what is left of its own subtraction, not a string somebody struck.
 ///
-/// Measured on AtoA's single notes: the spurious extra voices score 0.53 to
-/// 0.67 of the first, so 0.4 let every one of them through and the count sat at
-/// the cap for every note.
-///
-/// 0.75 reads AtoA's isolated notes better still - one voice 48 times of 51
-/// against 46 - but loses a fifth sounding as loudly as the note below it,
-/// because the two share a partial and the subtraction takes it. Losing a tone
-/// that was played is worse here than two frames of a ghost: the point of this
-/// is to confirm that several strings are sounding.
+/// Spurious extra voices on AtoA score 0.53 to 0.67 of the first; above 0.6 a
+/// fifth that shares a partial with the note below starts to be lost. See
+/// `docs/judge-measurements.md#next_voice`.
 const NEXT_VOICE: f32 = 0.6;
 
 /// A new voice has to carry this fraction of the first voice's own fundamental
 /// bin, in ITS own fundamental bin.
 ///
-/// The weighted sum over partials is not enough, because a candidate BELOW a
-/// sounding note collects that note as one of its own partials and scores well
-/// on borrowed energy - which is what put spurious voices 14, 17 and 18
-/// semitones below the note on AtoA. Subtraction cannot answer it either: it
-/// removes a note's partials upward, and a sub-harmonic's evidence lies above
-/// it, in the note itself. So the candidate is asked for something only a
-/// struck string has - energy where its own fundamental would be.
-///
-/// Swept on two recordings. At 0.7, AtoA's isolated notes report exactly one
-/// voice 48 times of 51 - against 41 at 0.2 - while sesja-g1, where notes come
-/// every half second and overlap, still reports two voices 30 times of 87. So
-/// it does not buy the single notes by refusing real second voices.
+/// The weighted sum over partials is not enough: a candidate BELOW a sounding
+/// note collects that note as one of its partials and scores on borrowed energy.
+/// Energy where its own fundamental would be is something only a struck string
+/// has. At 0.7 AtoA's single notes report one voice 48 times of 51 - see
+/// `docs/judge-measurements.md#own_bin`.
 const OWN_BIN: f32 = 0.7;
 
 /// Semitones a new voice has to stand away from one already found. Below this

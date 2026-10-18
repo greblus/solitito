@@ -320,20 +320,11 @@ impl MyApp {
         if self.lap_hold > 0.0 {
             return false;
         }
-        // Measured on a real recording, over 49 notes (dist/latency_stats.py):
-        //
-        //   the three ways in together      110 false credits, 0 notes missed
-        //   the steady estimate alone         33 false credits, 0 notes missed
-        //   and with the take6 onset head     15 false credits, 4 notes missed
-        //
-        // So the model's pitch head is struck out here. It answers "what is
-        // sounding", and a string ringing on - or one resonating in sympathy,
-        // which is why the fourth and the fifth kept lighting up - is sounding
-        // without having been played. It was 99 of those 110.
-        //
-        // The take6 onset head was tried as a gate here and dropped: live it
-        // answered 0.09 for notes plainly being played, refusing far more than
-        // it caught. The strike detector backs the ear instead - `EAR_BACKED`.
+        // The model's pitch head is struck out here: it answers "what is sounding", and
+        // a string ringing on or resonating in sympathy is sounding without having been
+        // played. Over 49 notes the three ways in together gave 110 false credits and
+        // the steady estimate alone 33, neither missing a note. The strike detector
+        // backs the ear instead - `EAR_BACKED`, and `docs/judge-measurements.md#collect_formula`.
         // In order: only the lowest function not yet marked off may count. The
         // set is written low to high, so this is the same set read as a line -
         // and nothing else is refused loudly, it simply does not count yet.

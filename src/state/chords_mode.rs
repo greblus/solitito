@@ -81,12 +81,9 @@ impl MyApp {
 
     /// Whether the strings have been hit since this chord became the target.
     ///
-    /// The strike detector answers it with any strike at all: it reports a
-    /// strum as one class, seldom two, and it does not fire on a chord that
-    /// only rings. Measured on 17 strums of a real guitar (`onset_sources`):
-    /// every strum seen and no ringing chord taken for one, where the take6
-    /// onset head's two strikes on the chord's notes saw 9 strums and fired on
-    /// all 17 chords while they rang. Without the detector, the envelope.
+    /// The strike detector answers it with any strike at all: it reports a strum as
+    /// one class, seldom two, and does not fire on a chord that only rings. Without
+    /// the detector, the envelope. Measurements: `docs/judge-measurements.md#chord_struck_since`.
     pub(super) fn chord_struck_since(&self) -> bool {
         let then = &self.chord_heard_at;
         if self.heard.strikes_live {
