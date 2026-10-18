@@ -1,7 +1,7 @@
 //! The reporting modes: each prints what it was asked for and exits without
 //! opening the trainer window. `--help` lists them.
 
-use crate::brain::ChordBrain;
+use crate::brain::{ChordBrain, Prediction};
 use crate::{audio, db_to_lin, model, model_path, strike, tab, NOTE_NAMES};
 
 /// One reporting mode, with where its flag stands among the arguments when it
@@ -90,67 +90,94 @@ fn print_devices() {
 /// shapes are a table of degrees and the drawing is what says whether the
 /// table is right, so it has to be readable from a terminal like the rest.
 fn print_tabs(args: &[String], at: usize) {
-    let flagged = |f: &str| args.iter().any(|a| a == f);
     let wanted = args.get(at + 1).cloned().unwrap_or_default();
     let root = args.get(at + 2).map(|s| s.as_str()).unwrap_or("A").to_string();
     let quality = args.get(at + 3).map(|s| s.as_str()).unwrap_or("m7").to_string();
-    // How many of the phrase to light green, for looking at the marks
-    // without playing the thing.
-    let played: usize = args.get(at + 4).and_then(|v| v.parse().ok()).unwrap_or(0);
-    let frets = flagged("--frets");
-    let as_grip = flagged("--grip");
-    let chord_quality = match quality.as_str() {
+    let request = TabRequest {
+        args,
+        root_pc: NOTE_NAMES.iter().position(|n| *n == root).unwrap_or(9),
+        root: root.clone(),
+        quality: quality_named(&quality),
+        // How many of the phrase to light green, for looking at the marks
+        // without playing the thing.
+        played: args.get(at + 4).and_then(|v| v.parse().ok()).unwrap_or(0),
+    };
+    for pattern in phrases_named(&wanted) {
+        eprintln!("{} · {root} {quality}", pattern.name);
+        println!("{}", request.draw(&model::steps_of(&pattern.names)));
+    }
+}
+
+/// The chord quality as `--tab` spells it; anything unknown is m7.
+fn quality_named(name: &str) -> model::ChordQuality {
+    match name {
         "maj7" => model::ChordQuality::Major7,
         "7" => model::ChordQuality::Dominant7,
         "m7b5" => model::ChordQuality::HalfDiminished,
         "dim" => model::ChordQuality::Diminished,
         _ => model::ChordQuality::Minor7,
-    };
-    let intervals = chord_quality.intervals();
-    let names = chord_quality.interval_names();
-    let root_pc = NOTE_NAMES.iter().position(|n| *n == root).unwrap_or(9);
-    // A phrase typed out instead of a pattern's name - `--tab "1 3 7"` -
-    // which is what an interval set is, and the only way to look at a grip
-    // without opening the window.
-    let typed = wanted.starts_with(|c: char| c.is_ascii_digit()).then(|| {
-        let names: Vec<String> = wanted.split_whitespace().map(String::from).collect();
-        model::ScaleDefinition {
-            name: wanted.clone(),
+    }
+}
+
+/// The phrases `--tab` was asked for: every bundled pattern whose name holds
+/// `wanted`, or - when it starts with a digit - the phrase typed out itself,
+/// `--tab "1 3 7"`, which is what an interval set is and the only way to look
+/// at a grip without opening the window.
+fn phrases_named(wanted: &str) -> Vec<model::ScaleDefinition> {
+    if wanted.starts_with(|c: char| c.is_ascii_digit()) {
+        return vec![model::ScaleDefinition {
+            name: wanted.to_string(),
             intervals: vec![],
-            names,
-        }
-    });
-    for pattern in typed.map(|p| vec![p]).unwrap_or_else(model::load_arpeggio_patterns) {
-        if !wanted.is_empty() && !pattern.name.to_lowercase().contains(&wanted.to_lowercase()) {
-            continue;
-        }
-        let steps = model::steps_of(&pattern.names);
-        let spots = tab::place(root_pc, &intervals, &steps, &names);
-        eprintln!("{} · {root} {quality}", pattern.name);
-        let done: Vec<bool> = (0..spots.len()).map(|i| i < played).collect();
-        if flagged("--region") {
-            // The fretboard trainer's picture: strings in play bright, the
-            // rest dim, and the note revealed only when asked for.
+            names: wanted.split_whitespace().map(String::from).collect(),
+        }];
+    }
+    let needle = wanted.to_lowercase();
+    model::load_arpeggio_patterns()
+        .into_iter()
+        .filter(|pattern| pattern.name.to_lowercase().contains(&needle))
+        .collect()
+}
+
+/// What `--tab` draws every phrase over, and which drawing the flags ask for.
+struct TabRequest<'a> {
+    args: &'a [String],
+    root: String,
+    root_pc: usize,
+    quality: model::ChordQuality,
+    played: usize,
+}
+
+impl TabRequest<'_> {
+    fn flagged(&self, flag: &str) -> bool {
+        self.args.iter().any(|a| a == flag)
+    }
+
+    /// One phrase as SVG: the strip by default, or the neck, a chord box, or
+    /// the fretboard trainer's region.
+    fn draw(&self, steps: &[model::Step]) -> String {
+        let intervals = self.quality.intervals();
+        let names = self.quality.interval_names();
+        let frets = self.flagged("--frets");
+        let spots = tab::place(self.root_pc, &intervals, steps, &names);
+        let done: Vec<bool> = (0..spots.len()).map(|i| i < self.played).collect();
+        if self.flagged("--region") {
+            // The fretboard trainer's picture: strings in play bright, the rest
+            // dim, and the note revealed only when asked for.
             let strings: Vec<usize> = (0..3).collect();
-            let marks: Vec<(usize, i32)> = if played > 0 { vec![(0, 8), (1, 8)] } else { vec![] };
-            println!("{}", tab::region(&strings, 7, 10, &marks, &root, played > 1));
-        } else if flagged("--neck") {
-            println!("{}", tab::neck(&spots, &done, played, frets));
-        } else if as_grip {
-            let voiced = tab::place_voiced(
-                root_pc,
-                &intervals,
-                &steps,
-                &names,
-                None,
-                5,
-                0,
-                flagged("--close"),
-            );
-            println!("{}", tab::grip(&voiced, &done, played, frets));
-        } else {
-            println!("{}", tab::svg(&spots, &done, played, frets));
+            let marks: Vec<(usize, i32)> =
+                if self.played > 0 { vec![(0, 8), (1, 8)] } else { vec![] };
+            return tab::region(&strings, 7, 10, &marks, &self.root, self.played > 1);
         }
+        if self.flagged("--neck") {
+            return tab::neck(&spots, &done, self.played, frets);
+        }
+        if self.flagged("--grip") {
+            let close = self.flagged("--close");
+            let voiced =
+                tab::place_voiced(self.root_pc, &intervals, steps, &names, None, 5, 0, close);
+            return tab::grip(&voiced, &done, self.played, frets);
+        }
+        tab::svg(&spots, &done, self.played, frets)
     }
 }
 
@@ -236,12 +263,48 @@ fn check() -> i32 {
 /// window carries signal, so "the model cannot hear it" and "the app never
 /// asked" look identical from the outside. Here the level, the window fill and
 /// the twelve pitch probabilities are printed side by side, which separates the
+/// two.
 fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyhow::Result<()> {
-    use audio::{CTX_FRAMES, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, TARGET_SR, TOTAL_FEATURES};
+    use audio::{CTX_FRAMES, FFT_SIZE, HOP_LENGTH};
 
+    let (sig, spec) = read_at_16k(path)?;
+    let mut analyzer = audio::CqtAnalyzer::new("dsp_weights.json")?;
+    let mut brain = ChordBrain::new(&model_path())?;
+    let gate = db_to_lin(gate_db);
+
+    println!(
+        "\n{path} · {} Hz · {} ch · gate {gate_db:.0} dB · bass boost {}",
+        spec.sample_rate,
+        spec.channels,
+        match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
+    );
+    println!(
+        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
+    );
+
+    let mut window = ProbeWindow::new();
+    let mut frame = 0usize;
+    let mut at = FFT_SIZE;
+    while at <= sig.len() {
+        let chunk = &sig[at - FFT_SIZE..at];
+        let rms = (chunk.iter().map(|x| x * x).sum::<f32>() / FFT_SIZE as f32).sqrt();
+        window.push(chunk, rms > gate, &mut analyzer, boost);
+        frame += 1;
+        if frame >= CTX_FRAMES && frame % step == 0 {
+            let prediction = brain.predict(&window.history)?;
+            print_probe_row(at, rms, window.fill(), &prediction, window.last_cqt.as_deref());
+        }
+        at += HOP_LENGTH;
+    }
+    Ok(())
+}
+
+/// A WAV file's first channel, resampled linearly to 16 kHz - the same two
+/// steps the stream callback does, so the features are the ones the app would
+/// see.
+fn read_at_16k(path: &str) -> anyhow::Result<(Vec<f32>, hound::WavSpec)> {
     let reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
-    let ch = spec.channels as usize;
     let raw: Vec<f32> = match spec.sample_format {
         hound::SampleFormat::Int if spec.bits_per_sample == 16 => reader
             .into_samples::<i16>()
@@ -252,11 +315,8 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
         }
         _ => anyhow::bail!("only 16-bit integer or 32-bit float WAV is read here"),
     };
-
-    // First channel and a linear resample to 16 kHz - the same two steps the
-    // stream callback does, so the features are the ones the app would see.
-    let mono: Vec<f32> = raw.chunks(ch).map(|f| f[0]).collect();
-    let ratio = spec.sample_rate as f32 / TARGET_SR as f32;
+    let mono: Vec<f32> = raw.chunks(spec.channels as usize).map(|f| f[0]).collect();
+    let ratio = spec.sample_rate as f32 / audio::TARGET_SR as f32;
     let mut sig: Vec<f32> = Vec::with_capacity((mono.len() as f32 / ratio) as usize + 8);
     let mut read = 0.0f32;
     while read + 1.0 < mono.len() as f32 {
@@ -265,77 +325,83 @@ fn probe_file(path: &str, gate_db: f32, boost: Option<f32>, step: usize) -> anyh
         sig.push(mono[i] + f * (mono[i + 1] - mono[i]));
         read += ratio;
     }
+    Ok((sig, spec))
+}
 
-    let mut analyzer = audio::CqtAnalyzer::new("dsp_weights.json")?;
-    let mut brain = ChordBrain::new(&model_path())?;
-    let gate = db_to_lin(gate_db);
+/// The model's context window as the probe fills it: the features of the last
+/// `CTX_FRAMES` windows, which of them carried signal, and the newest CQT.
+struct ProbeWindow {
+    history: [[f32; audio::TOTAL_FEATURES]; audio::CTX_FRAMES],
+    live: [bool; audio::CTX_FRAMES],
+    last_cqt: Option<Vec<f32>>,
+}
 
-    let mut hist = [[0.0f32; TOTAL_FEATURES]; CTX_FRAMES];
-    let mut live = [false; CTX_FRAMES];
-    let mut last_cqt: Option<Vec<f32>>;
-
-    println!(
-        "\n{path} · {} Hz · {ch} ch · gate {gate_db:.0} dB · bass boost {}",
-        spec.sample_rate,
-        match boost { Some(g) => format!("x{g:.0}"), None => "off".into() }
-    );
-    println!(
-        "     t   dBFS  fill    C  C#   D  D#   E   F  F#   G  G#   A  A#   B     CQT      model"
-    );
-
-    let mut frame = 0usize;
-    let mut at = FFT_SIZE;
-    while at <= sig.len() {
-        let chunk = &sig[at - FFT_SIZE..at];
-        let rms = (chunk.iter().map(|x| x * x).sum::<f32>() / FFT_SIZE as f32).sqrt();
-
-        hist.rotate_left(1);
-        live.rotate_left(1);
-        if rms > gate {
-            let amplified: Vec<f32> = chunk.iter().map(|&x| x * INPUT_GAIN).collect();
-            let (cqt, chroma, bass, _) =
-                analyzer.compute_cqt_chroma(&amplified, boost.is_some(), boost.unwrap_or(1.0));
-            let mut f = Vec::with_capacity(TOTAL_FEATURES);
-            f.extend_from_slice(&cqt);
-            f.extend_from_slice(&chroma);
-            f.extend_from_slice(&bass);
-            hist[CTX_FRAMES - 1].copy_from_slice(&f);
-            live[CTX_FRAMES - 1] = true;
-            last_cqt = Some(cqt);
-        } else {
-            hist[CTX_FRAMES - 1] = [0.0; TOTAL_FEATURES];
-            live[CTX_FRAMES - 1] = false;
-            last_cqt = None;
+impl ProbeWindow {
+    fn new() -> Self {
+        ProbeWindow {
+            history: [[0.0; audio::TOTAL_FEATURES]; audio::CTX_FRAMES],
+            live: [false; audio::CTX_FRAMES],
+            last_cqt: None,
         }
-
-        frame += 1;
-        if frame >= CTX_FRAMES && frame % step == 0 {
-            let fill = live.iter().filter(|&&b| b).count() as f32 / CTX_FRAMES as f32;
-            let p = brain.predict(&hist)?;
-            let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
-            let cells: String =
-                p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
-            let cqt = match last_cqt.as_ref().and_then(|c| audio::mono_pitch(c)) {
-                // The octave too: what tells a note struck again from the same
-                // note still ringing below it is which one the estimate reads.
-                Some((n, s)) => format!("{:>3}{} {:.2}", NOTE_NAMES[n % 12], n / 12, s),
-                None => "  -      ".to_string(),
-            };
-            println!(
-                "{:6.2} {:6.1} {:4.0}% {}  {}  {} {:.2}{}",
-                at as f32 / TARGET_SR as f32,
-                db,
-                fill * 100.0,
-                cells,
-                cqt,
-                p.chord,
-                p.confidence,
-                if fill < 0.9 { "   << app would not ask" } else { "" }
-            );
-        }
-        at += HOP_LENGTH;
     }
-    Ok(())
+
+    /// One window of audio in, features if the gate is `open`, silence if not.
+    fn push(
+        &mut self,
+        chunk: &[f32],
+        open: bool,
+        analyzer: &mut audio::CqtAnalyzer,
+        boost: Option<f32>,
+    ) {
+        let newest = audio::CTX_FRAMES - 1;
+        self.history.rotate_left(1);
+        self.live.rotate_left(1);
+        if !open {
+            self.history[newest] = [0.0; audio::TOTAL_FEATURES];
+            self.live[newest] = false;
+            self.last_cqt = None;
+            return;
+        }
+        let amplified: Vec<f32> = chunk.iter().map(|&x| x * audio::INPUT_GAIN).collect();
+        let (cqt, chroma, bass, _) =
+            analyzer.compute_cqt_chroma(&amplified, boost.is_some(), boost.unwrap_or(1.0));
+        let mut features = Vec::with_capacity(audio::TOTAL_FEATURES);
+        features.extend_from_slice(&cqt);
+        features.extend_from_slice(&chroma);
+        features.extend_from_slice(&bass);
+        self.history[newest].copy_from_slice(&features);
+        self.live[newest] = true;
+        self.last_cqt = Some(cqt);
+    }
+
+    /// How much of the window carries signal, 0 to 1.
+    fn fill(&self) -> f32 {
+        self.live.iter().filter(|&&b| b).count() as f32 / audio::CTX_FRAMES as f32
+    }
+}
+
+/// One line of the probe: time, level, fill, the twelve pitch probabilities,
+/// the note the CQT alone reports, and the model's chord.
+fn print_probe_row(at: usize, rms: f32, fill: f32, p: &Prediction, last_cqt: Option<&[f32]>) {
+    let db = if rms > 0.0 { 20.0 * rms.log10() } else { -99.0 };
+    let cells: String = p.pitches.iter().map(|v| format!("{:4.0}", v * 100.0)).collect();
+    let cqt = match last_cqt.and_then(audio::mono_pitch) {
+        // The octave too: what tells a note struck again from the same note
+        // still ringing below it is which one the estimate reads.
+        Some((n, s)) => format!("{:>3}{} {:.2}", NOTE_NAMES[n % 12], n / 12, s),
+        None => "  -      ".to_string(),
+    };
+    println!(
+        "{:6.2} {:6.1} {:4.0}% {}  {}  {} {:.2}{}",
+        at as f32 / audio::TARGET_SR as f32,
+        db,
+        fill * 100.0,
+        cells,
+        cqt,
+        p.chord,
+        p.confidence,
+        if fill < 0.9 { "   << app would not ask" } else { "" }
+    );
 }
 
 /// Everything the binary can be asked to do, in one place.
