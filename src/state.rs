@@ -6,7 +6,11 @@ use crate::rng::Rng;
 use crate::fretboard::Region;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
+mod credits;
 mod heard;
+pub use credits::Credits;
+#[cfg(test)]
+use credits::Credit;
 pub use heard::Heard;
 
 /// Where one step of an exercise stands, as `note_state` reads it.
@@ -228,29 +232,6 @@ struct ChordHeard {
     class_strikes: [u32; 12],
 }
 
-/// What was true when a pitch class was last credited.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Credit {
-    /// The envelope's attack count at that moment.
-    pub onset: u64,
-    /// Attacks the flux detector had counted, whatever their pitch.
-    pub flux: u64,
-    /// That class's own strike count from `strike::Strikes` at that moment.
-    pub class_strike: u32,
-    /// The octave marker of the step credited: 0 for the plain degree, 1 for
-    /// one written `1'`. A step marked higher than the credit is asking for the
-    /// same note in another octave, and that is answerable.
-    pub octave: i8,
-    /// What the single-frame estimate was reading, as an absolute semitone.
-    pub semitone: Option<usize>,
-    /// Seconds left before the note can count as having left - see
-    /// `CREDIT_SETTLE`.
-    pub settle: f32,
-    /// Whether something else has been heard, steadily, since this note was
-    /// credited. Then the note has stopped sounding and anything heard from it
-    /// afterwards is a fresh pluck - whether or not a detector noticed.
-    pub left: bool,
-}
 
 /// Ticks the tests feed before expecting the vote to carry.
 #[cfg(test)]
@@ -524,7 +505,7 @@ pub struct MyApp {
     ///
     /// Kept across a chord and across a lap - the string goes on ringing over
     /// both - and cleared when the exercise itself is reset.
-    pub credited: [Option<Credit>; 12],
+    pub credited: Credits,
     /// What the strike counters and the envelope's attack count read when the
     /// current chord became the target. A chord that repeats in the
     /// progression is still ringing from the pass before and would pass again
@@ -668,7 +649,7 @@ impl MyApp {
             journal: crate::journal::Journal::open(),
             credit_branch: None,
             logged_ask: None,
-            credited: [None; 12],
+            credited: Credits::default(),
             chord_heard_at: ChordHeard::default(),
             formula_mask: 0,
             formula_exercise: 0,
@@ -1235,7 +1216,7 @@ impl MyApp {
         // note it starts from must not hand the next lap its first step off the
         // last one still ringing - but not a change of exercise, where nothing
         // is being continued.
-        self.credited = [None; 12];
+        self.credited.forget_all();
         self.rebuild_play_order();
         self.current_note_step = 0;
         self.answering_step = None;
@@ -1521,7 +1502,7 @@ impl MyApp {
         if self.interval_model_age >= INTERVAL_MODEL_AGE {
             self.forget_model_answer();
         }
-        self.settle_credits(dt);
+        self.credited.settle(dt, &self.heard);
 
         self.interval_audio_age += dt;
         let fresh = self.heard.audio_frames != self.judged_frame;
@@ -1580,10 +1561,7 @@ impl MyApp {
         // estimate alone is NOT silence: require the gate. Track this during
         // the completed-set display as well.
         if self.interval_silence >= 0.2 {
-            for credit in self.credited.iter_mut().flatten() {
-                credit.left = true;
-                credit.settle = 0.0;
-            }
+            self.credited.all_gone_quiet();
         }
     }
 
@@ -1945,7 +1923,7 @@ impl MyApp {
 
     fn check_progress(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
         if self.app_mode != AppMode::Intervals {
-            self.settle_credits(dt);
+            self.credited.settle(dt, &self.heard);
         }
         match self.app_mode {
             AppMode::Formulas => {
@@ -2315,6 +2293,12 @@ impl MyApp {
     }
 
 
+    /// Whether class `pc` has been played again since it was credited - see
+    /// `Credits::struck_since`, which this hands the mode's own rule.
+    fn struck_since_credit(&self, pc: usize) -> bool {
+        self.credited.struck_since(pc, &self.heard, self.one_at_a_time())
+    }
+
     /// Whether notes are taken one at a time: by choice in Intervals and the
     /// fretboard trainer, always in Scales and Arpeggios - nobody strums one.
     ///
@@ -2326,139 +2310,7 @@ impl MyApp {
         self.single_notes || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios)
     }
 
-    /// Whether a class asked for again has been played again.
-    ///
-    /// Two ways, and the measurements behind them:
-    ///
-    /// The estimate reads an absolute pitch, so a note sounding six semitones
-    /// or more from where it was read when it was credited is a different
-    /// string being played - the closing root of `1 2 3 4 5 6 7 1` against the
-    /// opening one still ringing. That is proof on its own, and it needs no
-    /// attack: on the test run the estimate read the opening root and the
-    /// closing one an octave apart, 0.29 s after the string was hit. It cannot
-    /// be a REQUIREMENT, though: a run closed in the octave it started in would
-    /// never satisfy it, however many times it was played.
-    ///
-    /// Otherwise the class's own strike counter has to have moved - and, where
-    /// notes are played one at a time, the estimate must not be reading some
-    /// other note: a strike reported for the wrong class lands while the
-    /// estimate reads the note actually being played, so it does not pass.
-    ///
-    /// Without the strike detector, flux - which says a string was hit, not
-    /// which - stands in, and the envelope where flux has never reported.
-    fn struck_since_credit(&self, pc: usize) -> bool {
-        let pc = pc % 12;
-        let Some(c) = self.credited[pc] else {
-            return true;
-        };
-        // The note stopped sounding and CAME BACK: something else was heard
-        // steadily since it was credited, and the single-frame estimate is
-        // reading this note again now. Both halves matter - "something else was
-        // heard" alone let a note credited a moment ago count a second time
-        // while it merely rang on under the note being played, which is the
-        // multiple-crediting this rule exists to stop. The estimate is
-        // monophonic: it names what is loudest, so it names the ringing note
-        // again only once the string is struck again.
-        if c.left && self.heard.steady_note() == Some(pc) {
-            return true;
-        }
-        let elsewhere = self.heard.cqt_pitch.is_some_and(|now| now != pc);
-        // THIS class struck since its credit, and just now - the question the
-        // rule always meant to ask, and the first evidence that can answer it.
-        // A note played again an octave away is a strike of the same class and
-        // counts through here; nothing else needs to look at octaves.
-        //
-        // Measured on every note of AtoA spliced with itself: of 58 permissions
-        // given while the note was only ringing, 50 came from the octave branch
-        // below - the estimate flips an octave on a decaying note and the rule
-        // read the flip as a new pluck - and 8 from the pitch-blind attack.
-        if self.heard.strikes_live {
-            return self.heard.class_strikes[pc] != c.class_strike
-                && self.heard.class_strike_age[pc] <= CLASS_FRESH
-                && !(self.one_at_a_time() && elsewhere);
-        }
-        // Without the detector: an octave jump is believed only with an attack
-        // behind it, which is what made it a leak - see above.
-        let fresh_attack = self.heard.flux_seen && self.heard.flux_id != c.flux && self.heard.flux_age <= FLUX_FRESH;
-        let played_an_octave_away = match (self.heard.cqt_semitone, c.semitone) {
-            (Some(now), Some(then)) => now % 12 == pc && (now >= then + 6 || now + 6 <= then),
-            _ => false,
-        };
-        if fresh_attack && played_an_octave_away {
-            return true;
-        }
-        // Pitch-blind, on purpose. The take6 onset head, asked WHICH class was
-        // struck, answered 33 of AtoA's 51 notes right, 50 in the wrong class
-        // and 18 twice.
-        //
-        // Whether a string was hit at all is a far easier question, and the
-        // flux detector answers it without a class to get wrong: 47 of the same
-        // 51 notes, 14 reports outside them, no pluck reported twice.
-        //
-        // WHICH note it was is then left to the monophonic estimate above,
-        // which names the loudest class - a fundamental, not its harmonics.
-        // JUST NOW, not merely since. The counter is pitch-blind by design, so
-        // "an attack since the credit" is satisfied by any other step of the
-        // exercise being played - and by the time a chord hands over, several
-        // have been. That is how a note credited in one chord was credited
-        // again in the next while it merely rang on: shuffle put a shared class
-        // at the boundary, the counter had moved, and nothing else objected.
-        //
-        // A string struck again while it still rings is a different thing and
-        // has to keep working, so this cannot ask for silence first - only for
-        // the hit to be happening now.
-        let struck = if self.heard.flux_seen {
-            self.heard.flux_id != c.flux && self.heard.flux_age <= FLUX_FRESH
-        } else {
-            self.heard.onset_id != c.onset
-        };
-        // Not "the estimate names it" but "the estimate does not name something
-        // else": a note too quiet for the estimate to score would otherwise
-        // never be creditable a second time.
-        struck && !(self.one_at_a_time() && elsewhere)
-    }
 
-    /// Counts down each credit's `settle`, and marks a note `left` once it has
-    /// gone quiet - see `Credit::left`.
-    fn settle_credits(&mut self, dt: f32) {
-        // Steady, not any frame: the estimate flickers onto a ringing note for
-        // a frame at a time, and a flicker is not the note stopping.
-        let elsewhere = self.heard.steady_note();
-        // Read before the loop below borrows the credits.
-        let quiet_for = self.heard.quiet_for;
-        let know_voices = self.heard.voices_seen;
-        for (c, credit) in self.credited.iter_mut().enumerate() {
-            let Some(cr) = credit else {
-                continue;
-            };
-            if cr.settle > 0.0 {
-                cr.settle = (cr.settle - dt).max(0.0);
-            }
-            // This note has gone quiet, and what is heard from it next is
-            // a new pluck. Without it a note asked for again a few steps
-            // later could not be credited at all when no detector caught
-            // the pluck - the fretboard trainer stuck on a note that
-            // was plainly right.
-            //
-            // "Something else is the loudest thing" is not that note going
-            // quiet, and taking it for that is how a note credited in one
-            // chord was credited again in the next: by the boundary the
-            // other steps had been heard, so `left` was set, and the note
-            // only had to still be ringing for the new chord to take it.
-            // Shuffle made it show by putting a shared class at the
-            // boundary, which a fixed progression may never do.
-            //
-            // So `voices` decides, which explains the spectrum rather than
-            // ranking it: a class in it is sounding, loudest or not. Where
-            // it says nothing at all - no audio yet - the older reading
-            // stands, and the gate is no stricter than it was.
-            let other_note_heard = elsewhere.is_some_and(|other| other != c);
-            let gone_quiet = !know_voices || quiet_for[c] >= GONE_QUIET;
-            if cr.settle <= 0.0 && other_note_heard && gone_quiet {
-                cr.left = true;
-            }
-        }
-    }
 
     /// Writes down one row, with the clock and the exercise's own context on
     /// it. Costs nothing when SOLITITO_RECORD is unset.
@@ -2528,20 +2380,9 @@ impl MyApp {
             self.journal_row("credit", row);
         }
         self.credit_branch = None;
-        self.credit_class_inner(pc, octave)
+        self.credited.record(pc, octave, &self.heard)
     }
 
-    fn credit_class_inner(&mut self, pc: usize, octave: i8) {
-        self.credited[pc % 12] = Some(Credit {
-            onset: self.heard.onset_id,
-            flux: self.heard.flux_id,
-            class_strike: self.heard.class_strikes[pc % 12],
-            octave,
-            semitone: self.heard.cqt_semitone.filter(|n| n % 12 == pc % 12),
-            settle: CREDIT_SETTLE,
-            left: false,
-        });
-    }
 
     /// True when the chord now being asked for is the one just left behind -
     /// two of the same in a row in the song, or a progression of one chord.
@@ -2594,7 +2435,7 @@ impl MyApp {
             let sounding = self.heard.voice_heard(pc) || self.heard.steady_note() == Some(pc);
             let just_struck = self.heard.strikes_live && self.heard.class_strike_age[pc] <= JUST_STRUCK;
             if sounding && !just_struck {
-                self.credit_class_inner(pc, 0);
+                self.credited.record(pc, 0, &self.heard);
             }
         }
     }
