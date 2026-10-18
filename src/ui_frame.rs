@@ -686,58 +686,50 @@ impl UiFrame {
         ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
     }
 
+    /// The region drawn on the neck, and the ANSWER in it: where the note that
+    /// is sounding lies, green if it is the one asked for. Nothing before that
+    /// - drawing the target first would turn the mode into copying a picture.
     fn draw_fretboard_region(&mut self, ui: &AppWindow, app: &MyApp) {
-        // The region drawn on the neck, and the ANSWER in it: where the
-        // note that is sounding lies, green if it is the one asked for and
-        // red if it is not. Nothing before that - drawing the target first
-        // would turn the mode into copying a picture.
-        if draws_on_neck(ui.get_preview()) {
-            let strings: Vec<usize> = app.region.strings.strings().to_vec();
-            let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
-            // What the JUDGE credited, not a reading of its own. Marking
-            // the neck from `steady_note` - three frames of the estimate -
-            // while the judge passes a note on one frame of it, or on the
-            // model's pitch head, meant the trainer moved on from notes the
-            // drawing had never marked: right, and never lit.
-            //
-            // Only a right answer is drawn. A wrong one leaves the box
-            // empty: the note asked for is on the screen already, and
-            // marking every stray note on the neck was more to read than to
-            // learn from. And it is kept after the trainer moves on, so
-            // there is something to look at while the next note is read.
-            if app.match_status == MatchStatus::Exact {
-                if let Some(pc) = app.fret_target.map(|t| t % 12) {
-                    self.last_answer = Some((pc, true));
-                }
-            }
-            let (heard, right) = match self.last_answer {
-                Some((pc, was_right)) => (Some(pc), was_right),
-                None => (None, false),
-            };
-            let played = heard.map(|pc| model::NoteName::from_index(pc).to_string().to_string());
-            let marks: Vec<(usize, i32)> = match heard {
-                Some(pc) => strings
-                    .iter()
-                    .flat_map(|&string| {
-                        (from..=to).filter_map(move |fret| {
-                            let sounding =
-                                (tab::TUNING[string] + fret).rem_euclid(12) as usize;
-                            (sounding == pc % 12).then_some((string, fret))
-                        })
-                    })
-                    .collect(),
-                None => Vec::new(),
-            };
-            let label = played.unwrap_or_default();
-            let signature = format!("{strings:?}|{from}|{to}|{marks:?}|{label}|{right}");
-            if signature != self.last_tab {
-                self.last_tab = signature;
-                ui.set_tab_aspect(tab::region_aspect(from, to));
-                ui.set_tab_image(svg_icon(&tab::region(
-                    &strings, from, to, &marks, &label, right,
-                )));
-            }
-        } else if !self.last_tab.is_empty() {
+        if !draws_on_neck(ui.get_preview()) {
+            self.clear_drawing(ui);
+            return;
+        }
+        let strings: Vec<usize> = app.region.strings.strings().to_vec();
+        let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
+        // What the JUDGE credited, not a reading of its own. Marking the neck
+        // from `steady_note` - three frames of the estimate - while the judge
+        // passes a note on one frame of it, or on the model's pitch head, meant
+        // the trainer moved on from notes the drawing had never marked: right,
+        // and never lit.
+        //
+        // Only a right answer is drawn. A wrong one leaves the box empty: the
+        // note asked for is on the screen already, and marking every stray note
+        // on the neck was more to read than to learn from. And it is kept after
+        // the trainer moves on, so there is something to look at while the next
+        // note is read.
+        if let (MatchStatus::Exact, Some(target)) = (app.match_status, app.fret_target) {
+            self.last_answer = Some((target % 12, true));
+        }
+        let (heard, right) = match self.last_answer {
+            Some((pc, was_right)) => (Some(pc), was_right),
+            None => (None, false),
+        };
+        let marks = heard.map_or_else(Vec::new, |pc| places_of(pc, &strings, from, to));
+        let label = heard
+            .map(|pc| model::NoteName::from_index(pc).to_string().to_string())
+            .unwrap_or_default();
+        let signature = format!("{strings:?}|{from}|{to}|{marks:?}|{label}|{right}");
+        if signature == self.last_tab {
+            return;
+        }
+        self.last_tab = signature;
+        ui.set_tab_aspect(tab::region_aspect(from, to));
+        ui.set_tab_image(svg_icon(&tab::region(&strings, from, to, &marks, &label, right)));
+    }
+
+    /// Takes down the drawing under the exercise, if there is one.
+    fn clear_drawing(&mut self, ui: &AppWindow) {
+        if !self.last_tab.is_empty() {
             self.last_tab.clear();
             ui.set_tab_image(slint::Image::default());
         }
@@ -799,12 +791,7 @@ impl UiFrame {
         // Neither ticked draws nothing, which is a legitimate answer and
         // not the same as the master switch being off: that one is about
         // whether the row exists at all.
-        let shapes = match (ui.get_show_full_shapes(), ui.get_show_shell_shapes()) {
-            (true, true) => Some(diagrams::Shapes::Both),
-            (false, true) => Some(diagrams::Shapes::Shell),
-            (true, false) => Some(diagrams::Shapes::Full),
-            (false, false) => None,
-        };
+        let shapes = shapes_asked_for(ui.get_show_full_shapes(), ui.get_show_shell_shapes());
         // More than three shapes always take two rows. Chosen by the
         // window's width, a wide screen put six or ten in one row, and
         // they came out too small to read.
@@ -847,48 +834,28 @@ impl UiFrame {
             };
             ui.set_chord_diagrams(ModelRc::from(Rc::new(VecModel::from(first))));
             ui.set_chord_diagrams_2(ModelRc::from(Rc::new(VecModel::from(rest))));
-            // Captioned whenever the row is not the chord's own shell: a
-            // substitute taken for the chord itself is worse than no
-            // substitute at all.
             let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-            let note = match (shapes, diagrams::shell_note(&chord.quality)) {
-                (None, _) | (Some(diagrams::Shapes::Full), _) => "",
-                (_, diagrams::ShellNote::Own) => "",
-                (_, diagrams::ShellNote::MinorForHalfDim) => t.shapes_substitute,
-                (_, diagrams::ShellNote::None_) => t.shapes_no_shell,
-            };
-            // Naming the four dominants beats stating the rule that finds
-            // them. A diminished seventh is the third, fifth, seventh and
-            // flat ninth of a dominant whose root sits a semitone below any
-            // of its notes - which is four dominants, and reading that
-            // sentence is harder than reading the names.
-            let note = if note == t.shapes_no_shell {
-                let r = chord.root as usize;
-                let names: Vec<&str> = [11usize, 2, 5, 8]
-                    .iter()
-                    .map(|d| formulas::KEY_POOL[(r + d) % 12])
-                    .collect();
-                format!("{}{}7b9{}", note, names.join("7b9, "), t.shapes_no_shell_end)
-            } else {
-                note.to_string()
-            };
+            let note = shapes_caption(&t, shapes, chord);
             ui.set_shapes_note(note.into());
             // A shape left open would belong to the previous chord.
             ui.set_diagram_zoom(-1);
         }
     }
 
+    /// The big chord name in the colour of the verdict - in Chords only; the
+    /// note modes have their own marks.
     fn show_chord_colour(ui: &AppWindow, app: &MyApp) {
-        if app.app_mode == AppMode::Chords {
-            match app.match_status {
-                MatchStatus::Exact => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(50, 255, 50))),
-                MatchStatus::Partial => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 220, 50))),
-                MatchStatus::Flicker => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 50, 50))),
-                MatchStatus::None => ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 255, 255))),
-            }
-        } else {
-            ui.set_chord_text_color(slint::Brush::SolidColor(Color::from_rgb_u8(255, 255, 255)));
-        }
+        let status = match app.app_mode {
+            AppMode::Chords => app.match_status,
+            _ => MatchStatus::None,
+        };
+        let colour = match status {
+            MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
+            MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
+            MatchStatus::Flicker => Color::from_rgb_u8(255, 50, 50),
+            MatchStatus::None => Color::from_rgb_u8(255, 255, 255),
+        };
+        ui.set_chord_text_color(slint::Brush::SolidColor(colour));
     }
 
     fn show_progress(&mut self, ui: &AppWindow, app: &MyApp) {
@@ -1048,154 +1015,105 @@ impl UiFrame {
         }
     }
 
-    fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, active_indices: &[model::Step]) {
-        // The same phrase again, drawn on the neck: which string each
-        // degree falls on, and the ones already played lit green. Not
-        // in the fretboard trainer, which draws its own region, and not
-        // in Chords, which has its shapes.
+    /// The same phrase again, drawn on the neck: which string each degree
+    /// falls on, and the ones already played lit green. Not in the fretboard
+    /// trainer, which draws its own region, and not in Chords, which has its
+    /// shapes.
+    fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step]) {
         let drawable = matches!(
             app.app_mode,
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
         );
-        if drawable && draws_on_neck(ui.get_preview()) {
-            let done: Vec<bool> = app.collected_notes.clone();
-            // Built from the steps ACTUALLY drawn, not from the text
-            // they were read out of: anything that reorders them - the
-            // shuffle, once - left the picture standing while the strip
-            // of names above it had already moved, and the change only
-            // showed up later when something else forced a redraw.
-            let signature = format!(
-                "{}|{}|{:?}|{:?}|{}|{}|{}",
-                chord.root as usize,
-                chord.quality.to_string(),
-                active_indices,
-                done,
-                ui.get_tab_frets(),
-                app.voicing_anchor,
-                app.random_mode
-            ) + &format!(
-                "|{}|{}|{}|{}",
-                app.current_note_step,
-                ui.get_preview(),
-                app.grip_string,
-                ui.get_voice_leading()
-            );
-            if signature != self.last_tab {
-                self.last_tab = signature;
-                // Intervals are a GRIP, not a phrase: three or four
-                // notes taken at once, a string for each. So they are
-                // laid out as a voicing, with the voices led from the
-                // chord before - unless the shuffle is on, and then
-                // there is no line to lead: the chords come in a drawn
-                // order and each grip is taken where the neck offers
-                // it.
-                let voiced = app.app_mode == AppMode::Intervals
-                    && (1..=4).contains(&active_indices.len());
-                let spots = if voiced {
-                    // Led from the grip before, unless the option is
-                    // off or the shuffle is on - then every chord is
-                    // taken where the neck is drawn to offer it, and
-                    // the grips move about instead of settling on the
-                    // bottom strings.
-                    let lead = ui.get_voice_leading() && !app.random_mode;
-                    let prev = (lead && !self.last_voicing.is_empty())
-                        .then_some(self.last_voicing.as_slice());
-                    tab::place_voiced(
-                        chord.root as usize,
-                        &chord.quality.intervals(),
-                        active_indices,
-                        &chord.quality.interval_names(),
-                        prev,
-                        app.voicing_anchor,
-                        app.grip_string,
-                        // Shuffled, the grips are close forms only -
-                        // inversions, packed inside an octave on
-                        // neighbouring strings. With no line to lead
-                        // there is nothing holding them together, and
-                        // spread forms drawn at random read as a
-                        // different chord each time rather than as one
-                        // shape moving.
-                        app.random_mode,
-                    )
-                } else {
-                    // A scale starts from a drawn string, after every
-                    // pass: the shape is the same everywhere, and one
-                    // place on the neck practised over and over is not
-                    // the exercise. An arpeggio study keeps the
-                    // position its source is written in.
-                    let from = (app.app_mode == AppMode::Scales)
-                        .then_some(app.scale_start);
-                    tab::place_from(
-                        chord.root as usize,
-                        &chord.quality.intervals(),
-                        active_indices,
-                        &chord.quality.interval_names(),
-                        None,
-                        from,
-                    )
-                };
-                self.last_voicing = if voiced { spots.clone() } else { Vec::new() };
-                // A grip is drawn as a chord box, a phrase as a strip:
-                // the horizontal axis is the neck in one and the order
-                // of the notes in the other, and a grip drawn on the
-                // strip says nothing about where the fingers go.
-                // A grip gets a chord box, a phrase gets the neck it
-                // is played on. The strip is kept for nothing now: at
-                // thirty notes it was thirty columns wide and the dots
-                // too small to read, while the neck is the size of a
-                // hand however long the phrase is - what moves along it
-                // is the ring around the note due.
-                // Tablature or the neck, as the setting asks - and a
-                // grip has only the one drawing, a chord box.
-                let strip = ui.get_preview() == 1;
-                let (svg, aspect) = if voiced {
-                    (
-                        // No ring under free order: nothing is "due",
-                        // and a ring would say the opposite.
-                        tab::grip(
-                            &spots,
-                            &done,
-                            app.note_due().unwrap_or(spots.len()),
-                            ui.get_tab_frets(),
-                        ),
-                        tab::grip_aspect(),
-                    )
-                } else if strip {
-                    (
-                        tab::svg(&spots, &done, app.current_note_step, ui.get_tab_frets()),
-                        tab::aspect(spots.len()),
-                    )
-                } else {
-                    (
-                        tab::neck(
-                            &spots,
-                            &done,
-                            app.current_note_step,
-                            ui.get_tab_frets(),
-                        ),
-                        tab::neck_aspect(&spots),
-                    )
-                };
-                ui.set_tab_aspect(aspect);
-                ui.set_tab_image(svg_icon(&svg));
-            }
-        } else if !self.last_tab.is_empty() {
-            self.last_tab.clear();
-            ui.set_tab_image(slint::Image::default());
+        if !drawable || !draws_on_neck(ui.get_preview()) {
+            self.clear_drawing(ui);
+            return;
         }
+        // Built from the steps ACTUALLY drawn, not from the text they were read
+        // out of: anything that reorders them - the shuffle, once - left the
+        // picture standing while the strip of names above it had already moved,
+        // and the change only showed up later when something else forced a
+        // redraw.
+        let signature = format!(
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}",
+            chord.root as usize,
+            chord.quality.to_string(),
+            steps,
+            app.collected_notes,
+            ui.get_tab_frets(),
+            app.voicing_anchor,
+            app.random_mode,
+            app.current_note_step,
+            ui.get_preview(),
+            app.grip_string,
+            ui.get_voice_leading()
+        );
+        if signature == self.last_tab {
+            return;
+        }
+        self.last_tab = signature;
+
+        // Intervals are a GRIP, not a phrase: three or four notes taken at
+        // once, a string for each - laid out as a voicing, and drawn as a chord
+        // box. A phrase gets the neck it is played on, or the tablature strip
+        // where the setting asks for it.
+        let is_grip = app.app_mode == AppMode::Intervals && (1..=4).contains(&steps.len());
+        let spots = if is_grip {
+            self.place_grip(ui, app, chord, steps)
+        } else {
+            place_phrase(app, chord, steps)
+        };
+        self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
+        let done = &app.collected_notes;
+        let frets = ui.get_tab_frets();
+        let (svg, aspect) = if is_grip {
+            // No ring under free order: nothing is "due", and a ring would say
+            // the opposite.
+            let due = app.note_due().unwrap_or(spots.len());
+            (tab::grip(&spots, done, due, frets), tab::grip_aspect())
+        } else if ui.get_preview() == 1 {
+            (tab::svg(&spots, done, app.current_note_step, frets), tab::aspect(spots.len()))
+        } else {
+            (tab::neck(&spots, done, app.current_note_step, frets), tab::neck_aspect(&spots))
+        };
+        ui.set_tab_aspect(aspect);
+        ui.set_tab_image(svg_icon(&svg));
+    }
+
+    /// A grip, with the voices led from the grip before - unless the option is
+    /// off or the shuffle is on: then the chords come in a drawn order, there
+    /// is no line to lead, and each grip is taken where the neck is drawn to
+    /// offer it, so the grips move about instead of settling on the bottom
+    /// strings.
+    fn place_grip(&self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::Spot> {
+        let lead = ui.get_voice_leading() && !app.random_mode;
+        let prev = (lead && !self.last_voicing.is_empty()).then_some(self.last_voicing.as_slice());
+        tab::place_voiced(
+            chord.root as usize,
+            &chord.quality.intervals(),
+            steps,
+            &chord.quality.interval_names(),
+            prev,
+            app.voicing_anchor,
+            app.grip_string,
+            // Shuffled, the grips are close forms only - inversions, packed
+            // inside an octave on neighbouring strings. With no line to lead
+            // there is nothing holding them together, and spread forms drawn
+            // at random read as a different chord each time rather than as one
+            // shape moving.
+            app.random_mode,
+        )
     }
 
     fn drop_drawing_of_other_modes(&mut self, ui: &AppWindow, app: &MyApp) {
         // A drawing belongs to the mode that made it. Chords has its shape
         // diagrams and the fretboard trainer its region, and the picture left
         // over from the note modes was turning up under them.
-        if !matches!(
+        let draws = matches!(
             app.app_mode,
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard
-        ) && !self.last_tab.is_empty()
-        {
-            self.last_tab.clear();
-            ui.set_tab_image(slint::Image::default());
+        );
+        if !draws {
+            self.clear_drawing(ui);
         }
     }
 
@@ -1210,19 +1128,6 @@ impl UiFrame {
                     .map(|c| c.get_target_indices())
                     .unwrap_or_default(),
         };
-        let spec_vec: Vec<f32> = spectrum_vis.to_vec();
-        let mut spec_colors = Vec::new();
-        for i in 0..48 {
-            let note_idx = (i + 40) % 12;
-            let val = spectrum_vis[i];
-            let is_target = targets.contains(&note_idx);
-            let color = if val > 0.05 {
-                if is_target { Color::from_rgb_u8(50, 255, 100) } else { Color::from_rgb_u8(255, 50, 50) }
-            } else {
-                if (i + 40) % 12 == 0 { Color::from_rgb_u8(60, 60, 80) } else { Color::from_rgb_u8(30, 30, 30) }
-            };
-            spec_colors.push(color);
-        }
         // Skipped entirely when nothing shows it: the bars are the panel's most
         // expensive content, and off by default.
         if !ui.get_show_spectrum() && !ui.get_ai_debug_visible() {
@@ -1236,9 +1141,14 @@ impl UiFrame {
             return;
         }
         self.last_spectrum_push = Instant::now();
+        let spec_colors: Vec<Color> = spectrum_vis
+            .iter()
+            .enumerate()
+            .map(|(i, &level)| bar_colour(i, level, &targets))
+            .collect();
         // Only rows that actually moved: setting a row notifies whether or not
         // the value changed, and in silence most of them do not.
-        for (i, v) in spec_vec.iter().enumerate() {
+        for (i, v) in spectrum_vis.iter().enumerate() {
             if self.spectrum_data.row_data(i) != Some(*v) {
                 self.spectrum_data.set_row_data(i, *v);
             }
@@ -1359,4 +1269,81 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// A phrase laid on the neck. A scale starts from a drawn string, after every
+/// pass: the shape is the same everywhere, and one place on the neck practised
+/// over and over is not the exercise. An arpeggio study keeps the position its
+/// source is written in.
+fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::Spot> {
+    let from = (app.app_mode == AppMode::Scales).then_some(app.scale_start);
+    tab::place_from(
+        chord.root as usize,
+        &chord.quality.intervals(),
+        steps,
+        &chord.quality.interval_names(),
+        None,
+        from,
+    )
+}
+
+/// Every place inside the region where pitch class `pc` sounds.
+fn places_of(pc: usize, strings: &[usize], from: i32, to: i32) -> Vec<(usize, i32)> {
+    strings
+        .iter()
+        .flat_map(|&string| {
+            (from..=to).filter_map(move |fret| {
+                let sounding = (tab::TUNING[string] + fret).rem_euclid(12) as usize;
+                (sounding == pc % 12).then_some((string, fret))
+            })
+        })
+        .collect()
+}
+
+/// Which rows of shapes the two switches ask for. Neither ticked draws
+/// nothing, which is a legitimate answer and not the same as the master switch
+/// being off: that one is about whether the row exists at all.
+fn shapes_asked_for(full: bool, shell: bool) -> Option<diagrams::Shapes> {
+    match (full, shell) {
+        (true, true) => Some(diagrams::Shapes::Both),
+        (false, true) => Some(diagrams::Shapes::Shell),
+        (true, false) => Some(diagrams::Shapes::Full),
+        (false, false) => None,
+    }
+}
+
+/// The line under the shapes. Captioned whenever the row is not the chord's
+/// own shell: a substitute taken for the chord itself is worse than no
+/// substitute at all.
+fn shapes_caption(t: &i18n::Strings, shapes: Option<diagrams::Shapes>, chord: &Chord) -> String {
+    match (shapes, diagrams::shell_note(&chord.quality)) {
+        (None, _) | (Some(diagrams::Shapes::Full), _) => String::new(),
+        (_, diagrams::ShellNote::Own) => String::new(),
+        (_, diagrams::ShellNote::MinorForHalfDim) => t.shapes_substitute.to_string(),
+        // Naming the four dominants beats stating the rule that finds them. A
+        // diminished seventh is the third, fifth, seventh and flat ninth of a
+        // dominant whose root sits a semitone below any of its notes - which
+        // is four dominants, and reading that sentence is harder than reading
+        // the names.
+        (_, diagrams::ShellNote::None_) => {
+            let r = chord.root as usize;
+            let names: Vec<&str> = [11usize, 2, 5, 8]
+                .iter()
+                .map(|d| formulas::KEY_POOL[(r + d) % 12])
+                .collect();
+            format!("{}{}7b9{}", t.shapes_no_shell, names.join("7b9, "), t.shapes_no_shell_end)
+        }
+    }
+}
+
+/// A bar of the spectrum: green where it sounds and is asked for, red where it
+/// sounds and is not, and in silence dark - a shade lighter on every C.
+fn bar_colour(bar: usize, level: f32, targets: &[usize]) -> Color {
+    let pitch_class = (bar + 40) % 12;
+    match (level > 0.05, targets.contains(&pitch_class)) {
+        (true, true) => Color::from_rgb_u8(50, 255, 100),
+        (true, false) => Color::from_rgb_u8(255, 50, 50),
+        (false, _) if pitch_class == 0 => Color::from_rgb_u8(60, 60, 80),
+        (false, _) => Color::from_rgb_u8(30, 30, 30),
+    }
 }
