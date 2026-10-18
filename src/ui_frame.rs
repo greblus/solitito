@@ -17,7 +17,7 @@ use crate::i18n::{self, Lang};
 use crate::latch::ChordLatch;
 use crate::model::{self, Chord, NoteName};
 use crate::settings::{self, Settings};
-use crate::state::{self, AppMode, MatchStatus, MyApp, NoteState};
+use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
 use crate::{diagrams, formulas, tab};
 use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Tr};
 use crate::{
@@ -219,11 +219,11 @@ impl UiFrame {
             ui.set_interval_input_text(app.intervals_input.clone().into());
         }
         app.short_verdict = ui.get_short_verdict();
-        app.arp_exercise = ui.get_arp_exercise().max(0) as usize;
+        app.arp_exercise = (ui.get_arp_exercise().max(0) as usize).into();
         app.shells_only = ui.get_show_shell_shapes() && !ui.get_show_full_shapes();
         if app.app_mode == state::AppMode::Arpeggios {
             let quality = ui.get_arp_quality().max(0) as usize;
-            app.arp_direction = ui.get_arp_direction().max(0) as usize;
+            app.arp_direction = (ui.get_arp_direction().max(0) as usize).into();
             if app.arp_quality != quality {
                 app.arp_quality = quality;
                 app.reload_library();
@@ -267,17 +267,19 @@ impl UiFrame {
         // Changing the exercise changes what the formula is read against,
         // so it redraws: a placement over a chord that is no longer there
         // would be read as a key.
+        let exercise = FormulaExercise::from(cfg.formula_exercise as usize);
+        let placement = FormulaPlacement::from(cfg.formula_placement as usize);
         let redraw = app.formula_notes != cfg.formula_notes
             || app.formula_required != required
-            || app.formula_exercise != cfg.formula_exercise;
+            || app.formula_exercise != exercise;
         // A different kind of placement is the same formula seen from
         // somewhere else - the same gesture as asking for another key.
         let rekey = app.formula_random_key != cfg.formula_random_key
             || app.formula_key_setting != cfg.formula_key
-            || app.formula_placement_want != cfg.formula_placement;
-        let exercise_changed = app.formula_exercise != cfg.formula_exercise;
-        app.formula_exercise = cfg.formula_exercise;
-        app.formula_placement_want = cfg.formula_placement;
+            || app.formula_placement_want != placement;
+        let exercise_changed = app.formula_exercise != exercise;
+        app.formula_exercise = exercise;
+        app.formula_placement_want = placement;
         app.formula_notes = cfg.formula_notes;
         app.formula_required = required;
         app.formula_random_key = cfg.formula_random_key;
@@ -288,7 +290,7 @@ impl UiFrame {
         if app.app_mode == state::AppMode::Formulas {
             // Over the changes the tune has to be under it before a chord
             // can be taken from it.
-            if exercise_changed && cfg.formula_exercise == 2 {
+            if exercise_changed && exercise == FormulaExercise::OverChanges {
                 app.selected_library_idx = app.saved_song();
                 app.reload_library();
                 ui.set_current_item_index(app.selected_library_idx as i32);
@@ -462,7 +464,7 @@ impl UiFrame {
             AppMode::Scales => i18n::scale_name(lang_here, &app.song_title).to_string(),
             // In a study the title IS the phrase's name; over the changes it is
             // the tune's, which is not ours to translate.
-            AppMode::Arpeggios if app.arp_exercise == 0 => {
+            AppMode::Arpeggios if app.arp_exercise == ArpExercise::Study => {
                 i18n::arpeggio_name(lang_here, &app.song_title).to_string()
             }
             _ => app.song_title.clone(),
@@ -514,7 +516,7 @@ impl UiFrame {
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
         let jazz_names = self.shared.cfg.borrow().formula_jazz_names;
         let shown = match &app.formula_chord {
-            Some(chord) if app.formula_exercise != 0 => placement_over(app, chord, &t, jazz_names),
+            Some(chord) if app.formula_exercise.has_chord() => placement_over(app, chord, &t, jazz_names),
             _ => Placement::default(),
         };
         set_if_changed(ui.get_formula_chord_name(), shown.chord.into(), |v| {
@@ -608,8 +610,8 @@ impl UiFrame {
             // Counted from the chord under the formula when there is one,
             // so this row agrees with the two above it.
             let names: Vec<SharedString> = match app.formula_exercise {
-                0 => fits.iter().map(|f| SharedString::from(f.name())).collect(),
-                _ => fits
+                FormulaExercise::InKey => fits.iter().map(|f| SharedString::from(f.name())).collect(),
+                FormulaExercise::OverChord | FormulaExercise::OverChanges => fits
                     .iter()
                     .map(|f| SharedString::from(f.name_from(app.formula_degree)))
                     .collect(),

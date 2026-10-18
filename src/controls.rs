@@ -13,7 +13,7 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use crate::audio::{AudioAnalysis, InputInfo};
 use crate::i18n::{self, Lang};
 use crate::settings::{self, Settings};
-use crate::state::{AppMode, MyApp};
+use crate::state::{AppMode, ArpExercise, MyApp};
 use crate::{formulas, model, AppWindow};
 use crate::{
     apply_language, channel_choices, fit_ui_to_window, library_lists, mode_labels, open_input,
@@ -236,7 +236,7 @@ fn connect_practice(ui: &AppWindow, shared: &Shared) {
                 cur.save();
             }
             let mut app = app.lock().unwrap();
-            app.arp_exercise = idx.max(0) as usize;
+            app.arp_exercise = (idx.max(0) as usize).into();
             // Over the changes the first combo turns into the library of
             // tunes, and it opens on the standard being worked on.
             app.selected_library_idx = if app.reads_songs() { app.saved_song() } else { 0 };
@@ -447,7 +447,7 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
 fn show_library(ui: &AppWindow, app: &MyApp) {
     let lang = Lang::from_setting(ui.get_language_idx());
     let t = i18n::strings(lang);
-    let (label, sec_label) = mode_labels(&t, app.app_mode, app.arp_exercise == 0);
+    let (label, sec_label) = mode_labels(&t, app.app_mode, app.arp_exercise == ArpExercise::Study);
     let (items, sec_items) = library_lists(app, lang);
     ui.set_library_label(label.into());
     ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
@@ -464,7 +464,7 @@ fn show_library(ui: &AppWindow, app: &MyApp) {
 /// was a trap: the name promised a quality the app did not set, and the shape
 /// on the neck was the phrase read over something else.
 fn take_study_quality(ui: &AppWindow, app: &mut MyApp, cfg: &RefCell<Settings>, index: i32) {
-    if app.app_mode != AppMode::Arpeggios || app.arp_exercise != 0 {
+    if app.app_mode != AppMode::Arpeggios || app.arp_exercise != ArpExercise::Study {
         return;
     }
     let Some(quality) = app

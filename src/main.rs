@@ -32,7 +32,7 @@ use audio::{AudioAnalysis, InputInfo, start_audio_stream, start_file_playback};
 use brain::{ChordBrain, Prediction};
 use i18n::Lang;
 use settings::Settings;
-use state::{MyApp, AppMode};
+use state::{MyApp, AppMode, ArpExercise};
 
 use slint::{Timer, TimerMode, Model, ModelRc, VecModel, SharedString, PhysicalPosition, PhysicalSize};
 
@@ -693,13 +693,13 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
     let mut app = MyApp::new(analysis);
     // Before the first library is read: which arpeggio exercise is running
     // decides what the library IS - the studies or the tunes.
-    app.arp_exercise = cfg.arp_exercise;
-    app.arp_direction = cfg.arp_direction;
+    app.arp_exercise = cfg.arp_exercise.into();
+    app.arp_direction = cfg.arp_direction.into();
     app.arp_quality = cfg.arp_quality;
     // Same for Formulas: whether the exercise is planted on a tune decides
     // whether the first combo holds one, and the tune below is picked from
     // that list.
-    app.formula_exercise = cfg.formula_exercise;
+    app.formula_exercise = (cfg.formula_exercise as usize).into();
     app.set_mode(cfg.startup_mode);
     app.require_onset = cfg.require_onset_for(cfg.startup_mode);
     // The standard and the scale that were being worked on. Silently
@@ -891,7 +891,7 @@ fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedStrin
         AppMode::Scales => (scales(), keys_list()),
         // A study picks the phrase and the key it stands in; over the changes
         // the tune brings its own chords and the direction is a setting.
-        AppMode::Arpeggios if app.arp_exercise == 0 => (
+        AppMode::Arpeggios if app.arp_exercise == ArpExercise::Study => (
             app.arpeggio_patterns
                 .iter()
                 .map(|s| SharedString::from(i18n::arpeggio_name(lang, &s.name)))

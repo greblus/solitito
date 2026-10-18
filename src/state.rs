@@ -63,6 +63,110 @@ impl From<i32> for AppMode {
     }
 }
 
+/// What the arpeggio mode practises. Saved as its index: 0 and 1.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum ArpExercise {
+    /// A written phrase - a study - in a key of its own.
+    #[default]
+    Study,
+    /// An arpeggio built for each chord of a standard, along its changes.
+    OverChanges,
+}
+
+impl From<usize> for ArpExercise {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => ArpExercise::OverChanges,
+            _ => ArpExercise::Study,
+        }
+    }
+}
+
+/// Which way an arpeggio over the changes runs. Saved as its index, 0 to 3.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum ArpDirection {
+    #[default]
+    Up,
+    Down,
+    /// Down over the first chord, up over the next, and so on.
+    AlternateDownFirst,
+    AlternateUpFirst,
+}
+
+impl From<usize> for ArpDirection {
+    fn from(index: usize) -> Self {
+        match index {
+            0 => ArpDirection::Up,
+            1 => ArpDirection::Down,
+            2 => ArpDirection::AlternateDownFirst,
+            _ => ArpDirection::AlternateUpFirst,
+        }
+    }
+}
+
+/// What a formula is played against. Saved as its index, 0 to 2.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum FormulaExercise {
+    /// A key, and nothing under it.
+    #[default]
+    InKey,
+    /// A chord drawn at random, the formula placed on one of its degrees.
+    OverChord,
+    /// The chords of a standard, one after another.
+    OverChanges,
+}
+
+impl FormulaExercise {
+    /// Whether there is a chord under the formula at all.
+    pub fn has_chord(self) -> bool {
+        self != FormulaExercise::InKey
+    }
+}
+
+impl From<usize> for FormulaExercise {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => FormulaExercise::OverChord,
+            2 => FormulaExercise::OverChanges,
+            _ => FormulaExercise::InKey,
+        }
+    }
+}
+
+/// How the formula is to sit against the chord under it. Saved as its index,
+/// 0 to 3.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum FormulaPlacement {
+    #[default]
+    Any,
+    Defines,
+    Colours,
+    Outside,
+}
+
+impl FormulaPlacement {
+    /// The verdict a drawn placement has to come out with, if any.
+    pub fn wanted(self) -> Option<crate::formulas::Verdict> {
+        match self {
+            FormulaPlacement::Any => None,
+            FormulaPlacement::Defines => Some(crate::formulas::Verdict::Defines),
+            FormulaPlacement::Colours => Some(crate::formulas::Verdict::Colours),
+            FormulaPlacement::Outside => Some(crate::formulas::Verdict::Outside),
+        }
+    }
+}
+
+impl From<usize> for FormulaPlacement {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => FormulaPlacement::Defines,
+            2 => FormulaPlacement::Colours,
+            3 => FormulaPlacement::Outside,
+            _ => FormulaPlacement::Any,
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum MatchStatus {
     None,       // white
@@ -361,11 +465,11 @@ pub struct MyApp {
     /// The two are different exercises and were one before: a long study
     /// walked over a progression restarts mid-phrase at every chord, which is
     /// neither the study nor the changes.
-    pub arp_exercise: usize,
+    pub arp_exercise: ArpExercise,
     /// Over the changes: which way each chord's arpeggio runs. 0 up, 1 down,
     /// 2 alternating from down, 3 alternating from up - the four the studies
     /// are written in.
-    pub arp_direction: usize,
+    pub arp_direction: ArpDirection,
     /// The studies: which chord they are read over. An index into
     /// `ARP_QUALITIES`.
     pub arp_quality: usize,
@@ -526,9 +630,9 @@ pub struct MyApp {
     /// Which of the three formula exercises is running: 0 the formula in a key
     /// of its own, 1 the same formula planted on one chord, 2 planted on every
     /// chord of a tune in turn. See `place_over_chord`.
-    pub formula_exercise: u8,
+    pub formula_exercise: FormulaExercise,
     /// What kind of placement to draw: 0 any, 1 defines, 2 colours, 3 outside.
-    pub formula_placement_want: u8,
+    pub formula_placement_want: FormulaPlacement,
     /// The chord the formula is being played over, in exercises 1 and 2.
     pub formula_chord: Option<Chord>,
     /// Semitones above that chord's root where the formula's `1` sits.
@@ -611,8 +715,8 @@ impl MyApp {
             paused: false,
             random_mode: false,
             shuffle_chords: false,
-            arp_exercise: 0,
-            arp_direction: 0,
+            arp_exercise: ArpExercise::Study,
+            arp_direction: ArpDirection::Up,
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
@@ -659,8 +763,8 @@ impl MyApp {
             credited: Credits::default(),
             chord_heard_at: ChordHeard::default(),
             formula_mask: 0,
-            formula_exercise: 0,
-            formula_placement_want: 0,
+            formula_exercise: FormulaExercise::InKey,
+            formula_placement_want: FormulaPlacement::Any,
             formula_chord: None,
             formula_degree: 0,
             formula_hits: 0,
@@ -700,10 +804,10 @@ impl MyApp {
     /// Which way the arpeggio runs over the chord now due.
     fn changes_descending(&self) -> bool {
         match self.arp_direction {
-            0 => false,
-            1 => true,
-            2 => self.play_pos % 2 == 0,
-            _ => self.play_pos % 2 == 1,
+            ArpDirection::Up => false,
+            ArpDirection::Down => true,
+            ArpDirection::AlternateDownFirst => self.play_pos % 2 == 0,
+            ArpDirection::AlternateUpFirst => self.play_pos % 2 == 1,
         }
     }
 
@@ -712,7 +816,7 @@ impl MyApp {
     pub fn get_active_indices(&self, chord: &Chord) -> Vec<Step> {
         // Over the changes there is no written phrase to read: the arpeggio is
         // built for the chord and for where it falls in the progression.
-        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 1 {
+        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::OverChanges {
             return self.changes_run(chord, self.changes_descending());
         }
         let names = chord.quality.interval_names();
@@ -871,7 +975,7 @@ impl MyApp {
     fn regenerate_arpeggio(&mut self) {
         // Only where a phrase is chosen at all. Over the changes it is built
         // for each chord, and there is no entry in a list to be the generator.
-        if self.app_mode != AppMode::Arpeggios || self.arp_exercise != 0 {
+        if self.app_mode != AppMode::Arpeggios || self.arp_exercise != ArpExercise::Study {
             return;
         }
         // The phrase is the FIRST combo in the studies - the second one holds
@@ -935,7 +1039,7 @@ impl MyApp {
         // coming back lands where it was left. Only in the studies - over the
         // changes the first combo holds a tune, and a tune's row is not a
         // phrase's row.
-        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
+        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Study {
             self.saved_arpeggio_index = self.selected_library_idx;
             self.saved_arpeggio_key = self.secondary_index;
         }
@@ -962,7 +1066,7 @@ impl MyApp {
         // The arpeggio studies come back to the phrase and the key they were
         // left in - which for the generator means a freshly built phrase, not
         // the first fixed one. Scales start from C.
-        if new_mode == AppMode::Arpeggios && self.arp_exercise == 0 {
+        if new_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Study {
             self.selected_library_idx =
                 self.saved_arpeggio_index.min(self.arpeggio_patterns.len().saturating_sub(1));
             self.secondary_index = self.saved_arpeggio_key;
@@ -1027,8 +1131,8 @@ impl MyApp {
     pub fn reads_songs(&self) -> bool {
         match self.app_mode {
             AppMode::Chords | AppMode::Intervals => true,
-            AppMode::Arpeggios => self.arp_exercise == 1,
-            AppMode::Formulas => self.formula_exercise == 2,
+            AppMode::Arpeggios => self.arp_exercise == ArpExercise::OverChanges,
+            AppMode::Formulas => self.formula_exercise == FormulaExercise::OverChanges,
             _ => false,
         }
     }
@@ -1092,7 +1196,7 @@ impl MyApp {
         if self.app_mode == AppMode::Formulas {
             // Over the changes the formula needs a tune under it, and that is
             // the same library Chords reads from.
-            if self.formula_exercise == 2 && self.selected_library_idx < self.song_library.len() {
+            if self.formula_exercise == FormulaExercise::OverChanges && self.selected_library_idx < self.song_library.len() {
                 let song = &self.song_library[self.selected_library_idx];
                 self.song_title = song.title.clone();
                 self.chords = song.chords.clone();
@@ -1109,7 +1213,7 @@ impl MyApp {
                     self.chords = song.chords.clone();
                 }
             }
-            AppMode::Arpeggios if self.arp_exercise == 0 => {
+            AppMode::Arpeggios if self.arp_exercise == ArpExercise::Study => {
                 // A study stands on its own: one chord, in the key chosen or
                 // drawn, and the phrase is whichever study is selected.
                 let quality = ARP_QUALITIES
@@ -1448,7 +1552,7 @@ impl MyApp {
         // progression, so a finished pass means a new key, exactly as a
         // finished scale does.
         let key_exercise = self.app_mode == AppMode::Scales
-            || (self.app_mode == AppMode::Arpeggios && self.arp_exercise == 0);
+            || (self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Study);
         if self.random_mode && key_exercise && !self.chords.is_empty() {
             let current = self.chords[0].root as usize;
             let next = self.rng.below_excluding(12, current);

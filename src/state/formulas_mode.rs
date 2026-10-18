@@ -28,7 +28,7 @@ impl MyApp {
             // Over a chord the drawn key is thrown away again: what the formula
             // is read against is the chord, and where its `1` sits is the
             // placement, not a key of its own.
-            if self.formula_exercise != 0 {
+            if self.formula_exercise.has_chord() {
                 self.take_chord(true);
                 self.place_over_chord();
             }
@@ -89,12 +89,7 @@ impl MyApp {
     /// different way.
     pub fn place_over_chord(&mut self) {
         let Some((root, pcs)) = self.chord_under() else { return };
-        let want = match self.formula_placement_want {
-            1 => Some(crate::formulas::Verdict::Defines),
-            2 => Some(crate::formulas::Verdict::Colours),
-            3 => Some(crate::formulas::Verdict::Outside),
-            _ => None,
-        };
+        let want = self.formula_placement_want.wanted();
         let p = crate::formulas::draw_placement(
             &mut self.rng,
             self.formula_mask,
@@ -118,13 +113,13 @@ impl MyApp {
     /// The chord the exercise is played over, drawn or taken from the tune.
     pub(super) fn take_chord(&mut self, advance: bool) {
         match self.formula_exercise {
-            1 => {
+            FormulaExercise::OverChord => {
                 if advance || self.formula_chord.is_none() {
                     self.formula_chord = Some(self.draw_practice_chord());
                 }
             }
-            2 => self.take_tune_chord(advance),
-            _ => {
+            FormulaExercise::OverChanges => self.take_tune_chord(advance),
+            FormulaExercise::InKey => {
                 self.formula_chord = None;
                 self.formula_verdict = None;
             }
@@ -153,7 +148,7 @@ impl MyApp {
     /// are two things one might want next - the next chord, or a different
     /// formula to carry through the tune - and they are different gestures.
     pub fn next_change(&mut self) {
-        if self.formula_exercise == 0 {
+        if !self.formula_exercise.has_chord() {
             return;
         }
         self.take_chord(true);
@@ -223,8 +218,8 @@ impl MyApp {
         // formula heard from somewhere else, so the placement moves. Over a
         // tune the chord moves too, and the formula is carried across it: the
         // constant is the set, and the harmony is what moves under it.
-        if self.formula_exercise != 0 {
-            self.take_chord(self.formula_exercise == 2);
+        if self.formula_exercise.has_chord() {
+            self.take_chord(self.formula_exercise == FormulaExercise::OverChanges);
             self.place_over_chord();
             return;
         }
@@ -260,7 +255,7 @@ impl MyApp {
     /// start again. A key that cannot be read leaves the old one in place, as
     /// `next_formula` leaves the old formula when the filter matches nothing.
     pub fn rekey_formula(&mut self) {
-        if self.formula_exercise != 0 {
+        if self.formula_exercise.has_chord() {
             self.take_chord(false);
             self.place_over_chord();
             return;

@@ -3,7 +3,7 @@ use super::*;
 
 fn pick_generator(a: &mut MyApp) {
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     let idx = a.arpeggio_patterns.iter()
         .position(|p| p.name == crate::model::GENERATOR_NAME)
         .expect("generator entry missing from the arpeggio list");
@@ -452,7 +452,7 @@ fn a_lap_does_not_move_the_key() {
 #[test]
 fn over_a_chord_the_lap_moves_the_placement_and_keeps_the_chord() {
     let mut a = app();
-    a.formula_exercise = 1;
+    a.formula_exercise = FormulaExercise::OverChord;
     a.set_mode(AppMode::Formulas as i32);
     let chord = a.formula_chord.clone().expect("no chord to play over");
     let mask = a.formula_mask;
@@ -474,7 +474,7 @@ fn over_a_chord_the_lap_moves_the_placement_and_keeps_the_chord() {
 #[test]
 fn over_the_changes_the_lap_moves_the_chord() {
     let mut a = app();
-    a.formula_exercise = 2;
+    a.formula_exercise = FormulaExercise::OverChanges;
     a.set_mode(AppMode::Formulas as i32);
     // Whatever the library gave it, the tune has to be walked in order.
     a.chords = vec![
@@ -501,8 +501,8 @@ fn over_the_changes_the_lap_moves_the_chord() {
 #[test]
 fn asking_for_a_kind_of_placement_gets_that_kind() {
     let mut a = app();
-    a.formula_exercise = 1;
-    a.formula_placement_want = 1; // spells the chord out
+    a.formula_exercise = FormulaExercise::OverChord;
+    a.formula_placement_want = FormulaPlacement::Defines; // spells the chord out
     a.set_mode(AppMode::Formulas as i32);
     // A chord and a formula chosen rather than drawn: over some pairs no
     // placement spells the chord out at all, and the draw then answers with

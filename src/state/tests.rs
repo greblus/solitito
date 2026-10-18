@@ -778,7 +778,7 @@ fn the_tune_follows_from_mode_to_mode() {
     assert_eq!(a.song_title, title);
     // Arpeggios over the changes reads the same library; the studies do not,
     // and their own row is remembered separately.
-    a.arp_exercise = 1;
+    a.arp_exercise = ArpExercise::OverChanges;
     a.set_mode(AppMode::Arpeggios as i32);
     assert_eq!(a.song_title, title, "over the changes it is the same tune");
 }
@@ -941,7 +941,7 @@ fn scales_keep_their_key_without_randomisation() {
 fn the_changes_exercise_keeps_its_second_combo() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 1;
+    a.arp_exercise = ArpExercise::OverChanges;
     a.set_random_mode(true);
     let sec = a.secondary_index;
     for _ in 0..20 { a.advance_chord(); }
@@ -954,7 +954,7 @@ fn the_changes_exercise_keeps_its_second_combo() {
 fn a_study_draws_a_new_key_when_a_pass_ends() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.reload_library();
     assert!(!a.chords.is_empty(), "the study has no chord to stand on");
     a.set_random_mode(true);
@@ -1958,7 +1958,7 @@ fn the_scale_passes() {
 fn the_study_places() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.item_selected(0);
     a.secondary_item_selected(0);             // C
     let chord = a.chords[0].clone();
@@ -2002,7 +2002,7 @@ fn the_scale_picture() {
 fn a_phrase_gets_past_a_note_it_has_already_used() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.item_selected(0);
     a.note_threshold = 0.5;
     let seventh = 10usize;                    // over the default m7
@@ -2038,7 +2038,7 @@ fn a_phrase_gets_past_a_note_it_has_already_used() {
 fn an_arpeggio_played_through_comes_round() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.set_random_mode(false);
     a.item_selected(0);                       // the minor study
     a.note_threshold = 0.5;
@@ -2361,7 +2361,7 @@ fn the_option_puts_the_intervals_back_in_order() {
 fn the_shuffle_does_not_reorder_an_arpeggio() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.item_selected(0);
     a.set_random_mode(true);
     let chord = a.chords[0].clone();
@@ -2378,7 +2378,7 @@ fn the_shuffle_does_not_reorder_an_arpeggio() {
 fn the_shuffle_moves_the_key_and_leaves_the_study() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     a.item_selected(2);
     let study = a.arpeggio_patterns[2].name.clone();
     let key = a.chords[0].root as usize;
@@ -2433,7 +2433,7 @@ fn a_study_named_for_a_chord_names_the_right_one() {
 fn a_study_plays_the_phrase_it_names() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 0;
+    a.arp_exercise = ArpExercise::Study;
     let patterns = a.arpeggio_patterns.clone();
     for (i, pattern) in patterns.iter().enumerate() {
         if pattern.name == crate::model::GENERATOR_NAME {
@@ -2461,10 +2461,10 @@ fn a_study_plays_the_phrase_it_names() {
 fn the_changes_run_matches_the_studies() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 1;
+    a.arp_exercise = ArpExercise::OverChanges;
     let chord = Chord { root: NoteName::D, quality: ChordQuality::Dominant7 };
 
-    a.arp_direction = 0;
+    a.arp_direction = ArpDirection::Up;
     let up: Vec<(usize, i8)> =
         a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
     assert_eq!(
@@ -2473,7 +2473,7 @@ fn the_changes_run_matches_the_studies() {
         "1 3 5 7 1' 3' 5' 7'"
     );
 
-    a.arp_direction = 1;
+    a.arp_direction = ArpDirection::Down;
     let down: Vec<(usize, i8)> =
         a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
     assert_eq!(
@@ -2489,17 +2489,17 @@ fn the_changes_run_matches_the_studies() {
 fn alternating_turns_the_run_round_at_every_chord() {
     let mut a = app();
     a.set_mode(AppMode::Arpeggios as i32);
-    a.arp_exercise = 1;
+    a.arp_exercise = ArpExercise::OverChanges;
     a.set_random_mode(false);
     let chord = a.chords[a.current_chord_index].clone();
     let is_down = |a: &MyApp, c: &Chord| a.get_active_indices(c)[1].octave < 0;
 
-    a.arp_direction = 2;                    // from the descending one
+    a.arp_direction = ArpDirection::AlternateDownFirst;                    // from the descending one
     assert!(is_down(&a, &chord), "the first chord did not start downwards");
     a.play_pos = 1;
     assert!(!is_down(&a, &chord), "the second chord did not turn round");
 
-    a.arp_direction = 3;                    // and the other way about
+    a.arp_direction = ArpDirection::AlternateUpFirst;                    // and the other way about
     assert!(is_down(&a, &chord), "starting up, the second chord runs down");
     a.play_pos = 0;
     assert!(!is_down(&a, &chord), "the first chord did not start upwards");
@@ -2878,4 +2878,19 @@ fn nothing_counts_as_struck_at_start_up() {
     assert_eq!(a.heard.flux_age, u32::MAX);
     assert_eq!(a.heard.class_strike_age, [u32::MAX; 12]);
     assert!(!a.heard.strikes_live && !a.heard.flux_seen);
+}
+
+/// The settings file keeps these as numbers. Each reads back as what the code
+/// did with that number before it was an enum - out-of-range ones included.
+#[test]
+fn saved_numbers_read_back_as_the_same_exercise() {
+    assert_eq!(ArpExercise::from(0), ArpExercise::Study);
+    assert_eq!(ArpExercise::from(1), ArpExercise::OverChanges);
+    assert_eq!(ArpDirection::from(2), ArpDirection::AlternateDownFirst);
+    assert_eq!(ArpDirection::from(3), ArpDirection::AlternateUpFirst);
+    assert_eq!(ArpDirection::from(9), ArpDirection::AlternateUpFirst, "the old match's catch-all arm");
+    assert_eq!(FormulaExercise::from(2), FormulaExercise::OverChanges);
+    assert_eq!(FormulaExercise::from(7), FormulaExercise::InKey);
+    assert_eq!(FormulaPlacement::from(3), FormulaPlacement::Outside);
+    assert_eq!(FormulaPlacement::from(8).wanted(), None, "anything else asks for no particular verdict");
 }
