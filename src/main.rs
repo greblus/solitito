@@ -505,28 +505,100 @@ const MIN_FILL: f32 = 0.5;
 const MIN_FILL_CHORD: f32 = 0.9;
 
 fn main() -> Result<(), slint::PlatformError> {
+    let _keep_awake = keep_screen_awake();
+    audio::hush_alsa();
+    if let Err(e) = ort::init().with_name("Solitito").commit() {
+        eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
+    }
+    let analysis_state = new_analysis_state();
+    let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
 
-    let _keep_awake = keepawake::Builder::new()
+    let args: Vec<String> = env::args().collect();
+    if let Some(exit_code) = cli::run_report(&args) {
+        std::process::exit(exit_code);
+    }
+    let file_mode = match args.get(2).filter(|_| args[1] == "--file") {
+        Some(path) => {
+            println!("Starting FILE mode: {}", path);
+            if let Err(e) = start_file_playback(path.clone(), analysis_state.clone()) {
+                eprintln!("ERR FILE: {}", e);
+                return Ok(());
+            }
+            true
+        }
+        None => {
+            println!("Starting LIVE mode...");
+            false
+        }
+    };
+    let _ai_thread = spawn_model_thread(analysis_state.clone(), ai_result_state.clone());
+
+    // Persistent settings, read once before the window is built so the app is in
+    // the chosen mode from the first frame instead of jumping.
+    let cfg = Settings::load();
+    // Language resolved BEFORE building the window, so no English flashes first.
+    let lang = Lang::from_setting(cfg.language);
+    println!("🌍 UI language: {:?}", lang);
+    let my_app = Arc::new(Mutex::new(restore_app(&cfg, analysis_state.clone())));
+
+    let ui = AppWindow::new()?;
+    show_settings(&ui, &my_app.lock().unwrap(), &cfg, lang);
+    ui.window().set_position(PhysicalPosition::new(450, 10));
+
+    let shared = controls::Shared {
+        app: my_app.clone(),
+        // The single live copy of the settings. Each closure used to write a
+        // clone taken at startup, so saving one setting rewrote the others with
+        // their values from launch time - changing the mode and then the
+        // language silently reverted the mode. They now all edit this.
+        cfg: Rc::new(RefCell::new(cfg.clone())),
+        analysis: analysis_state.clone(),
+        // Held so it can be swapped when the device or channel changes.
+        audio_in: Rc::new(RefCell::new(None)),
+        opened: Rc::new(RefCell::new(InputInfo::default())),
+        device_names: Rc::new(RefCell::new(Vec::new())),
+    };
+    if !file_mode {
+        open_saved_input(&ui, &shared, &cfg, lang);
+    }
+
+    let _restore_size = restore_window_size(&ui, &cfg);
+    fit_ui_to_window(&ui);
+    let frame_shared = ui_frame::Shared {
+        app: my_app.clone(),
+        ai_result: ai_result_state.clone(),
+        cfg: shared.cfg.clone(),
+        device_names: shared.device_names.clone(),
+        opened: shared.opened.clone(),
+    };
+    let mut frame = ui_frame::UiFrame::new(&ui, frame_shared, file_mode, lang);
+    let timer = Timer::default();
+    timer.start(TimerMode::Repeated, Duration::from_millis(16), move || frame.run());
+
+    controls::connect(&ui, &shared);
+    ui.run()
+}
+
+/// Keeps the screen on while the app runs: a trainer is watched, not typed at.
+fn keep_screen_awake() -> Option<keepawake::AwakeHandle> {
+    let awake = keepawake::Builder::new()
         .display(true)
         .idle(true)
         .sleep(true)
         .create();
-
-    if let Err(e) = &_keep_awake {
+    if let Err(e) = &awake {
         eprintln!("Warning: Could not enable keep-awake: {}", e);
     }
-    
-    audio::hush_alsa();
+    awake.ok()
+}
 
-    if let Err(e) = ort::init().with_name("Solitito").commit() {
-        eprintln!("CRITICAL: Failed to initialize ONNX Runtime: {}", e);
-    }
+const DEFAULT_GATE_DB: f32 = -34.0; // ~0.02 in linear RMS
+const DEFAULT_BOOST_ENABLED: bool = true;
+const DEFAULT_BOOST_GAIN: f32 = 5.0;
 
-    let default_gate_db: f32 = -34.0;            // ~0.02 in linear RMS
-    let default_boost_enabled = true;
-    let default_boost_gain = 5.0;
-
-    let analysis_state = Arc::new(Mutex::new(AudioAnalysis {
+/// What the audio thread and the rest share, before anything has been heard.
+fn new_analysis_state() -> Arc<Mutex<AudioAnalysis>> {
+    Arc::new(Mutex::new(AudioAnalysis {
         input_history: [[0.0; 168]; 48],
         frame_live: [false; 48],
         onset_id: 0,
@@ -540,307 +612,244 @@ fn main() -> Result<(), slint::PlatformError> {
         frames_since_onset: 0,
         spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
-        bass_boost_enabled: default_boost_enabled,
-        bass_boost_gain: default_boost_gain, 
-        noise_gate: db_to_lin(default_gate_db),
+        bass_boost_enabled: DEFAULT_BOOST_ENABLED,
+        bass_boost_gain: DEFAULT_BOOST_GAIN,
+        noise_gate: db_to_lin(DEFAULT_GATE_DB),
         input_level: 0.0,
         cqt_pitch: None,
         cqt_semitone: None,
         gate_open: false,
         frames_seen: 0,
-    }));
-    
-    let ai_result_state = Arc::new(Mutex::new(AiResult::default()));
-
-    let args: Vec<String> = env::args().collect();
-
-    if let Some(exit_code) = cli::run_report(&args) {
-        std::process::exit(exit_code);
-    }
-
-    let mut file_mode = false;
-    // Held so it can be swapped when the device or channel changes. Dropping the
-    // old stream first is deliberate: some backends refuse a second stream on a
-    // device that already has one open.
-    let audio_in: Rc<RefCell<Option<cpal::Stream>>> = Rc::new(RefCell::new(None));
-    let opened: Rc<RefCell<InputInfo>> = Rc::new(RefCell::new(InputInfo::default()));
-
-    if args.len() > 2 && args[1] == "--file" {
-        let path = args[2].clone();
-        println!("Starting FILE mode: {}", path);
-        if let Err(e) = start_file_playback(path, analysis_state.clone()) {
-            eprintln!("ERR FILE: {}", e);
-            return Ok(());
-        }
-        file_mode = true;
-    } else {
-        println!("Starting LIVE mode...");
-    }
-    
-    // AI THREAD
-    let analysis_for_ai = analysis_state.clone();
-    let result_for_ai = ai_result_state.clone();
-    
-    // Named so `top -H` can tell inference apart from the UI thread - both were
-    // just "solitito", which made "is it the model or the drawing?" unanswerable
-    // without a debugger.
-    let _ai_thread = thread::Builder::new().name("solitito-ai".into()).spawn(move || {
-        let model_filename = model_path();
-        let mut brain = match ChordBrain::new(&model_filename) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("WARNING: Could not load AI Model: {}", e);
-                return;
-            }
-        };
-        
-        // SOLITITO_DEBUG=1 prints WHAT the model hears and WHAT it is torn between.
-        // Without it a mistake shows only as a chord name, which cannot separate
-        // "it does not hear the seventh" from "it hears it and ignores it".
-        let debug_ai = std::env::var("SOLITITO_DEBUG").is_ok();
-        if debug_ai {
-            println!("🔎 Diagnostics: root | qualities | intervals relative to the root");
-        }
-
-        loop {
-            let (history, fill) = {
-                let state = analysis_for_ai.lock().unwrap();
-                (state.input_history, state.history_fill())
-            };
-
-            if fill < MIN_FILL {
-                thread::sleep(Duration::from_millis(40));
-                continue;
-            }
-
-            // The period is timed FROM THE START of inference. It used to be
-            // "compute, then sleep 40 ms", so the real period was inference PLUS
-            // 40 ms and varied with machine load.
-            let started = std::time::Instant::now();
-            if let Ok(pred) = brain.predict(&history) {
-                if debug_ai {
-                    print_debug(&pred);
-                }
-                if let Ok(mut res) = result_for_ai.lock() {
-                    res.pred = pred;
-                    res.fill = fill;
-                    res.updated = true;
-                }
-            }
-            let spent = started.elapsed();
-            if let Some(left) = Duration::from_millis(40).checked_sub(spent) {
-                thread::sleep(left);
-            }
-        }
-    });
-
-    // Persistent settings, read once before the window is built so the app is in
-    // the chosen mode from the first frame instead of jumping.
-    let cfg = Settings::load();
-
-    // Language resolved BEFORE building the window, so no English flashes first.
-    let lang = Lang::from_setting(cfg.language);
-    println!("🌍 UI language: {:?}", lang);
-
-    let my_app = Arc::new(Mutex::new(MyApp::new(analysis_state.clone())));
-    {
-        // Before the first library is read: which arpeggio exercise is running
-        // decides what the library IS - the studies or the tunes.
-        let mut app = my_app.lock().unwrap();
-        app.arp_exercise = cfg.arp_exercise;
-        app.arp_direction = cfg.arp_direction;
-        app.arp_quality = cfg.arp_quality;
-        // Same for Formulas: whether the exercise is planted on a tune decides
-        // whether the first combo holds one, and the tune below is picked from
-        // that list.
-        app.formula_exercise = cfg.formula_exercise;
-        app.set_mode(cfg.startup_mode);
-        app.require_onset = cfg.require_onset_for(cfg.startup_mode);
-        // The standard and the scale that were being worked on. Silently
-        // ignored if the library no longer holds them - see `select_song`.
-        app.select_song(&cfg.song);
-        app.select_scale(&cfg.scale);
-    }
-    let ui = AppWindow::new()?;
-    {
-        let app = my_app.lock().unwrap();
-        let (items, _) = library_lists(&app, lang);
-        ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
-        // Per device: the same room and the same fingers give levels tens of
-        // decibels apart through an interface and through a laptop microphone.
-        ui.set_gate_db(
-            cfg.gate_for(cfg.audio_device.as_deref())
-                .unwrap_or(default_gate_db),
-        );
-        ui.set_boost_enabled(default_boost_enabled);
-        ui.set_boost_gain(default_boost_gain);
-        ui.set_current_mode(app.app_mode as i32); 
-        ui.set_current_item_index(app.selected_library_idx as i32);
-        ui.set_startup_mode(cfg.startup_mode);
-        ui.set_language_idx(cfg.language);
-        ui.set_short_verdict(cfg.short_verdict);
-        ui.set_single_notes(cfg.single_notes);
-        ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
-        ui.set_shuffle_chords(cfg.shuffle_chords);
-        ui.set_show_diagrams(cfg.show_diagrams);
-        // Per mode, so the app opens showing the mode it opens in the way that
-        // mode was left.
-        ui.set_preview(cfg.preview_for(cfg.startup_mode) as i32);
-        ui.set_voice_leading(cfg.voice_leading);
-        ui.set_tab_frets(cfg.tab_frets);
-        ui.set_arp_exercise(cfg.arp_exercise as i32);
-        ui.set_arp_direction(cfg.arp_direction as i32);
-        ui.set_arp_quality(cfg.arp_quality as i32);
-        ui.set_scale_repeat_root(cfg.scale_repeat_root);
-        ui.set_show_full_shapes(cfg.show_full_shapes);
-        ui.set_show_shell_shapes(cfg.show_shell_shapes);
-        ui.set_formula_jazz_names(cfg.formula_jazz_names);
-        ui.set_formula_exercise(cfg.formula_exercise as i32);
-        ui.set_formula_placement(cfg.formula_placement as i32);
-        ui.set_formula_notes(cfg.formula_notes as i32);
-        ui.set_formula_key_text(cfg.formula_key.clone().into());
-        ui.set_formula_random_key(cfg.formula_random_key);
-        ui.set_formula_required_text(cfg.formula_required.clone().into());
-        ui.set_formula_show_names(cfg.formula_note_names);
-        ui.set_formula_show_similar(cfg.formula_show_similar);
-        ui.set_formula_show_chords(cfg.formula_show_chords);
-        ui.set_in_order(cfg.formula_in_order);
-        ui.set_interval_in_order(cfg.interval_in_order);
-        ui.set_debug_console(cfg.debug_console);
-        ui.set_show_input_meter(cfg.show_input_meter);
-        ui.set_show_heard(cfg.show_heard);
-        ui.set_quick_open(cfg.quick_options_open);
-        ui.set_app_version(env!("CARGO_PKG_VERSION").into());
-        ui.set_show_spectrum(cfg.show_spectrum);
-        ui.set_ai_debug_visible(cfg.ai_debug);
-        ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
-        ui.set_icon_gear(svg_icon(ICON_GEAR));
-        ui.set_icon_star(svg_icon(ICON_STAR));
-        ui.set_icon_star_on(svg_icon(ICON_STAR_ON));
-        ui.set_icon_pause(svg_icon(ICON_PAUSE));
-        ui.set_icon_play(svg_icon(ICON_PLAY));
-        // `app` above is the same lock: taking it again here deadlocked the
-        // start-up, and the window never appeared.
-        apply_language(&ui, lang, Some(&app));
-        ui.set_interval_input_text(app.intervals_input.clone().into()); 
-    }
-
-    ui.window().set_position(PhysicalPosition::new(450, 10));
-
-    // --- AUDIO INPUT ---
-    // Listed BEFORE the stream opens, always. Enumerating means opening every
-    // device in turn, and a card that is already taken cannot be opened - so a
-    // list built after this app has a card of its own is missing that card, and
-    // one built while a sound server holds the hardware is missing all of them.
-    // ALSA's own complaints while it probes are silenced by `hush_alsa`.
-    let device_names: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
-    if !file_mode {
-        let t = i18n::strings(lang);
-        let present = audio::list_input_devices();
-        let mut names = present.clone();
-        // The saved device stays in the picker even when the scan missed it, so
-        // the panel shows what the app is trying to use - marked, so it does not
-        // read as an interface that is plugged in when it is not.
-        if let Some(want) = cfg.audio_device.as_deref() {
-            if !names.iter().any(|n| n == want) {
-                names.push(want.to_string());
-            }
-        }
-        let chosen = cfg
-            .audio_device
-            .as_deref()
-            .and_then(|want| names.iter().position(|n| n == want))
-            .map(|i| i as i32 + 1)
-            .unwrap_or(0);
-        fill_device_list(&ui, &names, t.audio_default, &present, None);
-        *device_names.borrow_mut() = names;
-        ui.set_audio_device_index(chosen);
-        ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
-
-        // A saved device that is no longer plugged in falls back to the default
-        // rather than refusing to open anything.
-        let want = (chosen > 0)
-            .then(|| device_names.borrow()[chosen as usize - 1].clone());
-        open_input(&analysis_state, &audio_in, &opened, &ui, want.as_deref(), cfg.audio_channel);
-        ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
-            ui.get_audio_channel_count(),
-            t.audio_one,
-        )))));
-    }
-
-    // The single live copy of the settings. Each closure below used to write a
-    // clone taken at startup, so saving one setting rewrote the others with
-    // their values from launch time - changing the mode and then the language
-    // silently reverted the mode. They now all edit this.
-    let live_cfg = Rc::new(RefCell::new(cfg.clone()));
-
-    // Restoring the size has to wait for the event loop. The window does not
-    // exist until then - `show()` only queues its creation - and a size set
-    // before it exists is dropped, leaving the window at its preferred size.
-    // Verified on this machine: setting it any earlier had no effect at all.
-    // Held for as long as the window lives, or the timer is dropped and never
-    // fires. The closure only gets a weak handle, so it can stop itself.
-    let _restore_size = Rc::new(Timer::default());
-    if let (Some(w), Some(h)) = (cfg.window_w, cfg.window_h) {
-        let uw = ui.as_weak();
-        let timer = Rc::downgrade(&_restore_size);
-        let give_up_at = std::time::Instant::now() + Duration::from_secs(3);
-        // Asking once is not enough. Slint sizes the window from the layout's
-        // preferred size during its first pass, which lands after the event loop
-        // has already started and overwrites anything set before it - measured
-        // here at somewhere between 300ms and 600ms after launch. So ask
-        // repeatedly and stop as soon as it holds, rather than sleeping for a
-        // guessed interval that a slower machine would miss.
-        _restore_size.start(TimerMode::Repeated, Duration::from_millis(50), move || {
-            let Some(ui) = uw.upgrade() else { return };
-            let now = ui.window().size();
-            // Two ways out, because a window manager is entitled to refuse: the
-            // size took, or it has had long enough that it never will. Without
-            // the deadline a tiling WM would leave this firing forever.
-            if (now.width, now.height) == (w, h) || std::time::Instant::now() > give_up_at {
-                if let Some(timer) = timer.upgrade() {
-                    timer.stop();
-                }
-                return;
-            }
-            ui.window().set_size(PhysicalSize::new(w, h));
-            fit_ui_to_window(&ui);
-        });
-    }
-    fit_ui_to_window(&ui);
-    let frame_shared = ui_frame::Shared {
-        app: my_app.clone(),
-        ai_result: ai_result_state.clone(),
-        cfg: live_cfg.clone(),
-        device_names: device_names.clone(),
-        opened: opened.clone(),
-    };
-    let mut frame = ui_frame::UiFrame::new(&ui, frame_shared, file_mode, lang);
-    let timer = Timer::default();
-    timer.start(TimerMode::Repeated, Duration::from_millis(16), move || frame.run());
-
-    controls::connect(
-        &ui,
-        &controls::Shared {
-            app: my_app.clone(),
-            cfg: live_cfg.clone(),
-            analysis: analysis_state.clone(),
-            audio_in: audio_in.clone(),
-            opened: opened.clone(),
-            device_names: device_names.clone(),
-        },
-    );
-
-    ui.run()
+    }))
 }
 
-/// Diagnostic output (SOLITITO_DEBUG=1).
+/// The thread that asks the model, every 40 ms, about the window of features
+/// the audio thread keeps, and leaves the answer in `result`.
 ///
-/// Intervals are printed RELATIVE TO THE DETECTED ROOT, which is how one thinks
-/// about a chord: "Gm instead of Gm7" means b7 should show a high number. If it
-/// is low, hearing is the bottleneck; if it is high and the quality still comes
-/// out "m", the quality head is not using information it already has.
-/// Fills the UI `Tr` global with the chosen language's strings.
+/// Named so `top -H` can tell inference apart from the UI thread - both were
+/// just "solitito", which made "is it the model or the drawing?" unanswerable
+/// without a debugger.
+fn spawn_model_thread(
+    analysis: Arc<Mutex<AudioAnalysis>>,
+    result: Arc<Mutex<AiResult>>,
+) -> std::io::Result<thread::JoinHandle<()>> {
+    thread::Builder::new()
+        .name("solitito-ai".into())
+        .spawn(move || run_model(analysis, result))
+}
+
+fn run_model(analysis: Arc<Mutex<AudioAnalysis>>, result: Arc<Mutex<AiResult>>) {
+    let model_filename = model_path();
+    let mut brain = match ChordBrain::new(&model_filename) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("WARNING: Could not load AI Model: {}", e);
+            return;
+        }
+    };
+
+    // SOLITITO_DEBUG=1 prints WHAT the model hears and WHAT it is torn between.
+    // Without it a mistake shows only as a chord name, which cannot separate
+    // "it does not hear the seventh" from "it hears it and ignores it".
+    let debug_ai = std::env::var("SOLITITO_DEBUG").is_ok();
+    if debug_ai {
+        println!("🔎 Diagnostics: root | qualities | intervals relative to the root");
+    }
+
+    loop {
+        let (history, fill) = {
+            let state = analysis.lock().unwrap();
+            (state.input_history, state.history_fill())
+        };
+
+        if fill < MIN_FILL {
+            thread::sleep(Duration::from_millis(40));
+            continue;
+        }
+
+        // The period is timed FROM THE START of inference. It used to be
+        // "compute, then sleep 40 ms", so the real period was inference PLUS
+        // 40 ms and varied with machine load.
+        let started = std::time::Instant::now();
+        if let Ok(pred) = brain.predict(&history) {
+            if debug_ai {
+                print_debug(&pred);
+            }
+            if let Ok(mut res) = result.lock() {
+                res.pred = pred;
+                res.fill = fill;
+                res.updated = true;
+            }
+        }
+        let spent = started.elapsed();
+        if let Some(left) = Duration::from_millis(40).checked_sub(spent) {
+            thread::sleep(left);
+        }
+    }
+}
+
+/// The app as it was left: the mode, the exercises, the standard and the scale.
+fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
+    let mut app = MyApp::new(analysis);
+    // Before the first library is read: which arpeggio exercise is running
+    // decides what the library IS - the studies or the tunes.
+    app.arp_exercise = cfg.arp_exercise;
+    app.arp_direction = cfg.arp_direction;
+    app.arp_quality = cfg.arp_quality;
+    // Same for Formulas: whether the exercise is planted on a tune decides
+    // whether the first combo holds one, and the tune below is picked from
+    // that list.
+    app.formula_exercise = cfg.formula_exercise;
+    app.set_mode(cfg.startup_mode);
+    app.require_onset = cfg.require_onset_for(cfg.startup_mode);
+    // The standard and the scale that were being worked on. Silently
+    // ignored if the library no longer holds them - see `select_song`.
+    app.select_song(&cfg.song);
+    app.select_scale(&cfg.scale);
+    app
+}
+
+/// Every control in the window set to the saved settings.
+fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
+    let (items, _) = library_lists(app, lang);
+    ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));
+    // Per device: the same room and the same fingers give levels tens of
+    // decibels apart through an interface and through a laptop microphone.
+    ui.set_gate_db(
+        cfg.gate_for(cfg.audio_device.as_deref())
+            .unwrap_or(DEFAULT_GATE_DB),
+    );
+    ui.set_boost_enabled(DEFAULT_BOOST_ENABLED);
+    ui.set_boost_gain(DEFAULT_BOOST_GAIN);
+    ui.set_current_mode(app.app_mode as i32); 
+    ui.set_current_item_index(app.selected_library_idx as i32);
+    ui.set_startup_mode(cfg.startup_mode);
+    ui.set_language_idx(cfg.language);
+    ui.set_short_verdict(cfg.short_verdict);
+    ui.set_single_notes(cfg.single_notes);
+    ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
+    ui.set_shuffle_chords(cfg.shuffle_chords);
+    ui.set_show_diagrams(cfg.show_diagrams);
+    // Per mode, so the app opens showing the mode it opens in the way that
+    // mode was left.
+    ui.set_preview(cfg.preview_for(cfg.startup_mode) as i32);
+    ui.set_voice_leading(cfg.voice_leading);
+    ui.set_tab_frets(cfg.tab_frets);
+    ui.set_arp_exercise(cfg.arp_exercise as i32);
+    ui.set_arp_direction(cfg.arp_direction as i32);
+    ui.set_arp_quality(cfg.arp_quality as i32);
+    ui.set_scale_repeat_root(cfg.scale_repeat_root);
+    ui.set_show_full_shapes(cfg.show_full_shapes);
+    ui.set_show_shell_shapes(cfg.show_shell_shapes);
+    ui.set_formula_jazz_names(cfg.formula_jazz_names);
+    ui.set_formula_exercise(cfg.formula_exercise as i32);
+    ui.set_formula_placement(cfg.formula_placement as i32);
+    ui.set_formula_notes(cfg.formula_notes as i32);
+    ui.set_formula_key_text(cfg.formula_key.clone().into());
+    ui.set_formula_random_key(cfg.formula_random_key);
+    ui.set_formula_required_text(cfg.formula_required.clone().into());
+    ui.set_formula_show_names(cfg.formula_note_names);
+    ui.set_formula_show_similar(cfg.formula_show_similar);
+    ui.set_formula_show_chords(cfg.formula_show_chords);
+    ui.set_in_order(cfg.formula_in_order);
+    ui.set_interval_in_order(cfg.interval_in_order);
+    ui.set_debug_console(cfg.debug_console);
+    ui.set_show_input_meter(cfg.show_input_meter);
+    ui.set_show_heard(cfg.show_heard);
+    ui.set_quick_open(cfg.quick_options_open);
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_show_spectrum(cfg.show_spectrum);
+    ui.set_ai_debug_visible(cfg.ai_debug);
+    ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
+    ui.set_icon_gear(svg_icon(ICON_GEAR));
+    ui.set_icon_star(svg_icon(ICON_STAR));
+    ui.set_icon_star_on(svg_icon(ICON_STAR_ON));
+    ui.set_icon_pause(svg_icon(ICON_PAUSE));
+    ui.set_icon_play(svg_icon(ICON_PLAY));
+    apply_language(ui, lang, Some(app));
+    ui.set_interval_input_text(app.intervals_input.clone().into()); 
+}
+
+/// Lists the inputs and opens the one saved, or the default.
+///
+/// Listed BEFORE the stream opens, always. Enumerating means opening every
+/// device in turn, and a card that is already taken cannot be opened - so a
+/// list built after this app has a card of its own is missing that card, and
+/// one built while a sound server holds the hardware is missing all of them.
+/// ALSA's own complaints while it probes are silenced by `hush_alsa`.
+fn open_saved_input(ui: &AppWindow, shared: &controls::Shared, cfg: &Settings, lang: Lang) {
+    let t = i18n::strings(lang);
+    let present = audio::list_input_devices();
+    let mut names = present.clone();
+    // The saved device stays in the picker even when the scan missed it, so
+    // the panel shows what the app is trying to use - marked, so it does not
+    // read as an interface that is plugged in when it is not.
+    if let Some(want) = cfg.audio_device.as_deref() {
+        if !names.iter().any(|n| n == want) {
+            names.push(want.to_string());
+        }
+    }
+    let chosen = cfg
+        .audio_device
+        .as_deref()
+        .and_then(|want| names.iter().position(|n| n == want))
+        .map(|i| i as i32 + 1)
+        .unwrap_or(0);
+    fill_device_list(ui, &names, t.audio_default, &present, None);
+    *shared.device_names.borrow_mut() = names;
+    ui.set_audio_device_index(chosen);
+    ui.set_audio_channel_index(cfg.audio_channel.max(1) as i32 - 1);
+
+    // A saved device that is no longer plugged in falls back to the default
+    // rather than refusing to open anything.
+    let want = (chosen > 0)
+        .then(|| shared.device_names.borrow()[chosen as usize - 1].clone());
+    open_input(&shared.analysis, &shared.audio_in, &shared.opened, ui, want.as_deref(), cfg.audio_channel);
+    ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
+        ui.get_audio_channel_count(),
+        t.audio_one,
+    )))));
+}
+
+/// Restoring the size has to wait for the event loop. The window does not
+/// exist until then - `show()` only queues its creation - and a size set
+/// before it exists is dropped, leaving the window at its preferred size.
+/// Verified on this machine: setting it any earlier had no effect at all.
+///
+/// The timer has to be held for as long as the window lives, or it is dropped
+/// and never fires. The closure only gets a weak handle, so it can stop itself.
+fn restore_window_size(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
+    let restore = Rc::new(Timer::default());
+    let (Some(w), Some(h)) = (cfg.window_w, cfg.window_h) else {
+        return restore;
+    };
+    let uw = ui.as_weak();
+    let timer = Rc::downgrade(&restore);
+    let give_up_at = std::time::Instant::now() + Duration::from_secs(3);
+    // Asking once is not enough. Slint sizes the window from the layout's
+    // preferred size during its first pass, which lands after the event loop
+    // has already started and overwrites anything set before it - measured
+    // here at somewhere between 300ms and 600ms after launch. So ask
+    // repeatedly and stop as soon as it holds, rather than sleeping for a
+    // guessed interval that a slower machine would miss.
+    restore.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+        let Some(ui) = uw.upgrade() else { return };
+        let now = ui.window().size();
+        // Two ways out, because a window manager is entitled to refuse: the
+        // size took, or it has had long enough that it never will. Without
+        // the deadline a tiling WM would leave this firing forever.
+        if (now.width, now.height) == (w, h) || std::time::Instant::now() > give_up_at {
+            if let Some(timer) = timer.upgrade() {
+                timer.stop();
+            }
+            return;
+        }
+        ui.window().set_size(PhysicalSize::new(w, h));
+        fit_ui_to_window(&ui);
+    });
+    restore
+}
+
 /// The two combo labels a mode shows over its pickers.
 ///
 /// Wanted in two places - when the mode changes and when the language does -
@@ -894,6 +903,7 @@ fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedStrin
     }
 }
 
+/// Fills the UI `Tr` global with the chosen language's strings.
 fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     let t = i18n::strings(lang);
     // Not everything on screen goes through the Tr global: these are built in
@@ -1064,6 +1074,12 @@ fn db_to_lin(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
 
+/// Diagnostic output (SOLITITO_DEBUG=1).
+///
+/// Intervals are printed RELATIVE TO THE DETECTED ROOT, which is how one thinks
+/// about a chord: "Gm instead of Gm7" means b7 should show a high number. If it
+/// is low, hearing is the bottleneck; if it is high and the quality still comes
+/// out "m", the quality head is not using information it already has.
 fn print_debug(p: &brain::Prediction) {
     const IV: [&str; 12] = ["R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"];
     const QN: [&str; 11] = [
