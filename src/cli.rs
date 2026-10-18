@@ -2,7 +2,8 @@
 //! opening the trainer window. `--help` lists them.
 
 use crate::brain::{ChordBrain, Prediction};
-use crate::{audio, db_to_lin, model, model_path, strike, tab, NOTE_NAMES};
+use crate::audio::db_to_lin;
+use crate::{audio, model, model_path, strike, tab, NOTE_NAMES};
 
 /// One reporting mode, with where its flag stands among the arguments when it
 /// reads values after it.

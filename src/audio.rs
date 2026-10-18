@@ -616,6 +616,17 @@ fn peak_position(norm_cqt: &[f32], b: usize) -> f32 {
     if delta.abs() <= 0.5 { b as f32 + delta } else { b as f32 }
 }
 
+/// Linear level (RMS) -> dBFS. Floored at -72 dB so silence is not -inf, capped
+/// at 0 dB where the scale ends.
+pub fn lin_to_db(v: f32) -> f32 {
+    if v <= 2.5e-4 { -72.0 } else { (20.0 * v.log10()).clamp(-72.0, 0.0) }
+}
+
+/// dBFS -> linear level (RMS).
+pub fn db_to_lin(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
 /// What the input stream actually opened with.
 ///
 /// Reported back to the settings panel because on Windows the console is hidden
@@ -1537,5 +1548,38 @@ mod voices_diagnostics {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod level_tests {
+    use super::*;
+
+    #[test]
+    fn db_conversion_round_trips() {
+        for db in [-72.0f32, -48.0, -34.0, -20.0, -6.0, 0.0] {
+            let back = lin_to_db(db_to_lin(db));
+            assert!((back - db).abs() < 0.01, "{db} dB -> {back} dB");
+        }
+    }
+
+    #[test]
+    fn the_old_default_threshold_is_minus_34_db() {
+        // The previous default gate was 0.02 in linear RMS.
+        assert!((db_to_lin(-34.0) - 0.02).abs() < 0.001);
+    }
+
+    #[test]
+    fn the_slider_range_reaches_laptop_mic_noise() {
+        // A laptop microphone with AGC can sit at 0.3-0.5 RMS of noise. The old
+        // slider ended at 0.1 linear, so the gate COULD NOT be set above it.
+        assert!(db_to_lin(0.0) >= 1.0, "the top end is full scale");
+        assert!(db_to_lin(-72.0) < 0.0003, "the bottom end must be practically silence");
+    }
+
+    #[test]
+    fn silence_does_not_produce_infinity() {
+        assert_eq!(lin_to_db(0.0), -72.0);
+        assert!(lin_to_db(1e-9).is_finite());
     }
 }

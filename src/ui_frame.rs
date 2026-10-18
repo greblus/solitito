@@ -20,9 +20,9 @@ use crate::settings::{Preview, Settings};
 use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
 use crate::{diagrams, formulas, tab};
 use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Tr};
-use crate::{
-    db_to_lin, lin_to_db, rescan_devices, set_if_changed, svg_icon, MIN_FILL_CHORD,
-};
+use crate::audio::{db_to_lin, lin_to_db};
+use crate::devices::rescan_devices;
+use crate::{set_if_changed, svg_icon, MIN_FILL_CHORD};
 
 /// What the frame shares with the rest of the app.
 pub struct Shared {

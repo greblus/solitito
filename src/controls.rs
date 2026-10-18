@@ -15,10 +15,8 @@ use crate::i18n::{self, Lang};
 use crate::settings::{self, Settings};
 use crate::state::{AppMode, ArpExercise, MyApp};
 use crate::{formulas, model, AppWindow};
-use crate::{
-    apply_language, channel_choices, fit_ui_to_window, library_lists, mode_labels, open_input,
-    rescan_devices,
-};
+use crate::devices::{channel_choices, open_input, rescan_devices};
+use crate::{apply_language, fit_ui_to_window, library_lists, mode_labels};
 
 /// Everything the callbacks reach besides the window itself.
 pub struct Shared {
