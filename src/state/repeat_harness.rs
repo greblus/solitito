@@ -27,13 +27,13 @@ pub(crate) struct Outcome {
 /// permission can be traced to the rule that gave it.
 fn why(a: &MyApp, pc: usize) -> Option<&'static str> {
     let c = a.credited[pc]?;
-    if c.left && a.steady_note() == Some(pc) {
+    if c.left && a.heard.steady_note() == Some(pc) {
         return Some("left+ear");
     }
-    if a.strikes_live {
+    if a.heard.strikes_live {
         return Some("class strike");
     }
-    if let (Some(now), Some(then)) = (a.cqt_semitone, c.semitone) {
+    if let (Some(now), Some(then)) = (a.heard.cqt_semitone, c.semitone) {
         if now % 12 == pc && (now >= then + 6 || now + 6 <= then) {
             return Some("octave");
         }
@@ -191,7 +191,7 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
         a.sync_audio_settings();
         a.tick(HOP_LENGTH as f32 / SR);
         if out.credited_at.is_none() {
-            if t > PRE && a.sounding_now() == Some(pc) {
+            if t > PRE && a.heard.sounding_now() == Some(pc) {
                 a.credit_class(pc, 0);
                 out.credited_at = Some(t);
             }
@@ -278,8 +278,8 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
             if std::env::var("SOLITITO_BOUNDARY_DEBUG").is_ok() {
                 eprintln!(
                     "przed zmiana t={t:.2}: zaliczone[X]={} glos={} ucho_stale={:?} wiek_uderzenia={} uderzen={} live={}",
-                    a.credited[pc].is_some(), a.voice_heard(pc), a.steady_note(),
-                    a.class_strike_age[pc], a.class_strikes[pc], a.strikes_live,
+                    a.credited[pc].is_some(), a.heard.voice_heard(pc), a.heard.steady_note(),
+                    a.heard.class_strike_age[pc], a.heard.class_strikes[pc], a.heard.strikes_live,
                 );
             }
             a.advance_chord();
@@ -294,7 +294,7 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
         if switched && std::env::var("SOLITITO_BOUNDARY_DEBUG").is_ok() && a.struck_since_credit(pc) {
             eprintln!(
                 "  t={t:.2} dopuszczone przez: {:?}  (uderzen {}, wiek {}, left {:?})",
-                why(&a, pc), a.class_strikes[pc], a.class_strike_age[pc], a.credited[pc].map(|c| c.left)
+                why(&a, pc), a.heard.class_strikes[pc], a.heard.class_strike_age[pc], a.credited[pc].map(|c| c.left)
             );
         }
         a.tick(HOP_LENGTH as f32 / SR);
@@ -303,7 +303,7 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
                 eprintln!(
                     "ZALICZONE t={t:.2}: zaliczone[X]={:?} uderzen={} wiek={} galaz_ucha={:?}",
                     a.credited[pc].map(|c| (c.class_strike, c.left)),
-                    a.class_strikes[pc], a.class_strike_age[pc], a.sounding_now(),
+                    a.heard.class_strikes[pc], a.heard.class_strike_age[pc], a.heard.sounding_now(),
                 );
             }
             return Some(t);
@@ -388,7 +388,7 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
                 let classes: Vec<usize> = (0..12).filter(|&c| a.credited[c].is_some()).collect();
                 eprintln!(
                     "  X={pc} t={:.2}: ear {:?}, X strikes {} age {}, credit {:?}, why {:?}, credited {classes:?}",
-                    t, a.cqt_pitch, a.class_strikes[pc], a.class_strike_age[pc],
+                    t, a.heard.cqt_pitch, a.heard.class_strikes[pc], a.heard.class_strike_age[pc],
                     a.credited[pc].map(|c| (c.class_strike, c.left)), why(&a, pc),
                 );
             }

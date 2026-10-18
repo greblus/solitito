@@ -902,7 +902,7 @@ impl UiFrame {
         let heard_name = if app.app_mode == AppMode::Chords {
             if self.last_ai_name == "..." { String::new() } else { self.last_ai_name.clone() }
         } else {
-            app.steady_note().map(|pc| NoteName::from_index(pc).to_string().to_string()).unwrap_or_default()
+            app.heard.steady_note().map(|pc| NoteName::from_index(pc).to_string().to_string()).unwrap_or_default()
         };
         let tones = chord.get_target_indices();
         let mut sounding: Vec<(usize, f32)> = app

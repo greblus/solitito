@@ -6,6 +6,9 @@ use crate::rng::Rng;
 use crate::fretboard::Region;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
+mod heard;
+pub use heard::Heard;
+
 /// Where one step of an exercise stands, as `note_state` reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoteState {
@@ -260,6 +263,8 @@ pub(crate) const CQT_STEADY_TICKS: u32 = EAR_WINDOW as u32;
 pub const FORMULA_LAP_PAUSE: f32 = 0.6;
 
 pub struct MyApp {
+    /// What the audio thread has reported, copied in once per frame.
+    pub heard: Heard,
     pub analysis_state: Arc<Mutex<AudioAnalysis>>,
     
     pub song_library: Vec<Song>,
@@ -454,15 +459,6 @@ pub struct MyApp {
     /// a few notes is most of the formula. `SOLITITO_FORMULA_STRICT=0` gives
     /// the note modes' rule back for a comparison.
     pub strict_formulas: bool,
-    /// Audio frames pushed so far, and the last one this app has looked at.
-    ///
-    /// The judging is driven off THIS, not off the UI clock and not off the
-    /// model's answers. Off the UI clock the same frame was sampled two or
-    /// three times, which let one bad reading carry a vote; off the model's
-    /// answers it stopped whenever the model did - and the model is asked only
-    /// while the context window is nine tenths full, which playing one note at
-    /// a time never manages. Once per new frame is once per new reading.
-    audio_frames: u64,
     judged_frame: u64,
     /// The model's last word, kept so the frame clock can judge a formula
     /// without waiting for the next one. The model is asked only while the
@@ -485,21 +481,9 @@ pub struct MyApp {
     interval_model_age: f32,
     interval_audio_age: f32,
     interval_silence: f32,
-    audio_gate_open: bool,
     /// Print a line for every function credited. The panel's own switch; the
     /// environment can force it either way while something is being chased.
     pub log_credits: bool,
-    /// What the estimate has been saying, and for how many audio frames. A
-    /// drawing that follows every frame flickers on noise; one that waits for a
-    /// reading to hold does not. See `steady_note`.
-    steady_pitch: Option<usize>,
-    steady_for: u32,
-    /// The same reading as an absolute semitone, for telling a note from itself
-    /// an octave down. See `octave_is_answered`.
-    pub cqt_semitone: Option<usize>,
-    /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
-    /// `None` while the gate is shut or the estimate is weak.
-    pub cqt_pitch: Option<usize>,
     /// What that estimate has been repeating, and for how many ticks. One frame
     /// is 16 ms and has no memory, so it names a neighbour now and then; where
     /// a mark never expires, that one frame is enough to light a function.
@@ -521,47 +505,13 @@ pub struct MyApp {
     /// estimate cannot. On, the CQT overrules the model and one pluck credits
     /// one step.
     pub single_notes: bool,
-    /// Attack counter, mirrored from the audio thread.
-    pub onset_id: u64,
     /// Where the exercise writes down what it asked and what it credited, when
     /// SOLITITO_RECORD is set. None otherwise, which is every normal run.
     journal: Option<crate::journal::Journal>,
-    /// The recording's hop clock, so a journal row is a position in the WAV.
-    capture_hop: u64,
-    /// Pitch classes genuinely sounding, one bit each, mirrored from the audio
-    /// thread. See `voices::voices`.
-    voices: u16,
-    /// Whether `voices` has ever reported anything, so a build, a replay or a
-    /// test without it falls back to the older reading of `left` instead of
-    /// never setting it at all.
-    voices_seen: bool,
-    /// Frames each class has been absent from `voices` for.
-    ///
-    /// One frame's absence is not a note stopping. Measured on sesja-g1, only
-    /// about half the credits had a second voice reported, so a note ringing
-    /// under the one being played drops out of the list and comes back - and
-    /// taking the first gap for silence is what let a note credited in one
-    /// chord be credited again in the next.
-    quiet_for: [u32; 12],
     /// Which of the four ways credited this, where the call site knew.
     credit_branch: Option<u8>,
     /// The (chord, step) pair last written down, to notice a new request.
     logged_ask: Option<(usize, usize)>,
-    /// Attacks the flux detector has counted, mirrored from the audio thread.
-    /// Pitch-blind: it says a string was hit, never which one.
-    pub flux_id: u64,
-    /// Hops since the last one.
-    flux_age: u32,
-    /// Strikes of each class, and hops since each - see `strike::Strikes`.
-    class_strikes: [u32; 12],
-    class_strike_age: [u32; 12],
-    /// Whether that detector is running. Without its model file it is not, and
-    /// the rules fall back to what they were before it existed.
-    strikes_live: bool,
-    /// Whether that detector has ever reported, so a build or a recording
-    /// without it falls back to the older evidence instead of refusing
-    /// everything.
-    flux_seen: bool,
     /// For each pitch class, the attack it was last credited on: the envelope's
     /// attack count and that class's own strike count. A step asking for a
     /// class already credited is refused until it is struck again, so a note
@@ -631,6 +581,7 @@ impl MyApp {
 
         Self {
             analysis_state: state,
+            heard: Heard::default(),
             song_library,
             scale_definitions,
             arpeggio_patterns,
@@ -696,7 +647,6 @@ impl MyApp {
             strict_formulas: std::env::var("SOLITITO_FORMULA_STRICT")
                 .map(|v| v != "0")
                 .unwrap_or(true),
-            audio_frames: 0,
             judged_frame: u64::MAX,
             last_ai_root: None,
             last_ai_conf: 0.0,
@@ -709,31 +659,15 @@ impl MyApp {
             interval_model_age: INTERVAL_MODEL_AGE,
             interval_audio_age: 0.0,
             interval_silence: 0.0,
-            audio_gate_open: false,
             log_credits: false,
-            steady_pitch: None,
-            steady_for: 0,
-            cqt_pitch: None,
-            cqt_semitone: None,
             cqt_run_pitch: None,
             cqt_run: 0,
             ear_window: [None; EAR_WINDOW],
             lap_hold: 0.0,
             single_notes: false,
-            onset_id: 0,
             journal: crate::journal::Journal::open(),
-            capture_hop: 0,
-            voices: 0,
-            voices_seen: false,
-            quiet_for: [0; 12],
             credit_branch: None,
             logged_ask: None,
-            flux_id: 0,
-            flux_age: u32::MAX,
-            class_strikes: [0; 12],
-            class_strike_age: [u32::MAX; 12],
-            strikes_live: false,
-            flux_seen: false,
             credited: [None; 12],
             chord_heard_at: ChordHeard::default(),
             formula_mask: 0,
@@ -1260,10 +1194,10 @@ impl MyApp {
         self.interval_model_age = INTERVAL_MODEL_AGE;
         self.interval_audio_age = 0.0;
         self.interval_silence = 0.0;
-        self.judged_frame = self.audio_frames;
+        self.judged_frame = self.heard.audio_frames;
         self.chord_heard_at = ChordHeard {
-            onset_id: self.onset_id,
-            class_strikes: self.class_strikes,
+            onset_id: self.heard.onset_id,
+            class_strikes: self.heard.class_strikes,
         };
     }
 
@@ -1271,50 +1205,29 @@ impl MyApp {
     /// reading leave behind. Test seam.
     #[cfg(test)]
     fn hears(&mut self, pitch: Option<usize>) {
-        self.cqt_pitch = pitch;
-        self.steady_pitch = pitch;
-        self.steady_for = if pitch.is_some() { 3 } else { 0 };
+        self.heard.cqt_pitch = pitch;
+        self.heard.steady_pitch = pitch;
+        self.heard.steady_for = if pitch.is_some() { 3 } else { 0 };
     }
 
     /// One audio frame's reading, as the sync below takes it. Test seam: the
     /// real path reads it from the shared state under a lock.
     #[cfg(test)]
     fn feed_estimate(&mut self, frame: u64, pitch: Option<usize>) {
-        if frame != self.audio_frames {
-            if pitch.is_some() && pitch == self.steady_pitch {
-                self.steady_for = self.steady_for.saturating_add(1);
+        if frame != self.heard.audio_frames {
+            if pitch.is_some() && pitch == self.heard.steady_pitch {
+                self.heard.steady_for = self.heard.steady_for.saturating_add(1);
             } else {
-                self.steady_pitch = pitch;
-                self.steady_for = 1;
+                self.heard.steady_pitch = pitch;
+                self.heard.steady_for = 1;
             }
         }
-        self.cqt_pitch = pitch;
-        self.audio_frames = frame;
+        self.heard.cqt_pitch = pitch;
+        self.heard.audio_frames = frame;
     }
 
-    /// What is sounding, once it has been saying so for long enough to believe.
-    ///
-    /// Three audio frames is 48 ms - short enough that an answer still feels
-    /// immediate, long enough that a single stray reading from the room does
-    /// not paint the neck.
-    pub fn steady_note(&self) -> Option<usize> {
-        self.held_for(LEFT_TICKS)
-    }
 
-    /// What is sounding, by the shorter measure a CREDIT is allowed to use.
-    ///
-    /// Two questions, two thresholds. "Has the target been sounding long enough
-    /// to credit" costs one wrong credit when it is wrong; "has something ELSE
-    /// taken over, so the note credited a moment ago has gone" is what stops a
-    /// repeated note being credited twice off one pluck, and loosening that
-    /// brings the repeats back. So only the first one is short.
-    fn sounding_now(&self) -> Option<usize> {
-        self.held_for(CREDIT_TICKS)
-    }
 
-    fn held_for(&self, ticks: u32) -> Option<usize> {
-        (self.steady_for >= ticks).then_some(self.steady_pitch).flatten()
-    }
 
     pub fn reset_logic_state(&mut self) {
         self.forget_what_was_heard();
@@ -1564,8 +1477,8 @@ impl MyApp {
         self.lap_hold = (self.lap_hold - dt).max(0.0);
         // One reading per new audio frame - no more, or the same frame votes
         // twice; no less, or the judging waits on the model.
-        if self.audio_frames != self.judged_frame {
-            self.judged_frame = self.audio_frames;
+        if self.heard.audio_frames != self.judged_frame {
+            self.judged_frame = self.heard.audio_frames;
             self.listen_to_new_frame();
             // Paused is "your turn": the whole set lit, nothing judged.
             if !self.paused {
@@ -1594,11 +1507,11 @@ impl MyApp {
     /// frames it has named the same class.
     fn listen_to_new_frame(&mut self) {
         self.ear_window.rotate_left(1);
-        self.ear_window[EAR_WINDOW - 1] = self.cqt_pitch;
-        if self.cqt_pitch.is_some() && self.cqt_pitch == self.cqt_run_pitch {
+        self.ear_window[EAR_WINDOW - 1] = self.heard.cqt_pitch;
+        if self.heard.cqt_pitch.is_some() && self.heard.cqt_pitch == self.cqt_run_pitch {
             self.cqt_run = self.cqt_run.saturating_add(1);
         } else {
-            self.cqt_run_pitch = self.cqt_pitch;
+            self.cqt_run_pitch = self.heard.cqt_pitch;
             self.cqt_run = 1;
         }
     }
@@ -1611,7 +1524,7 @@ impl MyApp {
         self.settle_credits(dt);
 
         self.interval_audio_age += dt;
-        let fresh = self.audio_frames != self.judged_frame;
+        let fresh = self.heard.audio_frames != self.judged_frame;
         let elapsed = self.interval_audio_age.min(0.032);
         if fresh {
             self.take_interval_frame(elapsed);
@@ -1631,7 +1544,7 @@ impl MyApp {
         if !fresh {
             return;
         }
-        if !self.audio_gate_open {
+        if !self.heard.audio_gate_open {
             self.answering_step = None;
             self.success_timer = 0.0;
             return;
@@ -1649,7 +1562,7 @@ impl MyApp {
 
     /// A new audio frame in Intervals, `elapsed` seconds after the one before.
     fn take_interval_frame(&mut self, elapsed: f32) {
-        self.judged_frame = self.audio_frames;
+        self.judged_frame = self.heard.audio_frames;
         // A fresh sample after a stalled UI/audio stream does not prove
         // the note held throughout the gap.
         if self.interval_audio_age > 0.05 {
@@ -1658,7 +1571,7 @@ impl MyApp {
             self.interval_silence = 0.0;
         }
         self.interval_audio_age = 0.0;
-        if self.audio_gate_open {
+        if self.heard.audio_gate_open {
             self.interval_silence = 0.0;
             return;
         }
@@ -1829,9 +1742,9 @@ impl MyApp {
             if loud {
                 println!(
                     "atak#{} zaliczono {:<3} (sposob {branch})  ucho={:<3} model_prymy={:<3}",
-                    self.onset_id,
+                    self.heard.onset_id,
                     funcs.get(i).map(|&f| crate::formulas::FUNCS[f]).unwrap_or("?"),
-                    self.cqt_pitch
+                    self.heard.cqt_pitch
                         .map(|p| NoteName::from_index(p).to_string().to_string())
                         .unwrap_or_else(|| "-".into()),
                     ai_root
@@ -1881,10 +1794,10 @@ impl MyApp {
         // option is ticked or not, and the checkbox is not offered.
         let one_at_a_time = self.one_at_a_time();
         if one_at_a_time {
-            if self.sounding_now() == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
+            if self.heard.sounding_now() == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
                 return Some(1);
             }
-            let ear = self.steady_note();
+            let ear = self.heard.steady_note();
             // The ear naming ANOTHER note is a refusal; the ear saying nothing
             // is not. A note too quiet for the estimate's score gate - a low
             // string, the end of a phrase - would otherwise be uncreditable,
@@ -1893,13 +1806,13 @@ impl MyApp {
             // head and only where an attack backs it: the chord NAME never
             // credits a note here, and that is where the notes nobody played
             // were coming from.
-            if ear.is_some() || self.cqt_pitch.is_some() {
+            if ear.is_some() || self.heard.cqt_pitch.is_some() {
                 return None;
             }
         }
 
         // 1. One frame, one note - no window to smear across.
-        if self.cqt_pitch == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
+        if self.heard.cqt_pitch == Some(target) && !self.ear_settling(target) && self.ear_backed(target) {
             return Some(1);
         }
 
@@ -1951,28 +1864,28 @@ impl MyApp {
     /// Whether the ear is still settling after a strike of some OTHER class -
     /// see `EAR_SETTLE`. Without the detector it never is.
     fn ear_settling(&self, pc: usize) -> bool {
-        self.strikes_live
-            && self.class_strike_age.iter().any(|&age| age <= EAR_SETTLE)
-            && self.class_strike_age[pc] > EAR_SETTLE
+        self.heard.strikes_live
+            && self.heard.class_strike_age.iter().any(|&age| age <= EAR_SETTLE)
+            && self.heard.class_strike_age[pc] > EAR_SETTLE
     }
 
     /// Whether the ear may credit `pc` at all: outside Formulas, or without
     /// the detector, always; in Formulas only a class the detector reported
     /// struck - see `EAR_BACKED`.
     fn ear_backed(&self, pc: usize) -> bool {
-        !self.strikes_live
+        !self.heard.strikes_live
             || self.app_mode != AppMode::Formulas
-            || self.class_strike_age[pc] <= EAR_BACKED
+            || self.heard.class_strike_age[pc] <= EAR_BACKED
     }
 
     /// Whether `pc` was struck just now, for "credit only what was struck".
     /// The strike detector where it runs - see `STRUCK_FRESH`. Without it only
     /// flux is left, which says that a string was hit but not which.
     fn struck_just_now(&self, pc: usize) -> bool {
-        if self.strikes_live {
-            return self.class_strike_age[pc] <= STRUCK_FRESH;
+        if self.heard.strikes_live {
+            return self.heard.class_strike_age[pc] <= STRUCK_FRESH;
         }
-        self.flux_seen && self.flux_age <= FLUX_FRESH
+        self.heard.flux_seen && self.heard.flux_age <= FLUX_FRESH
     }
 
     /// Draws a fresh practice region: a set of strings and a fret window.
@@ -2256,8 +2169,8 @@ impl MyApp {
         // one plucked root is enough for the model to recognise
         // the shape, which is how a third nobody touched was
         // credited.
-        let ear_names_another = self.cqt_pitch.is_some_and(|now| now != target % 12);
-        let grip_is_sounding = self.several_sounding() && !self.single_notes;
+        let ear_names_another = self.heard.cqt_pitch.is_some_and(|now| now != target % 12);
+        let grip_is_sounding = self.heard.several_sounding() && !self.single_notes;
         if ear_names_another && !grip_is_sounding {
             return None;
         }
@@ -2385,25 +2298,6 @@ impl MyApp {
         self.update_collected_notes_size();
     }
 
-    /// Where notes are played one at a time: Scales, Arpeggios and the
-    /// Fretboard, and Intervals when the option says so. Everywhere else a
-    /// strummed chord is allowed to walk its intervals off a single attack -
-    /// see `a_strummed_chord_still_walks_its_intervals`.
-    /// Several strings sounding at once, one of them the note being asked for.
-    ///
-    /// This is what the chord-name exception was reaching for and could not
-    /// reach: a confidently recognised chord says the model knows the shape,
-    /// not that its tones are in the air - and one plucked root is enough for
-    /// it to recognise the shape. `voices` explains the spectrum instead of
-    /// ranking it, so a class that is only the root's harmonic is not in it.
-    ///
-    /// Both halves. More than one voice alone would let any ringing pair carry
-    /// a third nobody touched; the target being among them alone is branch 1
-    /// wearing a disguise.
-    /// Whether that class is sounding at all - not whether it is the loudest.
-    fn voice_heard(&self, pc: usize) -> bool {
-        self.voices & (1 << (pc % 12)) != 0
-    }
 
     /// All three guards off: the exercise is being played for fun, with chords
     /// and whatever single tones of them come to hand.
@@ -2420,13 +2314,6 @@ impl MyApp {
             && !self.interval_in_order
     }
 
-    /// More than one string sounding - which one plucked note cannot be.
-    ///
-    /// Where nothing has ever been reported there is no witness, and the rule
-    /// is as loose as it was before there was one.
-    fn several_sounding(&self) -> bool {
-        !self.voices_seen || self.voices.count_ones() >= 2
-    }
 
     /// Whether notes are taken one at a time: by choice in Intervals and the
     /// fretboard trainer, always in Scales and Arpeggios - nobody strums one.
@@ -2472,10 +2359,10 @@ impl MyApp {
         // multiple-crediting this rule exists to stop. The estimate is
         // monophonic: it names what is loudest, so it names the ringing note
         // again only once the string is struck again.
-        if c.left && self.steady_note() == Some(pc) {
+        if c.left && self.heard.steady_note() == Some(pc) {
             return true;
         }
-        let elsewhere = self.cqt_pitch.is_some_and(|now| now != pc);
+        let elsewhere = self.heard.cqt_pitch.is_some_and(|now| now != pc);
         // THIS class struck since its credit, and just now - the question the
         // rule always meant to ask, and the first evidence that can answer it.
         // A note played again an octave away is a strike of the same class and
@@ -2485,15 +2372,15 @@ impl MyApp {
         // given while the note was only ringing, 50 came from the octave branch
         // below - the estimate flips an octave on a decaying note and the rule
         // read the flip as a new pluck - and 8 from the pitch-blind attack.
-        if self.strikes_live {
-            return self.class_strikes[pc] != c.class_strike
-                && self.class_strike_age[pc] <= CLASS_FRESH
+        if self.heard.strikes_live {
+            return self.heard.class_strikes[pc] != c.class_strike
+                && self.heard.class_strike_age[pc] <= CLASS_FRESH
                 && !(self.one_at_a_time() && elsewhere);
         }
         // Without the detector: an octave jump is believed only with an attack
         // behind it, which is what made it a leak - see above.
-        let fresh_attack = self.flux_seen && self.flux_id != c.flux && self.flux_age <= FLUX_FRESH;
-        let played_an_octave_away = match (self.cqt_semitone, c.semitone) {
+        let fresh_attack = self.heard.flux_seen && self.heard.flux_id != c.flux && self.heard.flux_age <= FLUX_FRESH;
+        let played_an_octave_away = match (self.heard.cqt_semitone, c.semitone) {
             (Some(now), Some(then)) => now % 12 == pc && (now >= then + 6 || now + 6 <= then),
             _ => false,
         };
@@ -2520,10 +2407,10 @@ impl MyApp {
         // A string struck again while it still rings is a different thing and
         // has to keep working, so this cannot ask for silence first - only for
         // the hit to be happening now.
-        let struck = if self.flux_seen {
-            self.flux_id != c.flux && self.flux_age <= FLUX_FRESH
+        let struck = if self.heard.flux_seen {
+            self.heard.flux_id != c.flux && self.heard.flux_age <= FLUX_FRESH
         } else {
-            self.onset_id != c.onset
+            self.heard.onset_id != c.onset
         };
         // Not "the estimate names it" but "the estimate does not name something
         // else": a note too quiet for the estimate to score would otherwise
@@ -2536,10 +2423,10 @@ impl MyApp {
     fn settle_credits(&mut self, dt: f32) {
         // Steady, not any frame: the estimate flickers onto a ringing note for
         // a frame at a time, and a flicker is not the note stopping.
-        let elsewhere = self.steady_note();
+        let elsewhere = self.heard.steady_note();
         // Read before the loop below borrows the credits.
-        let quiet_for = self.quiet_for;
-        let know_voices = self.voices_seen;
+        let quiet_for = self.heard.quiet_for;
+        let know_voices = self.heard.voices_seen;
         for (c, credit) in self.credited.iter_mut().enumerate() {
             let Some(cr) = credit else {
                 continue;
@@ -2583,11 +2470,11 @@ impl MyApp {
             .map(|c| format!("{} {}", c.root.to_string(), c.quality.to_string()));
         if let Some(map) = row.as_object_mut() {
             map.insert("event".into(), event.into());
-            map.insert("hop".into(), self.capture_hop.into());
+            map.insert("hop".into(), self.heard.capture_hop.into());
             map.insert(
                 "t".into(),
                 serde_json::json!(
-                    self.capture_hop as f64 * crate::audio::HOP_LENGTH as f64
+                    self.heard.capture_hop as f64 * crate::audio::HOP_LENGTH as f64
                         / crate::audio::TARGET_SR as f64
                 ),
             );
@@ -2625,17 +2512,17 @@ impl MyApp {
                 "pc": pc % 12,
                 "octave": octave,
                 "by": self.credit_branch,
-                "ear": self.cqt_pitch,
-                "semitone": self.cqt_semitone,
-                "flux": self.flux_id,
-                "flux_age": self.flux_age,
-                "voices": (0..12).filter(|pc| self.voice_heard(*pc)).collect::<Vec<_>>(),
-                "quiet_for": self.quiet_for[pc % 12],
-                "class_strikes": self.class_strikes[pc % 12],
-                "class_strike_age": self.class_strike_age[pc % 12],
-                "strikes_live": self.strikes_live,
+                "ear": self.heard.cqt_pitch,
+                "semitone": self.heard.cqt_semitone,
+                "flux": self.heard.flux_id,
+                "flux_age": self.heard.flux_age,
+                "voices": (0..12).filter(|pc| self.heard.voice_heard(*pc)).collect::<Vec<_>>(),
+                "quiet_for": self.heard.quiet_for[pc % 12],
+                "class_strikes": self.heard.class_strikes[pc % 12],
+                "class_strike_age": self.heard.class_strike_age[pc % 12],
+                "strikes_live": self.heard.strikes_live,
                 "left": self.credited[pc % 12].map(|c| c.left),
-                "onset": self.onset_id,
+                "onset": self.heard.onset_id,
                 "top": top.iter().take(3).map(|&(i, v)| serde_json::json!([i, v])).collect::<Vec<_>>(),
             });
             self.journal_row("credit", row);
@@ -2646,11 +2533,11 @@ impl MyApp {
 
     fn credit_class_inner(&mut self, pc: usize, octave: i8) {
         self.credited[pc % 12] = Some(Credit {
-            onset: self.onset_id,
-            flux: self.flux_id,
-            class_strike: self.class_strikes[pc % 12],
+            onset: self.heard.onset_id,
+            flux: self.heard.flux_id,
+            class_strike: self.heard.class_strikes[pc % 12],
             octave,
-            semitone: self.cqt_semitone.filter(|n| n % 12 == pc % 12),
+            semitone: self.heard.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: CREDIT_SETTLE,
             left: false,
         });
@@ -2680,10 +2567,10 @@ impl MyApp {
     /// all 17 chords while they rang. Without the detector, the envelope.
     fn chord_struck_since(&self) -> bool {
         let then = &self.chord_heard_at;
-        if self.strikes_live {
-            return self.class_strikes != then.class_strikes;
+        if self.heard.strikes_live {
+            return self.heard.class_strikes != then.class_strikes;
         }
-        self.onset_id != then.onset_id
+        self.heard.onset_id != then.onset_id
     }
 
     /// What is still sounding when the exercise moves on counts as already
@@ -2704,8 +2591,8 @@ impl MyApp {
             if self.credited[pc].is_some() {
                 continue;
             }
-            let sounding = self.voice_heard(pc) || self.steady_note() == Some(pc);
-            let just_struck = self.strikes_live && self.class_strike_age[pc] <= JUST_STRUCK;
+            let sounding = self.heard.voice_heard(pc) || self.heard.steady_note() == Some(pc);
+            let just_struck = self.heard.strikes_live && self.heard.class_strike_age[pc] <= JUST_STRUCK;
             if sounding && !just_struck {
                 self.credit_class_inner(pc, 0);
             }
@@ -2775,12 +2662,12 @@ impl MyApp {
                 state.noise_gate = self.noise_gate;
                 state.bass_boost_enabled = self.bass_boost_enabled;
                 state.bass_boost_gain = self.bass_boost_gain;
-                self.read_audio_frame(&state);
+                self.heard.read_audio_frame(&state);
                 state.gate_open
             }
             Err(_) => false,
         };
-        self.audio_gate_open = gate_open;
+        self.heard.audio_gate_open = gate_open;
         // Nothing refreshes the pitch vector while the gate is shut - the model
         // is not even asked - so without this it keeps its last value for as
         // long as the app runs, and a note that stopped sounding minutes ago
@@ -2791,57 +2678,8 @@ impl MyApp {
         }
     }
 
-    /// What the audio thread has heard, copied into the judge.
-    fn read_audio_frame(&mut self, state: &AudioAnalysis) {
-        if state.frames_seen != self.audio_frames {
-            self.count_steady_pitch(state.cqt_pitch);
-            self.count_quiet_classes(state.voices);
-        }
-        self.cqt_pitch = state.cqt_pitch;
-        self.cqt_semitone = state.cqt_semitone;
-        self.onset_id = state.onset_id;
-        if state.flux_id != self.flux_id {
-            self.flux_seen = true;
-        }
-        self.flux_id = state.flux_id;
-        self.flux_age = state.flux_age;
-        self.class_strikes = state.class_strikes;
-        self.class_strike_age = state.class_strike_age;
-        self.strikes_live = state.strikes_live;
-        self.capture_hop = state.hops;
-        if state.voices != 0 {
-            self.voices_seen = true;
-        }
-        self.voices = state.voices;
-        self.audio_frames = state.frames_seen;
-    }
 
-    /// How long the single-frame estimate has been saying the same thing.
-    /// Counted for every mode, not only Formulas, because a reading that has
-    /// held for a few frames is the difference between a note played and the
-    /// room answering back - see the fretboard drawing, which flickered on
-    /// every stray reading before this.
-    fn count_steady_pitch(&mut self, pitch: Option<usize>) {
-        if pitch.is_some() && pitch == self.steady_pitch {
-            self.steady_for = self.steady_for.saturating_add(1);
-        } else {
-            self.steady_pitch = pitch;
-            self.steady_for = 1;
-        }
-    }
 
-    /// How many frames each class has been out of the voices. On the audio
-    /// clock, which is also the one the tests drive. A closed noise gate stops
-    /// it, and that case has its own rule: see `interval_silence`.
-    fn count_quiet_classes(&mut self, voices: u16) {
-        for (pc, quiet) in self.quiet_for.iter_mut().enumerate() {
-            if voices & (1 << pc) == 0 {
-                *quiet = quiet.saturating_add(1);
-            } else {
-                *quiet = 0;
-            }
-        }
-    }
 }
 
 /// The degree an arpeggio token asks for: the chord tones by number, in the

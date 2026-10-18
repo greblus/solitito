@@ -129,18 +129,18 @@ fn judged(answers: &[Answer], hops: &[Hop], source: Source, one_at_a_time: bool)
             a.feed_estimate(h as u64 + 1, hops[h].ear);
             h += 1;
         }
-        a.cqt_pitch = ans.cqt_pitch;
+        a.heard.cqt_pitch = ans.cqt_pitch;
         a.prev_pitches = a.last_pitches;
         a.last_pitches = ans.pitches;
         if matches!(source, Source::Detector) {
-            a.strikes_live = true;
-            a.class_strike_age = ans.strike_age;
-            a.class_strikes = ans.class_strikes;
+            a.heard.strikes_live = true;
+            a.heard.class_strike_age = ans.strike_age;
+            a.heard.class_strikes = ans.class_strikes;
         }
         let lit = (0..12)
             .filter_map(|c| a.sounding_by(c, ans.root, ans.confidence).map(|b| (c, b)))
             .collect();
-        out.push((ans.t, lit, a.class_strikes));
+        out.push((ans.t, lit, a.heard.class_strikes));
     }
     out
 }

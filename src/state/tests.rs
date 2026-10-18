@@ -142,9 +142,9 @@ fn intervals_do_not_confuse_a_missing_estimate_with_muting() {
     let root = a.chords[a.current_chord_index].root as usize;
     interval_audio(&mut a, Some(root), 12);
     for _ in 0..50 {
-        a.cqt_pitch = None;
-        a.steady_pitch = None;
-        a.audio_frames += 1;
+        a.heard.cqt_pitch = None;
+        a.heard.steady_pitch = None;
+        a.heard.audio_frames += 1;
         a.tick(0.016); // the gate stays open
     }
     a.hears(Some(root));
@@ -155,11 +155,11 @@ fn intervals_do_not_confuse_a_missing_estimate_with_muting() {
 fn intervals_discard_a_stale_model_answer_before_it_can_finish_a_set() {
     let mut a = app();
     a.set_mode(AppMode::Intervals as i32);
-    a.audio_gate_open = true;
+    a.heard.audio_gate_open = true;
     a.last_pitches = [0.99; 12];
     a.check_progress_with_ai(0.016, "Noise", 0.0);
     for _ in 0..60 {
-        a.audio_frames += 1;
+        a.heard.audio_frames += 1;
         a.tick(0.016);
     }
     assert_eq!(a.collected_notes.iter().filter(|&&v| v).count(), 1);
@@ -690,8 +690,8 @@ pub(crate) fn ear_hears(a: &mut MyApp, pc: usize) {
 
 /// One reading, as one new audio frame carrying it.
 pub(crate) fn ear_frame(a: &mut MyApp, pc: Option<usize>) {
-    a.cqt_pitch = pc;
-    a.audio_frames += 1;
+    a.heard.cqt_pitch = pc;
+    a.heard.audio_frames += 1;
     a.tick(0.016);
 }
 
@@ -1576,7 +1576,7 @@ fn a_strummed_chord_still_walks_its_intervals() {
     a.last_pitches[0] = 0.95;            // C
     a.last_pitches[4] = 0.92;            // E
     a.last_pitches[7] = 0.90;            // G
-    a.cqt_pitch = Some(0);               // the estimate can only name one
+    a.heard.cqt_pitch = Some(0);               // the estimate can only name one
     for pc in [0usize, 4, 7] {
         assert!(a.note_is_sounding(pc, None, 0.0), "chord tone {pc} stopped passing");
     }
@@ -1612,7 +1612,7 @@ fn a_mode_starts_without_what_was_heard_before_it() {
     a.last_pitches = [0.9; 12];
     a.prev_pitches = [0.8; 12];
     a.credited[3] = Some(credit(7));
-    a.cqt_pitch = Some(3);
+    a.heard.cqt_pitch = Some(3);
 
     a.set_mode(AppMode::Intervals as i32);
 
@@ -1621,7 +1621,7 @@ fn a_mode_starts_without_what_was_heard_before_it() {
     assert_eq!(a.credited[3], None, "a note credited in another mode still counted");
     // And nothing passes on it: the pitch head has nothing to say until the
     // next audio frame arrives.
-    a.cqt_pitch = None;
+    a.heard.cqt_pitch = None;
     assert!(!a.note_is_sounding(3, None, 0.0));
 }
 
@@ -1636,7 +1636,7 @@ fn what_was_struck_can_be_asked_for() {
     a.last_pitches = [0.0; 12];
     a.last_pitches[0] = 0.95;            // C, being played
     a.last_pitches[10] = 0.93;           // Bb, the note before, still ringing
-    a.cqt_pitch = Some(0);
+    a.heard.cqt_pitch = Some(0);
 
     // Without the option both pass, which is the complaint.
     assert!(a.note_is_sounding(0, None, 0.0));
@@ -1644,12 +1644,12 @@ fn what_was_struck_can_be_asked_for() {
 
     a.require_onset = true;
     detector_hop(&mut a, &[0]);          // only C was struck
-    a.cqt_pitch = Some(0);
+    a.heard.cqt_pitch = Some(0);
     assert!(a.note_is_sounding(0, None, 0.0), "the struck note stopped passing");
     assert!(!a.note_is_sounding(10, None, 0.0), "the ringing note still counted");
     // With the CQT silent the model's own branch answers for C - this gate
     // deliberately leaves the estimate alone, so it is checked without it.
-    a.cqt_pitch = None;
+    a.heard.cqt_pitch = None;
     assert!(a.note_is_sounding(0, None, 0.0), "the model lost its own branch");
 }
 
@@ -1705,7 +1705,7 @@ fn the_cqt_alone_credits_the_note_being_played() {
     let mut a = app();
     a.note_threshold = 0.6;
     a.last_pitches = [0.0; 12];          // model still says nothing
-    a.cqt_pitch = Some(4);               // E is sounding
+    a.heard.cqt_pitch = Some(4);               // E is sounding
     assert!(a.note_is_sounding(4, None, 0.0), "the CQT knew and was ignored");
     assert!(!a.note_is_sounding(7, None, 0.0), "credited a note nobody played");
 }
@@ -1731,7 +1731,7 @@ fn a_note_that_has_been_left_behind_stops_counting() {
 fn a_new_note_under_a_louder_old_one_counts() {
     let mut a = app();
     a.note_threshold = 0.6;
-    a.cqt_pitch = None;                  // gate open, estimate too weak to rule
+    a.heard.cqt_pitch = None;                  // gate open, estimate too weak to rule
     a.prev_pitches = [0.05; 12];
     a.prev_pitches[2] = 0.90;            // D was already there
     a.last_pitches = [0.0; 12];
@@ -2016,7 +2016,7 @@ fn a_phrase_gets_past_a_note_it_has_already_used() {
     for pc in [0usize, 3, 0] {
         for _ in 0..4 {
             frame += 1;
-            a.audio_frames = frame - 1;
+            a.heard.audio_frames = frame - 1;
             a.feed_estimate(frame, Some(pc));
         }
         a.check_progress_with_ai(0.3, "Noise", 0.0);
@@ -2024,7 +2024,7 @@ fn a_phrase_gets_past_a_note_it_has_already_used() {
     // The phrase comes back to it and the player plays it.
     for _ in 0..4 {
         frame += 1;
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(seventh));
     }
     assert!(
@@ -2056,7 +2056,7 @@ fn an_arpeggio_played_through_comes_round() {
         a.last_pitches[pc] = 1.0;
         for _ in 0..4 {
             frame += 1;
-            a.audio_frames = frame - 1;
+            a.heard.audio_frames = frame - 1;
             a.feed_estimate(frame, Some(pc));
         }
         for _ in 0..10 {
@@ -2098,7 +2098,7 @@ fn one_at_a_time_believes_the_ear_alone() {
     a.hears(Some(7));
     assert!(a.note_is_sounding(7, None, 0.0), "the ear was not believed");
     // One frame of it is not enough.
-    a.steady_for = 1;
+    a.heard.steady_for = 1;
     assert!(!a.note_is_sounding(7, None, 0.0), "a single frame counted");
 }
 
@@ -2154,7 +2154,7 @@ fn a_ringing_note_does_not_count_for_the_next_step() {
     let mut frame = 0u64;
     for _ in 0..6 {
         frame += 1;
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(third));
     }
     a.tick(0.6);
@@ -2166,7 +2166,7 @@ fn a_ringing_note_does_not_count_for_the_next_step() {
     // Struck again - the estimate names it, because it is loudest now.
     for _ in 0..4 {
         frame += 1;
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(root));
     }
     assert!(a.struck_since_credit(root), "a real second pluck did not count");
@@ -2190,14 +2190,14 @@ fn a_note_that_went_quiet_counts_when_it_comes_back() {
 
     // Something else, steadily, and then silence: the note has gone.
     for frame in 1..=4u64 {
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(9));
     }
     a.check_progress_with_ai(0.6, "Noise", 0.0);   // past the settling window
     // And now it is played again: the estimate names it, because a struck
     // string is what is loudest.
     for frame in 5..=8u64 {
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(pc));
     }
     assert!(
@@ -2211,25 +2211,25 @@ fn a_note_that_went_quiet_counts_when_it_comes_back() {
 #[test]
 fn a_stray_reading_does_not_reach_the_drawing() {
     let mut a = app();
-    assert_eq!(a.steady_note(), None, "nothing has been heard yet");
+    assert_eq!(a.heard.steady_note(), None, "nothing has been heard yet");
 
     // One frame of a note is not a note.
     for (frame, pitch) in [(1u64, Some(3usize)), (2, Some(7)), (3, Some(3))] {
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, pitch);
-        assert_eq!(a.steady_note(), None, "a single frame reached the drawing");
+        assert_eq!(a.heard.steady_note(), None, "a single frame reached the drawing");
     }
     // Three frames of the same one is.
     for frame in 4..=6u64 {
-        a.audio_frames = frame - 1;
+        a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(9));
     }
-    assert_eq!(a.steady_note(), Some(9), "a reading that held did not count");
+    assert_eq!(a.heard.steady_note(), Some(9), "a reading that held did not count");
 
     // And it lets go as soon as something else is heard.
-    a.audio_frames = 6;
+    a.heard.audio_frames = 6;
     a.feed_estimate(7, Some(2));
-    assert_eq!(a.steady_note(), None, "the old reading outlived what replaced it");
+    assert_eq!(a.heard.steady_note(), None, "the old reading outlived what replaced it");
 }
 
 /// A note quiet enough that the estimate loses it every other frame was
@@ -2239,22 +2239,22 @@ fn a_stray_reading_does_not_reach_the_drawing() {
 fn two_frames_are_enough_to_credit_but_not_to_take_over() {
     let mut a = app();
     a.app_mode = AppMode::Scales;
-    assert_eq!(a.sounding_now(), None, "nothing heard yet");
+    assert_eq!(a.heard.sounding_now(), None, "nothing heard yet");
 
-    a.audio_frames = 0;
+    a.heard.audio_frames = 0;
     a.feed_estimate(1, Some(9));
-    assert_eq!(a.sounding_now(), None, "one frame is still not a note");
+    assert_eq!(a.heard.sounding_now(), None, "one frame is still not a note");
 
-    a.audio_frames = 1;
+    a.heard.audio_frames = 1;
     a.feed_estimate(2, Some(9));
-    assert_eq!(a.sounding_now(), Some(9), "two frames of the same reading");
+    assert_eq!(a.heard.sounding_now(), Some(9), "two frames of the same reading");
     // But the longer measure - the one that says a credited note has gone
     // quiet - has not been reached, so a repeat cannot ride on this.
-    assert_eq!(a.steady_note(), None, "two frames must not count as taking over");
+    assert_eq!(a.heard.steady_note(), None, "two frames must not count as taking over");
 
-    a.audio_frames = 2;
+    a.heard.audio_frames = 2;
     a.feed_estimate(3, Some(9));
-    assert_eq!(a.steady_note(), Some(9), "three frames still means what it did");
+    assert_eq!(a.heard.steady_note(), Some(9), "three frames still means what it did");
 }
 
 /// A grip is three notes under one hand: which finger lands first is not
@@ -2281,8 +2281,8 @@ fn intervals_take_the_notes_in_any_order() {
         a.last_pitches[pc] = 1.0;
         for _ in 0..15 {
             a.check_progress_with_ai(0.016, "Noise", 0.0);
-            a.audio_gate_open = true;
-            a.audio_frames += 1;
+            a.heard.audio_gate_open = true;
+            a.heard.audio_frames += 1;
             a.tick(0.016);
         }
         assert!(
@@ -2319,8 +2319,8 @@ fn a_neighbour_is_not_credited_while_the_root_is_sounding() {
     a.hears(Some(root));
     for _ in 0..15 {
         a.check_progress_with_ai(0.016, "Noise", 0.0);
-        a.audio_gate_open = true;
-        a.audio_frames += 1;
+        a.heard.audio_gate_open = true;
+        a.heard.audio_frames += 1;
         a.tick(0.016);
     }
     assert!(a.collected_notes[0], "the note that was played was not credited");
@@ -2347,8 +2347,8 @@ fn the_option_puts_the_intervals_back_in_order() {
     a.last_pitches[pc] = 1.0;
     for _ in 0..15 {
         a.check_progress_with_ai(0.016, "Noise", 0.0);
-        a.audio_gate_open = true;
-        a.audio_frames += 1;
+        a.heard.audio_gate_open = true;
+        a.heard.audio_frames += 1;
         a.tick(0.016);
     }
     assert!(!a.collected_notes[last], "a step out of turn was credited");
@@ -2620,11 +2620,11 @@ fn one_pluck_credits_one_step() {
     a.last_pitches = [0.0; 12];
     a.last_pitches[target % 12] = 1.0;
     a.credit_class(target, 0);                // this pluck already counted
-    a.onset_id = 0;
+    a.heard.onset_id = 0;
     for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
     assert_eq!(a.fret_target, Some(target), "the same pluck counted twice");
 
-    a.onset_id = 1;                            // strings struck again
+    a.heard.onset_id = 1;                            // strings struck again
     for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
     assert_eq!(
         a.credited[target % 12], Some(credit(1)),
@@ -2688,8 +2688,8 @@ fn the_closing_root_is_not_credited_to_the_opening_one() {
     for (i, pc) in pcs.iter().take(steps.len() - 1).enumerate() {
         a.last_pitches[*pc] = 1.0;
         a.hears(Some(*pc));
-        a.cqt_semitone = Some(low + [0, 2, 4, 5, 7, 9, 11][i]);
-        a.onset_id += 1;
+        a.heard.cqt_semitone = Some(low + [0, 2, 4, 5, 7, 9, 11][i]);
+        a.heard.onset_id += 1;
         for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
     }
     assert_eq!(a.current_note_step, steps.len() - 1, "the run did not reach its last step");
@@ -2703,7 +2703,7 @@ fn the_closing_root_is_not_credited_to_the_opening_one() {
     // Played where the run asks for it, an octave up: the estimate says so,
     // and that is enough on its own.
     a.hears(Some(pcs[0]));
-    a.cqt_semitone = Some(low + 12);
+    a.heard.cqt_semitone = Some(low + 12);
     for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "playing the closing root did not end the run");
 }
@@ -2727,7 +2727,7 @@ fn a_root_repeated_in_its_own_octave_still_counts() {
     a.current_note_step = steps.len() - 1;
     a.last_pitches[pc] = 1.0;
     a.hears(Some(pc));
-    a.cqt_semitone = Some(low);
+    a.heard.cqt_semitone = Some(low);
     a.credit_class(pc, 0);                      // credited on the opening root
 
     // Ringing on, nothing struck: it must not close the run.
@@ -2737,7 +2737,7 @@ fn a_root_repeated_in_its_own_octave_still_counts() {
     // Struck again, in the same octave, with the estimate reading it.
     detector_hop(&mut a, &[pc]);
     a.hears(Some(pc));
-    a.cqt_semitone = Some(low);
+    a.heard.cqt_semitone = Some(low);
     for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "a note played again in its own octave never counted");
 }
@@ -2868,4 +2868,14 @@ fn chord_readings_against_the_chord_asked_for() {
 
     assert_eq!(read(&chord(G, ChordQuality::Dominant7), G, ""), ChordReading::Partial);
     assert_eq!(read(&chord(D, ChordQuality::Minor7), D, "m"), ChordReading::Partial);
+}
+
+/// Before any audio, no class and no flux report counts as just struck: the
+/// ages start at their far end, not at zero.
+#[test]
+fn nothing_counts_as_struck_at_start_up() {
+    let a = app();
+    assert_eq!(a.heard.flux_age, u32::MAX);
+    assert_eq!(a.heard.class_strike_age, [u32::MAX; 12]);
+    assert!(!a.heard.strikes_live && !a.heard.flux_seen);
 }

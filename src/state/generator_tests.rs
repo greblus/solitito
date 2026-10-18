@@ -115,7 +115,7 @@ fn finishing_a_formula_keeps_it() {
     assert!(mask != 0, "entering the mode should draw a formula");
 
     for (n, pc) in a.formula_pitches().into_iter().enumerate() {
-        a.onset_id = n as u64 + 1;
+        a.heard.onset_id = n as u64 + 1;
         ear_hears(&mut a, pc);
     }
     assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
@@ -141,7 +141,7 @@ fn one_frame_of_the_fast_estimate_is_not_enough() {
     let mut a = app();
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pitches = a.formula_pitches();
 
     // Flickering between two of them: neither ever settles.
@@ -172,7 +172,7 @@ fn strict_is_the_default_and_loose_still_works() {
     assert!(a.strict_formulas, "the strict rule is what the mode runs on");
 
     a.strict_formulas = false;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pc = a.formula_pitches()[0];
     // The model's pitch head alone, on the first frame after it is seen.
     ready(&mut a);
@@ -195,7 +195,7 @@ fn a_finished_lap_moves_on_in_silence() {
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
     for (n, &pc) in a.formula_pitches().iter().enumerate() {
-        a.onset_id = n as u64 + 1;
+        a.heard.onset_id = n as u64 + 1;
         ear_hears(&mut a, pc);
     }
     assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
@@ -216,7 +216,7 @@ fn a_paused_formula_judges_nothing() {
     let mut a = app();
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pc = a.formula_pitches()[0];
     ready(&mut a);
     a.paused = true;
@@ -247,7 +247,7 @@ fn a_lap_moves_on_and_holds_for_a_moment() {
     a.strict_formulas = true;
     let pitches = a.formula_pitches();
     for (n, &pc) in pitches.iter().enumerate() {
-        a.onset_id = n as u64 + 1;
+        a.heard.onset_id = n as u64 + 1;
         ear_hears(&mut a, pc);
     }
     assert!(a.formula_collected.iter().all(|&c| c), "the formula was not collected");
@@ -285,13 +285,13 @@ fn a_frame_votes_once_however_often_it_is_looked_at() {
     let mut a = app();
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let stray = a.formula_pitches()[1];
 
     // One frame, looked at twenty times: one vote, so nothing counts.
     ready(&mut a);
-    a.cqt_pitch = Some(stray);
-    a.audio_frames += 1;
+    a.heard.cqt_pitch = Some(stray);
+    a.heard.audio_frames += 1;
     for _ in 0..20 {
         a.tick(0.0);
     }
@@ -330,7 +330,7 @@ fn a_settled_reading_counts() {
     let mut a = app();
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pc = a.formula_pitches()[0];
 
     ear_hears(&mut a, pc);
@@ -345,7 +345,7 @@ fn in_order_takes_the_lowest_function_first() {
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
     a.formula_in_order = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pitches = a.formula_pitches();
 
     // The second function first: it waits.
@@ -356,10 +356,10 @@ fn in_order_takes_the_lowest_function_first() {
     );
 
     // The first, then the second: both count, in that order.
-    a.onset_id += 1;
+    a.heard.onset_id += 1;
     ear_hears(&mut a, pitches[0]);
     assert!(a.formula_collected[0], "the function due did not count");
-    a.onset_id += 1;
+    a.heard.onset_id += 1;
     ear_hears(&mut a, pitches[1]);
     assert!(a.formula_collected[1], "the next one due did not count");
 }
@@ -371,7 +371,7 @@ fn out_of_order_is_the_default() {
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
     assert!(!a.formula_in_order, "a formula is unordered unless asked");
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pitches = a.formula_pitches();
     ear_hears(&mut a, pitches[2]);
     assert!(a.formula_collected[2], "the set refused a function it should take");
@@ -385,7 +385,7 @@ fn a_stray_frame_does_not_reset_the_evidence() {
     let mut a = app();
     a.set_mode(AppMode::Formulas as i32);
     a.strict_formulas = true;
-    a.onset_id = 2;
+    a.heard.onset_id = 2;
     let pitches = a.formula_pitches();
     let (played, stray) = (pitches[0], pitches[1]);
 
@@ -413,11 +413,11 @@ fn a_chord_name_alone_credits_nothing() {
     a.formula_key_setting = "C".to_string();
     a.rekey_formula();
     // Nothing heard: no single frame, no pitch vector. Only the name.
-    a.cqt_pitch = None;
+    a.heard.cqt_pitch = None;
     a.last_pitches = [0.0; 12];
     a.prev_pitches = [0.0; 12];
     for n in 0..20u64 {
-        a.onset_id = n;
+        a.heard.onset_id = n;
         a.check_progress_with_ai(0.05, "C Maj7", 0.99);
     }
     assert!(
@@ -439,10 +439,10 @@ fn a_lap_does_not_move_the_key() {
 
     for lap in 0..5u64 {
         for (n, pc) in a.formula_pitches().into_iter().enumerate() {
-            a.onset_id = lap * 12 + n as u64 + 1;
+            a.heard.onset_id = lap * 12 + n as u64 + 1;
             ear_hears(&mut a, pc);
         }
-        a.cqt_pitch = None;
+        a.heard.cqt_pitch = None;
         a.check_progress_with_ai(FORMULA_LAP_PAUSE + 0.01, "...", 0.0);
         assert_eq!(a.formula_key_name, key, "the lap moved the key");
         assert_eq!(a.formula_mask, mask, "the lap moved the formula");
