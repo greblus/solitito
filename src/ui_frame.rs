@@ -6,7 +6,7 @@
 //! SVG, or redraws the settings panel for nothing.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -396,20 +396,7 @@ impl UiFrame {
             if app.chord_history.len() > 3 { app.chord_history.pop_front(); }
         }
 
-        let mut votes: HashMap<String, f32> = HashMap::new();
-        for (c, s) in &app.chord_history {
-            *votes.entry(c.clone()).or_insert(0.0) += *s;
-        }
-
-        let fallback_str = String::from("...");
-        let fallback_val = 0.0;
-        let (best_c, max_v) = votes.iter()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .unwrap_or((&fallback_str, &fallback_val));
-
-        let current_confidence = if !app.chord_history.is_empty() {
-            *max_v / app.chord_history.len() as f32
-        } else { 0.0 };
+        let (best_c, current_confidence) = vote_on_chord(&app.chord_history);
 
         // Latch: a chord does not change identity while it rings out. It
         // engages at high confidence but holds regardless - during the decay
@@ -424,26 +411,14 @@ impl UiFrame {
         // a full window, which with one note at a time is for ever.
         let shown = if named {
             self.chord_latch.update(
-                ui.get_lock_quality(), onset_id, since_onset, best_c, current_confidence,
+                ui.get_lock_quality(), onset_id, since_onset, &best_c, current_confidence,
             )
         } else {
             "...".to_string()
         };
         let current_confidence = if named { current_confidence } else { 0.0 };
 
-        // The chord name appears at once - that is what is being read.
-        // A changed percentage on the same chord waits its turn, at five
-        // updates a second rather than sixty.
-        let text = format!("{} ({:.0}%)", shown, current_confidence * 100.0);
-        let name_changed = shown != self.last_ai_name;
-        if (name_changed || self.last_ai_push.elapsed() >= Duration::from_millis(200))
-            && text != self.last_ai_text
-        {
-            ui.set_ai_text(text.clone().into());
-            self.last_ai_text = text;
-            self.last_ai_name = shown.clone();
-            self.last_ai_push = Instant::now();
-        }
+        self.show_model_answer(ui, &shown, current_confidence);
 
         // Real elapsed time, not assumed. Capped so a thread stall does not
         // jump the whole threshold at once.
@@ -459,20 +434,23 @@ impl UiFrame {
         // are being detected at all during real playing. The per-strum
         // verdict can only re-arm on a new onset id.
         if std::env::var("SOLITITO_STRUM").is_ok() {
-            println!(
-                "atak#{onset_id} klatek_od_ataku={since_onset:<3} slyszy={shown:<8}                          pewnosc={:.2} cel={:<8} struna={:<3} licznik={:.2}/{:.2} {}",
-                current_confidence,
-                app.chords.get(app.current_chord_index)
-                    .map(|c| format!("{}{}", c.root.to_string(), c.quality.to_string()))
-                    .unwrap_or_default(),
-                app.start_hint
-                    .and_then(|i| state::START_STRINGS.get(i))
-                    .copied()
-                    .unwrap_or("-"),
-                app.success_timer,
-                app.transition_delay,
-                if app.current_chord_index != before { "-> PRZESZLO" } else { "" },
-            );
+            print_strum_trace(app, onset_id, since_onset, &shown, current_confidence, before);
+        }
+    }
+
+    /// The chord name appears at once - that is what is being read. A changed
+    /// percentage on the same chord waits its turn, at five updates a second
+    /// rather than sixty.
+    fn show_model_answer(&mut self, ui: &AppWindow, shown: &str, confidence: f32) {
+        let text = format!("{} ({:.0}%)", shown, confidence * 100.0);
+        let name_changed = shown != self.last_ai_name;
+        if (name_changed || self.last_ai_push.elapsed() >= Duration::from_millis(200))
+            && text != self.last_ai_text
+        {
+            ui.set_ai_text(text.clone().into());
+            self.last_ai_text = text;
+            self.last_ai_name = shown.to_string();
+            self.last_ai_push = Instant::now();
         }
     }
 
@@ -528,114 +506,49 @@ impl UiFrame {
         ui.set_formula_collected(ModelRc::from(Rc::new(VecModel::from(lit))));
     }
 
-    fn show_formula_placement(&mut self, ui: &AppWindow, app: &MyApp) {
-        // What the formula is being played over, when it is being played
-        // over anything: the chord, the degree of it the formula stands on,
-        // the same functions read from the chord's root, and which of them
-        // the chord owns. The count is the lesson - the word beside it is
-        // only a label on the count.
-        {
-            let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-            let jazz_names = self.shared.cfg.borrow().formula_jazz_names;
-            let (chord, degree, against, own, verdict) = match &app.formula_chord {
-                Some(c) if app.formula_exercise != 0 => {
-                    let root = c.root as usize;
-                    let mut pcs = 0u16;
-                    for i in c.quality.intervals() {
-                        pcs |= 1 << ((root + i as usize) % 12);
-                    }
-                    let word = match app.formula_verdict {
-                        Some(formulas::Verdict::Defines) => t.placement_defines,
-                        Some(formulas::Verdict::Colours) => t.placement_colours,
-                        Some(formulas::Verdict::Outside) => t.placement_outside,
-                        None => "",
-                    };
-                    let tones = pcs.count_ones();
-                    (
-                        format!("{}{}", c.root.to_string(), c.quality.to_string()),
-                        formulas::ROMAN[app.formula_degree].to_string(),
-                        {
-                            // What belongs to the chord is named by the
-                            // chord - its own third is "3" or "b3", not a
-                            // ninth of anything. What does not is a plain
-                            // function, or a tension if that is asked for.
-                            let mut own: [Option<&str>; 12] = [None; 12];
-                            let names = c.quality.interval_names();
-                            for (k, i) in c.quality.intervals().iter().enumerate() {
-                                if let Some(n) = names.get(k) {
-                                    own[*i as usize % 12] = Some(n.as_str());
-                                }
-                            }
-                            formulas::functions_of(app.formula_mask)
-                                .iter()
-                                .map(|&f| {
-                                    let semi = (f + app.formula_degree) % 12;
-                                    if let Some(n) = own[semi] {
-                                        n.to_string()
-                                    } else if jazz_names {
-                                        formulas::TENSIONS[semi].to_string()
-                                    } else {
-                                        formulas::FUNCS[semi].to_string()
-                                    }
-                                })
-                                .collect()
-                        },
-                        formulas::chord_tones_in(
-                            app.formula_mask,
-                            root,
-                            pcs,
-                            app.formula_degree,
-                        ),
-                        format!(
-                            "{} · {} {} {} {}",
-                            word, app.formula_hits, t.of_count, tones, t.chord_tones
-                        ),
-                    )
-                }
-                _ => (String::new(), String::new(), vec![], vec![], String::new()),
-            };
-            set_if_changed(ui.get_formula_chord_name(), chord.into(), |v| {
-                ui.set_formula_chord_name(v)
-            });
-            set_if_changed(ui.get_formula_degree_name(), degree.into(), |v| {
-                ui.set_formula_degree_name(v)
-            });
-            let label = match &app.formula_chord {
-                Some(c) if app.formula_exercise != 0 => {
-                    format!("{}{}", t.against_chord, c.root.to_string())
-                }
-                _ => String::new(),
-            };
-            set_if_changed(ui.get_formula_against_label(), label.into(), |v| {
-                ui.set_formula_against_label(v)
-            });
-            set_if_changed(ui.get_formula_verdict(), verdict.into(), |v| {
-                ui.set_formula_verdict(v)
-            });
-            let against: Vec<SharedString> =
-                against.into_iter().map(SharedString::from).collect();
-            ui.set_formula_against(ModelRc::from(Rc::new(VecModel::from(against))));
-            ui.set_formula_is_chord_tone(ModelRc::from(Rc::new(VecModel::from(own))));
-        }
+    /// What the formula is being played over, when it is being played over
+    /// anything: the chord, the degree of it the formula stands on, the same
+    /// functions read from the chord's root, and which of them the chord owns.
+    /// The count is the lesson - the word beside it is only a label on the count.
+    fn show_formula_placement(&self, ui: &AppWindow, app: &MyApp) {
+        let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+        let jazz_names = self.shared.cfg.borrow().formula_jazz_names;
+        let shown = match &app.formula_chord {
+            Some(chord) if app.formula_exercise != 0 => placement_over(app, chord, &t, jazz_names),
+            _ => Placement::default(),
+        };
+        set_if_changed(ui.get_formula_chord_name(), shown.chord.into(), |v| {
+            ui.set_formula_chord_name(v)
+        });
+        set_if_changed(ui.get_formula_degree_name(), shown.degree.into(), |v| {
+            ui.set_formula_degree_name(v)
+        });
+        set_if_changed(ui.get_formula_against_label(), shown.label.into(), |v| {
+            ui.set_formula_against_label(v)
+        });
+        set_if_changed(ui.get_formula_verdict(), shown.verdict.into(), |v| {
+            ui.set_formula_verdict(v)
+        });
+        let against: Vec<SharedString> = shown.against.into_iter().map(SharedString::from).collect();
+        ui.set_formula_against(ModelRc::from(Rc::new(VecModel::from(against))));
+        ui.set_formula_is_chord_tone(ModelRc::from(Rc::new(VecModel::from(shown.own))));
     }
 
-    fn show_formula_key(&mut self, ui: &AppWindow, app: &MyApp) {
+    fn show_formula_key(&self, ui: &AppWindow, app: &MyApp) {
         set_if_changed(ui.get_formula_key(), app.formula_key_name.clone().into(), |v| {
             ui.set_formula_key(v)
         });
 
         // Note names are a crutch, so they are only built when asked for.
-        let notes: Vec<SharedString> = if self.shared.cfg.borrow().formula_note_names {
-            match formulas::parse_key(&app.formula_key_name) {
-                Some(k) => formulas::note_names(app.formula_mask, &k)
-                    .into_iter()
-                    .map(SharedString::from)
-                    .collect(),
-                None => vec![],
-            }
-        } else {
-            vec![]
-        };
+        let wanted = self.shared.cfg.borrow().formula_note_names;
+        let notes: Vec<SharedString> = wanted
+            .then(|| formulas::parse_key(&app.formula_key_name))
+            .flatten()
+            .map(|key| formulas::note_names(app.formula_mask, &key))
+            .unwrap_or_default()
+            .into_iter()
+            .map(SharedString::from)
+            .collect();
         ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
     }
 
@@ -1336,4 +1249,114 @@ impl UiFrame {
             }
         }
     }
+}
+
+/// The model's chord over the last answers: the name with the most summed
+/// confidence, and that sum per answer.
+///
+/// Majority voting over 3 windows. probe_quality measured majority voting as
+/// better than averaging the distributions - the model is sometimes confident
+/// and wrong, and averaging carries that confidence forward while voting
+/// damps it.
+fn vote_on_chord(history: &VecDeque<(String, f32)>) -> (String, f32) {
+    let mut votes: HashMap<&str, f32> = HashMap::new();
+    for (chord, score) in history {
+        *votes.entry(chord.as_str()).or_insert(0.0) += *score;
+    }
+    match votes.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)) {
+        Some((chord, sum)) => (chord.to_string(), sum / history.len() as f32),
+        None => ("...".to_string(), 0.0),
+    }
+}
+
+/// SOLITITO_STRUM=1: one line per answer of the model - the attack, what was
+/// heard, the chord asked for and the success timer.
+fn print_strum_trace(
+    app: &MyApp,
+    onset_id: u64,
+    since_onset: u32,
+    shown: &str,
+    confidence: f32,
+    chord_before: usize,
+) {
+    println!(
+        "atak#{onset_id} klatek_od_ataku={since_onset:<3} slyszy={shown:<8}                          pewnosc={:.2} cel={:<8} struna={:<3} licznik={:.2}/{:.2} {}",
+        confidence,
+        app.chords.get(app.current_chord_index)
+            .map(|c| format!("{}{}", c.root.to_string(), c.quality.to_string()))
+            .unwrap_or_default(),
+        app.start_hint
+            .and_then(|i| state::START_STRINGS.get(i))
+            .copied()
+            .unwrap_or("-"),
+        app.success_timer,
+        app.transition_delay,
+        if app.current_chord_index != chord_before { "-> PRZESZLO" } else { "" },
+    );
+}
+
+/// What Formulas writes about the chord a formula is placed over.
+#[derive(Default)]
+struct Placement {
+    chord: String,
+    degree: String,
+    label: String,
+    against: Vec<String>,
+    own: Vec<bool>,
+    verdict: String,
+}
+
+fn placement_over(app: &MyApp, chord: &Chord, t: &i18n::Strings, jazz_names: bool) -> Placement {
+    let root = chord.root as usize;
+    let pcs = pitch_classes_of(chord);
+    let word = match app.formula_verdict {
+        Some(formulas::Verdict::Defines) => t.placement_defines,
+        Some(formulas::Verdict::Colours) => t.placement_colours,
+        Some(formulas::Verdict::Outside) => t.placement_outside,
+        None => "",
+    };
+    Placement {
+        chord: format!("{}{}", chord.root.to_string(), chord.quality.to_string()),
+        degree: formulas::ROMAN[app.formula_degree].to_string(),
+        label: format!("{}{}", t.against_chord, chord.root.to_string()),
+        against: functions_over(app, chord, jazz_names),
+        own: formulas::chord_tones_in(app.formula_mask, root, pcs, app.formula_degree),
+        verdict: format!(
+            "{} · {} {} {} {}",
+            word, app.formula_hits, t.of_count, pcs.count_ones(), t.chord_tones
+        ),
+    }
+}
+
+/// The chord's pitch classes as a 12-bit mask.
+fn pitch_classes_of(chord: &Chord) -> u16 {
+    let root = chord.root as usize;
+    chord
+        .quality
+        .intervals()
+        .iter()
+        .fold(0u16, |pcs, &i| pcs | 1 << ((root + i as usize) % 12))
+}
+
+/// The formula's functions read from the chord's root. What belongs to the
+/// chord is named by the chord - its own third is "3" or "b3", not a ninth of
+/// anything. What does not is a plain function, or a tension if that is asked
+/// for.
+fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
+    let mut own: [Option<&str>; 12] = [None; 12];
+    let names = chord.quality.interval_names();
+    for (name, &i) in names.iter().zip(chord.quality.intervals().iter()) {
+        own[i as usize % 12] = Some(name.as_str());
+    }
+    formulas::functions_of(app.formula_mask)
+        .iter()
+        .map(|&f| {
+            let semi = (f + app.formula_degree) % 12;
+            match own[semi] {
+                Some(name) => name.to_string(),
+                None if jazz_names => formulas::TENSIONS[semi].to_string(),
+                None => formulas::FUNCS[semi].to_string(),
+            }
+        })
+        .collect()
 }
