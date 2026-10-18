@@ -3,32 +3,12 @@
 //! It answers WHEN a string was hit, nothing else. That is deliberate - the
 //! question it refuses to answer is why it can be sensitive.
 //!
-//! Measured on the first recording from the user's own rig
-//! (`dist/crediting_measurements/rise-live/trace-20261007-213243-kKmraU`,
-//! 45.9 s of Intervals practice). He plucked about sixty times; the app
-//! credited twelve notes, which is what "you have to pluck very hard" was:
-//!
-//! | detector                                 | found |
-//! |------------------------------------------|------:|
-//! | this one                                 |    27 |
-//! | the envelope in `audio.rs`               |    22 |
-//! | Rise peaks >= 0.5, any class             |    19 |
-//! | Rise peaks >= 0.8, the release threshold |    12 |
-//!
-//! Every attack Rise reported there, this one also reports; it adds fifteen
-//! Rise never saw. On AtoA, against 51 reviewed labels, it finds all 51 where
-//! Rise finds 48.
-//!
 //! The envelope compares the frame's whole level against a running baseline, so
 //! a quietly plucked string is swallowed by the one still ringing beside it.
 //! Summing the per-bin INCREASES does not care how loud the rest of the frame
-//! is: a new string raises its own bins whatever else is sounding.
-//!
-//! One pluck reporting once is measured on material, not asserted here: at the
-//! working constants no two reports on AtoA fall within 160 ms of each other.
-//! A synthetic ramp does report twice, and that is honest - a signal rising
-//! steadily for seven frames is not the shape a plucked string makes, and
-//! tuning the detector to call it one event would be fitting to a fiction.
+//! is: a new string raises its own bins whatever else is sounding. On AtoA it
+//! finds all 51 labelled notes where Rise finds 48 - see
+//! `docs/judge-measurements.md#flux-detector`.
 use std::collections::VecDeque;
 
 /// Frames of flux the adaptive threshold is read from - one second at the
@@ -38,78 +18,35 @@ const HISTORY: usize = 62;
 
 /// How far above the recent median, in median absolute deviations.
 ///
-/// Swept at 0.5.6 against AtoA's 51 reviewed labels, with both windows scaled:
-/// 25 finds 41, 40 finds 47, 60 finds 47 with a third fewer reports outside
-/// them, 80 drops to 40. Sixty is the knee.
-///
-/// What this replaces is the take6 onset head, which on the same 51 notes hit
-/// 33, put 50 events in the wrong class and reported 18 duplicates. It is not
-/// competing with a good detector.
-///
-/// Swept against the 51 reviewed labels of AtoA and the user's recording, with
-/// the refractory below. Every value from 5 to 25 finds all 51 notes; what
-/// changes is how much else it reports, so the highest was taken:
-///
-/// | deviations | AtoA notes | other sounds | attacks on the user's recording |
-/// |-----------:|-----------:|-------------:|--------------------------------:|
-/// |          5 |      51/51 |          148 |                              88 |
-/// |         12 |      51/51 |           84 |                              48 |
-/// |         18 |      51/51 |           58 |                              36 |
-/// |         25 |      51/51 |           35 |                              27 |
-///
-/// "Other sounds" is not the same as error: this is pitch-blind, AtoA is a
-/// performance, and its 51 labels are the notes of the piece rather than every
-/// sound the strings made. Rise at its own threshold finds 48 of the 51.
-///
-/// The working value sits between: the first player to try it still had to hit
-/// some strings harder than he wanted to. `SOLITITO_FLUX=<number>` overrides it
-/// while that is being found out.
+/// Sixty is the knee of the sweep at 0.5.6 on AtoA's 51 labels: 40 finds 47, 60
+/// finds 47 with a third fewer reports outside them, 80 drops to 40. The
+/// diagnostic test below sweeps it with `SOLITITO_FLUX_DEVIATIONS`. Both
+/// sweeps of it: `docs/judge-measurements.md#deviations`.
 pub(crate) const DEVIATIONS: f32 = 60.0;
 
-/// The least gap between two reports, 48 ms. A floor only - what actually
-/// separates two plucks is the latch below.
-///
-/// A fixed refractory was tried for both jobs and could do neither. Long enough
-/// to cover one attack it silenced the next real one, costing a third of the
-/// notes on AtoA; short enough to pass them it let a single pluck report twice.
-/// A string hit once keeps rising for about seven frames, so no fixed number
-/// separates "still the same attack" from "the next one".
+/// The least gap between two reports, 14 frames: about 0.22 s. A floor only -
+/// what actually separates two plucks is the latch below: a string hit once keeps
+/// rising for about seven frames, so no fixed refractory tells "still the same
+/// attack" from "the next one". See `docs/judge-measurements.md#flux-refractory`.
 const REFRACTORY: usize = 14;
 
-/// A class is ready to report again once the flux falls to this fraction of the
-/// value that last fired. The same shape of latch the model's own events use.
+/// Ready to report again once the flux falls to this fraction of the value that
+/// last fired. The same shape of latch the model's own events use.
 ///
-/// This is what tells one attack from two: while a string is still being
-/// excited the flux stays up, and between plucks it drops to the floor. The
-/// fault it fixes was measured on the user's second recording - one pluck at
-/// frame 2398 reported twice, 96 ms apart, and the first report named a note
-/// nobody played because it landed on the transient.
+/// This is what tells one attack from two: while a string is still being excited
+/// the flux stays up, and between plucks it drops to the floor. See
+/// `docs/judge-measurements.md#flux-rearm`.
 const REARM: f32 = 0.3;
 
 /// Below this the frame is silence outright, whatever anything else says.
 const FLOOR: f32 = 1e-4;
 
 /// And an attack has to reach this fraction of what the playing has recently
-/// been worth, which the absolute floor alone could not enforce.
-///
-/// Measured on the user's second recording: in a quiet passage the adaptive
-/// median and deviation both collapse, so the bar falls to the noise and the
-/// detector reports attacks in silence. One of those at frame 2389 disarmed the
-/// latch and the real pluck at 2398 was not reported until 2401.
-///
-/// 0.35 with a refractory of 14 is where sesja-g1 and AtoA both keep every note
-/// they had - 84 of 87 credited notes and 47 of 51 labelled ones - while the
-/// reports with nothing becoming audible fall from 96 to 81 and the total from
-/// 238 to 189. Tightening further costs notes on both.
-///
-/// A fourth mechanism was tried and dropped: requiring the rise to be worth a
-/// fraction of what the bins it rose in were holding, which is the physical
-/// difference between a struck string and a ringing one beating. It separates
-/// nothing here. Meaningful on sesja-g1 only at settings that cost four of
-/// AtoA's notes, and those four are quiet attacks over a ringing note - the one
-/// thing this detector exists to hear. A small new thing and a small change in
-/// a big thing look alike in this representation, which is also why counting
-/// fundamentals failed.
+/// been worth, which the absolute floor alone could not enforce: in a quiet
+/// passage the adaptive median and deviation collapse, and the detector reported
+/// attacks in silence. 0.35 keeps every note on sesja-g1 and AtoA while reports
+/// with nothing audible fall from 96 to 81. Measurements, and the mechanism tried
+/// and dropped: `docs/judge-measurements.md#of_recent`.
 const OF_RECENT: f32 = 0.35;
 
 /// How fast the recent-worth level forgets, per 16 ms frame. About a second to

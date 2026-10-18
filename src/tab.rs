@@ -239,6 +239,7 @@ pub fn place_voiced(
     from_string: usize,
     close_only: bool,
 ) -> Vec<Spot> {
+    // Each note as its degree and its pitch class.
     let notes: Vec<(usize, i32)> = steps
         .iter()
         .filter_map(|s| {
@@ -249,80 +250,21 @@ pub fn place_voiced(
         .collect();
     // Wider than four voices is not a grip any more: past that the strings run
     // out and the phrase is better read as a phrase.
-    if notes.is_empty() || notes.len() > 4 || notes.len() > 6 {
+    if notes.is_empty() || notes.len() > 4 {
         return place(root_pc, intervals, steps, names);
     }
-
-    // Which voice sits where. Normally the order the steps are DEALT in, so a
-    // set written 1 3 5 is stacked in that order, each voice above the one
-    // below it.
-    //
-    // That is what spread the grips out under the shuffle: a set dealt 5 1 3
-    // has to climb in that order, which is an octave and a half wide and not a
-    // grip anybody plays. Close forms instead stack the set in its written
-    // order and ROTATE it, so the note asked for first is the bass - root
-    // position and its two inversions for a triad, and the same for a shell.
-    // Measured over 12 roots x 3 qualities x 3 inversions: every triad comes
-    // out between 6 and 9 semitones wide.
-    let distinct = {
-        let mut d: Vec<usize> = notes.iter().map(|&(d, _)| d).collect();
-        d.sort_unstable();
-        d.windows(2).all(|w| w[0] != w[1])
-    };
-    let mut order: Vec<usize> = (0..notes.len()).collect();
-    if close_only && distinct {
-        order.sort_by_key(|&i| notes[i].0);
-        let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
-        order.rotate_left(lead);
-    }
+    let order = voice_order(&notes, close_only);
     let stack: Vec<(usize, i32)> = order.iter().map(|&i| notes[i]).collect();
 
     let mut best: Option<(i32, Vec<Spot>)> = None;
     // Every set of strings, low to high, and every hand position on the neck.
     for strings in string_sets(notes.len()) {
         for base in 0..=15 {
-            let mut spots = Vec::with_capacity(notes.len());
-            let mut last_pitch = i32::MIN;
-            let mut ok = true;
-            for (i, &(degree, pc)) in stack.iter().enumerate() {
-                let string = strings[i];
-                // The lowest fret at or above the hand's position that plays it.
-                let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
-                let pitch = TUNING[string] + fret;
-                // A grip covers four frets, and a voicing rises with the
-                // strings: two notes crossing over read as a mistake on paper
-                // even when the hand could take them.
-                if fret > base + 4 || fret > 17 || pitch <= last_pitch {
-                    ok = false;
-                    break;
-                }
-                last_pitch = pitch;
-                spots.push(Spot {
-                    string,
-                    fret,
-                    interval: pitch - (TUNING[strings[0]] + base),
-                    name: names.get(degree).map(|n| spell(n)),
-                });
-            }
-            if !ok {
+            let Some(spots) = stack_grip(&stack, &strings, base, intervals, names) else {
                 continue;
-            }
-            // The interval each dot carries is its degree, not its distance
-            // from the bottom string - recomputed here now the grip is settled.
-            for (spot, &(degree, _)) in spots.iter_mut().zip(stack.iter()) {
-                spot.interval = intervals.get(degree).copied().unwrap_or(0) as i32;
-            }
-            // How wide the grip came out. Only close forms are scored on it.
-            let span = last_pitch - (TUNING[spots[0].string] + spots[0].fret);
+            };
             let cost = match prev {
-                // Voice leading: how far each finger has to travel. Strings
-                // count too, or a grip two strings over with the same frets
-                // would look like no movement at all.
-                Some(prev) => prev
-                    .iter()
-                    .zip(spots.iter())
-                    .map(|(a, b)| (a.fret - b.fret).abs() + (a.string as i32 - b.string as i32).abs() * 2)
-                    .sum::<i32>(),
+                Some(prev) => voice_travel(prev, &spots),
                 // Nothing to lead from: take it where the caller pointed -
                 // the string first, then the fret. Without the string the
                 // lowest set of strings won every tie and a whole progression
@@ -333,25 +275,104 @@ pub fn place_voiced(
                 // on is not asked for - the rotation has already chosen which
                 // NOTE is in the bass, and asking for both left the search
                 // nothing it could satisfy.
-                None if close_only => span * 24 + (base - anchor).abs(),
-                None => {
-                    let low = spots.first().map(|s| s.string).unwrap_or(0) as i32;
-                    (low - from_string as i32).abs() * 24 + (base - anchor).abs()
-                }
+                None if close_only => grip_width(&spots) * 24 + (base - anchor).abs(),
+                None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs(),
             };
             if best.as_ref().is_none_or(|(c, _)| cost < *c) {
-                // Back into the order the steps were dealt in:
-                // `collected_notes` is indexed by that, so a grip handed back
-                // stacked would light the wrong dots green.
-                let mut out = vec![None; spots.len()];
-                for (spot, &i) in spots.into_iter().zip(order.iter()) {
-                    out[i] = Some(spot);
-                }
-                best = Some((cost, out.into_iter().flatten().collect()));
+                best = Some((cost, in_dealt_order(spots, &order)));
             }
         }
     }
     best.map(|(_, s)| s).unwrap_or_else(|| place(root_pc, intervals, steps, names))
+}
+
+/// Which voice sits where, bottom up, as indices into `notes`.
+///
+/// Normally the order the steps are DEALT in, so a set written 1 3 5 is
+/// stacked in that order, each voice above the one below it.
+///
+/// That is what spread the grips out under the shuffle: a set dealt 5 1 3 has
+/// to climb in that order, which is an octave and a half wide and not a grip
+/// anybody plays. Close forms instead stack the set in its written order and
+/// ROTATE it, so the note asked for first is the bass - root position and its
+/// two inversions for a triad, and the same for a shell. Measured over 12 roots
+/// x 3 qualities x 3 inversions: every triad comes out between 6 and 9
+/// semitones wide.
+fn voice_order(notes: &[(usize, i32)], close_only: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..notes.len()).collect();
+    let mut degrees: Vec<usize> = notes.iter().map(|&(degree, _)| degree).collect();
+    degrees.sort_unstable();
+    let distinct = degrees.windows(2).all(|w| w[0] != w[1]);
+    if !close_only || !distinct {
+        return order;
+    }
+    order.sort_by_key(|&i| notes[i].0);
+    let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
+    order.rotate_left(lead);
+    order
+}
+
+/// The stack laid on `strings`, one note each, with the hand at fret `base` -
+/// or `None` where it does not fit under one hand.
+fn stack_grip(
+    stack: &[(usize, i32)],
+    strings: &[usize],
+    base: i32,
+    intervals: &[u8],
+    names: &[String],
+) -> Option<Vec<Spot>> {
+    let mut spots = Vec::with_capacity(stack.len());
+    let mut last_pitch = i32::MIN;
+    for (&(degree, pc), &string) in stack.iter().zip(strings) {
+        // The lowest fret at or above the hand's position that plays it.
+        let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
+        let pitch = TUNING[string] + fret;
+        // A grip covers four frets, and a voicing rises with the strings: two
+        // notes crossing over read as a mistake on paper even when the hand
+        // could take them.
+        if fret > base + 4 || fret > 17 || pitch <= last_pitch {
+            return None;
+        }
+        last_pitch = pitch;
+        spots.push(Spot {
+            string,
+            fret,
+            // The degree, not the distance from the bottom string.
+            interval: intervals.get(degree).copied().unwrap_or(0) as i32,
+            name: names.get(degree).map(|n| spell(n)),
+        });
+    }
+    Some(spots)
+}
+
+/// Voice leading: how far each finger has to travel from the grip before.
+/// Strings count too, or a grip two strings over with the same frets would
+/// look like no movement at all.
+fn voice_travel(prev: &[Spot], spots: &[Spot]) -> i32 {
+    prev.iter()
+        .zip(spots)
+        .map(|(a, b)| (a.fret - b.fret).abs() + (a.string as i32 - b.string as i32).abs() * 2)
+        .sum()
+}
+
+/// Semitones from the lowest voice of a grip to the highest.
+fn grip_width(spots: &[Spot]) -> i32 {
+    let pitch = |spot: &Spot| TUNING[spot.string] + spot.fret;
+    match (spots.first(), spots.last()) {
+        (Some(low), Some(high)) => pitch(high) - pitch(low),
+        _ => 0,
+    }
+}
+
+/// The grip back in the order the steps were dealt in: `collected_notes` is
+/// indexed by that, so a grip handed back stacked would light the wrong dots
+/// green.
+fn in_dealt_order(spots: Vec<Spot>, order: &[usize]) -> Vec<Spot> {
+    let mut out = vec![None; spots.len()];
+    for (spot, &i) in spots.into_iter().zip(order) {
+        out[i] = Some(spot);
+    }
+    out.into_iter().flatten().collect()
 }
 
 /// Sets of `n` strings, low to high, that a hand can take at once: neighbours,
@@ -403,6 +424,102 @@ const GREEN: &str = "rgba(24, 148, 58, 1)";
 const DIM: &str = "rgba(74, 144, 226, 0.55)";
 const FONT: &str = "Arial, &quot;Helvetica Neue&quot;, Helvetica, sans-serif";
 
+/// The start of a drawing `w` by `h`, on the card's colour. The caller closes
+/// it with `</svg>`.
+fn open_svg(w: f32, h: f32) -> String {
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
+         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
+         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
+    )
+}
+
+fn line(x1: f32, y1: f32, x2: f32, y2: f32, colour: &str) -> String {
+    format!(
+        "<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" \
+         stroke-width=\"2\" stroke=\"{colour}\"></line>"
+    )
+}
+
+/// The white ring around the note due now.
+fn ring(x: f32, y: f32, r: f32, width: u32) -> String {
+    format!(
+        "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
+         stroke-width=\"{width}\" stroke=\"#ffffff\"></circle>"
+    )
+}
+
+/// A filled dot with `label` written in it.
+fn dot(x: f32, y: f32, fill: &str, label: &str) -> String {
+    format!(
+        "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
+         stroke-width=\"0\"></circle>{}",
+        dot_label(x, y, label)
+    )
+}
+
+/// The white writing inside a dot.
+fn dot_label(x: f32, y: f32, label: &str) -> String {
+    format!(
+        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
+         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>"
+    )
+}
+
+/// Green once played, red for the root, blue for the rest.
+fn dot_colour(played: bool, spot: &Spot) -> &'static str {
+    if played {
+        GREEN
+    } else if spot.is_root() {
+        RED
+    } else {
+        BLUE
+    }
+}
+
+/// The fret a box starts on, written over its first column.
+fn fret_number(base: i32) -> String {
+    format!(
+        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
+         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
+        x = GRIP_LEFT + FRET_GAP * 0.5,
+        y = GRIP_TOP - 44.0,
+    )
+}
+
+/// The size of a box - the grip, the neck, the region - `columns` frets wide.
+fn box_size(columns: i32) -> (f32, f32) {
+    (
+        GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X,
+        GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y,
+    )
+}
+
+fn box_aspect(columns: i32) -> f32 {
+    let (w, h) = box_size(columns);
+    w / h
+}
+
+/// Where a string runs across a box: the lowest at the bottom.
+fn string_y(string: usize) -> f32 {
+    GRIP_TOP + (5 - string) as f32 * STRING_GAP
+}
+
+/// The middle of the column a fret falls in, kept inside the box.
+fn fret_x(fret: i32, base: i32, columns: i32) -> f32 {
+    GRIP_LEFT + ((fret - base).clamp(0, columns - 1) as f32 + 0.5) * FRET_GAP
+}
+
+/// The fret lines standing up across a box.
+fn fret_lines(columns: i32) -> String {
+    (0..=columns)
+        .map(|i| {
+            let x = GRIP_LEFT + i as f32 * FRET_GAP;
+            line(x, GRIP_TOP, x, GRIP_TOP + STRING_GAP * 5.0, BLUE)
+        })
+        .collect()
+}
+
 /// How wide the strip is against its height, for laying it out: the drawing
 /// grows with the window, and the window has to know its shape to give it a
 /// box of the right proportions.
@@ -426,30 +543,15 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         .unwrap_or(1)
         .max(1)
         .min(15);
-    let w = GRIP_LEFT + FRET_GAP * 5.0 + MARGIN_X;
-    let h = GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y;
-    let mut out = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
-         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
-    );
+    let (w, h) = box_size(5);
+    let mut out = open_svg(w, h);
     // Laid the way the chord diagrams lie: the neck across the picture, the
     // strings along it with the lowest at the bottom, the frets standing up.
     for i in 0..6 {
         let y = GRIP_TOP + i as f32 * STRING_GAP;
-        out.push_str(&format!(
-            "<line x1=\"{left}\" y1=\"{y}\" x2=\"{right}\" y2=\"{y}\" \
-             stroke-width=\"2\" stroke=\"{BLUE}\"></line>",
-            left = GRIP_LEFT,
-            right = GRIP_LEFT + FRET_GAP * 5.0,
-        ));
+        out += &line(GRIP_LEFT, y, GRIP_LEFT + FRET_GAP * 5.0, y, BLUE);
         let x = GRIP_LEFT + i as f32 * FRET_GAP;
-        out.push_str(&format!(
-            "<line x1=\"{x}\" y1=\"{top}\" x2=\"{x}\" y2=\"{bottom}\" \
-             stroke-width=\"2\" stroke=\"{BLUE}\"></line>",
-            top = GRIP_TOP,
-            bottom = GRIP_TOP + STRING_GAP * 5.0,
-        ));
+        out += &line(x, GRIP_TOP, x, GRIP_TOP + STRING_GAP * 5.0, BLUE);
     }
     // Which position on the neck, over the first fret - but only where the
     // dots carry fret numbers too. With degrees in them the exercise is the
@@ -457,31 +559,10 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
     // intervals wherever the hand is, and a fret number is the crutch that
     // switch exists to put down.
     if frets {
-        out.push_str(&format!(
-            "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
-             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
-            x = GRIP_LEFT + FRET_GAP * 0.5,
-            y = GRIP_TOP - 44.0,
-        ));
+        out += &fret_number(base);
     }
     for (i, spot) in spots.iter().enumerate() {
-        // An open string sits to the left of the nut. It used to be clamped
-        // into the first fret, which put a correct interval label over the
-        // wrong physical note. Fretted notes remain inside the five columns.
-        let x = if spot.fret == 0 {
-            GRIP_LEFT - DOT_R - 7.0
-        } else {
-            let column = ((spot.fret - base) as f32).clamp(0.0, 4.0);
-            GRIP_LEFT + (column + 0.5) * FRET_GAP
-        };
-        let y = GRIP_TOP + (5 - spot.string) as f32 * STRING_GAP;
-        let color = if done.get(i).copied().unwrap_or(false) {
-            GREEN
-        } else if spot.is_root() {
-            RED
-        } else {
-            BLUE
-        };
+        let played = done.get(i).copied().unwrap_or(false);
         // The note due now wears a white ring, as it does on the neck.
         //
         // The grip used to say the order by its shape: it was stacked in the
@@ -489,27 +570,45 @@ pub fn grip(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         // close form is not stacked that way - that is the point of it - so
         // without this the picture no longer says which note is being asked
         // for, and the mode asks for them one at a time.
-        if i == current {
-            out.push_str(&format!(
-                "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
-                 stroke-width=\"5\" stroke=\"#ffffff\"></circle>",
-                r = DOT_R + 7.0,
-            ));
-        }
-        out.push_str(&format!(
-            "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{circle_fill}\" \
-             stroke=\"{color}\" stroke-width=\"{stroke_width}\"></circle>\
-             <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
-             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>",
-            circle_fill = if spot.fret == 0 { "none" } else { color },
-            stroke_width = if spot.fret == 0 { 5 } else { 0 },
-            // The open-string symbol always names the interval. A bare zero
-            // inside it would say less than the empty circle already says.
-            label = if frets && spot.fret != 0 { spot.fret.to_string() } else { spot.label() },
-        ));
+        out += &grip_dot(spot, base, dot_colour(played, spot), i == current, frets);
     }
     out.push_str("</svg>");
     out
+}
+
+/// One note of a grip. An open string sits to the left of the nut, as an
+/// empty ring: it used to be clamped into the first fret, which put a correct
+/// interval label over the wrong physical note.
+fn grip_dot(spot: &Spot, base: i32, colour: &str, is_due: bool, frets: bool) -> String {
+    let open = spot.fret == 0;
+    let x = if open {
+        GRIP_LEFT - DOT_R - 7.0
+    } else {
+        fret_x(spot.fret, base, 5)
+    };
+    let y = string_y(spot.string);
+    // The open-string symbol always names the interval. A bare zero inside it
+    // would say less than the empty circle already says.
+    let label = if frets && !open { spot.fret.to_string() } else { spot.label() };
+    let (fill, stroke_width) = if open { ("none", 5) } else { (colour, 0) };
+    let due_ring = if is_due { ring(x, y, DOT_R + 7.0, 5) } else { String::new() };
+    format!(
+        "{due_ring}<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
+         stroke=\"{colour}\" stroke-width=\"{stroke_width}\"></circle>{}",
+        dot_label(x, y, &label)
+    )
+}
+
+/// The first fret drawn on the neck, and how many columns the box has.
+///
+/// A fret of neck on either side of the shape: a box cut exactly to the notes
+/// reads as if the hand could not move, and where the position sits is half of
+/// what the picture is for.
+fn neck_columns(spots: &[Spot]) -> (i32, i32) {
+    let lowest = spots.iter().map(|s| s.fret).min().unwrap_or(1);
+    let highest = spots.iter().map(|s| s.fret).max().unwrap_or(5);
+    let base = (lowest - 1).max(1).min(15);
+    (base, (highest - base + 2).clamp(6, 13))
 }
 
 /// A phrase on the neck: the position it is played in, every note of it drawn
@@ -524,61 +623,28 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
     if spots.is_empty() {
         return grip(spots, done, current, frets);
     }
-    let lowest = spots.iter().map(|s| s.fret).min().unwrap_or(1);
-    let highest = spots.iter().map(|s| s.fret).max().unwrap_or(5);
-    // A fret of neck on either side of the shape: a box cut exactly to the
-    // notes reads as if the hand could not move, and where the position sits
-    // is half of what the picture is for.
-    let base = (lowest - 1).max(1).min(15);
-    let columns = (highest - base + 2).clamp(6, 13);
-    let w = GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X;
-    let h = GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y;
-    let mut out = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
-         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
-    );
+    let (base, columns) = neck_columns(spots);
+    let (w, h) = box_size(columns);
+    let mut out = open_svg(w, h);
     for i in 0..6 {
         let y = GRIP_TOP + i as f32 * STRING_GAP;
-        out.push_str(&format!(
-            "<line x1=\"{left}\" y1=\"{y}\" x2=\"{right}\" y2=\"{y}\" \
-             stroke-width=\"2\" stroke=\"{BLUE}\"></line>",
-            left = GRIP_LEFT,
-            right = GRIP_LEFT + FRET_GAP * columns as f32,
-        ));
+        out += &line(GRIP_LEFT, y, GRIP_LEFT + FRET_GAP * columns as f32, y, BLUE);
     }
-    for i in 0..=columns {
-        let x = GRIP_LEFT + i as f32 * FRET_GAP;
-        out.push_str(&format!(
-            "<line x1=\"{x}\" y1=\"{top}\" x2=\"{x}\" y2=\"{bottom}\" \
-             stroke-width=\"2\" stroke=\"{BLUE}\"></line>",
-            top = GRIP_TOP,
-            bottom = GRIP_TOP + STRING_GAP * 5.0,
-        ));
-    }
-    out.push_str(&format!(
-        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
-        x = GRIP_LEFT + FRET_GAP * 0.5,
-        y = GRIP_TOP - 44.0,
-    ));
+    out += &fret_lines(columns);
+    out += &fret_number(base);
     // One dot per PLACE, not per step: a phrase comes back to the same finger
     // over and over, and six dots on top of each other are one dot with a
     // muddy edge. The step due now decides what the place looks like.
     let mut drawn: Vec<(usize, i32)> = Vec::new();
-    for (i, spot) in spots.iter().enumerate() {
+    for spot in spots {
         let place = (spot.string, spot.fret);
-        let here: Vec<usize> = spots
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| (s.string, s.fret) == place)
-            .map(|(j, _)| j)
-            .collect();
         if drawn.contains(&place) {
             continue;
         }
         drawn.push(place);
-        let is_current = here.contains(&current);
+        let here: Vec<usize> = (0..spots.len())
+            .filter(|&j| (spots[j].string, spots[j].fret) == place)
+            .collect();
         // Green from the first time it is played. The other reading - green
         // only once the phrase has no visit left to that place - is truer to
         // the marks, but it leaves the whole climb of an up-and-down phrase
@@ -586,41 +652,24 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         // worth more than the distinction, and the ring is what says where the
         // player is on the way back.
         let played = here.iter().any(|&j| done.get(j).copied().unwrap_or(false));
-        let fill = if played {
-            GREEN
-        } else if spot.is_root() {
-            RED
-        } else {
-            BLUE
-        };
-        let x = GRIP_LEFT + ((spot.fret - base).clamp(0, columns - 1) as f32 + 0.5) * FRET_GAP;
-        let y = GRIP_TOP + (5 - spot.string) as f32 * STRING_GAP;
+        let x = fret_x(spot.fret, base, columns);
+        let y = string_y(spot.string);
         // The note due now wears a white ring: the phrase is a line, and the
         // picture has to say where in the line the player is.
-        let ring = if is_current {
-            format!(
-                "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
-                 stroke-width=\"5\" stroke=\"#ffffff\"></circle>",
-                r = DOT_R + 7.0,
-            )
-        } else {
-            String::new()
-        };
-        let label = if frets {
-            spot.fret.to_string()
-        } else {
-            spots[here[0]].label()
-        };
-        out.push_str(&format!(
-            "{ring}<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
-             stroke-width=\"0\"></circle>\
-             <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
-             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>",
-        ));
-        let _ = i;
+        if here.contains(&current) {
+            out += &ring(x, y, DOT_R + 7.0, 5);
+        }
+        let label = if frets { spot.fret.to_string() } else { spots[here[0]].label() };
+        out += &dot(x, y, dot_colour(played, spot), &label);
     }
     out.push_str("</svg>");
     out
+}
+
+/// The first fret drawn for a region, and how many columns the box has.
+fn region_columns(fret_from: i32, fret_to: i32) -> (i32, i32) {
+    let base = fret_from.max(1).min(15);
+    (base, (fret_to - base + 1).clamp(4, 13))
 }
 
 /// The region a fretboard exercise is asking within: the frets it covers and
@@ -645,84 +694,50 @@ pub fn region(
     label: &str,
     right: bool,
 ) -> String {
-    let base = fret_from.max(1).min(15);
-    let columns = (fret_to - base + 1).clamp(4, 13);
-    let w = GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X;
-    let h = GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y;
-    let mut out = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
-         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
-    );
-    // Strings outside the region are drawn dim: they are part of the guitar and
-    // not part of the question, and leaving them out entirely would move the
-    // ones that matter to the wrong place on the neck.
-    const STRING_NAMES: [&str; 6] = ["E", "A", "D", "G", "B", "E"];
-    for i in 0..6 {
-        let string = 5 - i;
-        let y = GRIP_TOP + i as f32 * STRING_GAP;
-        let in_play = strings.contains(&string);
-        let colour = if in_play { BLUE } else { DIM };
-        out.push_str(&format!(
-            "<line x1=\"{left}\" y1=\"{y}\" x2=\"{right}\" y2=\"{y}\" \
-             stroke-width=\"2\" stroke=\"{colour}\"></line>\
-             <text x=\"{name_x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"22\" \
-             text-anchor=\"end\" dominant-baseline=\"central\" fill=\"{colour}\">{name}</text>",
-            left = GRIP_LEFT,
-            right = GRIP_LEFT + FRET_GAP * columns as f32,
-            name_x = GRIP_LEFT - 12.0,
-            name = STRING_NAMES[string],
-        ));
+    let (base, columns) = region_columns(fret_from, fret_to);
+    let (w, h) = box_size(columns);
+    let mut out = open_svg(w, h);
+    for string in (0..6).rev() {
+        out += &region_string(string, columns, strings.contains(&string));
     }
-    for i in 0..=columns {
-        let x = GRIP_LEFT + i as f32 * FRET_GAP;
-        out.push_str(&format!(
-            "<line x1=\"{x}\" y1=\"{top}\" x2=\"{x}\" y2=\"{bottom}\" \
-             stroke-width=\"2\" stroke=\"{BLUE}\"></line>",
-            top = GRIP_TOP,
-            bottom = GRIP_TOP + STRING_GAP * 5.0,
-        ));
-    }
-    out.push_str(&format!(
-        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
-        x = GRIP_LEFT + FRET_GAP * 0.5,
-        y = GRIP_TOP - 44.0,
-    ));
+    out += &fret_lines(columns);
+    out += &fret_number(base);
+    let fill = if right { GREEN } else { RED };
     for &(string, fret) in marks {
-        let x = GRIP_LEFT + ((fret - base).clamp(0, columns - 1) as f32 + 0.5) * FRET_GAP;
-        let y = GRIP_TOP + (5 - string) as f32 * STRING_GAP;
-        let fill = if right { GREEN } else { RED };
-        out.push_str(&format!(
-            "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
-             stroke-width=\"0\"></circle>\
-             <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
-             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>",
-        ));
+        out += &dot(fret_x(fret, base, columns), string_y(string), fill, label);
     }
     out.push_str("</svg>");
     out
 }
 
+/// One string of a region, named at the left: bright when it is in play, dim
+/// when it is only there to keep the others in their place.
+fn region_string(string: usize, columns: i32, in_play: bool) -> String {
+    const STRING_NAMES: [&str; 6] = ["E", "A", "D", "G", "B", "E"];
+    let colour = if in_play { BLUE } else { DIM };
+    let y = string_y(string);
+    format!(
+        "{}<text x=\"{name_x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"22\" \
+         text-anchor=\"end\" dominant-baseline=\"central\" fill=\"{colour}\">{name}</text>",
+        line(GRIP_LEFT, y, GRIP_LEFT + FRET_GAP * columns as f32, y, colour),
+        name_x = GRIP_LEFT - 12.0,
+        name = STRING_NAMES[string],
+    )
+}
+
 /// How wide a region box is against its height.
 pub fn region_aspect(fret_from: i32, fret_to: i32) -> f32 {
-    let base = fret_from.max(1).min(15);
-    let columns = (fret_to - base + 1).clamp(4, 13);
-    (GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X) / (GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y)
+    box_aspect(region_columns(fret_from, fret_to).1)
 }
 
 /// How wide a neck box is against its height, for the columns it needs.
 pub fn neck_aspect(spots: &[Spot]) -> f32 {
-    let lowest = spots.iter().map(|s| s.fret).min().unwrap_or(1);
-    let highest = spots.iter().map(|s| s.fret).max().unwrap_or(5);
-    let base = (lowest - 1).max(1).min(15);
-    let columns = (highest - base + 2).clamp(6, 13);
-    (GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X) / (GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y)
+    box_aspect(neck_columns(spots).1)
 }
 
 /// How wide a grip box is against its height - see `aspect` for the strip.
 pub fn grip_aspect() -> f32 {
-    (GRIP_LEFT + FRET_GAP * 5.0 + MARGIN_X) / (GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y)
+    box_aspect(5)
 }
 
 /// The strip as an SVG, ready for `Image::load_from_svg_data`.
@@ -741,47 +756,24 @@ pub fn svg(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String
     let n = spots.len().max(1) as f32;
     let w = MARGIN_X * 2.0 + (n - 1.0) * STEP_X;
     let h = MARGIN_Y * 2.0 + STRING_GAP * 5.0;
-    let mut s = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
-         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
-    );
+    let mut out = open_svg(w, h);
     // The strings, high one at the top - the way tab is read.
     for i in 0..6 {
         let y = MARGIN_Y + i as f32 * STRING_GAP;
-        s.push_str(&format!(
-            "<line x1=\"0\" y1=\"{y}\" x2=\"{w}\" y2=\"{y}\" stroke-width=\"2\" stroke=\"{BLUE}\"></line>"
-        ));
+        out += &line(0.0, y, w, y, BLUE);
     }
     for (i, spot) in spots.iter().enumerate() {
         let x = MARGIN_X + i as f32 * STEP_X;
         let y = MARGIN_Y + (5 - spot.string) as f32 * STRING_GAP;
-        let fill = if done.get(i).copied().unwrap_or(false) {
-            GREEN
-        } else if spot.is_root() {
-            RED
-        } else {
-            BLUE
-        };
-        // A ring of background under the dot, so the string line does not run
-        // through the label.
+        let played = done.get(i).copied().unwrap_or(false);
         if i == current {
-            s.push_str(&format!(
-                "<circle r=\"{ring}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" \
-                 stroke-width=\"4\" stroke=\"#ffffff\"></circle>",
-                ring = DOT_R + 6.0,
-            ));
+            out += &ring(x, y, DOT_R + 6.0, 4);
         }
-        s.push_str(&format!(
-            "<circle r=\"{r}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" stroke-width=\"0\"></circle>\
-             <text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
-             text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>",
-            r = DOT_R,
-            label = if frets { spot.fret.to_string() } else { spot.label().to_string() },
-        ));
+        let label = if frets { spot.fret.to_string() } else { spot.label() };
+        out += &dot(x, y, dot_colour(played, spot), &label);
     }
-    s.push_str("</svg>");
-    s
+    out.push_str("</svg>");
+    out
 }
 
 #[cfg(test)]

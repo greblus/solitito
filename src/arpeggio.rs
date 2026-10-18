@@ -46,7 +46,7 @@ pub enum Step {
     /// no tuplet in the file at all. The name follows the book, not the export.
     Triplets,
     /// Up three rungs, back two - two tones skipped, which sounds as sevenths.
-    /// Up three, back two. Written and working, but no setting offers it yet.
+    /// Written and working, but no setting offers it yet.
     #[allow(dead_code)]
     SkipTwo,
 }
@@ -54,36 +54,14 @@ pub enum Step {
 impl Step {
     /// Rungs visited on the way up to `top`, starting from rung 0.
     fn ascend(self, top: usize) -> Vec<usize> {
-        let mut out = Vec::new();
-        match self {
-            Step::Straight => out.extend(0..=top),
-            Step::SkipOne => {
-                let mut p = 0usize;
-                let mut up = true;
-                while p <= top {
-                    out.push(p);
-                    // The pair (+2, -1) nets one rung per two notes.
-                    p = if up { p + 2 } else { p.saturating_sub(1) };
-                    up = !up;
-                    if !up && p > top { break; }
-                }
-            }
-            Step::Triplets => {
-                for start in 0..top.saturating_sub(1) {
-                    out.extend([start, start + 1, start + 2]);
-                }
-            }
-            Step::SkipTwo => {
-                let mut p = 0usize;
-                let mut up = true;
-                while p <= top {
-                    out.push(p);
-                    p = if up { p + 3 } else { p.saturating_sub(2) };
-                    up = !up;
-                    if !up && p > top { break; }
-                }
-            }
-        }
+        let mut out: Vec<usize> = match self {
+            Step::Straight => (0..=top).collect(),
+            Step::SkipOne => zigzag_up(top, 2, 1),
+            Step::SkipTwo => zigzag_up(top, 3, 2),
+            Step::Triplets => (0..top.saturating_sub(1))
+                .flat_map(|start| [start, start + 1, start + 2])
+                .collect(),
+        };
         out.retain(|&p| p <= top);
         out
     }
@@ -97,31 +75,53 @@ impl Step {
     /// the turn, which is how the hand-written phrase caught the mistake.
     fn descend(self, top: usize) -> Vec<usize> {
         let start = top.saturating_sub(1);
-        let mut out = Vec::new();
-        match self {
-            Step::Straight => out.extend((0..=start).rev()),
-            Step::SkipOne | Step::SkipTwo => {
-                let (down, up) = if self == Step::SkipOne { (2, 1) } else { (3, 2) };
-                let mut p = start as isize;
-                let mut going_down = true;
-                while p >= 0 {
-                    out.push(p as usize);
-                    // The phrase lands on the root. Without this the "+1" half of
-                    // the rule bounces back off rung 0 and adds a stray third.
-                    if p == 0 { break; }
-                    p += if going_down { -(down as isize) } else { up as isize };
-                    going_down = !going_down;
-                }
-            }
-            Step::Triplets => {
-                for start_rung in (0..=start.saturating_sub(2)).rev() {
-                    out.extend([start_rung + 2, start_rung + 1, start_rung]);
-                }
-            }
-        }
+        let mut out: Vec<usize> = match self {
+            Step::Straight => (0..=start).rev().collect(),
+            Step::SkipOne => zigzag_down(start, 2, 1),
+            Step::SkipTwo => zigzag_down(start, 3, 2),
+            Step::Triplets => (0..=start.saturating_sub(2))
+                .rev()
+                .flat_map(|first| [first + 2, first + 1, first])
+                .collect(),
+        };
         out.retain(|&p| p <= top);
         out
     }
+}
+
+/// From rung 0 upwards: `forward` rungs up, `back` rungs down, in turn, for as
+/// long as the walk stays at or under `top`.
+fn zigzag_up(top: usize, forward: usize, back: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut p = 0usize;
+    let mut up = true;
+    while p <= top {
+        out.push(p);
+        p = if up { p + forward } else { p.saturating_sub(back) };
+        up = !up;
+        if !up && p > top {
+            break;
+        }
+    }
+    out
+}
+
+/// From rung `start` down to the root: `down` rungs down, `up` rungs up, in turn.
+fn zigzag_down(start: usize, down: usize, up: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut p = start as isize;
+    let mut going_down = true;
+    while p >= 0 {
+        out.push(p as usize);
+        // The phrase lands on the root. Without this the "+1" half of the rule
+        // bounces back off rung 0 and adds a stray third.
+        if p == 0 {
+            break;
+        }
+        p += if going_down { -(down as isize) } else { up as isize };
+        going_down = !going_down;
+    }
+    out
 }
 
 /// What happens after the top rung.
