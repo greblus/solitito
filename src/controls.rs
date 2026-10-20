@@ -8,7 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, PhysicalSize, SharedString, VecModel};
 
 use crate::audio::{AudioAnalysis, InputInfo};
 use crate::i18n::{self, Lang};
@@ -83,7 +83,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_startup_mode_changed(saving(cfg, |s, mode: i32| s.startup_mode = mode));
 }
 
-/// The window's size, remembered for the next start.
+/// The window's size and full screen, remembered for the next start.
 fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     // The size to write back on the way out. Maximising is not resizing: the
     // window then has the screen's size, and saving that turned a maximise
@@ -91,17 +91,67 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     // and lost the size that had been set by hand. Only sizes seen while the
     // window is its own are remembered.
     let last_own_size: Rc<Cell<Option<(u32, u32)>>> = Rc::new(Cell::new(None));
+    // The size the window had maximised. A first launch opens maximised, and
+    // has no size of its own to go back to - see `own_size_after_maximise`.
+    let maximised_size: Rc<Cell<Option<(u32, u32)>>> = Rc::new(Cell::new(None));
+    let first_launch = cfg.borrow().window_w.is_none();
     {
         let uw = ui.as_weak();
         let own = last_own_size.clone();
+        let maximised = maximised_size.clone();
         ui.on_window_resized(move || {
-            if let Some(ui) = uw.upgrade() {
-                fit_ui_to_window(&ui);
-                let size = ui.window().size();
-                if !ui.window().is_maximized() && size.width > 0 && size.height > 0 {
-                    own.set(Some((size.width, size.height)));
+            let Some(ui) = uw.upgrade() else { return };
+            fit_ui_to_window(&ui);
+            let window = ui.window();
+            let size = window.size();
+            if size.width == 0 || size.height == 0 || window.is_fullscreen() {
+                return;
+            }
+            if window.is_maximized() {
+                maximised.set(Some((size.width, size.height)));
+                return;
+            }
+            if own.get().is_none() {
+                if let Some(screen) = maximised.get() {
+                    let (w, h) = own_size_after_maximise(screen);
+                    window.set_size(PhysicalSize::new(w, h));
+                    own.set(Some((w, h)));
+                    return;
+                }
+                // Before the start-up maximise has taken: the size the window
+                // was created at, not one anybody chose.
+                if first_launch {
+                    return;
                 }
             }
+            own.set(Some((size.width, size.height)));
+        });
+    }
+    {
+        let uw = ui.as_weak();
+        let cfg = cfg.clone();
+        ui.on_toggle_full_screen(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let on = !ui.window().is_fullscreen();
+            ui.window().set_fullscreen(on);
+            let mut cfg = cfg.borrow_mut();
+            cfg.fullscreen = on;
+            cfg.save();
+        });
+    }
+    {
+        let uw = ui.as_weak();
+        let cfg = cfg.clone();
+        ui.on_leave_full_screen(move || {
+            let Some(ui) = uw.upgrade() else { return false };
+            if !ui.window().is_fullscreen() {
+                return false;
+            }
+            ui.window().set_fullscreen(false);
+            let mut cfg = cfg.borrow_mut();
+            cfg.fullscreen = false;
+            cfg.save();
+            true
         });
     }
 
@@ -111,13 +161,14 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     let cfg = cfg.clone();
     ui.window().on_close_requested(move || {
         if let Some(ui) = uw.upgrade() {
-            // Closed while maximised, with no unmaximised size seen this
-            // run: the file keeps what it had rather than learning the
+            // Closed maximised or on full screen, with no size of its own seen
+            // this run: the file keeps what it had rather than learning the
             // screen's size.
-            let size = ui.window().size();
+            let window = ui.window();
+            let size = window.size();
             let size = match last_own_size.get() {
                 Some(s) => Some(s),
-                None if ui.window().is_maximized() => None,
+                None if window.is_maximized() || window.is_fullscreen() => None,
                 None => Some((size.width, size.height)),
             };
             let mut cfg = cfg.borrow_mut();
@@ -131,6 +182,13 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
         }
         slint::CloseRequestResponse::HideWindow
     });
+}
+
+/// The size a window that has only ever been maximised takes when it is not:
+/// three quarters of the screen it filled, so it keeps the screen's proportions
+/// instead of falling back to the narrow size it was created at.
+fn own_size_after_maximise((w, h): (u32, u32)) -> (u32, u32) {
+    (w * 3 / 4, h * 3 / 4)
 }
 
 /// The input device and channel.

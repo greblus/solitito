@@ -424,6 +424,29 @@ const GREEN: &str = "rgba(24, 148, 58, 1)";
 const DIM: &str = "rgba(74, 144, 226, 0.55)";
 const FONT: &str = "Arial, &quot;Helvetica Neue&quot;, Helvetica, sans-serif";
 
+/// The font the app bundles for ♭, ♯ and ♮ (`assets/Accidentals.ttf`,
+/// imported in `appwindow.slint`).
+///
+/// Arial has none of them, nor does the app's own Noto Sans. Linux finds them
+/// in some installed font when the glyph is missing; Windows does not, and the
+/// sign was simply not drawn. Slint's SVG renderer looks for a missing glyph
+/// only among the generic families, never in the `font-family` list, so the
+/// sign has to sit in a span whose own font has it.
+const ACCIDENTALS_FONT: &str = "Solitito Accidentals";
+
+/// The text of an SVG with every accidental set in `ACCIDENTALS_FONT`.
+pub fn with_accidentals_font(svg: &str) -> String {
+    let mut out = String::with_capacity(svg.len());
+    for c in svg.chars() {
+        if matches!(c, '♭' | '♯' | '♮') {
+            out.push_str(&format!("<tspan font-family=\"{ACCIDENTALS_FONT}\">{c}</tspan>"));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// The start of a drawing `w` by `h`, on the card's colour. The caller closes
 /// it with `</svg>`.
 fn open_svg(w: f32, h: f32) -> String {
@@ -462,7 +485,8 @@ fn dot(x: f32, y: f32, fill: &str, label: &str) -> String {
 fn dot_label(x: f32, y: f32, label: &str) -> String {
     format!(
         "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{label}</text>"
+         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{}</text>",
+        with_accidentals_font(label)
     )
 }
 

@@ -1,6 +1,7 @@
 import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, LineEdit } from "std-widgets.slint";
 
 import "../src/assets/AppFont.ttf"; 
+import "../src/assets/Accidentals.ttf";
 
 component NoteBar inherits Rectangle {
     in property <string> label;
@@ -748,6 +749,12 @@ export component AppWindow inherits Window {
     /// factor. Reading the size back from Rust rather than passing it keeps the
     /// physical/logical distinction in one place.
     callback window_resized();
+    /// F11 and Escape, handled in Rust: full screen is a property of the
+    /// window, not of anything laid out in it. `leave_full_screen` says whether
+    /// there was anything to leave, so Escape still reaches the panel and the
+    /// zoomed shape when the window is not on full screen.
+    callback toggle_full_screen();
+    callback leave_full_screen() -> bool;
     changed width => { root.window_resized(); }
     changed height => { root.window_resized(); }
     
@@ -792,6 +799,7 @@ export component AppWindow inherits Window {
     callback shapes_choice_changed(bool, bool);
     /// Index of the shape shown enlarged, -1 for none.
     in-out property <int> diagram_zoom: -1;
+    changed diagram_zoom => { if (self.diagram_zoom < 0) { window_keys.focus(); } }
 
     in property <[string]> interval_names;
     /// The same steps as tiles, in Intervals only.
@@ -914,6 +922,9 @@ export component AppWindow inherits Window {
 
     // --- SETTINGS ---
     in-out property <bool> show_settings: false;
+    // The panel and the zoomed shape take the focus; when they close it has
+    // to come back, or no key reaches the window until something is clicked.
+    changed show_settings => { if (!self.show_settings) { window_keys.focus(); } }
     /// Which settings tab is on screen. On the root so `pick_mode` can send the
     /// user to Practice - picking a mode with the Audio tab open otherwise looks
     /// like nothing happened, the song list being on the tab next door.
@@ -1093,6 +1104,44 @@ export component AppWindow inherits Window {
             ? (root.width - root.sidebar_w) * 92 / 100
             : min(root.width - root.sidebar_w, root.content_w * 17 / 10))
         : root.content_w;
+
+    // SETTINGS PANEL, placed by hand outside the layout above.
+    //
+    // Fills the window - keeping the margin it has always had - until the
+    // window is half again the minimum width, and then stops. A form gains from
+    // width up to a point; past it the rows are just a label at one end of the
+    // screen and a control at the other. The practice view is unaffected and
+    // keeps its fixed proportions.
+    property <length> panel_w: min(root.width - root.sidebar_w, root.content_w * 3 / 2) - 30px;
+    /// Width every control in the panel gets: two thirds of it, but never more
+    /// than what is left beside the widest label. Without the second half a row
+    /// at the minimum window size came to 532px inside 490px of content, and the
+    /// whole layout grew wider than the panel - which showed up as the hint text
+    /// being cut off on the right, far from where the cause was.
+    ///   15px padding on each side, 185px the widest label, 10px the row spacing.
+    property <length> ctrl_w: min(root.panel_w * 2 / 3, root.panel_w - 30px - 195px);
+    // Aligned with the top of the practice box's padding.
+    property <length> panel_top: (root.height - root.design_h) / 2 + 15px;
+
+    // Wraps everything, so a key no control wants - F11 in a text field,
+    // Escape with nothing open - comes up to here wherever the focus is.
+    // The window's content is not indented under it, to keep it diffable.
+    window_keys := FocusScope {
+    x: 0;
+    y: 0;
+    width: root.width;
+    height: root.height;
+    init => { self.focus(); }
+    key-pressed(event) => {
+        if (event.text == Key.F11) {
+            root.toggle_full_screen();
+            return accept;
+        }
+        if (event.text == Key.Escape && root.leave_full_screen()) {
+            return accept;
+        }
+        return reject;
+    }
 
     // SIDE NAVIGATION
     //
@@ -2013,23 +2062,6 @@ export component AppWindow inherits Window {
         }
     }
 
-    // SETTINGS PANEL, placed by hand outside the layout above.
-    //
-    // Fills the window - keeping the margin it has always had - until the
-    // window is half again the minimum width, and then stops. A form gains from
-    // width up to a point; past it the rows are just a label at one end of the
-    // screen and a control at the other. The practice view is unaffected and
-    // keeps its fixed proportions.
-    property <length> panel_w: min(root.width - root.sidebar_w, root.content_w * 3 / 2) - 30px;
-    /// Width every control in the panel gets: two thirds of it, but never more
-    /// than what is left beside the widest label. Without the second half a row
-    /// at the minimum window size came to 532px inside 490px of content, and the
-    /// whole layout grew wider than the panel - which showed up as the hint text
-    /// being cut off on the right, far from where the cause was.
-    ///   15px padding on each side, 185px the widest label, 10px the row spacing.
-    property <length> ctrl_w: min(root.panel_w * 2 / 3, root.panel_w - 30px - 195px);
-    // Aligned with the top of the practice box's padding.
-    property <length> panel_top: (root.height - root.design_h) / 2 + 15px;
     // SETTINGS PANEL
     //
     // Three tabs rather than one long column: the list outgrew the window,
@@ -3109,5 +3141,5 @@ export component AppWindow inherits Window {
             }
         }
     }
-
+    } // window_keys
 }

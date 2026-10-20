@@ -235,6 +235,9 @@ pub struct Settings {
     pub window_w: Option<u32>,
     #[serde(default)]
     pub window_h: Option<u32>,
+    /// Whether the app was on full screen (F11) when it was closed.
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 /// Anything outside this is a mistake, not a window: a saved size of 0 would
@@ -361,6 +364,7 @@ impl Default for Settings {
             favourites: Vec::new(),
             window_w: None,
             window_h: None,
+            fullscreen: false,
         }
     }
 }

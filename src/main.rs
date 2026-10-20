@@ -71,8 +71,6 @@ const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
 ///
 /// The factor is derived from the PHYSICAL size, which the scale factor does not
 /// affect, so setting it cannot feed back into another resize.
-/// Whether the exercise is drawn - as tablature (1) or on the neck (2) -
-/// rather than written as a line of names (0) or as tiles (3).
 fn fit_ui_to_window(ui: &AppWindow) {
     let size = ui.window().size();
     // Before the window is mapped, and when minimised on some platforms.
@@ -340,7 +338,7 @@ fn main() -> Result<(), slint::PlatformError> {
         open_saved_input(&ui, &shared, &cfg, lang);
     }
 
-    let _restore_size = restore_window_size(&ui, &cfg);
+    let _restore_window = restore_window(&ui, &cfg);
     fit_ui_to_window(&ui);
     let frame_shared = ui_frame::Shared {
         app: my_app.clone(),
@@ -589,18 +587,29 @@ fn open_saved_input(ui: &AppWindow, shared: &controls::Shared, cfg: &Settings, l
     )))));
 }
 
-/// Restoring the size has to wait for the event loop. The window does not
+/// How the window opens: as it was left - on full screen, or at the size it
+/// had - and on a first launch, maximised, so it has the screen's proportions
+/// rather than the narrow ones of the layout's minimum.
+enum Opening {
+    FullScreen,
+    Size(u32, u32),
+    Maximised,
+}
+
+/// Restoring the window has to wait for the event loop. The window does not
 /// exist until then - `show()` only queues its creation - and a size set
 /// before it exists is dropped, leaving the window at its preferred size.
 /// Verified on this machine: setting it any earlier had no effect at all.
 ///
 /// The timer has to be held for as long as the window lives, or it is dropped
 /// and never fires. The closure only gets a weak handle, so it can stop itself.
-fn restore_window_size(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
-    let restore = Rc::new(Timer::default());
-    let (Some(w), Some(h)) = (cfg.window_w, cfg.window_h) else {
-        return restore;
+fn restore_window(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
+    let opening = match (cfg.fullscreen, cfg.window_w, cfg.window_h) {
+        (true, _, _) => Opening::FullScreen,
+        (false, Some(w), Some(h)) => Opening::Size(w, h),
+        _ => Opening::Maximised,
     };
+    let restore = Rc::new(Timer::default());
     let uw = ui.as_weak();
     let timer = Rc::downgrade(&restore);
     let give_up_at = std::time::Instant::now() + Duration::from_secs(3);
@@ -612,17 +621,26 @@ fn restore_window_size(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
     // guessed interval that a slower machine would miss.
     restore.start(TimerMode::Repeated, Duration::from_millis(50), move || {
         let Some(ui) = uw.upgrade() else { return };
-        let now = ui.window().size();
-        // Two ways out, because a window manager is entitled to refuse: the
-        // size took, or it has had long enough that it never will. Without
-        // the deadline a tiling WM would leave this firing forever.
-        if (now.width, now.height) == (w, h) || std::time::Instant::now() > give_up_at {
+        let window = ui.window();
+        let held = match opening {
+            Opening::FullScreen => window.is_fullscreen(),
+            Opening::Size(w, h) => (window.size().width, window.size().height) == (w, h),
+            Opening::Maximised => window.is_maximized(),
+        };
+        // Two ways out, because a window manager is entitled to refuse: it
+        // took, or it has had long enough that it never will. Without the
+        // deadline a tiling WM would leave this firing forever.
+        if held || std::time::Instant::now() > give_up_at {
             if let Some(timer) = timer.upgrade() {
                 timer.stop();
             }
             return;
         }
-        ui.window().set_size(PhysicalSize::new(w, h));
+        match opening {
+            Opening::FullScreen => window.set_fullscreen(true),
+            Opening::Size(w, h) => window.set_size(PhysicalSize::new(w, h)),
+            Opening::Maximised => window.set_maximized(true),
+        }
         fit_ui_to_window(&ui);
     });
     restore
