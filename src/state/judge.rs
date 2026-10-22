@@ -148,15 +148,16 @@ impl MyApp {
         self.credited.struck_since(pc, &self.heard, self.one_at_a_time())
     }
 
-    /// Whether notes are taken one at a time: by choice in Intervals and the
-    /// fretboard trainer, always in Scales and Arpeggios - nobody strums one.
+    /// Whether notes are taken one at a time: by choice in Intervals and
+    /// Formulas, always in Scales, Arpeggios and the fretboard trainer - nobody
+    /// strums one, and the trainer asks for a single note at a single place.
     ///
     /// The one definition. There used to be two: this one forced the rule on
     /// the fretboard trainer as well, while `sounding_by` kept a copy of its own
     /// that did not, so the trainer's repeat gate and its sounding check
     /// disagreed about which mode they were in.
     pub(super) fn one_at_a_time(&self) -> bool {
-        self.single_notes || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios)
+        self.single_notes || matches!(self.app_mode, AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard)
     }
 
     pub(super) fn credit_class(&mut self, pc: usize, octave: i8) {

@@ -1175,14 +1175,7 @@ export component AppWindow inherits Window {
             }
 
             NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
-                expandable: root.current_mode == 4 && !root.show_settings;
-                expanded: root.quick_open;
                 path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
-            if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                SideToggle { text: Tr.chip_single; on: root.single_notes;
-                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
-            }
             NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
                 expandable: root.current_mode == 0 && !root.show_settings;
                 expanded: root.quick_open;
@@ -2314,15 +2307,17 @@ export component AppWindow inherits Window {
                             }
 
                             // The other way round: a strummed chord has no notes to
-                            // take one at a time - and a scale or an arpeggio has
-                            // nothing else, so there the rule is in force and not
-                            // offered. It is left to choose in Intervals, where a
-                            // strummed grip walking its tones is the point, and in
-                            // Formulas, which has its own strict switch.
+                            // take one at a time - and a scale, an arpeggio or the
+                            // fretboard trainer's single note has nothing else, so
+                            // there the rule is in force and not offered. It is left
+                            // to choose in Intervals, where a strummed grip walking
+                            // its tones is the point, and in Formulas, which has its
+                            // own strict switch. The fretboard keeps the strike
+                            // option below.
                             if root.current_mode == 1 || root.current_mode == 4
                                 || root.current_mode == 5 : VerticalLayout {
                                 spacing: 4px;
-                                HorizontalLayout {
+                                if root.current_mode != 4 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 15px;
                                     CheckBox {
@@ -2334,7 +2329,7 @@ export component AppWindow inherits Window {
                                         color: #aaa; vertical-alignment: center;
                                     }
                                 }
-                                Text {
+                                if root.current_mode != 4 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.single_notes_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;

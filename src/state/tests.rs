@@ -1549,6 +1549,18 @@ fn pause_does_not_bank_up_progress() {
     assert_ne!(a.current_chord_index, start, "did not resume after unpausing");
 }
 
+/// The fretboard trainer asks for one note at one place: notes come one at a
+/// time there whatever the Intervals option says.
+#[test]
+fn the_fretboard_takes_notes_one_at_a_time() {
+    let mut a = app();
+    a.single_notes = false;
+    a.set_mode(AppMode::Fretboard as i32);
+    assert!(a.one_at_a_time());
+    a.set_mode(AppMode::Intervals as i32);
+    assert!(!a.one_at_a_time(), "the option stopped mattering in Intervals");
+}
+
 #[test]
 fn pause_freezes_the_fretboard_target() {
     let mut a = app();
@@ -1570,6 +1582,7 @@ fn pause_freezes_the_fretboard_target() {
 #[test]
 fn a_strummed_chord_still_walks_its_intervals() {
     let mut a = app();
+    a.app_mode = AppMode::Intervals;     // the fretboard takes notes one at a time
     a.note_threshold = 0.6;
     a.single_notes = false;              // the default
     a.last_pitches = [0.0; 12];
@@ -1631,6 +1644,7 @@ fn a_mode_starts_without_what_was_heard_before_it() {
 #[test]
 fn what_was_struck_can_be_asked_for() {
     let mut a = app();
+    a.app_mode = AppMode::Intervals;     // the fretboard takes notes one at a time
     a.note_threshold = 0.6;
     a.single_notes = false;
     a.last_pitches = [0.0; 12];
@@ -1703,6 +1717,7 @@ fn shuffled_tones_walk_the_written_progression() {
 #[test]
 fn the_cqt_alone_credits_the_note_being_played() {
     let mut a = app();
+    a.app_mode = AppMode::Intervals;     // the fretboard takes notes one at a time
     a.note_threshold = 0.6;
     a.last_pitches = [0.0; 12];          // model still says nothing
     a.heard.cqt_pitch = Some(4);               // E is sounding
@@ -2123,6 +2138,7 @@ fn an_arpeggio_is_always_one_note_at_a_time() {
 #[test]
 fn the_root_head_needs_an_attack_too() {
     let mut a = app();
+    a.app_mode = AppMode::Intervals;     // the fretboard takes notes one at a time
     a.single_notes = false;
     a.require_onset = true;
     a.note_threshold = 0.5;
