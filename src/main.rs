@@ -745,6 +745,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_tile_open(t.tile_open.into());
     g.set_chip_in_order(t.chip_in_order.into());
     g.set_chip_single(t.chip_single.into());
+    g.set_chip_struck(t.chip_struck.into());
     g.set_quick_full(t.quick_full.into());
     g.set_quick_shells(t.quick_shells.into());
     g.set_nav_settings(t.nav_settings.into());

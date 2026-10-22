@@ -90,6 +90,7 @@ pub struct Strings {
     /// Quick switches on the Intervals screen; the full wording is in settings.
     pub chip_in_order: &'static str,
     pub chip_single: &'static str,
+    pub chip_struck: &'static str,
     /// Quick options of Chords: which shapes to draw.
     pub quick_full: &'static str,
     pub quick_shells: &'static str,
@@ -247,6 +248,7 @@ pub const EN: Strings = Strings {
     tile_open: "play",
     chip_in_order: "In order",
     chip_single: "Single notes",
+    chip_struck: "Struck only",
     quick_full: "Full chords",
     quick_shells: "Shell voicings",
     tab_audio: "Audio",
@@ -392,6 +394,7 @@ pub const PL: Strings = Strings {
     tile_open: "zagraj",
     chip_in_order: "Po kolei",
     chip_single: "Pojedynczo",
+    chip_struck: "Tylko uderzone",
     quick_full: "Pełne chwyty",
     quick_shells: "Shelle",
     tab_audio: "Dźwięk",
@@ -571,6 +574,7 @@ mod tests {
             ("tile_open", EN.tile_open, PL.tile_open),
             ("chip_in_order", EN.chip_in_order, PL.chip_in_order),
             ("chip_single", EN.chip_single, PL.chip_single),
+            ("chip_struck", EN.chip_struck, PL.chip_struck),
             ("quick_full", EN.quick_full, PL.quick_full),
             ("quick_shells", EN.quick_shells, PL.quick_shells),
             ("preview_tiles", EN.preview_tiles, PL.preview_tiles),

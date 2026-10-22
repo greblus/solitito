@@ -595,6 +595,7 @@ export global Tr {
     in-out property <string> tile_open: "play";
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
+    in-out property <string> chip_struck: "Struck only";
     in-out property <string> quick_full: "Full chords";
     in-out property <string> quick_shells: "Shell voicings";
     in-out property <string> tab_audio: "Audio";
@@ -1205,6 +1206,8 @@ export component AppWindow inherits Window {
                     toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
                 SideToggle { text: Tr.chip_in_order; on: root.interval_in_order;
                     toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
+                SideToggle { text: Tr.chip_struck; on: root.require_onset;
+                    toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
             }
             NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.show_settings = false; root.pick_mode(2); }
                 path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
