@@ -217,6 +217,9 @@ pub struct Strings {
     /// see `interval_levels::Group`.
     pub interval_level: &'static str,
     pub level_groups: [&'static str; crate::interval_levels::GROUPS],
+    /// A scale run started on a tone drawn for every chord.
+    pub level_any_chord_tone: &'static str,
+    pub level_any_scale_tone: &'static str,
     pub intervals_hint: &'static str,
     pub intervals_placeholder: &'static str,
     pub next: &'static str,
@@ -361,7 +364,10 @@ pub const EN: Strings = Strings {
     level_groups: [
         "One tone", "Two tones", "Three tones", "Four tones",
         "Structure 1–5", "Structure 5–9", "Voice leading", "Suspension resolved",
+        "Chord scale", "Passing-note scale",
     ],
+    level_any_chord_tone: "random chord tone",
+    level_any_scale_tone: "random scale tone",
     intervals_hint: "Degrees, e.g. 1 3 5. Octave marks: 5' up, 5, down.",
     intervals_placeholder: "e.g. 1 3 5",
     next: "Next",
@@ -506,7 +512,10 @@ pub const PL: Strings = Strings {
     level_groups: [
         "Jeden dźwięk", "Dwa dźwięki", "Trzy dźwięki", "Cztery dźwięki",
         "Struktura 1–5", "Struktura 5–9", "Prowadzenie głosów", "Rozwiązanie zawieszenia",
+        "Skala akordu", "Skala z dźwiękiem przejściowym",
     ],
+    level_any_chord_tone: "losowy składnik",
+    level_any_scale_tone: "losowy stopień",
     intervals_hint: "Stopnie, np. 1 3 5. Oktawa: 5' w górę, 5, w dół.",
     intervals_placeholder: "np. 1 3 5",
     next: "Następny",
@@ -589,6 +598,8 @@ mod tests {
             ("fretboard", EN.fretboard, PL.fretboard),
             ("intervals_hint", EN.intervals_hint, PL.intervals_hint),
             ("interval_level", EN.interval_level, PL.interval_level),
+            ("level_any_chord_tone", EN.level_any_chord_tone, PL.level_any_chord_tone),
+            ("level_any_scale_tone", EN.level_any_scale_tone, PL.level_any_scale_tone),
             ("lead_line", EN.lead_line, PL.lead_line),
             ("lead_line_hint", EN.lead_line_hint, PL.lead_line_hint),
             ("no_data", EN.no_data, PL.no_data),

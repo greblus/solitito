@@ -7,7 +7,7 @@
 //! `ChordQuality::scale_names` - so `3` and `7` are whatever third and seventh
 //! the chord has, and `2`, `4`, `6` and `9` come from its scale.
 
-use crate::model::{split_octave, with_octave, ChordQuality};
+use crate::model::{split_octave, with_octave, ChordQuality, Step};
 
 /// The headings the levels are listed under, in order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -20,9 +20,42 @@ pub enum Group {
     FifthToNinth,
     VoiceLeading,
     Suspensions,
+    ChordScales,
+    PassingNoteScales,
 }
 
-pub const GROUPS: usize = 8;
+pub const GROUPS: usize = 10;
+
+/// Where a scale run starts: on a tone of the chord, or anywhere in its scale.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum From {
+    Root,
+    Third,
+    Fifth,
+    Seventh,
+    /// A chord tone drawn for every chord.
+    AnyChordTone,
+    /// A tone of the scale drawn for every chord.
+    AnyScaleTone,
+}
+
+/// A level that is the chord's scale run through an octave rather than a
+/// written cell - see `ChordQuality::scale_in_order`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Run {
+    pub from: From,
+    /// With the passing note, so that started on a chord tone, the chord's
+    /// tones fall on every other note.
+    pub passing: bool,
+}
+
+/// How the list names the levels: the group headings and the two words a
+/// scale run drawn from anywhere needs.
+pub struct Names<'a> {
+    pub groups: &'a [&'a str; GROUPS],
+    pub any_chord_tone: &'a str,
+    pub any_scale_tone: &'a str,
+}
 
 /// One exercise.
 pub struct Level {
@@ -41,6 +74,8 @@ pub struct Level {
     pub shuffles: bool,
     /// Started from a tone drawn for every chord, the rest following round.
     pub rotated: bool,
+    /// A scale run instead of the cells.
+    pub run: Option<Run>,
 }
 
 const fn same(cell: &'static str) -> [&'static str; 5] {
@@ -52,21 +87,26 @@ const fn tones(cell: &'static str) -> Level {
 }
 
 const fn set(group: Group, cell: &'static str) -> Level {
-    Level { group, cells: same(cell), ordered: false, shuffles: true, rotated: false }
+    Level { group, cells: same(cell), ordered: false, shuffles: true, rotated: false, run: None }
 }
 
 const fn line(group: Group, cells: [&'static str; 5]) -> Level {
-    Level { group, cells, ordered: true, shuffles: false, rotated: false }
+    Level { group, cells, ordered: true, shuffles: false, rotated: false, run: None }
 }
 
 /// The first cell of a structure: played in order, dealt in another one by
 /// the shuffle.
 const fn dealt(group: Group, cells: [&'static str; 5]) -> Level {
-    Level { group, cells, ordered: true, shuffles: true, rotated: false }
+    Level { group, cells, ordered: true, shuffles: true, rotated: false, run: None }
 }
 
 const fn turned(group: Group, cells: [&'static str; 5]) -> Level {
-    Level { group, cells, ordered: true, shuffles: false, rotated: true }
+    Level { group, cells, ordered: true, shuffles: false, rotated: true, run: None }
+}
+
+const fn scale(group: Group, from: From) -> Level {
+    let passing = matches!(group, PassingNoteScales);
+    Level { group, cells: same(""), ordered: true, shuffles: false, rotated: false, run: Some(Run { from, passing }) }
 }
 
 /// Major and dominant, minor and half-diminished share their cells; the
@@ -77,7 +117,7 @@ const fn by_kind(major: &'static str, minor: &'static str, diminished: &'static 
 
 use Group::*;
 
-pub const LEVELS: [Level; 39] = [
+pub const LEVELS: [Level; 50] = [
     tones("1"),
     tones("3"),
     tones("5"),
@@ -122,12 +162,48 @@ pub const LEVELS: [Level; 39] = [
     line(VoiceLeading, ["3 2 1 7,", "3 5 7 9", "5 3 1 7,", "5 3 1 7,", "3 2 1 7,"]),
     line(Suspensions, same("2 3 1")),
     line(Suspensions, same("4 3 1")),
+    // The chord's scale through an octave, from where its name says.
+    scale(ChordScales, From::Root),
+    scale(ChordScales, From::Third),
+    scale(ChordScales, From::Fifth),
+    scale(ChordScales, From::Seventh),
+    scale(ChordScales, From::AnyChordTone),
+    scale(ChordScales, From::AnyScaleTone),
+    // And with the passing note: played in eighths from a downbeat, every
+    // tone of the chord lands on a beat.
+    scale(PassingNoteScales, From::Root),
+    scale(PassingNoteScales, From::Third),
+    scale(PassingNoteScales, From::Fifth),
+    scale(PassingNoteScales, From::Seventh),
+    scale(PassingNoteScales, From::AnyChordTone),
 ];
 
 /// The level a new install starts on: the triad, as the text field used to.
 pub const DEFAULT: usize = 9;
 
 impl Level {
+    /// A scale run's steps over `quality`: from its starting tone up through
+    /// the octave to the same tone again. `rotation` picks the tone where the
+    /// level draws one.
+    pub fn run_steps(&self, quality: &ChordQuality, rotation: usize) -> Option<Vec<Step>> {
+        let run = self.run?;
+        let line = quality.scale_in_order(run.passing);
+        let start_degree = match run.from {
+            From::Root => 0,
+            From::Third => 1,
+            From::Fifth => 2,
+            From::Seventh => 3,
+            From::AnyChordTone => rotation % 4,
+            From::AnyScaleTone => line[rotation % line.len()],
+        };
+        let start = line.iter().position(|&d| d == start_degree).unwrap_or(0);
+        Some(
+            (0..=line.len())
+                .map(|k| Step { degree: line[(start + k) % line.len()], octave: ((start + k) / line.len()) as i8 })
+                .collect(),
+        )
+    }
+
     /// The tokens over `quality`, turned to start `rotation` tones in for a
     /// rotated level. A tone carried round the end goes up an octave, so the
     /// line keeps climbing.
@@ -153,12 +229,23 @@ impl Level {
 /// chord, and the exercise shows them as it is played. Voice leading is
 /// numbered instead: its cells differ between chords, and over a major chord
 /// four of the five are the same.
-pub fn labels(groups: &[&str; GROUPS]) -> Vec<String> {
+pub fn labels(names: &Names) -> Vec<String> {
     LEVELS
         .iter()
         .enumerate()
         .map(|(index, level)| {
-            let group = groups[level.group as usize];
+            let group = names.groups[level.group as usize];
+            if let Some(run) = level.run {
+                let from = match run.from {
+                    From::Root => "1",
+                    From::Third => "3",
+                    From::Fifth => "5",
+                    From::Seventh => "7",
+                    From::AnyChordTone => names.any_chord_tone,
+                    From::AnyScaleTone => names.any_scale_tone,
+                };
+                return format!("{group}: {from}");
+            }
             if level.group == VoiceLeading {
                 let nth = LEVELS[..=index].iter().filter(|l| l.group == VoiceLeading).count();
                 return format!("{group} {nth}");

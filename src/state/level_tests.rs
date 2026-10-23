@@ -48,7 +48,7 @@ fn every_token_of_every_level_lands_on_every_chord() {
         ChordQuality::HalfDiminished,
         ChordQuality::Diminished,
     ];
-    for (index, level) in LEVELS.iter().enumerate() {
+    for (index, level) in LEVELS.iter().enumerate().filter(|(_, l)| l.run.is_none()) {
         let a = on_level(index);
         for quality in &qualities {
             let written = level.cell(quality, 0).len();
@@ -178,8 +178,12 @@ fn without_a_level_the_degrees_are_the_chords_own() {
 
 #[test]
 fn the_list_names_a_level_by_its_major_cell_and_voice_leading_by_number() {
-    let groups = crate::i18n::strings(crate::i18n::Lang::Pl).level_groups;
-    let labels = crate::interval_levels::labels(&groups);
+    let t = crate::i18n::strings(crate::i18n::Lang::Pl);
+    let labels = crate::interval_levels::labels(&crate::interval_levels::Names {
+        groups: &t.level_groups,
+        any_chord_tone: t.level_any_chord_tone,
+        any_scale_tone: t.level_any_scale_tone,
+    });
     assert_eq!(labels.len(), LEVELS.len());
     assert!(labels.contains(&"Struktura 5–9: 6 5 9 7".to_string()));
     assert!(labels.contains(&"Trzy dźwięki: 1 3 5 ↻".to_string()));
@@ -248,4 +252,63 @@ fn voice_leading_starts_the_chord_a_step_from_the_last_note() {
         })
         .collect();
     assert!(firsts.len() > 1);
+}
+
+const DB: usize = 1;
+const FS: usize = 6;
+const AB_: usize = 8;
+
+#[test]
+fn a_chord_scale_runs_an_octave_from_where_its_level_says() {
+    let a = on_level(level_of(Group::ChordScales, 0));
+    // Lydian over a major seventh.
+    assert_eq!(played(&a, &chord(C, ChordQuality::Major7)), [C_, D_, E_, FS, G_, A_, B_, C_]);
+    let a = on_level(level_of(Group::ChordScales, 1));
+    assert_eq!(played(&a, &chord(G, ChordQuality::Dominant7)), [B_, C_, D_, E_, F_, G_, A_, B_]);
+    // Locrian with a natural ninth.
+    let a = on_level(level_of(Group::ChordScales, 0));
+    assert_eq!(played(&a, &chord(B, ChordQuality::HalfDiminished)), [B_, DB, D_, E_, F_, G_, A_, B_]);
+    let octaves: Vec<i8> = a.ordered_active_indices(&chord(C, ChordQuality::Major7)).iter().map(|s| s.octave).collect();
+    assert_eq!(octaves, [0, 0, 0, 0, 0, 0, 0, 1]);
+}
+
+/// The passing note makes eight notes to the octave, and from a chord tone
+/// every chord tone lands on every other note - on the beat.
+#[test]
+fn the_passing_note_puts_the_chord_on_the_beat() {
+    let a = on_level(level_of(Group::PassingNoteScales, 0));
+    assert_eq!(played(&a, &chord(G, ChordQuality::Dominant7)), [G_, A_, B_, C_, D_, E_, F_, FS, G_]);
+    assert_eq!(played(&a, &chord(C, ChordQuality::Major7)), [C_, D_, E_, FS, G_, AB_, A_, B_, C_]);
+    // The diminished chord's passing note completes the half-whole scale.
+    assert_eq!(played(&a, &chord(C, ChordQuality::Diminished)), [C_, D_, EB, F_, GB, AB_, A_, B_, C_]);
+    for quality in [ChordQuality::Dominant7, ChordQuality::Minor7, ChordQuality::HalfDiminished, ChordQuality::Diminished] {
+        let c = chord(D, quality);
+        let chord_tones = c.get_target_indices();
+        let line = played(&a, &c);
+        for (k, pc) in line.iter().enumerate() {
+            assert_eq!(chord_tones.contains(pc), k % 2 == 0, "{} note {k} off the beat", c.quality.to_string());
+        }
+    }
+    let a = on_level(level_of(Group::PassingNoteScales, 1));
+    assert_eq!(played(&a, &chord(D, ChordQuality::Minor7)), [F_, G_, A_, B_, C_, DB, D_, E_, F_]);
+}
+
+#[test]
+fn a_run_from_a_drawn_tone_starts_on_a_chord_tone_or_a_scale_tone() {
+    let c = chord(C, ChordQuality::Major7);
+    let mut a = on_level(level_of(Group::ChordScales, 4));
+    for rotation in 0..8 {
+        a.level_rotation = rotation;
+        let line = played(&a, &c);
+        assert!(c.get_target_indices().contains(&line[0]));
+        assert_eq!(line.first(), line.last());
+    }
+    let mut a = on_level(level_of(Group::ChordScales, 5));
+    let starts: std::collections::HashSet<usize> = (0..7)
+        .map(|rotation| {
+            a.level_rotation = rotation;
+            played(&a, &c)[0]
+        })
+        .collect();
+    assert_eq!(starts.len(), 7, "every tone of the scale can start the run");
 }

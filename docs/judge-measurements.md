@@ -470,3 +470,28 @@ without having been played. It was 99 of those 110.
 The take6 onset head was tried as a gate here and dropped: live it
 answered 0.09 for notes plainly being played, refusing far more than
 it caught. The strike detector backs the ear instead - `EAR_BACKED`.
+
+## Lines in order
+
+### Semitone steps
+
+*`src/state/line_harness.rs`*
+
+A scale asks what an arpeggio does not: a step a semitone from the note
+before. The analysis window still holds that note for half a second, so the
+worry was a step credited before it is played. Measured October 2026 on
+rising lines spliced from AtoA's notes, judged as Scales judges them - one at
+a time, in order - each note cut to a length, and again with the note before
+ringing 0.3 s under the next:
+
+  seconds a note   D dorian   G mixolydian   D m7 arpeggio
+  0.50             8/8        8/8            5/5
+  0.45             8/8        1/8            5/5
+  0.40 and less    1/8        1/8            1/5
+
+Not one step in any run was credited before its note. Every credit came
+0.37 to 0.45 s after the attack, semitone or not, and the arpeggio, with no
+semitone in it, stops at the same speed. What limits a line is time: a note
+shorter than the judge needs is gone before it is credited, and the line
+waits for it. The scale exercises of Intervals carry the same limit Scales
+has - about two notes a second.

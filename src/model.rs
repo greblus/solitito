@@ -122,47 +122,90 @@ impl ChordQuality {
     }
 }
 
-/// The tones an interval exercise may ask for over a chord: its own four
-/// first, so a step written against the chord alone means the same here, then
-/// the rest of the scale the chord is played in.
+/// The scale a chord is played in, beyond the chord's own four tones.
 ///
 /// Major sevenths take the Lydian scale and half-diminished chords Locrian
-/// with a natural ninth - the sounds that leave the chord unclouded. A major
-/// seventh also carries the plain fourth, outside its scale: a suspension
-/// resolving to the third needs it. Diminished chords take the half-whole
-/// scale without the major seventh, whose name would clash with the chord's
-/// own seventh. The two minor chords with a sixth or a major seventh take the
-/// melodic minor scale.
-const SCALE_TENSIONS: [(&[&str], &[u8]); 7] = [
-    (&["2", "#4", "6", "4"], &[2, 6, 9, 5]),
-    (&["2", "4", "6"], &[2, 5, 9]),
-    (&["2", "4", "6"], &[2, 5, 9]),
-    (&["2", "4", "b6"], &[2, 5, 8]),
-    (&["2", "4", "b6"], &[2, 5, 8]),
-    (&["2", "4", "7"], &[2, 5, 11]),
-    (&["2", "4", "6"], &[2, 5, 9]),
+/// with a natural ninth - the sounds that leave the chord unclouded. Diminished
+/// chords take the half-whole scale, its major seventh as the passing note -
+/// the name `7` would clash with the chord's own seventh in any other role.
+/// The two minor chords with a sixth or a major seventh take melodic minor.
+struct ScaleSpec {
+    /// The scale's tones that are not the chord's, as names and semitones.
+    tensions: &'static [(&'static str, u8)],
+    /// Tones outside the scale an exercise still asks for: a major seventh's
+    /// plain fourth, which a suspension resolving to the third needs.
+    outside: &'static [(&'static str, u8)],
+    /// The chromatic note added to make an eight-note scale whose chord tones
+    /// fall every other note: the major seventh between the flat seventh and
+    /// the root, or the sharp fifth between the fifth and the sixth. Written
+    /// in brackets, as it is shown.
+    passing: (&'static str, u8),
+}
+
+const SEVENTH_PASSING: (&str, u8) = ("(7)", 11);
+const FIFTH_PASSING: (&str, u8) = ("(#5)", 8);
+
+const SCALES: [ScaleSpec; 7] = [
+    // Major seventh: Lydian.
+    ScaleSpec { tensions: &[("2", 2), ("#4", 6), ("6", 9)], outside: &[("4", 5)], passing: FIFTH_PASSING },
+    // Dominant seventh: Mixolydian.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("6", 9)], outside: &[], passing: SEVENTH_PASSING },
+    // Minor seventh: Dorian.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("6", 9)], outside: &[], passing: SEVENTH_PASSING },
+    // Half-diminished: Locrian with a natural ninth.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("b6", 8)], outside: &[], passing: SEVENTH_PASSING },
+    // Diminished seventh: half-whole.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("b6", 8)], outside: &[], passing: SEVENTH_PASSING },
+    // Minor sixth: melodic minor.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("7", 11)], outside: &[], passing: FIFTH_PASSING },
+    // Minor-major seventh: melodic minor.
+    ScaleSpec { tensions: &[("2", 2), ("4", 5), ("6", 9)], outside: &[], passing: FIFTH_PASSING },
 ];
 
 impl ChordQuality {
-    /// The chord's tones and then its scale's - see `SCALE_TENSIONS`.
+    /// What an interval exercise may ask for over the chord: its own four
+    /// tones first, so a step written against the chord alone means the same
+    /// here, then the rest of its scale, the tones outside it, and the passing
+    /// note - see `ScaleSpec`.
     pub fn scale_names(&self) -> Vec<String> {
         let mut names = self.interval_names();
-        if let Some((tensions, _)) = self.tensions() {
-            names.extend(tensions.iter().map(|t| t.to_string()));
-        }
+        names.extend(self.extra_tones().map(|(name, _)| name.to_string()));
         names
     }
 
     /// Semitones above the root, in the order of `scale_names`.
     pub fn scale_intervals(&self) -> Vec<u8> {
         let mut intervals = self.intervals();
-        if let Some((_, semitones)) = self.tensions() {
-            intervals.extend_from_slice(semitones);
-        }
+        intervals.extend(self.extra_tones().map(|(_, semitone)| semitone));
         intervals
     }
 
-    fn tensions(&self) -> Option<(&'static [&'static str], &'static [u8])> {
+    /// The scale from the root up, as indices into `scale_names`: the chord's
+    /// tones and its scale's, without the tones outside it, with the passing
+    /// note where `passing` asks for it.
+    pub fn scale_in_order(&self, passing: bool) -> Vec<usize> {
+        let Some(spec) = self.spec() else {
+            return (0..self.intervals().len()).collect();
+        };
+        let intervals = self.scale_intervals();
+        let in_scale = 4 + spec.tensions.len();
+        let passing_at = in_scale + spec.outside.len();
+        let mut order: Vec<usize> = (0..in_scale).collect();
+        if passing {
+            order.push(passing_at);
+        }
+        order.sort_by_key(|&i| intervals[i]);
+        order
+    }
+
+    fn extra_tones(&self) -> impl Iterator<Item = (&'static str, u8)> {
+        self.spec()
+            .into_iter()
+            .flat_map(|spec| spec.tensions.iter().chain(spec.outside).chain(std::iter::once(&spec.passing)))
+            .copied()
+    }
+
+    fn spec(&self) -> Option<&'static ScaleSpec> {
         let row = match self {
             ChordQuality::Major7 => 0,
             ChordQuality::Dominant7 => 1,
@@ -173,7 +216,7 @@ impl ChordQuality {
             ChordQuality::MinorMajor7 => 6,
             ChordQuality::CustomScale(_) => return None,
         };
-        Some(SCALE_TENSIONS[row])
+        Some(&SCALES[row])
     }
 }
 

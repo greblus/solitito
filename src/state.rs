@@ -796,6 +796,9 @@ impl MyApp {
             return self.changes_run(chord, self.changes_descending());
         }
         if let Some(level) = self.level() {
+            if let Some(steps) = level.run_steps(&chord.quality, self.level_rotation) {
+                return steps;
+            }
             let names = chord.quality.scale_names();
             return level
                 .cell(&chord.quality, self.level_rotation)
@@ -1757,6 +1760,9 @@ mod generator_tests;
 
 #[cfg(test)]
 mod level_tests;
+
+#[cfg(test)]
+mod line_harness;
 
 #[cfg(test)]
 mod repeat_harness;

@@ -731,7 +731,14 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     // it is kept, as above.
     let level = ui.get_interval_level();
     let levels: Vec<slint::SharedString> =
-        interval_levels::labels(&t.level_groups).into_iter().map(Into::into).collect();
+        interval_levels::labels(&interval_levels::Names {
+            groups: &t.level_groups,
+            any_chord_tone: t.level_any_chord_tone,
+            any_scale_tone: t.level_any_scale_tone,
+        })
+        .into_iter()
+        .map(Into::into)
+        .collect();
     ui.set_interval_levels(ModelRc::from(Rc::new(VecModel::from(levels))));
     ui.set_interval_level(level);
     let channels = ui.get_audio_channels().row_count() as i32;
