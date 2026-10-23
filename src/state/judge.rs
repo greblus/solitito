@@ -45,7 +45,9 @@ impl MyApp {
             // head and only where an attack backs it: the chord NAME never
             // credits a note here, and that is where the notes nobody played
             // were coming from.
-            if ear.is_some() || self.heard.cqt_pitch.is_some() {
+            //
+            // Except where the ear is merely late: see `ear_holds_only_a_ring`.
+            if (ear.is_some() || self.heard.cqt_pitch.is_some()) && !self.ear_holds_only_a_ring(target) {
                 return None;
             }
         }
@@ -98,6 +100,22 @@ impl MyApp {
             && matches!(ai_root, Some(r) if r == NoteName::from_index(target))
             && confidence >= self.chord_confidence;
         if by_root { Some(4) } else { None }
+    }
+
+    /// Whether the ear names only the note before: the target struck within
+    /// CLASS_FRESH, and the class the ear names not. Its window still holds a
+    /// note ringing on - another string in an arpeggio, say - and the new one
+    /// has not yet won it; the model has, and may answer. See
+    /// `docs/judge-measurements.md#the-ear-holding-a-ring`.
+    fn ear_holds_only_a_ring(&self, target: usize) -> bool {
+        if !self.heard.strikes_live {
+            return false;
+        }
+        let named = self.heard.steady_note().or(self.heard.cqt_pitch);
+        let Some(named) = named.filter(|&n| n % 12 != target) else {
+            return false;
+        };
+        self.heard.class_strike_age[target] <= CLASS_FRESH && self.heard.class_strike_age[named % 12] > CLASS_FRESH
     }
 
     /// Whether the ear is still settling after a strike of some OTHER class -

@@ -495,3 +495,25 @@ semitone in it, stops at the same speed. What limits a line is time: a note
 shorter than the judge needs is gone before it is credited, and the line
 waits for it. The scale exercises of Intervals carry the same limit Scales
 has - about two notes a second.
+
+### The ear holding a ring
+
+*`src/state/judge.rs`, `ear_holds_only_a_ring`*
+
+One at a time, the ear naming another note refuses the model. On a line
+whose notes overlap - an arpeggio across strings, the note before left
+ringing 0.3 s under the next - the ear went on naming that note for half a
+second after the new one was struck, while the pitch head already answered
+the new one at 0.88 against the old one's 0.94. By the time the ear named
+it, the next note had been struck and the ear was settling again: the note
+was never credited, and the line stopped there.
+
+The ear is now overruled only where it is late: the target struck within
+CLASS_FRESH and the class it names not. With STRUCK_FRESH instead it changed
+nothing - the pitch head reached 90% of the strongest class a hop after the
+22 were up. Measured on `line_harness` and the whole golden grid:
+
+  D m7 arpeggio, 0.5 s a note, ringing   1/5 -> 5/5 credited, none early
+  AtoA one at a time                     37 false / 33 notes, unchanged;
+                                         median 260 -> 220 ms
+  everything else in the grid            identical

@@ -162,6 +162,27 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8])
                 a.check_progress_with_ai(MODEL_PERIOD, "...", p.confidence);
             }
         }
+        if let Ok(window) = std::env::var("SOLITITO_LINE_TRACE") {
+            let (from, to) = window.split_once('-').unwrap();
+            let (from, to): (f32, f32) = (from.parse().unwrap(), to.parse().unwrap());
+            if (from..to).contains(&t) {
+                let due = a.current_note_step;
+                let targets = a.degree_targets(&a.chords[0].clone());
+                let steps = a.ordered_active_indices(&a.chords[0].clone());
+                let pc = steps.get(due).map(|s| targets[s.degree] % 12).unwrap_or(99);
+                let top: Vec<(usize, u8)> = {
+                    let mut p: Vec<(usize, f32)> = a.last_pitches.iter().copied().enumerate().collect();
+                    p.sort_by(|x, y| y.1.total_cmp(&x.1));
+                    p.iter().take(3).map(|&(c, v)| (c, (v * 100.0) as u8)).collect()
+                };
+                println!(
+                    "      {t:.2} due {due} pc {pc}: cqt {:?} steady {:?} voices {:012b} head {top:?} struck_age {} sounding {:?}",
+                    a.heard.cqt_pitch, a.heard.steady_note(), a.heard.voices,
+                    a.heard.class_strike_age.get(pc).copied().unwrap_or(0).min(999),
+                    a.sounding_by(pc, None, 0.0)
+                );
+            }
+        }
         // Once the whole scale is in, the app moves to a new key: stop there.
         if credited.iter().all(Option::is_some) {
             break;
@@ -229,9 +250,11 @@ fn semitone_steps_in_rising_lines() {
     let arpeggio = (["1", "b3", "5", "b7"], [0u8, 3, 7, 10]);
     for ring in [0.0, 0.3] {
         for length in [0.5, 0.45, 0.4, 0.35] {
-            measure("D dorian", D, &dorian.0, &dorian.1, length, ring);
-            measure("G mixolydian", G, &mixolydian.0, &mixolydian.1, length, ring);
-            measure("D m7 arpeggio", D, &arpeggio.0, &arpeggio.1, length, ring);
+            if std::env::var("SOLITITO_LINE_ONLY").map_or(true, |only| only == format!("{length}/{ring}")) {
+                measure("D dorian", D, &dorian.0, &dorian.1, length, ring);
+                measure("G mixolydian", G, &mixolydian.0, &mixolydian.1, length, ring);
+                measure("D m7 arpeggio", D, &arpeggio.0, &arpeggio.1, length, ring);
+            }
         }
         println!();
     }

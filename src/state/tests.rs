@@ -1638,6 +1638,33 @@ fn a_mode_starts_without_what_was_heard_before_it() {
     assert!(!a.note_is_sounding(3, None, 0.0));
 }
 
+/// One at a time, the ear naming another note refuses the model - unless the
+/// ear is only late: the target was struck just now and the note it names was
+/// not. An arpeggio across strings leaves the note before ringing in the
+/// estimate's window while the new one is already the model's answer.
+#[test]
+fn the_ear_holding_a_ring_does_not_refuse_a_note_just_struck() {
+    let mut a = app();
+    a.app_mode = AppMode::Intervals;
+    a.single_notes = true;
+    a.note_threshold = 0.6;
+    detector_hop(&mut a, &[2]);                 // D, struck a while ago
+    for _ in 0..=CLASS_FRESH {
+        detector_hop(&mut a, &[]);
+    }
+    detector_hop(&mut a, &[5]);                 // F, struck now
+    a.last_pitches = [0.0; 12];
+    a.last_pitches[2] = 0.94;                   // D still in the window
+    a.last_pitches[5] = 0.88;
+    a.heard.cqt_pitch = Some(2);                // the ear still names D
+    assert!(a.note_is_sounding(5, None, 0.0), "a late ear refused the note just struck");
+
+    // The ear naming a note struck just as lately is not late: refused.
+    detector_hop(&mut a, &[2]);
+    a.heard.cqt_pitch = Some(2);
+    assert!(!a.note_is_sounding(5, None, 0.0), "the ear's fresh note was overruled");
+}
+
 /// The note before, still ringing inside the model's window, is what the
 /// option is aimed at: the model reports it as sounding and it is, but it
 /// was not struck.
