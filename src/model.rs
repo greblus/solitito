@@ -309,8 +309,17 @@ Pentatonic Minor
 Pentatonic Major
 1 2 3 5 6
 
+Pentatonic Dominant
+1 3 4 5 b7
+
+Pentatonic Minor 6
+1 b3 4 5 6
+
 Blues Scale
 1 b3 4 #4 5 b7
+
+Major Blues Scale
+1 2 b3 3 5 6
 
 --- SYMMETRIC SCALES ---
 Whole-Half Diminished
@@ -321,6 +330,9 @@ Half-Whole Diminished (Dominant)
 
 Whole Tone
 1 2 3 #4 #5 b7
+
+Augmented Scale
+1 #2 3 5 #5 7
 
 --- JAZZ MODES ---
 Altered Scale (Super Locrian)
@@ -338,6 +350,12 @@ Phrygian Dominant
 Locrian #2
 1 2 b3 4 b5 b6 b7
 
+Dorian b2
+1 b2 b3 4 5 6 b7
+
+Mixolydian b6
+1 2 3 4 5 b6 b7
+
 --- STANDARD MODES ---
 Dorian
 1 2 b3 4 5 6 b7
@@ -354,6 +372,44 @@ Phrygian
 Locrian
 1 b2 b3 4 b5 b6 b7
 
+--- HARMONIC MINOR MODES ---
+Locrian Natural 6
+1 b2 b3 4 b5 6 b7
+
+Ionian #5
+1 2 3 4 #5 6 7
+
+Dorian #4
+1 2 b3 #4 5 6 b7
+
+Lydian #9
+1 #2 3 #4 5 6 7
+
+Superlocrian bb7
+1 b2 b3 b4 b5 b6 bb7
+
+--- HARMONIC MAJOR MODES ---
+Harmonic Major
+1 2 3 4 5 b6 7
+
+Dorian b5
+1 2 b3 4 b5 6 b7
+
+Phrygian b4
+1 b2 b3 b4 5 b6 b7
+
+Lydian b3
+1 2 b3 #4 5 6 7
+
+Mixolydian b2
+1 b2 3 4 5 6 b7
+
+Lydian Augmented #2
+1 #2 3 #4 #5 6 7
+
+Locrian bb7
+1 b2 b3 4 b5 b6 bb7
+
 --- BEBOP SCALES ---
 Bebop Dominant
 1 2 3 4 5 6 b7 7
@@ -363,6 +419,15 @@ Bebop Major
 
 Bebop Dorian
 1 2 b3 3 4 5 6 b7
+
+Bebop Dorian (major 7th)
+1 2 b3 4 5 6 b7 7
+
+Bebop Dominant b9 b13
+1 b2 3 4 5 b6 b7 7
+
+Bebop Tonic Minor (Dorian)
+1 2 b3 4 5 b6 6 b7
 
 --- BARRY HARRIS (6th Dim) ---
 Major 6 Diminished
@@ -589,7 +654,7 @@ fn parse_intervals_string(s: &str) -> (Vec<u8>, Vec<String>) {
             "b2" => 1, 
             "2" | "9" => 2, 
             "b3" | "#2" | "#9" => 3, 
-            "3" => 4, 
+            "3" | "b4" => 4, 
             "4" | "11" => 5,
             "b5" | "#4" | "#11" => 6, 
             "5" => 7, 
@@ -749,5 +814,32 @@ mod arpeggio_pattern_tests {
                 assert_ne!(a, b, "pattern {:?} repeats {a} back to back", d.name);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod scale_library_tests {
+    use super::*;
+
+    /// Every scale reads as distinct notes rising from the root - a degree
+    /// the parser did not know would read as 0 and repeat the root.
+    #[test]
+    fn every_built_in_scale_rises_through_distinct_notes() {
+        let scales = parse_scale_definitions(BUILTIN_SCALES_DEF);
+        assert_eq!(scales.len(), 47);
+        for scale in &scales {
+            assert_eq!(scale.intervals[0], 0, "{}", scale.name);
+            assert!(scale.intervals.windows(2).all(|w| w[0] < w[1]), "{}: {:?}", scale.name, scale.intervals);
+        }
+    }
+
+    #[test]
+    fn the_harmonic_major_and_minor_modes_spell_out() {
+        let scales = parse_scale_definitions(BUILTIN_SCALES_DEF);
+        let of = |name: &str| scales.iter().find(|s| s.name == name).unwrap().intervals.clone();
+        assert_eq!(of("Superlocrian bb7"), [0, 1, 3, 4, 6, 8, 9]);
+        assert_eq!(of("Phrygian b4"), [0, 1, 3, 4, 7, 8, 10]);
+        assert_eq!(of("Harmonic Major"), [0, 2, 4, 5, 7, 8, 11]);
+        assert_eq!(of("Augmented Scale"), [0, 3, 4, 7, 8, 11]);
     }
 }
