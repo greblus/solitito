@@ -138,6 +138,10 @@ pub struct Settings {
     /// corner of it.
     #[serde(default = "yes")]
     pub voice_leading: bool,
+    /// Intervals with the shuffle on: start each chord on its tone nearest the
+    /// last one played - see `MyApp::lead_from_last_note`. Off by default.
+    #[serde(default)]
+    pub lead_line: bool,
     /// Write the fret number in each dot of the tablature instead of the
     /// degree. Off by default: the degrees are what the app teaches, and the
     /// frets are the crutch for reading a shape onto the neck.
@@ -186,6 +190,10 @@ pub struct Settings {
     /// Intervals follow the dealt order by default, including shuffled steps.
     #[serde(default = "yes")]
     pub interval_in_order: bool,
+    /// The exercise of Intervals - see `interval_levels`. Older settings start
+    /// on the triad, which is what the typed-in field held by default.
+    #[serde(default = "first_interval_level")]
+    pub interval_level: usize,
     /// Print a line for every function credited, and what was heard. Off by
     /// default: it is a developer's window on the judging, and on Windows a
     /// release build has no console to print it to.
@@ -303,6 +311,10 @@ pub const PREVIEW_TILES: usize = Preview::Tiles as usize;
 /// `AppMode` discriminant.
 pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 2, 1];
 
+fn first_interval_level() -> usize {
+    crate::interval_levels::DEFAULT
+}
+
 fn yes() -> bool {
     true
 }
@@ -337,6 +349,7 @@ impl Default for Settings {
             previews: DEFAULT_PREVIEWS.to_vec(),
             preview: 1,
             voice_leading: true,
+            lead_line: false,
             tab_frets: false,
             show_full_shapes: true,
             show_shell_shapes: false,
@@ -350,6 +363,7 @@ impl Default for Settings {
             formula_show_similar: true,
             formula_in_order: false,
             interval_in_order: true,
+            interval_level: crate::interval_levels::DEFAULT,
             debug_console: false,
             show_input_meter: false,
             show_heard: false,

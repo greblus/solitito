@@ -84,7 +84,7 @@ impl MyApp {
             return;
         };
         let steps = self.ordered_active_indices(chord);
-        let all_targets = chord.get_target_indices();
+        let all_targets = self.degree_targets(chord);
         let step_targets: Vec<usize> = steps.iter().map(|step| all_targets[step.degree]).collect();
 
         // The marks and the steps have to be the same length. They are
@@ -221,6 +221,7 @@ impl MyApp {
         }
         self.credit_branch = Some(by);
         self.credit_class(step_targets[step], octave);
+        self.last_played = Some(step_targets[step] % 12);
         self.answering_step = None;
         self.success_timer = 0.0;
         // Where the exercise stands: the first step still wanted. In order

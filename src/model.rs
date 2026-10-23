@@ -70,6 +70,11 @@ pub struct ScaleDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChordQuality {
     Major7, Minor7, Dominant7, HalfDiminished, Diminished,
+    /// The minor triad with a major sixth - and the m7b5 a minor third below
+    /// it, note for note: A m6 is F# m7b5.
+    Minor6,
+    /// The minor triad with a major seventh.
+    MinorMajor7,
     CustomScale(ScaleDefinition),
 }
 
@@ -83,6 +88,8 @@ impl ChordQuality {
             // "dim" is what brain.rs::quality_suffix emits, and state.rs matches
             // the two as strings - they have to agree.
             ChordQuality::Diminished => "dim".to_string(),
+            ChordQuality::Minor6 => "m6".to_string(),
+            ChordQuality::MinorMajor7 => "mMaj7".to_string(),
             ChordQuality::CustomScale(def) => def.name.clone(),
         }
     }
@@ -95,6 +102,8 @@ impl ChordQuality {
             ChordQuality::HalfDiminished => vec![0, 3, 6, 10],
             // bb7 is 9 semitones, not 10 - that is the whole difference from m7b5.
             ChordQuality::Diminished => vec![0, 3, 6, 9],
+            ChordQuality::Minor6 => vec![0, 3, 7, 9],
+            ChordQuality::MinorMajor7 => vec![0, 3, 7, 11],
             ChordQuality::CustomScale(def) => def.intervals.clone(),
         }
     }
@@ -106,8 +115,65 @@ impl ChordQuality {
             ChordQuality::Dominant7 => vec!["1", "3", "5", "b7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::HalfDiminished => vec!["1", "b3", "b5", "b7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::Diminished => vec!["1", "b3", "b5", "bb7"].iter().map(|s| s.to_string()).collect(),
+            ChordQuality::Minor6 => vec!["1", "b3", "5", "6"].iter().map(|s| s.to_string()).collect(),
+            ChordQuality::MinorMajor7 => vec!["1", "b3", "5", "7"].iter().map(|s| s.to_string()).collect(),
             ChordQuality::CustomScale(def) => def.names.clone(),
         }
+    }
+}
+
+/// The tones an interval exercise may ask for over a chord: its own four
+/// first, so a step written against the chord alone means the same here, then
+/// the rest of the scale the chord is played in.
+///
+/// Major sevenths take the Lydian scale and half-diminished chords Locrian
+/// with a natural ninth - the sounds that leave the chord unclouded. A major
+/// seventh also carries the plain fourth, outside its scale: a suspension
+/// resolving to the third needs it. Diminished chords take the half-whole
+/// scale without the major seventh, whose name would clash with the chord's
+/// own seventh. The two minor chords with a sixth or a major seventh take the
+/// melodic minor scale.
+const SCALE_TENSIONS: [(&[&str], &[u8]); 7] = [
+    (&["2", "#4", "6", "4"], &[2, 6, 9, 5]),
+    (&["2", "4", "6"], &[2, 5, 9]),
+    (&["2", "4", "6"], &[2, 5, 9]),
+    (&["2", "4", "b6"], &[2, 5, 8]),
+    (&["2", "4", "b6"], &[2, 5, 8]),
+    (&["2", "4", "7"], &[2, 5, 11]),
+    (&["2", "4", "6"], &[2, 5, 9]),
+];
+
+impl ChordQuality {
+    /// The chord's tones and then its scale's - see `SCALE_TENSIONS`.
+    pub fn scale_names(&self) -> Vec<String> {
+        let mut names = self.interval_names();
+        if let Some((tensions, _)) = self.tensions() {
+            names.extend(tensions.iter().map(|t| t.to_string()));
+        }
+        names
+    }
+
+    /// Semitones above the root, in the order of `scale_names`.
+    pub fn scale_intervals(&self) -> Vec<u8> {
+        let mut intervals = self.intervals();
+        if let Some((_, semitones)) = self.tensions() {
+            intervals.extend_from_slice(semitones);
+        }
+        intervals
+    }
+
+    fn tensions(&self) -> Option<(&'static [&'static str], &'static [u8])> {
+        let row = match self {
+            ChordQuality::Major7 => 0,
+            ChordQuality::Dominant7 => 1,
+            ChordQuality::Minor7 => 2,
+            ChordQuality::HalfDiminished => 3,
+            ChordQuality::Diminished => 4,
+            ChordQuality::Minor6 => 5,
+            ChordQuality::MinorMajor7 => 6,
+            ChordQuality::CustomScale(_) => return None,
+        };
+        Some(SCALE_TENSIONS[row])
     }
 }
 
@@ -121,6 +187,14 @@ impl Chord {
     pub fn get_target_indices(&self) -> Vec<usize> {
         let root_idx = self.root as usize;
         self.quality.intervals().iter()
+            .map(|interval| (root_idx + *interval as usize) % 12)
+            .collect()
+    }
+
+    /// Pitch classes in the order of `ChordQuality::scale_names`.
+    pub fn scale_targets(&self) -> Vec<usize> {
+        let root_idx = self.root as usize;
+        self.quality.scale_intervals().iter()
             .map(|interval| (root_idx + *interval as usize) % 12)
             .collect()
     }
@@ -531,6 +605,10 @@ fn map_chord_quality(s: &str) -> ChordQuality {
         // Without this the diminished chords in the standards fell through to the
         // catch-all and were taught as dominant sevenths.
         "dim" | "dim7" | "o" | "o7" | "°" => ChordQuality::Diminished,
+        // The same catch-all made these dominant sevenths too: a major third
+        // where the chord has a minor one.
+        "m6" | "min6" | "-6" => ChordQuality::Minor6,
+        "mMaj7" | "mmaj7" | "mM7" | "m(maj7)" | "-Δ7" => ChordQuality::MinorMajor7,
         _ => ChordQuality::Dominant7,
     }
 }

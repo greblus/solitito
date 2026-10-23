@@ -685,6 +685,8 @@ export global Tr {
     in-out property <string> repeat_root_hint: "";
     in-out property <string> voice_leading: "Lead the voices";
     in-out property <string> voice_leading_hint: "";
+    in-out property <string> lead_line: "Voice leading";
+    in-out property <string> lead_line_hint: "";
     in-out property <string> preview: "View";
     in-out property <string> preview_hint: "";
     in-out property <string> preview_names: "Line of intervals";
@@ -756,6 +758,7 @@ export global Tr {
     in-out property <string> show_spectrum: "Show spectrum";
     in-out property <string> ai_prediction: "AI Prediction:  ";
     in-out property <string> intervals_label: "Intervals: ";
+    in-out property <string> interval_level: "Exercise: ";
     in-out property <string> intervals_hint: "";
     in-out property <string> intervals_placeholder: "e.g. 1 3 5";
     in-out property <string> next: "Next";
@@ -876,6 +879,8 @@ export component AppWindow inherits Window {
     in property <float> tab_aspect: 3.5;
     in-out property <bool> voice_leading: true;
     callback voice_leading_changed(bool);
+    in-out property <bool> lead_line: false;
+    callback lead_line_changed(bool);
     /// How the exercise is drawn: 0 the line of names, 1 tablature, 2 the neck.
     in-out property <int> preview: 1;
     /// Tablature or the neck, as against the line of names (0) or the tiles (3).
@@ -901,6 +906,10 @@ export component AppWindow inherits Window {
 
     in property <[string]> secondary_items;
     in property <string> secondary_label: "Key (Root):";
+    /// Intervals: the exercises, as `interval_levels::Level::label` reads them.
+    in property <[string]> interval_levels;
+    in-out property <int> interval_level: 9;
+    callback interval_level_changed(int);
     in-out property <int> current_secondary_index: 0;
 
     // --- LOGIKA UI ---
@@ -2342,8 +2351,21 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.current_mode == 1 || root.current_mode == 2
-                               || root.current_mode == 3 : VerticalLayout {
+                            // Intervals is played from a list of exercises; scales and
+                            // studies keep the degrees written out, editable.
+                            if root.current_mode == 1 : HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                Text { text: Tr.interval_level; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Dropdown {
+                                    width: root.ctrl_w;
+                                    model: root.interval_levels;
+                                    current-index <=> root.interval_level;
+                                    selected => { root.interval_level_changed(self.current-index); }
+                                }
+                            }
+
+                            if root.current_mode == 2 || root.current_mode == 3 : VerticalLayout {
                                 spacing: 8px;
                                 HorizontalLayout {
                                     // Packed left: with the default stretch the row hands its spare width
@@ -2498,6 +2520,25 @@ export component AppWindow inherits Window {
                                 if root.current_mode == 1 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.voice_leading_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                                // The other leading: of the line, from one chord's last
+                                // note to the next chord's first.
+                                if root.current_mode == 1 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.lead_line;
+                                        toggled => { root.lead_line_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.lead_line;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                if root.current_mode == 1 : Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.lead_line_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
 

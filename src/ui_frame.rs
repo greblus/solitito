@@ -15,7 +15,7 @@ use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::i18n::{self, Lang};
 use crate::latch::ChordLatch;
-use crate::model::{self, Chord, NoteName};
+use crate::model::{self, Chord, ChordQuality, NoteName};
 use crate::settings::{Preview, Settings};
 use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
 use crate::{diagrams, formulas, tab};
@@ -219,6 +219,7 @@ impl UiFrame {
             ui.set_interval_input_text(app.intervals_input.clone().into());
         }
         app.short_verdict = ui.get_short_verdict();
+        app.lead_line = ui.get_lead_line();
         app.arp_exercise = (ui.get_arp_exercise().max(0) as usize).into();
         app.shells_only = ui.get_show_shell_shapes() && !ui.get_show_full_shapes();
         if app.app_mode == state::AppMode::Arpeggios {
@@ -940,7 +941,7 @@ impl UiFrame {
 
     /// The note modes: the steps as a strip of names, as tiles, and on the neck.
     fn show_steps(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord) {
-        let all_names = chord.quality.interval_names();
+        let all_names = app.degree_names(chord);
         let active_indices = app.ordered_active_indices(chord);
         let mut ui_names = Vec::new();
         let mut ui_colors = Vec::new();
@@ -986,7 +987,7 @@ impl UiFrame {
             && Preview::from(ui.get_preview()) == Preview::Tiles
         {
             let key = formulas::parse_key(chord.root.to_string());
-            let intervals = chord.quality.intervals();
+            let intervals = app.degree_intervals(chord);
             let tiles: Vec<IntervalTile> = active_indices
                 .iter()
                 .enumerate()
@@ -1091,9 +1092,9 @@ impl UiFrame {
         let prev = (lead && !self.last_voicing.is_empty()).then_some(self.last_voicing.as_slice());
         tab::place_voiced(
             chord.root as usize,
-            &chord.quality.intervals(),
+            &app.degree_intervals(chord),
             steps,
-            &chord.quality.interval_names(),
+            &app.degree_names(chord),
             prev,
             app.voicing_anchor,
             app.grip_string,
@@ -1318,8 +1319,21 @@ fn shapes_asked_for(full: bool, shell: bool) -> Option<diagrams::Shapes> {
 /// own shell: a substitute taken for the chord itself is worse than no
 /// substitute at all.
 fn shapes_caption(t: &i18n::Strings, shapes: Option<diagrams::Shapes>, chord: &Chord) -> String {
+    let r = chord.root as usize;
     match (shapes, diagrams::shell_note(&chord.quality)) {
-        (None, _) | (Some(diagrams::Shapes::Full), _) => String::new(),
+        (None, _) => String::new(),
+        // A m6 is the m7b5 a minor third below: A m6 is F# m7b5.
+        (_, diagrams::ShellNote::HeardAsMinor) => {
+            let minor = format!("{}m", formulas::KEY_POOL[r]);
+            match chord.quality {
+                ChordQuality::Minor6 => format!(
+                    "{}{minor}{}{}m7b5{}",
+                    t.shapes_heard_as, t.shapes_or, formulas::KEY_POOL[(r + 9) % 12], t.shapes_same_notes
+                ),
+                _ => format!("{}{minor}", t.shapes_heard_as),
+            }
+        }
+        (Some(diagrams::Shapes::Full), _) => String::new(),
         (_, diagrams::ShellNote::Own) => String::new(),
         (_, diagrams::ShellNote::MinorForHalfDim) => t.shapes_substitute.to_string(),
         // Naming the four dominants beats stating the rule that finds them. A
@@ -1328,7 +1342,6 @@ fn shapes_caption(t: &i18n::Strings, shapes: Option<diagrams::Shapes>, chord: &C
         // is four dominants, and reading that sentence is harder than reading
         // the names.
         (_, diagrams::ShellNote::None_) => {
-            let r = chord.root as usize;
             let names: Vec<&str> = [11usize, 2, 5, 8]
                 .iter()
                 .map(|d| formulas::KEY_POOL[(r + d) % 12])

@@ -64,6 +64,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_arp_quality_changed(saving(cfg, |s, idx: i32| s.arp_quality = idx.max(0) as usize));
     ui.on_tab_frets_changed(saving(cfg, |s, on| s.tab_frets = on));
     ui.on_voice_leading_changed(saving(cfg, |s, on| s.voice_leading = on));
+    ui.on_lead_line_changed(saving(cfg, |s, on| s.lead_line = on));
     ui.on_show_diagrams_changed(saving(cfg, |s, on| s.show_diagrams = on));
     ui.on_formula_jazz_names_changed(saving(cfg, |s, on| s.formula_jazz_names = on));
     ui.on_formula_exercise_changed(saving(cfg, |s, v: i32| s.formula_exercise = v.clamp(0, 2) as u8));
@@ -278,6 +279,17 @@ fn connect_audio(ui: &AppWindow, shared: &Shared) {
 
 /// Practice options that do more than remember themselves.
 fn connect_practice(ui: &AppWindow, shared: &Shared) {
+    {
+        let cur = shared.cfg.clone();
+        let app = shared.app.clone();
+        ui.on_interval_level_changed(move |idx| {
+            let index = idx.max(0) as usize;
+            app.lock().unwrap().set_interval_level(index);
+            let mut cur = cur.borrow_mut();
+            cur.interval_level = index;
+            cur.save();
+        });
+    }
     {
         let cur = shared.cfg.clone();
         let app = shared.app.clone();

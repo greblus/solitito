@@ -79,6 +79,19 @@ static HALF_DIM: &[Diagram] = &[
     diagram!("D", "m7b5_D.svg"),
 ];
 
+// Drawn by dist/make_chord_diagrams.py in the style of the others.
+static MIN6: &[Diagram] = &[
+    diagram!("E", "m6_E.svg"),
+    diagram!("A", "m6_A.svg"),
+    diagram!("D", "m6_D.svg"),
+];
+
+static MIN_MAJ7: &[Diagram] = &[
+    diagram!("E", "mmaj7_E.svg"),
+    diagram!("A", "mmaj7_A.svg"),
+    diagram!("D", "mmaj7_D.svg"),
+];
+
 static DIM: &[Diagram] = &[
     diagram!("E", "dim7_E.svg"),
     diagram!("A", "dim7_A.svg"),
@@ -158,6 +171,8 @@ fn full(quality: &ChordQuality) -> &'static [Diagram] {
         ChordQuality::Dominant7 => DOM7,
         ChordQuality::HalfDiminished => HALF_DIM,
         ChordQuality::Diminished => DIM,
+        ChordQuality::Minor6 => MIN6,
+        ChordQuality::MinorMajor7 => MIN_MAJ7,
         ChordQuality::CustomScale(_) => &[],
     }
 }
@@ -184,6 +199,11 @@ pub enum ShellNote {
     /// No simpler form exists: a diminished seventh is four notes a minor third
     /// apart and has nothing to leave out.
     None_,
+    /// The chord model has no name for this chord, so what it accepts is a
+    /// substitute: the minor triad, and for a m6 also the m7b5 a minor third
+    /// below, which is the same four notes. Said under every row, full or
+    /// shell, since it is about what the app will hear rather than the shape.
+    HeardAsMinor,
 }
 
 /// Which of the three the shell row is, for whoever has to caption it. A player
@@ -192,6 +212,7 @@ pub fn shell_note(quality: &ChordQuality) -> ShellNote {
     match quality {
         ChordQuality::Major7 | ChordQuality::Minor7 | ChordQuality::Dominant7 => ShellNote::Own,
         ChordQuality::HalfDiminished => ShellNote::MinorForHalfDim,
+        ChordQuality::Minor6 | ChordQuality::MinorMajor7 => ShellNote::HeardAsMinor,
         _ => ShellNote::None_,
     }
 }
@@ -252,6 +273,8 @@ mod tests {
             ChordQuality::Dominant7,
             ChordQuality::HalfDiminished,
             ChordQuality::Diminished,
+            ChordQuality::Minor6,
+            ChordQuality::MinorMajor7,
         ] {
             for kind in [Shapes::Full, Shapes::Shell, Shapes::Both] {
                 let shapes = for_quality(&q, kind);
@@ -277,6 +300,7 @@ mod tests {
         for q in [
             ChordQuality::Major7, ChordQuality::Minor7, ChordQuality::Dominant7,
             ChordQuality::HalfDiminished, ChordQuality::Diminished,
+            ChordQuality::Minor6, ChordQuality::MinorMajor7,
         ] {
             for d in for_quality(&q, Shapes::Both) {
                 assert!(

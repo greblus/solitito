@@ -13,6 +13,7 @@ mod journal;
 mod formulas;
 mod fretboard;
 mod i18n;
+mod interval_levels;
 mod latch;
 mod rng;
 mod settings;
@@ -168,6 +169,7 @@ struct SettingsSnapshot {
     show_diagrams: bool,
     preview: i32,
     voice_leading: bool,
+    lead_line: bool,
     tab_frets: bool,
     arp_exercise: i32,
     arp_direction: i32,
@@ -194,6 +196,7 @@ struct SettingsSnapshot {
     formula_show_chords: bool,
     in_order: bool,
     interval_in_order: bool,
+    interval_level: i32,
     debug_console: bool,
     show_input_meter: bool,
     show_heard: bool,
@@ -217,6 +220,7 @@ impl SettingsSnapshot {
             show_diagrams: ui.get_show_diagrams(),
             preview: ui.get_preview(),
             voice_leading: ui.get_voice_leading(),
+            lead_line: ui.get_lead_line(),
             tab_frets: ui.get_tab_frets(),
             arp_exercise: ui.get_arp_exercise(),
             arp_direction: ui.get_arp_direction(),
@@ -243,6 +247,7 @@ impl SettingsSnapshot {
             formula_show_chords: ui.get_formula_show_chords(),
             in_order: ui.get_in_order(),
             interval_in_order: ui.get_interval_in_order(),
+            interval_level: ui.get_interval_level(),
             debug_console: ui.get_debug_console(),
             show_input_meter: ui.get_show_input_meter(),
             show_heard: ui.get_show_heard(),
@@ -478,6 +483,8 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
     app.formula_exercise = (cfg.formula_exercise as usize).into();
     app.set_mode(cfg.startup_mode);
     app.require_onset = cfg.require_onset_for(cfg.startup_mode);
+    app.lead_line = cfg.lead_line;
+    app.interval_level = Some(cfg.interval_level.min(interval_levels::LEVELS.len() - 1));
     // The standard and the scale that were being worked on. Silently
     // ignored if the library no longer holds them - see `select_song`.
     app.select_song(&cfg.song);
@@ -510,6 +517,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     // mode was left.
     ui.set_preview(cfg.preview_for(cfg.startup_mode) as i32);
     ui.set_voice_leading(cfg.voice_leading);
+    ui.set_lead_line(cfg.lead_line);
     ui.set_tab_frets(cfg.tab_frets);
     ui.set_arp_exercise(cfg.arp_exercise as i32);
     ui.set_arp_direction(cfg.arp_direction as i32);
@@ -529,6 +537,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_formula_show_chords(cfg.formula_show_chords);
     ui.set_in_order(cfg.formula_in_order);
     ui.set_interval_in_order(cfg.interval_in_order);
+    ui.set_interval_level(cfg.interval_level.min(interval_levels::LEVELS.len() - 1) as i32);
     ui.set_debug_console(cfg.debug_console);
     ui.set_show_input_meter(cfg.show_input_meter);
     ui.set_show_heard(cfg.show_heard);
@@ -718,6 +727,13 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
         ui.set_current_item_index(chosen);
         ui.set_current_secondary_index(sec_chosen);
     }
+    // The exercise list is named in the language too; the choice standing in
+    // it is kept, as above.
+    let level = ui.get_interval_level();
+    let levels: Vec<slint::SharedString> =
+        interval_levels::labels(&t.level_groups).into_iter().map(Into::into).collect();
+    ui.set_interval_levels(ModelRc::from(Rc::new(VecModel::from(levels))));
+    ui.set_interval_level(level);
     let channels = ui.get_audio_channels().row_count() as i32;
     let chosen = ui.get_audio_channel_index();
     ui.set_audio_channels(ModelRc::from(Rc::new(VecModel::from(channel_choices(
@@ -775,6 +791,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_tab_frets_hint(t.tab_frets_hint.into());
     g.set_voice_leading(t.voice_leading.into());
     g.set_voice_leading_hint(t.voice_leading_hint.into());
+    g.set_lead_line(t.lead_line.into());
+    g.set_lead_line_hint(t.lead_line_hint.into());
     g.set_preview(t.preview.into());
     g.set_preview_hint(t.preview_hint.into());
     g.set_preview_names(t.preview_names.into());
@@ -842,6 +860,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_show_spectrum(t.show_spectrum.into());
     g.set_ai_prediction(t.ai_prediction.into());
     g.set_intervals_label(t.intervals_label.into());
+    g.set_interval_level(t.interval_level.into());
     g.set_intervals_hint(t.intervals_hint.into());
     g.set_intervals_placeholder(t.intervals_placeholder.into());
     g.set_next(t.next.into());

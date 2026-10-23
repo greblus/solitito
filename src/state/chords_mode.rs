@@ -123,6 +123,9 @@ pub(super) fn chord_reading(target: &Chord, root: NoteName, heard: &str, shells_
         // what was played, so a reading three, six or nine semitones away is
         // the chord itself - green, not a substitution.
         ("dim", "dim") if interval % 3 == 0 => ChordReading::Exact,
+        // A m6 is the m7b5 a minor third below, note for note, and the model
+        // has no m6 to name: A m6 heard as F# m7b5 is the chord itself.
+        ("m6", "m7b5") if interval == 9 => ChordReading::Exact,
         _ => ChordReading::Wrong,
     }
 }
@@ -132,7 +135,9 @@ pub(super) fn same_root_reading(wanted: &str, heard: &str, shells_only: bool) ->
         return ChordReading::Exact;
     }
     match (wanted, heard) {
-        ("Maj7", "") | ("Maj7", "Maj") | ("m7", "m") | ("7", "") | ("m7b5", "dim") => {
+        ("Maj7", "") | ("Maj7", "Maj") | ("m7", "m") | ("7", "") | ("m7b5", "dim")
+        // The model names no m6 and no mMaj7; their triad is what it can hear.
+        | ("m6", "m") | ("mMaj7", "m") => {
             ChordReading::Partial
         }
         // A shell voicing of a m7b5 is root, third and seventh - the m7

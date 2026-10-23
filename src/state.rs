@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
 use crate::arpeggio;
+use crate::interval_levels::{self, Level};
 use crate::rng::Rng;
 use crate::fretboard::Region;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
@@ -411,6 +412,17 @@ pub struct MyApp {
     pub scale_repeat_root: bool,
     pub intervals_input: String,
     pub saved_intervals_input: String,
+    /// The exercise of Intervals, an index into `interval_levels::LEVELS`.
+    /// `None` reads `intervals_input` instead, as tests written against a
+    /// typed-in set of degrees do.
+    pub interval_level: Option<usize>,
+    /// Where a rotated level starts over the chord now due, drawn per chord.
+    pub level_rotation: usize,
+    /// Intervals with the shuffle on: start each chord near the last note
+    /// played - see `lead_from_last_note`.
+    pub lead_line: bool,
+    /// The pitch class of the step credited last in Intervals.
+    pub last_played: Option<usize>,
     
     /// Randomise the exercise order. What it means depends on the mode: in
     /// Chords it picks the next chord at random, in the note modes it also
@@ -671,6 +683,10 @@ impl MyApp {
             scale_repeat_root: false,
             intervals_input: "1 3 5".to_string(),
             saved_intervals_input: "1 3 5".to_string(),
+            interval_level: None,
+            level_rotation: 0,
+            lead_line: false,
+            last_played: None,
             
             paused: false,
             random_mode: false,
@@ -779,6 +795,17 @@ impl MyApp {
         if self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::OverChanges {
             return self.changes_run(chord, self.changes_descending());
         }
+        if let Some(level) = self.level() {
+            let names = chord.quality.scale_names();
+            return level
+                .cell(&chord.quality, self.level_rotation)
+                .iter()
+                .filter_map(|token| {
+                    let (token, octave) = split_octave(token);
+                    level_degree(token, &names).map(|degree| Step { degree, octave })
+                })
+                .collect();
+        }
         let names = chord.quality.interval_names();
         let read_step = |token: &str| {
             let (token, octave) = split_octave(token);
@@ -813,6 +840,86 @@ impl MyApp {
         steps
     }
 
+    /// The level Intervals is playing, if it is playing one.
+    pub fn level(&self) -> Option<&'static Level> {
+        if self.app_mode != AppMode::Intervals {
+            return None;
+        }
+        self.interval_level.and_then(|i| interval_levels::LEVELS.get(i))
+    }
+
+    /// Whether the steps are an order of their own - a scale, a study, a cell
+    /// or a line - rather than a set the player may take in any order.
+    fn steps_are_a_line(&self) -> bool {
+        matches!(self.app_mode, AppMode::Arpeggios | AppMode::Scales)
+            || self.level().is_some_and(|level| level.ordered)
+    }
+
+    /// Whether the shuffle may deal the steps in another order - see
+    /// `Level::shuffles`.
+    fn steps_shuffle(&self) -> bool {
+        !matches!(self.app_mode, AppMode::Arpeggios | AppMode::Scales)
+            && self.level().is_none_or(|level| level.shuffles)
+    }
+
+    /// The names a step's `degree` indexes: in a level of Intervals the
+    /// chord's scale, everywhere else the chord's own tones.
+    pub fn degree_names(&self, chord: &Chord) -> Vec<String> {
+        if self.level().is_some() { chord.quality.scale_names() } else { chord.quality.interval_names() }
+    }
+
+    /// Semitones above the root, in the order of `degree_names`.
+    pub fn degree_intervals(&self, chord: &Chord) -> Vec<u8> {
+        if self.level().is_some() { chord.quality.scale_intervals() } else { chord.quality.intervals() }
+    }
+
+    /// Pitch classes, in the order of `degree_names`.
+    pub fn degree_targets(&self, chord: &Chord) -> Vec<usize> {
+        if self.level().is_some() { chord.scale_targets() } else { chord.get_target_indices() }
+    }
+
+    /// Voice leading: the chord now due starts on its tone nearest the last
+    /// one played - a step away, never the same note, so the line moves - and
+    /// the rest keeps its drawn order. A tone of the chord, not of its scale:
+    /// the line lands on the harmony. Ties go to whichever was drawn first.
+    fn lead_from_last_note(&mut self) {
+        let (Some(last), Some(chord)) = (self.last_played, self.chords.get(self.current_chord_index)) else {
+            return;
+        };
+        if !self.steps_shuffle() {
+            return;
+        }
+        let steps = self.get_active_indices(chord);
+        let targets = self.degree_targets(chord);
+        if steps.len() != self.step_order.len() {
+            return;
+        }
+        let distance = |pc: usize| {
+            let up = (pc + 12 - last) % 12;
+            up.min(12 - up)
+        };
+        let nearest = self
+            .step_order
+            .iter()
+            .enumerate()
+            .filter(|&(_, &step)| steps[step].degree < 4)
+            .map(|(place, &step)| (place, distance(targets[steps[step].degree])))
+            .filter(|&(_, d)| d > 0)
+            .min_by_key(|&(_, d)| d);
+        if let Some((place, _)) = nearest {
+            self.step_order.swap(0, place);
+        }
+    }
+
+    /// Another exercise: the lap starts again on it.
+    pub fn set_interval_level(&mut self, index: usize) {
+        if index < interval_levels::LEVELS.len() && self.interval_level != Some(index) {
+            self.interval_level = Some(index);
+            self.reset_logic_state();
+            self.reroll();
+        }
+    }
+
     /// `get_active_indices` in play order. Without randomisation this is the
     /// identity; with it, the stored permutation. The UI renders the same order,
     /// so the highlight still runs left to right instead of jumping around.
@@ -823,7 +930,7 @@ impl MyApp {
         // notes, and a scale that is not walked in order is not a scale. In
         // both, what the shuffle means is the KEY and where on the neck to
         // take it; in Intervals the set really is a set, and there it scatters.
-        if matches!(self.app_mode, AppMode::Arpeggios | AppMode::Scales) {
+        if !self.steps_shuffle() {
             return active;
         }
         // The permutation goes stale when the user edits the interval list; the
@@ -976,9 +1083,13 @@ impl MyApp {
         // And which strings an interval grip is taken on when nothing is
         // leading it there: the bottom four can carry the lowest voice.
         self.grip_string = self.rng.below(4);
+        self.level_rotation = self.rng.below(8);
         self.step_order = (0..n).collect();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
+            if self.lead_line {
+                self.lead_from_last_note();
+            }
             self.start_hint = Some(self.rng.below(START_STRINGS.len()));
         } else {
             self.start_hint = None;
@@ -1048,7 +1159,7 @@ impl MyApp {
     /// Whether the set may be taken in any order. Only Intervals ever can: a
     /// scale or an arpeggio is an order, and a chord has none to walk.
     pub fn free_order(&self) -> bool {
-        self.app_mode == AppMode::Intervals && !self.interval_in_order
+        self.app_mode == AppMode::Intervals && !self.interval_in_order && !self.steps_are_a_line()
     }
 
     /// The step the exercise is waiting for, where it is waiting for a
@@ -1288,6 +1399,7 @@ impl MyApp {
         // last one still ringing - but not a change of exercise, where nothing
         // is being continued.
         self.credited.forget_all();
+        self.last_played = None;
         self.rebuild_play_order();
         self.current_note_step = 0;
         self.answering_step = None;
@@ -1593,6 +1705,19 @@ fn arpeggio_degree(token: &str, names: &[String]) -> Option<usize> {
     (degree < names.len()).then_some(degree)
 }
 
+/// The degree a token of an interval level asks for. 1, 3, 5 and 7 are the
+/// chord's own, however it spells them - the diminished chord's seventh is
+/// `bb7` - and anything else is looked for across its scale.
+fn level_degree(token: &str, names: &[String]) -> Option<usize> {
+    let own = &names[..names.len().min(4)];
+    match token {
+        // A sixth chord's fourth tone is its sixth: there "7" is that.
+        "7" => scale_degree(token, own).or_else(|| own.iter().position(|n| n == "6")),
+        "1" | "8" | "3" | "5" => scale_degree(token, own),
+        _ => scale_degree(token, names),
+    }
+}
+
 /// The degree a scale or interval token asks for.
 ///
 /// An exact name wins wherever it sits, and is looked for across the whole set
@@ -1629,6 +1754,9 @@ mod fretboard_mode_tests;
 
 #[cfg(test)]
 mod generator_tests;
+
+#[cfg(test)]
+mod level_tests;
 
 #[cfg(test)]
 mod repeat_harness;
