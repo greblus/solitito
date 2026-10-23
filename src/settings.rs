@@ -48,13 +48,10 @@ pub struct Settings {
     /// something the app can do and a monophonic tuner cannot.
     #[serde(default)]
     pub single_notes: bool,
-    /// Let the model credit only what the onset head heard being struck. Off by
-    /// default: it removes most of the credits that belong to the note before,
-    /// but a note whose attack the head misses then has only the CQT branch.
-    #[serde(default)]
-    pub require_onset: bool,
-    /// Intervals has its own attack setting, enabled by default,
-    /// including older settings that only saved the shared model gate.
+    /// "Credit only what was struck", offered in Intervals alone and on by
+    /// default, including in older settings that saved a shared value for every
+    /// mode - that one is no longer read. The other modes do without it: the
+    /// fretboard, scales and arpeggios take notes one at a time anyway.
     #[serde(default = "yes")]
     pub interval_require_onset: bool,
     /// Whether the shuffle also reorders the chords in Intervals and Arpeggios.
@@ -324,7 +321,6 @@ impl Default for Settings {
             language: 0,
             short_verdict: false,
             single_notes: true,
-            require_onset: false,
             interval_require_onset: true,
             shuffle_chords: false,
             show_spectrum: false,
@@ -472,14 +468,13 @@ impl Settings {
     }
 
     pub fn require_onset_for(&self, mode: i32) -> bool {
-        if mode == 1 { self.interval_require_onset } else { self.require_onset }
+        mode == 1 && self.interval_require_onset
     }
 
+    /// Only Intervals offers the option; elsewhere there is nothing to set.
     pub fn set_require_onset_for(&mut self, mode: i32, on: bool) {
         if mode == 1 {
             self.interval_require_onset = on;
-        } else {
-            self.require_onset = on;
         }
     }
 
@@ -685,21 +680,20 @@ mod tests {
     #[test]
     fn interval_attack_gate_defaults_on_and_remembers_its_own_choice() {
         assert!(Settings::default().require_onset_for(1));
+        // An older file with the shared value turned on: it is no longer read.
         let mut s: Settings = serde_json::from_str(
-            r#"{"startup_mode":1,"require_onset":false}"#,
+            r#"{"startup_mode":1,"require_onset":true}"#,
         ).unwrap();
         assert!(s.require_onset_for(1), "old settings missed the interval default");
         for mode in [0, 2, 3, 4, 5] {
-            assert!(!s.require_onset_for(mode), "another mode's setting changed");
+            assert!(!s.require_onset_for(mode), "a mode without the option has it on");
         }
         s.set_require_onset_for(1, false);
         s.set_require_onset_for(4, true);
         let saved = serde_json::to_string(&s).unwrap();
         let restored: Settings = serde_json::from_str(&saved).unwrap();
         assert!(!restored.require_onset_for(1), "an explicit opt-out was lost");
-        assert!(restored.require_onset_for(4));
-        s.set_require_onset_for(1, true);
-        assert!(s.require_onset_for(4), "intervals changed the shared option");
+        assert!(!restored.require_onset_for(4), "a mode without the option kept a value");
     }
 
     #[test]

@@ -161,6 +161,59 @@ component FoldArrow inherits Path {
 /// A quick option of the mode on screen, unfolded under its entry in the
 /// side navigation: the label lined up with the entries' labels, a switch
 /// at the end, the whole row clickable.
+/// The side-bar label the pointer is over, when that label is cut short with
+/// an ellipsis. Drawn by the window above everything else - see `HintBubble`.
+global SideHint {
+    in-out property <string> text;
+    in-out property <bool> shown;
+    in-out property <length> x;
+    in-out property <length> y;
+}
+
+/// Placed beside a side-bar row: tells `SideHint` when the row's label is cut
+/// short and the pointer is on it. Not a popup: an open popup takes the hover
+/// from the row under it, closing it gives it back, and the bubble blinked on
+/// every move of the mouse.
+component OverflowHint {
+    in property <string> text;
+    in property <bool> shown;
+    width: 0px;
+    height: 0px;
+
+    changed shown => {
+        if (self.shown) {
+            SideHint.text = self.text;
+            SideHint.x = self.absolute-position.x;
+            SideHint.y = self.absolute-position.y;
+            SideHint.shown = true;
+        } else if (SideHint.text == self.text) {
+            // Only its own: the next row may already have taken the hint over.
+            SideHint.shown = false;
+        }
+    }
+}
+
+/// The bubble itself, the window's last child so it is drawn on top. It takes
+/// no clicks and lies beside the row, never under the pointer.
+component HintBubble inherits Rectangle {
+    x: SideHint.x;
+    y: SideHint.y;
+    width: bubble_text.preferred-width + 20px;
+    height: bubble_text.preferred-height + 12px;
+    visible: SideHint.shown;
+    background: #1C212C;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #2D3444;
+    bubble_text := Text {
+        x: 10px;
+        y: 6px;
+        text: SideHint.text;
+        font-size: 13px;
+        color: #E8EAF0;
+    }
+}
+
 component SideToggle inherits Rectangle {
     in property <string> text;
     in property <bool> on;
@@ -174,7 +227,7 @@ component SideToggle inherits Rectangle {
         padding-left: 44px;
         padding-right: 12px;
         spacing: 8px;
-        Text {
+        label := Text {
             text: root.text;
             font-size: 13px;
             color: root.on ? #E8EAF0 : #A9B0C0;
@@ -201,6 +254,12 @@ component SideToggle inherits Rectangle {
                 }
             }
         }
+    }
+    OverflowHint {
+        x: root.width + 8px;
+        y: 4px;
+        text: root.text;
+        shown: touch.has-hover && label.preferred-width > label.width;
     }
 }
 
@@ -250,7 +309,7 @@ component NavItem inherits Rectangle {
                 colorize: root.selected ? #FFFFFF : #A9B0C0;
             }
         }
-        Text {
+        label := Text {
             text: root.text;
             font-size: 14px;
             color: root.selected ? #FFFFFF : #A9B0C0;
@@ -268,6 +327,12 @@ component NavItem inherits Rectangle {
             alignment: center;
             Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #F2B233; }
         }
+    }
+    OverflowHint {
+        x: root.width + 8px;
+        y: 8px;
+        text: root.text;
+        shown: touch.has-hover && label.preferred-width > label.width;
     }
 }
 
@@ -596,11 +661,12 @@ export global Tr {
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
     in-out property <string> chip_struck: "Struck only";
+    in-out property <string> chip_lock: "Hold the quality";
+    in-out property <string> chip_attack: "Short strums";
     in-out property <string> quick_full: "Full chords";
     in-out property <string> quick_shells: "Shell voicings";
     in-out property <string> tab_audio: "Audio";
     in-out property <string> tab_practice: "Practice";
-    in-out property <string> tab_general: "General";
     in-out property <string> tab_app: "App";
     in-out property <string> audio_calibration: "Audio Calibration";
     in-out property <string> audio_device: "Input: ";
@@ -610,17 +676,6 @@ export global Tr {
     in-out property <string> noise_gate: "Noise gate: ";
     in-out property <string> gate_hint: "";
     in-out property <string> bass_boost: "Bass Boost";
-    in-out property <string> lock_quality: "Lock chord quality until new attack";
-    in-out property <string> short_verdict: "Judge short strums on the attack";
-    in-out property <string> short_verdict_hint: "";
-    in-out property <string> single_notes: "Play the notes one at a time";
-    in-out property <string> single_notes_hint: "";
-    in-out property <string> require_onset: "Credit only what was struck";
-    in-out property <string> require_onset_hint: "";
-    in-out property <string> in_order: "Play the notes in order";
-    in-out property <string> in_order_hint: "";
-    in-out property <string> interval_in_order: "Play the notes in order";
-    in-out property <string> interval_in_order_hint: "";
     in-out property <string> debug_console: "Console debug";
     in-out property <string> random_order: "Random order";
     in-out property <string> shuffle_chords: "Shuffle the chords as well";
@@ -1188,6 +1243,10 @@ export component AppWindow inherits Window {
                 SideToggle { text: Tr.quick_shells; on: root.show_shell_shapes;
                     toggled => { root.show_shell_shapes = !root.show_shell_shapes;
                         root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
+                SideToggle { text: Tr.chip_lock; on: root.lock_quality;
+                    toggled => { root.lock_quality = !root.lock_quality; } }
+                SideToggle { text: Tr.chip_attack; on: root.short_verdict;
+                    toggled => { root.short_verdict = !root.short_verdict; root.short_verdict_changed(root.short_verdict); } }
             }
             NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
                 expandable: root.current_mode == 1 && !root.show_settings;
@@ -2094,7 +2153,6 @@ export component AppWindow inherits Window {
                     spacing: 4px;
                     height: 32px;
                     TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
-                    TabButton { text: Tr.tab_general; selected: root.settings_tab == 1; clicked => { root.settings_tab = 1; } }
                     // Nothing on it in the fretboard trainer: the note is drawn from
                     // the region and judged on its own, so an empty tab is all it
                     // would offer.
@@ -2223,146 +2281,8 @@ export component AppWindow inherits Window {
                                 Text { text: Tr.show_heard; color: #aaa; vertical-alignment: center; }
                             }
 
-                        }
-                    }
-                // GENERAL. How the app judges what it hears, as against Practice,
-                // which holds the exercise itself. Two of these bite on chord names
-                // and two on single notes, so each is shown where it does something:
-                // the latch never engages on a name reading "Note ...", and the
-                // per-strum verdict lives inside the Chords branch alone.
-                if root.settings_tab == 1 : ScrollView {
-                        VerticalLayout {
-                            // Rows keep their own height and the slack falls to the
-                            // bottom; without this the tab shares its spare height
-                            // out among the rows and a one-line combo box ends up
-                            // several centimetres tall.
-                            alignment: start;
-                            padding: 15px;
-                            spacing: 18px;
-
-                            // Chords only: the latch holds a chord through its decay,
-                            // and it refuses to engage on anything the model reports
-                            // as a note.
-                            if root.current_mode == 0 : HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox { checked <=> root.lock_quality; }
-                                Text {
-                                    text: Tr.lock_quality;
-                                    color: #aaa; vertical-alignment: center;
-                                }
-                            }
-
-                            // Chords only: it is read inside that branch of the
-                            // judge, past the point the other modes return from.
-                            if root.current_mode == 0 : VerticalLayout {
-                                spacing: 4px;
-                                HorizontalLayout {
-                                    // Packed left: with the default stretch the row hands its spare width
-                                    // to the control, which undoes the width set on it.
-                                    alignment: start;
-                                    spacing: 15px;
-                                    CheckBox {
-                                        checked <=> root.short_verdict;
-                                        toggled => { root.short_verdict_changed(self.checked); }
-                                    }
-                                    Text {
-                                        text: Tr.short_verdict;
-                                        color: #aaa; vertical-alignment: center;
-                                    }
-                                }
-                                Text {
-                                    // Explicit width, as everywhere inside an `if`:
-                                    // the layout settles the height first and a
-                                    // wrapped line would go missing.
-                                    width: root.panel_w - 30px;
-                                    text: Tr.short_verdict_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
-                                }
-                            }
-
-                            // Formulas only: the note modes walk their own order
-                            // already, and a chord has none to walk.
-                            if root.current_mode == 5 : VerticalLayout {
-                                spacing: 4px;
-                                HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 15px;
-                                    CheckBox {
-                                        checked <=> root.in_order;
-                                        toggled => { root.in_order_changed(self.checked); }
-                                    }
-                                    Text {
-                                        text: Tr.in_order;
-                                        color: #aaa; vertical-alignment: center;
-                                    }
-                                }
-                                Text {
-                                    width: root.panel_w - 30px;
-                                    text: Tr.in_order_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
-                                }
-                            }
-
-                            // The other way round: a strummed chord has no notes to
-                            // take one at a time - and a scale, an arpeggio or the
-                            // fretboard trainer's single note has nothing else, so
-                            // there the rule is in force and not offered. It is left
-                            // to choose in Intervals, where a strummed grip walking
-                            // its tones is the point, and in Formulas, which has its
-                            // own strict switch. The fretboard keeps the strike
-                            // option below.
-                            if root.current_mode == 1 || root.current_mode == 4
-                                || root.current_mode == 5 : VerticalLayout {
-                                spacing: 4px;
-                                if root.current_mode != 4 : HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 15px;
-                                    CheckBox {
-                                        checked <=> root.single_notes;
-                                        toggled => { root.single_notes_changed(self.checked); }
-                                    }
-                                    Text {
-                                        text: Tr.single_notes;
-                                        color: #aaa; vertical-alignment: center;
-                                    }
-                                }
-                                if root.current_mode != 4 : Text {
-                                    width: root.panel_w - 30px;
-                                    text: Tr.single_notes_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
-                                }
-
-                                // Beside it, because it answers the same complaint
-                                // from the other end: that one stops the model
-                                // being asked, this one stops it answering about a
-                                // note that is only still ringing.
-                                //
-                                // Not in Formulas: that mode credits on the strict
-                                // rule, which takes the single-frame estimate alone
-                                // and never the model's branches - so this would sit
-                                // there doing nothing.
-                                if root.current_mode != 5 : HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 15px;
-                                    CheckBox {
-                                        checked <=> root.require_onset;
-                                        toggled => { root.require_onset_changed(self.checked); }
-                                    }
-                                    Text {
-                                        text: Tr.require_onset;
-                                        color: #aaa; vertical-alignment: center;
-                                    }
-                                }
-                                if root.current_mode != 5 : Text {
-                                    width: root.panel_w - 30px;
-                                    text: Tr.require_onset_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
-                                }
-                            }
-
+                            // How the judge weighs what it hears. Measured defaults;
+                            // here beside the gate rather than with the exercise.
                             HorizontalLayout {
                                 // Packed left: with the default stretch the row hands its spare width
                                 // to the control, which undoes the width set on it.
@@ -2374,16 +2294,12 @@ export component AppWindow inherits Window {
                             // Read only by `note_is_sounding`, which Chords never
                             // calls - there the verdict comes from the chord name.
                             if root.current_mode != 0 : HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
                                 alignment: start;
                                 Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
                                 Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
                             }
 
                             HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
                                 alignment: start;
                                 Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
                                 Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
@@ -2582,25 +2498,6 @@ export component AppWindow inherits Window {
                                 if root.current_mode == 1 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.voice_leading_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
-                                }
-                                // Intervals only: a scale and an arpeggio ARE an
-                                // order, so there is nothing to offer there.
-                                if root.current_mode == 1 : HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 15px;
-                                    CheckBox {
-                                        checked <=> root.interval_in_order;
-                                        toggled => { root.interval_in_order_changed(self.checked); }
-                                    }
-                                    Text {
-                                        text: Tr.interval_in_order;
-                                        color: #aaa; vertical-alignment: center;
-                                    }
-                                }
-                                if root.current_mode == 1 : Text {
-                                    width: root.panel_w - 30px;
-                                    text: Tr.interval_in_order_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
 
@@ -3139,5 +3036,6 @@ export component AppWindow inherits Window {
             }
         }
     }
+    HintBubble { }
     } // window_keys
 }
