@@ -442,7 +442,7 @@ pub const PL: Strings = Strings {
     scale_from: "Początek: ",
     scale_from_drawn: "losowo",
     scale_from_e_to_e: "Od E do e",
-    key_move: "Następna tonacja: ",
+    key_move: "Ruch tonacji: ",
     key_moves: ["ta sama", "o półton w górę", "o półton w dół", "kołem kwintowym", "kołem kwartowym"],
     quick_full: "Pełne chwyty",
     quick_shells: "Shelle",

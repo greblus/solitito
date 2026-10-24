@@ -1560,18 +1560,27 @@ export component AppWindow inherits Window {
         // PROGRESSION STRIP: where in the tune the player is. Above the
         // centred column, so it does not move the chord name up or down.
         if !root.show_settings && (root.current_mode == 0 || root.current_mode == 1)
-            && root.progress.length > 1 : HorizontalLayout {
-            alignment: center;
-            spacing: 6px;
+            && root.progress.length > 1 : Rectangle {
             height: root.bar_h;
             // All the same width, so the current chord stays where the eye is -
-            // and seven of them as wide as the column below, its 15px margins
-            // and the six gaps taken off. Measured against the window instead,
-            // they overflowed the column and the strip stood off to the right.
-            for c in root.progress : ProgressChip {
-                chip: c;
-                width: min(96px, (root.box_w - 2 * 15px - 6 * 6px) / 7);
-                picked => { root.go_to_chord(c.offset); }
+            // and seven of them as wide as the room beside the side bar, less
+            // the margin the drawings keep, its 15px margins and the six gaps.
+            // Measured against the whole window, they overflowed and the strip
+            // stood off to the right; against the column, the narrow one of the
+            // Intervals tiles cut "Bb Maj7" short. So the row is centred by
+            // hand over the column, free to be wider than it.
+            HorizontalLayout {
+                property <length> chip_w:
+                    min(96px, ((root.width - root.sidebar_w) * 92 / 100 - 2 * 15px - 6 * 6px) / 7);
+                spacing: 6px;
+                width: root.progress.length * self.chip_w + (root.progress.length - 1) * self.spacing;
+                height: parent.height;
+                x: (parent.width - self.width) / 2;
+                for c in root.progress : ProgressChip {
+                    chip: c;
+                    width: parent.chip_w;
+                    picked => { root.go_to_chord(c.offset); }
+                }
             }
         }
 
