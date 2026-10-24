@@ -64,8 +64,9 @@ chord, the app moves on to the next one.
 - **Scales** — 47 scales: the modes of the major, melodic minor, harmonic minor and harmonic
   major scales, pentatonics, blues, symmetric and bebop scales. Up, down, a direction drawn
   for every pass, or the notes scattered in an order drawn for every pass; in order or in
-  any order; **From E to e** — every tone of the scale across first position, from the low E
-  to the high one; there and back; started on the 1, 3, 5, 7 or anywhere. The key stays, or
+  any order; **From E to e** — every tone of the scale under one hand, from the low E string
+  to the high e, the hand standing round the chosen degree at a place on the neck drawn for
+  every pass: up to the top, down to the bottom and back; there and back; started on the 1, 3, 5, 7 or anywhere. The key stays, or
   moves a semitone or round the cycle of fifths or fourths after every pass, or is drawn at
   random, the starting string with it.
 

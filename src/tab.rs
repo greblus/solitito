@@ -84,6 +84,39 @@ pub fn place_near(
     place_from(root_pc, intervals, steps, names, anchor, None)
 }
 
+/// Where the root of `root_pc` is taken as the steps' octave 0: its lowest
+/// place at or above the open low E.
+pub fn root_above_low_e(root_pc: usize) -> i32 {
+    TUNING[0] + (root_pc as i32 - TUNING[0]).rem_euclid(12)
+}
+
+/// A phrase laid under a hand that does not move: every note on the lowest
+/// string that takes it between frets `lo` and `hi`. Octave 0 of the steps is
+/// `root_above_low_e`. A note the hand cannot reach is left out.
+pub fn place_in_hand(
+    root_pc: usize,
+    intervals: &[u8],
+    steps: &[Step],
+    names: &[String],
+    (lo, hi): (i32, i32),
+) -> Vec<Spot> {
+    let root = root_above_low_e(root_pc);
+    steps
+        .iter()
+        .filter_map(|step| {
+            let interval = *intervals.get(step.degree)? as i32 + 12 * step.octave as i32;
+            let pitch = root + interval;
+            let string = (0..6).find(|&s| (lo..=hi).contains(&(pitch - TUNING[s])))?;
+            Some(Spot {
+                string,
+                fret: pitch - TUNING[string],
+                interval,
+                name: names.get(step.degree).map(|n| spell(n)),
+            })
+        })
+        .collect()
+}
+
 /// The same, and starting from a given string where one is asked for.
 ///
 /// A scale is the same shape in every position AND on every pair of strings it
@@ -172,8 +205,7 @@ fn lay(
     intervals: &[u8],
     names: &[String],
 ) -> Option<(Cost, Vec<Spot>)> {
-    // A hand covers four frets, read from one below the note it starts on.
-    let (mut lo, mut hi) = (start_fret - 1, start_fret + 3);
+    let (mut lo, mut hi) = hand_from(start_fret);
     let (mut shifts, mut distance, mut highest) = (0usize, 0i32, 0i32);
     let mut out = Vec::with_capacity(steps.len());
     for step in steps {
@@ -195,8 +227,7 @@ fn lay(
                 let fret = pitch - TUNING[s];
                 shifts += 1;
                 distance += if fret < lo { lo - fret } else { fret - hi };
-                lo = fret - 1;
-                hi = fret + 3;
+                (lo, hi) = hand_from(fret);
                 s
             }
         };
@@ -214,6 +245,14 @@ fn lay(
         });
     }
     Some(((shifts, distance, highest), out))
+}
+
+/// The frets a hand covers from a note on `fret`: one below it to three
+/// above. From an open string that is first position, frets 0 to 4 - one below
+/// would be under the nut, where E major's G#2 went to the A string at fret -1
+/// and no position was left to draw it in.
+pub fn hand_from(fret: i32) -> (i32, i32) {
+    if fret == 0 { (0, 4) } else { (fret - 1, fret + 3) }
 }
 
 /// A chord laid out as a VOICING: one note per string, close together, and as

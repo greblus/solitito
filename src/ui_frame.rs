@@ -1317,12 +1317,17 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
 /// over and over is not the exercise. An arpeggio study keeps the position its
 /// source is written in.
 fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::Spot> {
-    // From E to e is first position: the low E string, whatever the pass.
-    let from = (app.app_mode == AppMode::Scales).then_some(if app.scale_e_to_e {
-        0
-    } else {
-        app.scale_start
-    });
+    // From E to e the hand stands where the pass drew it, and does not move.
+    if let Some((hand, _)) = app.scale_hand(chord) {
+        return tab::place_in_hand(
+            chord.root as usize,
+            &chord.quality.intervals(),
+            steps,
+            &chord.quality.interval_names(),
+            hand,
+        );
+    }
+    let from = (app.app_mode == AppMode::Scales).then_some(app.scale_start);
     tab::place_from(
         chord.root as usize,
         &chord.quality.intervals(),

@@ -65,7 +65,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Debug na konsoli** | Wypisuje linię dla każdej zaliczonej funkcji wraz z tym, co usłyszano. Okno na ocenianie; w Windowsie wydanie release nie ma konsoli, na której mogłoby to wypisać |
 | **Kończ powtórzoną prymą** | Tylko Skale: przebieg czyta się 1 2 3 4 5 6 7 8, gdzie 8 to pryma oktawę wyżej. To osobny krok i trzeba go zagrać |
 | **Tam i z powrotem** | Skale: w górę i z powrotem w jednym przebiegu, także w szybkich opcjach |
-| **Początek** | Skale: przebieg zaczyna się od 1, 3, 5 albo 7 skali, albo od dźwięku losowanego na każdy przebieg, i idzie przez oktawę do tego samego dźwięku. Wyszarzony przy **Od E do e**, które zaczyna tam, gdzie pierwsza pozycja |
+| **Początek** | Skale: przebieg zaczyna się od 1, 3, 5 albo 7 skali, albo od dźwięku losowanego na każdy przebieg, i idzie przez oktawę do tego samego dźwięku. Przy **Od E do e** przebieg zaczyna się od tego stopnia w miejscu gryfu losowanym na każdy przebieg, na dowolnej strunie |
 | **Ruch tonacji** | Skale, przy wyłączonym losowaniu: po każdym przebiegu tonacja zostaje, przesuwa się o półton w górę lub w dół albo idzie kołem kwintowym lub kwartowym |
 | **Prowadzenie głosów** | Interwały, przy włączonym losowaniu: każdy akord zaczyna się od składnika najbliższego ostatnio zagranemu dźwiękowi, nigdy od tego samego, więc wylosowane ćwiczenie dalej czyta się jak linia |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |
@@ -114,7 +114,12 @@ sięgać w trakcie grania:
 W Skalach **Losowo** losuje kierunek na każdy przebieg, nigdy trzy razy w tę samą stronę,
 a **Rozsypane** rozdaje dźwięki w kolejności losowanej na każdy przebieg; przy wyłączonym
 **Po kolei** można je grać w dowolnej kolejności. **Od E do e** to każdy dźwięk skali
-w pierwszej pozycji, od niskiego E do wysokiego — domyślnie włączone.
+pod jedną ręką, od niskiej struny E do wysokiej e. Ręka stoi przy stopniu wybranym
+w **Początku**, w jednym z jego miejsc na pierwszych dwunastu progach — na dowolnej strunie
+i w innym miejscu przy każdym przebiegu — i obejmuje próg niżej i trzy wyżej, a od pustej
+struny progi 0–4; nie przesuwa się. Przebieg zaczyna się od tego dźwięku, idzie w górę, na sam
+dół i z powrotem do startu; w dół najpierw schodzi. Domyślnie włączone; **Tam i z powrotem**
+nic do niego nie dodaje.
 
 **Losowanie** znaczy w każdym trybie co innego, bo w każdym co innego warto losować:
 
@@ -130,7 +135,7 @@ studium nie jest tym studium; skala w innej kolejności to **Rozsypane**, wybran
 
 Przy wyłączonym losowaniu skala i tak przesuwa się po każdym przejściu: tonacja tak, jak mówi
 **Ruch tonacji**, a jeśli skala nie idzie od E do e, także struna, od której się zaczyna —
-po kolei przez trzy, od których warto zaczynać.
+losowana spośród trzech, od których warto zaczynać, nigdy ta sama co w poprzednim przebiegu.
 
 **Pauza** zatrzymuje progresję, a kolory dalej mówią, czy akord jest właściwy — można zostać
 przy jednym chwycie i go opracować. Przy pauzie strzałki po bokach przycisku pauzy przechodzą tam

@@ -2047,30 +2047,6 @@ fn a_scattered_scale_deals_its_own_tones_anew() {
     assert_eq!(a.get_active_indices(&a.chords[0].clone()), dealt, "the random key dealt the scale again");
 }
 
-/// From E to e: every tone of the scale in first position, two octaves from
-/// the low open E to the high one - starting wherever the scale's lowest tone
-/// lies, not on its root.
-#[test]
-fn a_scale_from_e_to_e_covers_first_position() {
-    let mut a = app();
-    a.set_mode(AppMode::Scales as i32);
-    a.set_scale_e_to_e(false);
-    a.set_scale_e_to_e(true);
-    let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
-    for (root, first) in [(NoteName::C, 4usize), (NoteName::E, 4), (NoteName::G, 4), (NoteName::F, 4)] {
-        let chord = Chord { root, quality: ChordQuality::CustomScale(major.clone()) };
-        let targets = chord.get_target_indices();
-        let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
-        assert_eq!(pcs.len(), 15, "{root:?}: two octaves of a seven-note scale");
-        assert_eq!((pcs[0], pcs[14]), (first, first), "{root:?}: not from E to e");
-    }
-    // B flat major has no E: it starts on its lowest tone above the low E.
-    let chord = Chord { root: NoteName::Bf, quality: ChordQuality::CustomScale(major) };
-    let targets = chord.get_target_indices();
-    let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
-    assert_eq!(pcs[0], 5, "B flat major starts on F, its lowest tone above the low E");
-}
-
 /// Unshuffled, the key moves as asked after every finished scale.
 #[test]
 fn the_key_moves_round_the_cycle() {
@@ -2089,7 +2065,8 @@ fn the_key_moves_round_the_cycle() {
 }
 
 /// And without the shuffle the string still moves, while the key stays: the
-/// shape is the same everywhere, so where it is taken is the exercise.
+/// shape is the same everywhere, so where it is taken is the exercise. Drawn,
+/// and never the same string twice running.
 #[test]
 fn a_scale_starts_from_a_drawn_string_even_unshuffled() {
     let mut a = app();
@@ -2097,13 +2074,14 @@ fn a_scale_starts_from_a_drawn_string_even_unshuffled() {
     a.set_scale_e_to_e(false);
     a.set_random_mode(false);
     let key = a.chords[0].root as usize;
-    let mut strings = std::collections::HashSet::new();
-    for _ in 0..6 {
+    let mut strings = Vec::new();
+    for _ in 0..40 {
         a.advance_chord();
-        strings.insert(a.scale_start);
+        strings.push(a.scale_start);
         assert_eq!(a.chords[0].root as usize, key, "the key moved unasked");
     }
-    assert_eq!(strings.len(), 3, "the scale did not go through the strings");
+    assert!(strings.windows(2).all(|w| w[0] != w[1]), "the same string twice running: {strings:?}");
+    assert!((0..3).all(|s| strings.contains(&s)), "the scale did not go through the strings");
 }
 
 /// What twenty passes of a scale actually draw.
@@ -3103,4 +3081,116 @@ fn a_tune_is_played_in_the_key_chosen() {
     assert_eq!(a.chords.last().unwrap().root as usize, (tonic + 5) % 12);
     a.item_selected(1);
     assert_eq!(a.transpose, 0, "a new tune kept the old key");
+}
+
+/// A scale from E to e, laid out as the neck draws it: each note's pitch and
+/// fret, with the hand the pass drew.
+fn hand_run(a: &MyApp, chord: &Chord) -> (Vec<i32>, Vec<crate::tab::Spot>, (i32, i32)) {
+    let steps = a.get_active_indices(chord);
+    let (hand, _) = a.scale_hand(chord).expect("no hand from E to e");
+    let intervals = chord.quality.intervals();
+    let root = crate::tab::root_above_low_e(chord.root as usize);
+    let pitches = steps.iter().map(|s| root + intervals[s.degree] as i32 + 12 * s.octave as i32).collect();
+    let spots = crate::tab::place_in_hand(
+        chord.root as usize, &intervals, &steps, &chord.quality.interval_names(), hand,
+    );
+    (pitches, spots, hand)
+}
+
+fn e_to_e_app() -> MyApp {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
+    a.set_scale_e_to_e(true);
+    a.set_random_mode(false);
+    a
+}
+
+/// From E to e: the hand stands where the pass drew the start degree, on any
+/// string, and does not move. The run is every tone of the scale under it,
+/// from the low E string to the high e: from the start up to the top, down to
+/// the bottom and back to the start.
+#[test]
+fn a_scale_from_e_to_e_goes_round_the_hand() {
+    let mut a = e_to_e_app();
+    let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
+    let chord = Chord { root: NoteName::D, quality: ChordQuality::CustomScale(major) };
+    a.chords = vec![chord.clone()];
+    let in_d_major = |p: i32| [2, 4, 6, 7, 9, 11, 1].contains(&(p.rem_euclid(12)));
+    for (from, pc) in [(ScaleFrom::Root, 2), (ScaleFrom::Third, 6), (ScaleFrom::Fifth, 9), (ScaleFrom::Seventh, 1)] {
+        a.set_scale_way(ScaleDirection::Up, from, false, KeyMove::Stays, true);
+        let mut starts = Vec::new();
+        for _ in 0..30 {
+            a.advance_chord();
+            let (run, spots, (lo, hi)) = hand_run(&a, &chord);
+            let (low, high) = (40 + lo, 64 + hi);
+            assert_eq!(run[0].rem_euclid(12), pc, "{from:?}: not started on its degree");
+            assert_eq!(run.first(), run.last(), "{from:?}: does not end where it began");
+            assert!(run[1] > run[0] || run[0] == *run.iter().max().unwrap(), "{from:?}: up did not go up first");
+            assert!(run.windows(2).all(|w| w[0] != w[1]), "a note twice running: {run:?}");
+            let tones: Vec<i32> = (low..=high).filter(|&p| in_d_major(p)).collect();
+            assert!(tones.iter().all(|t| run.contains(t)), "{from:?}: a tone under the hand left out");
+            assert!(run.iter().all(|p| tones.contains(p)), "{from:?}: a note outside the hand");
+            assert_eq!(run.len(), 2 * tones.len() - 1);
+            assert_eq!(spots.len(), run.len(), "{from:?}: not every note drawn");
+            assert!(spots.iter().all(|s| (lo..=hi).contains(&s.fret)), "{from:?}: the hand moved");
+            starts.push((run[0], lo));
+        }
+        assert!(starts.windows(2).all(|w| w[0] != w[1]), "{from:?}: the same place twice running");
+    }
+}
+
+/// Run downwards, the run sets off down from its start and comes back to it.
+#[test]
+fn a_scale_from_e_to_e_downwards_sets_off_down() {
+    let mut a = e_to_e_app();
+    let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
+    let chord = Chord { root: NoteName::D, quality: ChordQuality::CustomScale(major) };
+    a.chords = vec![chord.clone()];
+    a.set_scale_way(ScaleDirection::Down, ScaleFrom::Third, false, KeyMove::Stays, true);
+    for _ in 0..20 {
+        a.advance_chord();
+        let (down, _, _) = hand_run(&a, &chord);
+        assert_eq!(down[0].rem_euclid(12), 6, "not started on the third");
+        assert_eq!(down.first(), down.last(), "does not end where it began");
+        // Started on the lowest note under the hand, there is no down to go.
+        assert!(down[1] < down[0] || down[0] == *down.iter().min().unwrap(), "down went up first: {down:?}");
+    }
+}
+
+/// From E to e in every key, from every start, at every place drawn, every
+/// scale lies under the hand in full. E major once drew nothing at all, its
+/// G#2 sent below the nut.
+#[test]
+fn every_scale_from_e_to_e_is_drawn_in_every_key() {
+    let mut a = e_to_e_app();
+    let scales = a.scale_definitions.clone();
+    for from in [ScaleFrom::Root, ScaleFrom::Third, ScaleFrom::Fifth, ScaleFrom::Seventh] {
+        a.set_scale_way(ScaleDirection::Up, from, false, KeyMove::Stays, true);
+        for pass in 0..8 {
+            a.advance_chord();
+            for scale in &scales {
+                for pc in 0..12 {
+                    let chord = Chord { root: NoteName::from_index(pc), quality: ChordQuality::CustomScale(scale.clone()) };
+                    let (run, spots, _) = hand_run(&a, &chord);
+                    assert!(run.len() > 1, "{} in {pc} from {from:?}: no run", scale.name);
+                    assert_eq!(spots.len(), run.len(), "{} in {pc} from {from:?}, pass {pass}", scale.name);
+                }
+            }
+        }
+    }
+}
+
+/// A scale just chosen does not stand at the nut every time: the place is
+/// drawn when the exercise starts, not only between passes.
+#[test]
+fn a_scale_from_e_to_e_is_placed_anew_when_chosen() {
+    let mut a = e_to_e_app();
+    let chord = a.chords[0].clone();
+    let mut hands = std::collections::HashSet::new();
+    for _ in 0..20 {
+        a.reset_logic_state();
+        hands.insert(a.scale_hand(&chord).unwrap());
+    }
+    assert!(hands.len() > 2, "the scale kept to {hands:?}");
 }

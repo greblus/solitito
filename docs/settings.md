@@ -65,7 +65,7 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Console debug** | Prints a line for every function credited, with what was heard. A window on the judging; on Windows a release build has no console to print it to |
 | **End on the root again** | Scales only: the run reads 1 2 3 4 5 6 7 8, the last one the root an octave up. It is a step of its own and has to be played |
 | **There and back** | Scales: up and down again in one pass, also in the quick options |
-| **Start on** | Scales: the run starts on the 1, 3, 5 or 7 of the scale, or on a tone drawn for each pass, and goes through the octave to the same tone again. Greyed out with **From E to e**, which starts where first position does |
+| **Start on** | Scales: the run starts on the 1, 3, 5 or 7 of the scale, or on a tone drawn for each pass, and goes through the octave to the same tone again. With **From E to e** the run starts on that degree at a place on the neck drawn for every pass, on any string |
 | **Next key** | Scales, with the shuffle off: after each pass the key stays, moves a semitone up or down, or goes round the cycle of fifths or fourths |
 | **Voice leading** | Intervals, with the shuffle on: each chord starts on its tone nearest the last one played, never on the same note, so a shuffled exercise still reads as a line |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
@@ -106,8 +106,12 @@ reaching for while playing:
 
 In Scales, **Random** draws the direction for every pass, never three the same way, and
 **Scattered** deals the notes in an order drawn for every pass; with **In order** off they
-may be played in any order. **From E to e** plays every tone of the scale in first position,
-from the low E to the high one — on by default.
+may be played in any order. **From E to e** plays every tone of the scale under one hand, from the low E string to the high
+e. The hand stands round the degree **Start on** names, at one of its places in the first twelve
+frets — on any string, and another place every pass — covering a fret below it and three above,
+or frets 0 to 4 from an open string; it does not move. The run starts on that note, goes up to
+the top, down to the bottom and back up to where it began; run down, it goes down first. On by
+default; **There and back** adds nothing to it.
 
 **The shuffle** means something different in each mode, because the modes have different
 things worth randomising:
@@ -123,8 +127,8 @@ The shuffle never changes the order of the notes in Scales and Arpeggios. A stud
 random is not that study; a scale in another order is **Scattered**, chosen on purpose.
 
 With the shuffle off a scale still moves after every pass: the key as **Next key** says, and,
-unless it runs from E to e, the string it starts from — through the three worth starting from,
-in turn.
+unless it runs from E to e, the string it starts from — drawn from the three worth starting
+from, never the one the last pass started on.
 
 **Pause** stops the progression while the colours go on reporting whether the chord is right,
 so you can stay on one shape and work it out. While paused, the arrows either side of the

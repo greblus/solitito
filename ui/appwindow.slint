@@ -2830,10 +2830,8 @@ export component AppWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     Text { text: Tr.scale_from; color: #aaa; vertical-alignment: center; width: 100px; }
-                                    // From E to e the run starts where first position does.
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        enabled: !root.scale_e_to_e;
                                         model: root.scale_from_items;
                                         current-index <=> root.scale_from;
                                         selected => { root.scale_way_changed(); }

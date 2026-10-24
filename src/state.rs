@@ -5,6 +5,7 @@ use crate::arpeggio;
 use crate::interval_levels::{self, Level};
 use crate::rng::Rng;
 use crate::fretboard::Region;
+use crate::tab;
 use crate::model::{Step, split_octave, Chord, NoteName, Song, load_songs, load_all_scale_definitions, load_arpeggio_patterns, ScaleDefinition, ChordQuality};
 
 mod chords_mode;
@@ -271,6 +272,7 @@ pub enum MatchStatus {
 /// reads as the diagrams being wrong rather than the hint. `diagrams.rs` has a
 /// test tying the two together.
 pub const START_STRINGS: [&str; 3] = ["E", "A", "D"];
+
 
 /// How long a new lap ignores what it hears, so the last one's decay cannot
 /// walk into it. A quarter of a second: past the moment the marks clear, short
@@ -578,6 +580,9 @@ pub struct MyApp {
     scale_scatter: Vec<usize>,
     /// The degree a scale starts on this pass where `ScaleFrom::Random`.
     scale_from_drawn: usize,
+    /// Which of its places on the neck a scale from E to e starts on this
+    /// pass - see `scale_hand`.
+    scale_place_drawn: usize,
     /// How many passes in a row the drawn direction has run the same way.
     same_way_passes: usize,
     /// Which string to suggest starting from (index into `START_STRINGS`), or
@@ -815,6 +820,7 @@ impl MyApp {
             scale_in_order: true,
             scale_scatter: Vec::new(),
             scale_from_drawn: 0,
+            scale_place_drawn: 0,
             same_way_passes: 0,
             pass: 0,
             grip_string: 0,
@@ -943,7 +949,7 @@ impl MyApp {
 
         let whole_neck = self.app_mode == AppMode::Scales && self.scale_e_to_e;
         if whole_neck {
-            steps = e_to_e(chord);
+            steps = self.e_to_e_from_its_start(chord);
         } else if self.app_mode == AppMode::Scales {
             steps = self.scale_from_its_start(steps, &names);
         }
@@ -965,8 +971,9 @@ impl MyApp {
             if self.scale_direction == ScaleDirection::Scattered && self.scale_scatter.len() == steps.len() {
                 steps = self.scale_scatter.iter().map(|&i| steps[i]).collect();
             }
-            // And back the way it came, without playing the turn twice.
-            if self.scale_there_and_back && steps.len() > 1 {
+            // And back the way it came, without playing the turn twice. From
+            // E to e the run has come back already.
+            if self.scale_there_and_back && !whole_neck && steps.len() > 1 {
                 let back: Vec<Step> = steps[..steps.len() - 1].iter().rev().copied().collect();
                 steps.extend(back);
             }
@@ -1244,6 +1251,63 @@ impl MyApp {
         rotated(steps, start)
     }
 
+    /// The degree a scale starts on: the one `scale_from` names, or the root
+    /// where the scale has none - a pentatonic has no seventh.
+    fn start_degree(&self, names: &[String]) -> usize {
+        let token = match self.scale_from {
+            ScaleFrom::Root => return 0,
+            ScaleFrom::Third => "3",
+            ScaleFrom::Fifth => "5",
+            ScaleFrom::Seventh => "7",
+            ScaleFrom::Random => return self.scale_from_drawn % names.len().max(1),
+        };
+        scale_degree(token, names).unwrap_or(0)
+    }
+
+    /// Where the hand stands for a scale from E to e this pass: the frets it
+    /// covers, and the note the run starts on. That note is the start degree
+    /// at one of its places in the first twelve frets, on whichever string -
+    /// drawn for every pass - and the hand is round it, as `tab::hand_from`
+    /// has it. `None` outside a scale from E to e.
+    pub fn scale_hand(&self, chord: &Chord) -> Option<((i32, i32), i32)> {
+        if self.app_mode != AppMode::Scales || !self.scale_e_to_e {
+            return None;
+        }
+        let places = self.start_places(chord);
+        let &(string, fret) = places.get(self.scale_place_drawn % places.len().max(1))?;
+        Some((tab::hand_from(fret), tab::TUNING[string] + fret))
+    }
+
+    /// Every place of the start degree in the first twelve frets, string by
+    /// string.
+    fn start_places(&self, chord: &Chord) -> Vec<(usize, i32)> {
+        let intervals = chord.quality.intervals();
+        let degree = self.start_degree(&chord.quality.interval_names());
+        let Some(&interval) = intervals.get(degree) else { return Vec::new() };
+        let pc = (chord.root as i32 + interval as i32) % 12;
+        (0..6)
+            .flat_map(|string| (0..=12).map(move |fret| (string, fret)))
+            .filter(|&(string, fret)| (tab::TUNING[string] + fret) % 12 == pc)
+            .collect()
+    }
+
+    /// From E to e: every tone of the scale under the hand, from the low E
+    /// string to the high e, started on the note `scale_hand` drew - up to the
+    /// top, down to the bottom and back to where it began, so the run ends on
+    /// its first note. Run downwards it is turned round afterwards: from the
+    /// same note down first.
+    fn e_to_e_from_its_start(&self, chord: &Chord) -> Vec<Step> {
+        let Some(((lo, hi), start_pitch)) = self.scale_hand(chord) else {
+            return Vec::new();
+        };
+        let root = tab::root_above_low_e(chord.root as usize);
+        let intervals = chord.quality.intervals();
+        let steps = scale_between(&intervals, root, tab::TUNING[0] + lo, tab::TUNING[5] + hi);
+        let pitch = |s: &Step| root + intervals[s.degree] as i32 + 12 * s.octave as i32;
+        let start = steps.iter().position(|s| pitch(s) == start_pitch).unwrap_or(0);
+        round_trip(&steps, start)
+    }
+
     /// A new order for a scattered scale, drawn over its tones before they
     /// come back the way they went. Kept while it still fits the scale: only
     /// a new pass or a new shape of the run - see `next_scale_pass` and
@@ -1267,18 +1331,16 @@ impl MyApp {
         self.rng.shuffle(&mut self.scale_scatter);
     }
 
-    /// A new pass of a scale: the next string to start from - taken in turn,
-    /// so all three come round - and, where the direction is drawn, a new way
-    /// and a new starting degree. Only a finished scale is a new pass: choosing
+    /// A new pass of a scale: another string to start from - drawn, and never
+    /// the one the last pass started on - and, where the direction is drawn, a
+    /// new way and a new starting degree. Only a finished scale is a new pass: choosing
     /// another scale or key keeps the way it was going.
     fn next_scale_pass(&mut self) {
         self.pass = self.pass.wrapping_add(1);
-        // With the key drawn, the string is drawn too; otherwise in turn.
-        self.scale_start = if self.random_mode {
-            self.rng.below(START_STRINGS.len())
-        } else {
-            self.pass % START_STRINGS.len()
-        };
+        // Taken in turn, the place on the neck came round in an order the
+        // hand learned; drawn from the other two, it is somewhere new.
+        let others = START_STRINGS.len() - 1;
+        self.scale_start = (self.scale_start + 1 + self.rng.below(others)) % START_STRINGS.len();
         // Drawn, but never three passes the same way: a fair coin gave five
         // descents in a row, which read as a scale that only goes down.
         let previous = self.scale_descending;
@@ -1323,6 +1385,13 @@ impl MyApp {
     /// Draws a new order of tones and a new string hint. Called on every chord
     /// change - never per frame, or the target would move while playing.
     fn reroll(&mut self) {
+        // Where the hand stands from E to e: drawn for every pass and every
+        // new exercise, and another place than the one before. Drawn only
+        // between passes, a scale just chosen always stood at the nut.
+        let places = self.chords.first().map_or(1, |chord| self.start_places(chord).len());
+        if places > 1 {
+            self.scale_place_drawn = (self.scale_place_drawn + 1 + self.rng.below(places - 1)) % places;
+        }
         let n = if self.chords.is_empty() {
             0
         } else {
@@ -2012,15 +2081,9 @@ fn compound_octave(token: &str) -> i8 {
     matches!(number, "9" | "11" | "13") as i8
 }
 
-/// Every tone of the chord's scale from the low open E (E2) to the high one
-/// (E4), as steps from the root: those below the root's first place above the
-/// low E an octave down.
-fn e_to_e(chord: &Chord) -> Vec<Step> {
-    const LOW_E: i32 = 40;
-    const HIGH_E: i32 = 64;
-    let intervals = chord.quality.intervals();
-    let root = LOW_E + (chord.root as i32 - LOW_E).rem_euclid(12);
-    (LOW_E..=HIGH_E)
+/// Every tone of a scale from pitch `low` to `high`, as steps from `root`.
+fn scale_between(intervals: &[u8], root: i32, low: i32, high: i32) -> Vec<Step> {
+    (low..=high)
         .filter_map(|note| {
             let above_root = note - root;
             let in_octave = above_root.rem_euclid(12) as u8;
@@ -2028,6 +2091,16 @@ fn e_to_e(chord: &Chord) -> Vec<Step> {
             Some(Step { degree, octave: above_root.div_euclid(12) as i8 })
         })
         .collect()
+}
+
+/// `steps` walked from `start` up to the top, down to the bottom and up to
+/// `start` again, no note played twice in a row.
+fn round_trip(steps: &[Step], start: usize) -> Vec<Step> {
+    let Some(last) = steps.len().checked_sub(1) else { return Vec::new() };
+    let up = steps[start..].iter();
+    let down = steps[..last].iter().rev();
+    let back_up = steps[1..=start.min(last)].iter();
+    up.chain(down).chain(back_up).copied().collect()
 }
 
 /// `steps` started at `start`, those before it carried an octave up.
