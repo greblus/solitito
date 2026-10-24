@@ -10,18 +10,19 @@ Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyek
 ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
-<img width="560" alt="Akordy: shell voicingi, kolumna na strunę prymy" src="docs/screenshots/pl/solitito_chords.png" />
+<img width="560" alt="Akordy: pełne chwyty i shell voicingi, tonacja utworu w pasku bocznym" src="docs/screenshots/pl/solitito_chords.png" />
 </div>
 
 Schematy akordów opisane są **interwałami**, więc jeden diagram obsługuje
 wszystkie dwanaście tonacji: czerwona kropka to pryma, kliknięcie w
-schemat powiększa go. Zrzut pokazuje akord jako **shell voicingi** — tercja i septyma
-nad prymą, bez kwinty — po kolumnie na strunę prymy (E, A, D), drugi wariant pod pierwszym.
-Niżej Interwały ze stopniami w postaci kafelków; szybkie opcje bieżącego trybu rozwijają się
-pod nim w pasku bocznym.
+schemat powiększa go. Zrzut pokazuje u góry pełne chwyty, a pod nimi **shell voicingi** —
+tercja i septyma nad prymą, bez kwinty. Pasek u góry trzyma siedem akordów utworu;
+kliknięcie w jeden zatrzymuje ćwiczenie i przechodzi do niego. Szybkie opcje bieżącego trybu
+rozwijają się pod nim w pasku bocznym — w Akordach tonacja utworu: wybór innej transponuje
+każdy akord standardu. Niżej Interwały z rozwiniętą listą ćwiczeń.
 
 <div align="center">
-<img width="560" alt="Interwały jako kafelki, szybkie opcje rozwinięte w pasku bocznym" src="docs/screenshots/pl/solitito_intervals.png" />
+<img width="560" alt="Interwały: lista ćwiczeń rozwinięta w pasku bocznym, stopnie jako kafelki" src="docs/screenshots/pl/solitito_intervals.png" />
 </div>
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na
@@ -48,10 +49,29 @@ akord, przechodzi do następnego.
 - **Akordy** — pełne standardy jazzowe. Zielony potwierdza trafienie dokładne, żółty przyjmuje
   triadę albo substytucję (voicing bez prymy, `m7` odczytane jako `m`), czerwony znaczy, że
   akord został wykryty, ale sygnał jest za słaby, by go zatwierdzić.
-- **Interwały** — składniki akordu grane pojedynczo. Sam wybierasz, które stopnie ćwiczyć
-  (`1 3 5` dla triad, `1 3 5 7` dla akordów septymowych, `1 3` dla voicingów szkieletowych).
-  `3` obejmuje i `3`, i `b3`, `7` — `7` i `b7`, i tak dalej, zależnie od jakości bieżącego akordu.
-- **Skale** — ćwiczenie dźwięków po kolei, z definicji skali.
+- **Interwały** — dźwięki każdego akordu grane pojedynczo, z listy 50 ćwiczeń zapisanych
+  stopniami, więc jedno ćwiczenie pasuje do każdego akordu w standardzie: `3` to tercja wielka
+  nad akordem durowym i mała nad molowym, `9` i `6` pochodzą ze skali akordu. Lista idzie od
+  pojedynczych składników, par i triad, przez czterodźwiękowe struktury od prymy i od kwinty,
+  do linii prowadzących z akordu w następny (septyma schodzi na tercję kolejnego), rozwiązań
+  zawieszeń i skali akordu przez oktawę — od dowolnego jej dźwięku, z dźwiękiem przejściowym,
+  który stawia każdy składnik akordu na mocnej części taktu, albo bez niego. Dźwięk powyżej
+  oktawy ma swój numer złożony — 8, 9, 10 i dalej. Przy losowaniu **Prowadzenie głosów**
+  w ustawieniach zaczyna każdy akord od składnika najbliższego ostatnio zagranemu dźwiękowi.
+  Domyślnie surowo — pojedynczo, po kolei i tylko to, co uderzone — albo wyłącz te trzy
+  i graj chwyty, a decyduje sam model.
+- **Skale** — 47 skal: mody skali durowej, molowej melodycznej, molowej harmonicznej
+  i durowej harmonicznej, pentatoniki, bluesowe, symetryczne i bebopowe. W górę, w dół,
+  kierunek losowany na każdy przebieg albo dźwięki rozsypane w kolejności losowanej na każdy
+  przebieg; po kolei albo w dowolnej kolejności; **Od E do e** — każdy dźwięk skali w pierwszej
+  pozycji, od niskiego E do wysokiego; tam i z powrotem; początek na 1, 3, 5, 7 albo
+  gdziekolwiek. Tonacja zostaje albo po każdym przebiegu przesuwa się o półton, kołem
+  kwintowym lub kwartowym, albo jest losowana — razem ze struną, od której zaczyna się skala.
+
+<div align="center">
+<img width="560" alt="Skale: skala durowa od E do e, opcje skali w pasku bocznym" src="docs/screenshots/pl/solitito_scales.png" />
+</div>
+
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu.
@@ -106,7 +126,7 @@ Reszta dokumentacji w `docs/`:
 |---|---|
 | [**Ćwiczenie z formułami**](docs/formulas-practice_pl.md) | Trzy ćwiczenia z formułami krok po kroku: co grać, czego słuchać, co to za szyfry na ekranie |
 | [Wybór wejścia](docs/audio-input_pl.md) | Co znaczą nazwy urządzeń w Linuksie, gdzie trzymane są ustawienia i jakie są tryby diagnostyczne |
-| [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z czterech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |
+| [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z trzech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |
 | [Jak to działa](docs/how-it-works_pl.md) | Ścieżka sygnału, model i powód, dla którego pojedynczych dźwięków nie sądzi sam model |
 | [Dane treningowe i wyniki](docs/training-data_pl.md) | Zbiór syntetyczny, GuitarSet i wartość każdej poprawki |
 | [Trening modeli](docs/training_pl.md) | Dwa trenery: uruchamianie, co zapisują, ponowne wytrenowanie wydanych modeli |

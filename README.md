@@ -10,18 +10,19 @@ Recognition runs on a small neural network (7.3M parameters) exported to ONNX. E
 DSP, inference, UI — happens locally on the CPU. 
 
 <div align="center">
-<img width="560" alt="Chords: shell voicings, one column per root string" src="docs/screenshots/en/solitito_chords.png" />
+<img width="560" alt="Chords: full grips and shell voicings, the key of the song in the side bar" src="docs/screenshots/en/solitito_chords.png" />
 </div>
 
 Chord shapes are labelled with **intervals, not fingerings**, so one diagram covers
 all twelve keys: the red dot is the root, and the shape moves. Clicking a shape enlarges
-it. The shot shows the chord as **shell voicings** — third and seventh over the root, with
-the fifth left out — one column per root string (E, A, D), the second voicing under the first.
-Below, Intervals with the degrees as tiles; the quick options of the mode on screen unfold
-under it in the side bar.
+it. The shot shows the full grips above and the **shell voicings** below — third and seventh
+over the root, with the fifth left out. The strip along the top holds seven chords of the
+tune; a click on one pauses and goes there. The quick options of the mode on screen unfold
+under it in the side bar — in Chords, the key of the song: pick another and every chord of
+the standard is transposed. Below, Intervals with its list of exercises open.
 
 <div align="center">
-<img width="560" alt="Intervals as tiles, quick options unfolded in the side bar" src="docs/screenshots/en/solitito_intervals.png" />
+<img width="560" alt="Intervals: the list of exercises open in the side bar, the degrees as tiles" src="docs/screenshots/en/solitito_intervals.png" />
 </div>
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar
@@ -48,12 +49,30 @@ chord, the app moves on to the next one.
 - **Chords** — full jazz standards. Green confirms an exact match, yellow accepts a triad or
   a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
   detected but the signal is too weak to lock.
-- **Intervals** — play the chord tones one at a time. You choose which degrees to practise
-  (`1 3 5` for triads, `1 3 5 7` for sevenths, `1 3` for shell voicings). '3' matches both
-  3 and b3, '7'  = 7 and b7, etc - depending on current chord's quality. Strict by default -
-  one note at a time, in order, and only what was struck - or turn those three off and strum
-  the grips instead, with the model deciding and nothing arguing with it.
-- **Scales** — sequential note practice from a scale definition.
+- **Intervals** — play the tones of each chord one at a time, from a list of 50 exercises
+  written as degrees, so one exercise fits every chord in a standard: `3` is the major third
+  over a major chord and the minor one over a minor chord, `9` and `6` come from the chord's
+  own scale. The list goes from single chord tones, pairs and triads, through four-note
+  structures from the root and from the fifth, to lines that lead from one chord into the
+  next (the seventh falling to the next third), suspensions resolving, and the chord's scale
+  through an octave — from any of its tones, with or without the passing note that puts
+  every chord tone on a beat. A tone above the octave is written as its compound number — 8,
+  9, 10 and on. With the shuffle on, **Voice leading** in the settings starts each chord on
+  its tone nearest the last note played. Strict by default — one note at a time, in order, and only
+  what was struck — or turn those three off and strum the grips instead, with the model
+  deciding and nothing arguing with it.
+- **Scales** — 47 scales: the modes of the major, melodic minor, harmonic minor and harmonic
+  major scales, pentatonics, blues, symmetric and bebop scales. Up, down, a direction drawn
+  for every pass, or the notes scattered in an order drawn for every pass; in order or in
+  any order; **From E to e** — every tone of the scale across first position, from the low E
+  to the high one; there and back; started on the 1, 3, 5, 7 or anywhere. The key stays, or
+  moves a semitone or round the cycle of fifths or fourths after every pass, or is drawn at
+  random, the starting string with it.
+
+<div align="center">
+<img width="560" alt="Scales: the major scale from E to e, the scale options in the side bar" src="docs/screenshots/en/solitito_scales.png" />
+</div>
+
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass.
@@ -108,7 +127,7 @@ The rest of the documentation is in `docs/`:
 |---|---|
 | [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
 | [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, the diagnostic modes, and recording a session with what the app made of it |
-| [Settings](docs/settings.md) | Every option in the four tabs, and the shuffle, the pause and the chord strip on the main window |
+| [Settings](docs/settings.md) | Every option in the three tabs, and the shuffle, the pause and the chord strip on the main window |
 | [How it works](docs/how-it-works.md) | Signal path, the model, and why single notes are not judged by the model alone |
 | [Training data and results](docs/training-data.md) | The synthetic set, GuitarSet, and what each fix was worth |
 | [Training the models](docs/training.md) | The two trainers: running them, what they write, training the released models again |
