@@ -565,6 +565,9 @@ pub struct MyApp {
     pub scale_from: ScaleFrom,
     pub scale_there_and_back: bool,
     pub key_move: KeyMove,
+    /// Scales: every tone from the low E string to the high one, two octaves
+    /// in first position, in place of a run from `scale_from`. On by default.
+    pub scale_e_to_e: bool,
     /// Scales: the tones in the order shown. Off, in any order.
     pub scale_in_order: bool,
     /// The order a scattered scale is dealt in this pass - see
@@ -804,6 +807,7 @@ impl MyApp {
             scale_from: ScaleFrom::Root,
             scale_there_and_back: false,
             key_move: KeyMove::Stays,
+            scale_e_to_e: true,
             scale_in_order: true,
             scale_scatter: Vec::new(),
             scale_from_drawn: 0,
@@ -933,14 +937,18 @@ impl MyApp {
         };
         let mut steps: Vec<Step> = self.intervals_input.split_whitespace().filter_map(read_step).collect();
 
-        if self.app_mode == AppMode::Scales {
+        let whole_neck = self.app_mode == AppMode::Scales && self.scale_e_to_e;
+        if whole_neck {
+            steps = e_to_e(chord);
+        } else if self.app_mode == AppMode::Scales {
             steps = self.scale_from_its_start(steps, &names);
         }
 
         // A scale read as a scale ends where it started: the same note an octave
         // up. It is a step of its own, so it has to be played - and it is marked
-        // an octave up, which is what puts the tick on the strip as `1'`.
-        if self.app_mode == AppMode::Scales && self.scale_repeat_root {
+        // an octave up, which is what puts the tick on the strip as `1'`. From E
+        // to e the run already ends on the tone it started on.
+        if self.app_mode == AppMode::Scales && self.scale_repeat_root && !whole_neck {
             if let Some(&first) = steps.first() {
                 steps.push(Step { degree: first.degree, octave: first.octave + 1 });
             }
@@ -1108,6 +1116,7 @@ impl MyApp {
                 let next = self.rng.below_excluding(12, current);
                 self.chords[0].root = NoteName::from_index(next);
                 self.secondary_index = next;
+                self.scale_start = self.rng.below(START_STRINGS.len());
                 self.reset_logic_state();
             }
         }
@@ -1260,7 +1269,12 @@ impl MyApp {
     /// another scale or key keeps the way it was going.
     fn next_scale_pass(&mut self) {
         self.pass = self.pass.wrapping_add(1);
-        self.scale_start = self.pass % START_STRINGS.len();
+        // With the key drawn, the string is drawn too; otherwise in turn.
+        self.scale_start = if self.random_mode {
+            self.rng.below(START_STRINGS.len())
+        } else {
+            self.pass % START_STRINGS.len()
+        };
         // Drawn, but never three passes the same way: a fair coin gave five
         // descents in a row, which read as a scale that only goes down.
         let previous = self.scale_descending;
@@ -1288,6 +1302,17 @@ impl MyApp {
         if changed && self.app_mode == AppMode::Scales {
             self.scale_scatter.clear();
             self.reset_logic_state();
+        }
+    }
+
+    /// From E to e, switched: the run changes shape, so the lap starts again.
+    pub fn set_scale_e_to_e(&mut self, on: bool) {
+        if self.scale_e_to_e != on {
+            self.scale_e_to_e = on;
+            if self.app_mode == AppMode::Scales {
+                self.scale_scatter.clear();
+                self.reset_logic_state();
+            }
         }
     }
 
@@ -1954,6 +1979,24 @@ fn arpeggio_degree(token: &str, names: &[String]) -> Option<usize> {
 fn compound_octave(token: &str) -> i8 {
     let number = token.trim_start_matches(['b', '#']);
     matches!(number, "9" | "11" | "13") as i8
+}
+
+/// Every tone of the chord's scale from the low open E (E2) to the high one
+/// (E4), as steps from the root: those below the root's first place above the
+/// low E an octave down.
+fn e_to_e(chord: &Chord) -> Vec<Step> {
+    const LOW_E: i32 = 40;
+    const HIGH_E: i32 = 64;
+    let intervals = chord.quality.intervals();
+    let root = LOW_E + (chord.root as i32 - LOW_E).rem_euclid(12);
+    (LOW_E..=HIGH_E)
+        .filter_map(|note| {
+            let above_root = note - root;
+            let in_octave = above_root.rem_euclid(12) as u8;
+            let degree = intervals.iter().position(|&i| i % 12 == in_octave)?;
+            Some(Step { degree, octave: above_root.div_euclid(12) as i8 })
+        })
+        .collect()
 }
 
 /// `steps` started at `start`, those before it carried an octave up.

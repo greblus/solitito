@@ -163,6 +163,9 @@ pub struct Settings {
     /// Scales: the tones in the order shown, as by default; off, any order.
     #[serde(default = "yes")]
     pub scale_in_order: bool,
+    /// Scales: from the low E to the high one, first position. On by default.
+    #[serde(default = "yes")]
+    pub scale_e_to_e: bool,
     /// Which shapes to draw. Both together is a legitimate answer - the row
     /// then holds ten thumbnails where four fit comfortably, which is for
     /// comparing them rather than playing from - and so is neither, which
@@ -360,6 +363,7 @@ impl Default for Settings {
             scale_there_and_back: false,
             key_move: 0,
             scale_in_order: true,
+            scale_e_to_e: true,
             show_diagrams: true,
             arp_exercise: 0,
             arp_direction: 0,

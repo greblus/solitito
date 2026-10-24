@@ -71,6 +71,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
             cur.scale_there_and_back = ui.get_scale_there_and_back();
             cur.key_move = ui.get_key_move().max(0) as usize;
             cur.scale_in_order = ui.get_scale_in_order();
+            cur.scale_e_to_e = ui.get_scale_e_to_e();
             cur.save();
         });
     }

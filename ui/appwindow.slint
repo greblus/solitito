@@ -691,6 +691,7 @@ export global Tr {
     in-out property <string> chip_down: "Down";
     in-out property <string> chip_drawn: "Random";
     in-out property <string> chip_scattered: "Scattered";
+    in-out property <string> chip_e_to_e: "From E to e";
     in-out property <string> random_key: "Random key";
     in-out property <string> there_and_back: "There and back";
     in-out property <string> scale_from: "Start on: ";
@@ -896,6 +897,7 @@ export component AppWindow inherits Window {
     in-out property <bool> scale_there_and_back: false;
     in-out property <int> key_move: 0;
     in-out property <bool> scale_in_order: true;
+    in-out property <bool> scale_e_to_e: true;
     in property <[string]> scale_from_items;
     in property <[string]> key_move_items;
     callback scale_way_changed();
@@ -1334,6 +1336,8 @@ export component AppWindow inherits Window {
                     toggled => { root.scale_direction = 3; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
                     toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
+                SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
+                    toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
             }
             NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
@@ -1404,7 +1408,8 @@ export component AppWindow inherits Window {
 
             // Hidden in the fretboard trainer, which draws its own region at
             // random and has no order to shuffle.
-            if root.current_mode != 4 : NavItem {
+            // Nor in Formulas, which are drawn afresh every time anyway.
+            if root.current_mode != 4 && root.current_mode != 5 : NavItem {
                 // In Scales there is one run and no order to shuffle: what
                 // changes is the key.
                 text: root.current_mode == 2 ? Tr.random_key : Tr.random_order;
@@ -2717,8 +2722,10 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text { text: Tr.scale_from; color: #aaa; vertical-alignment: center; width: 100px; }
+                                    // From E to e the run starts where first position does.
                                     Dropdown {
                                         width: root.ctrl_w;
+                                        enabled: !root.scale_e_to_e;
                                         model: root.scale_from_items;
                                         current-index <=> root.scale_from;
                                         selected => { root.scale_way_changed(); }

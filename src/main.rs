@@ -180,6 +180,7 @@ struct SettingsSnapshot {
     scale_there_and_back: bool,
     key_move: i32,
     scale_in_order: bool,
+    scale_e_to_e: bool,
     show_full_shapes: bool,
     show_shell_shapes: bool,
     ai_debug: bool,
@@ -236,6 +237,7 @@ impl SettingsSnapshot {
             scale_there_and_back: ui.get_scale_there_and_back(),
             key_move: ui.get_key_move(),
             scale_in_order: ui.get_scale_in_order(),
+            scale_e_to_e: ui.get_scale_e_to_e(),
             show_full_shapes: ui.get_show_full_shapes(),
             show_shell_shapes: ui.get_show_shell_shapes(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -536,6 +538,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_scale_direction(cfg.scale_direction.min(3) as i32);
     ui.set_scale_in_order(cfg.scale_in_order);
     ui.set_scale_from(cfg.scale_from.min(4) as i32);
+    ui.set_scale_e_to_e(cfg.scale_e_to_e);
     ui.set_scale_there_and_back(cfg.scale_there_and_back);
     ui.set_key_move(cfg.key_move.min(4) as i32);
     ui.set_show_full_shapes(cfg.show_full_shapes);
@@ -844,6 +847,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chip_down(t.chip_down.into());
     g.set_chip_drawn(t.chip_drawn.into());
     g.set_chip_scattered(t.chip_scattered.into());
+    g.set_chip_e_to_e(t.scale_from_e_to_e.into());
     g.set_random_key(t.random_key.into());
     g.set_there_and_back(t.there_and_back.into());
     g.set_scale_from(t.scale_from.into());

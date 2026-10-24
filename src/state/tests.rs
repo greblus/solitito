@@ -773,6 +773,7 @@ fn the_tune_follows_from_mode_to_mode() {
     a.item_selected(1);
     let title = a.song_title.clone();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_mode(AppMode::Intervals as i32);
     assert_eq!(a.selected_library_idx, 1, "the tune snapped back to the first row");
     assert_eq!(a.song_title, title);
@@ -789,11 +790,13 @@ fn the_tune_follows_from_mode_to_mode() {
 fn the_scale_is_kept_too() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     assert!(a.scale_definitions.len() > 2, "a library to choose from");
     a.item_selected(2);
     let name = a.song_title.clone();
     a.set_mode(AppMode::Chords as i32);
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     assert_eq!(a.selected_library_idx, 2, "back on the first row");
     assert_eq!(a.song_title, name);
     // And the name is what the settings hand back, not the row.
@@ -892,6 +895,7 @@ fn stale_permutation_falls_back_instead_of_panicking() {
 fn scales_app() -> MyApp {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a
 }
 
@@ -1875,6 +1879,7 @@ fn the_minor_study_reaches_the_top_string() {
 fn the_neck_spells_a_scale_the_way_the_scale_does() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     let altered = a
         .scale_definitions
         .iter()
@@ -1902,6 +1907,7 @@ fn the_neck_spells_a_scale_the_way_the_scale_does() {
 fn the_shuffle_moves_a_scale_without_scattering_it() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     let chord = a.chords[0].clone();
     let written = a.get_active_indices(&chord);
     assert!(written.len() >= 5, "the scale is too short to tell");
@@ -1916,11 +1922,12 @@ fn the_shuffle_moves_a_scale_without_scattering_it() {
     );
     let _ = &written;
 
-    // The key moves between passes, and so does the string it starts from.
+    // The key moves between passes, and the string it starts from is drawn
+    // with it: forty passes reach all three.
     let key = a.chords[0].root as usize;
     let mut keys = false;
     let mut strings = std::collections::HashSet::new();
-    for _ in 0..6 {
+    for _ in 0..40 {
         a.advance_chord();
         keys |= a.chords[0].root as usize != key;
         strings.insert(a.scale_start);
@@ -1936,6 +1943,7 @@ fn the_shuffle_moves_a_scale_without_scattering_it() {
 fn a_scale_runs_the_way_it_is_asked_to() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     let chord = a.chords[0].clone();
     let rises = |a: &MyApp| {
         let steps = a.get_active_indices(&chord);
@@ -1975,6 +1983,7 @@ fn a_scale_runs_the_way_it_is_asked_to() {
 fn choosing_another_scale_keeps_the_way_and_the_string() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_scale_way(ScaleDirection::Random, ScaleFrom::Root, false, KeyMove::Stays, true);
     a.advance_chord();
     let before = (a.scale_runs_down(), a.scale_start);
@@ -1990,6 +1999,7 @@ fn choosing_another_scale_keeps_the_way_and_the_string() {
 fn a_scale_starts_where_asked_and_can_come_back() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     let chord = a.chords[0].clone();
     let names = chord.quality.interval_names();
     a.scale_repeat_root = true;
@@ -2010,6 +2020,7 @@ fn a_scale_starts_where_asked_and_can_come_back() {
 fn a_scattered_scale_deals_its_own_tones_anew() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     let chord = a.chords[0].clone();
     a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::Stays, true);
     let mut up: Vec<Step> = a.get_active_indices(&chord);
@@ -2036,11 +2047,36 @@ fn a_scattered_scale_deals_its_own_tones_anew() {
     assert_eq!(a.get_active_indices(&a.chords[0].clone()), dealt, "the random key dealt the scale again");
 }
 
+/// From E to e: every tone of the scale in first position, two octaves from
+/// the low open E to the high one - starting wherever the scale's lowest tone
+/// lies, not on its root.
+#[test]
+fn a_scale_from_e_to_e_covers_first_position() {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
+    a.set_scale_e_to_e(true);
+    let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
+    for (root, first) in [(NoteName::C, 4usize), (NoteName::E, 4), (NoteName::G, 4), (NoteName::F, 4)] {
+        let chord = Chord { root, quality: ChordQuality::CustomScale(major.clone()) };
+        let targets = chord.get_target_indices();
+        let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
+        assert_eq!(pcs.len(), 15, "{root:?}: two octaves of a seven-note scale");
+        assert_eq!((pcs[0], pcs[14]), (first, first), "{root:?}: not from E to e");
+    }
+    // B flat major has no E: it starts on its lowest tone above the low E.
+    let chord = Chord { root: NoteName::Bf, quality: ChordQuality::CustomScale(major) };
+    let targets = chord.get_target_indices();
+    let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
+    assert_eq!(pcs[0], 5, "B flat major starts on F, its lowest tone above the low E");
+}
+
 /// Unshuffled, the key moves as asked after every finished scale.
 #[test]
 fn the_key_moves_round_the_cycle() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.random_mode = false;
     a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::CycleOfFourths, true);
     let start = a.chords[0].root as usize;
@@ -2058,6 +2094,7 @@ fn the_key_moves_round_the_cycle() {
 fn a_scale_starts_from_a_drawn_string_even_unshuffled() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_random_mode(false);
     let key = a.chords[0].root as usize;
     let mut strings = std::collections::HashSet::new();
@@ -2077,6 +2114,7 @@ fn the_scale_passes() {
     for shuffled in [false, true] {
         let mut a = app();
         a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
         a.set_random_mode(shuffled);
         println!("--- losowanie {}", if shuffled { "wlaczone" } else { "wylaczone" });
         for _ in 0..12 {
@@ -2125,6 +2163,7 @@ fn the_study_places() {
 fn the_scale_picture() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_random_mode(true);
     let chord = a.chords[0].clone();
     let steps = a.ordered_active_indices(&chord);
@@ -2688,6 +2727,7 @@ fn the_arpeggio_patterns_are_playable_as_written() {
 fn a_scale_walks_the_degrees_it_is_written_with() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.scale_descending = false;              // the written order, not a pass
     let scales = crate::model::load_all_scale_definitions();
     assert!(scales.len() >= 20, "the built-in scales did not load");
@@ -2729,6 +2769,7 @@ fn a_plain_degree_still_finds_the_one_the_chord_has() {
 fn a_scale_can_end_on_its_root_again() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.scale_descending = false;              // the closing root is the top one
     let chord = a.chords[0].clone();
     let plain = a.get_active_indices(&chord);
@@ -2785,6 +2826,7 @@ fn one_pluck_credits_one_step() {
 fn the_closing_root_does_not_open_the_next_pass() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_random_mode(false);
     a.scale_repeat_root = true;
     a.note_threshold = 0.5;
@@ -2819,6 +2861,7 @@ fn the_closing_root_does_not_open_the_next_pass() {
 fn the_closing_root_is_not_credited_to_the_opening_one() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_random_mode(false);
     a.scale_repeat_root = true;
     a.note_threshold = 0.5;
@@ -2861,6 +2904,7 @@ fn the_closing_root_is_not_credited_to_the_opening_one() {
 fn a_root_repeated_in_its_own_octave_still_counts() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
+    a.set_scale_e_to_e(false);
     a.set_random_mode(false);
     a.scale_repeat_root = true;
     a.note_threshold = 0.5;

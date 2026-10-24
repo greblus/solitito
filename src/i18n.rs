@@ -104,6 +104,8 @@ pub struct Strings {
     pub scale_from: &'static str,
     /// The degrees a scale may start on after 1 3 5 7: drawn.
     pub scale_from_drawn: &'static str,
+    /// The whole of first position, low E to high e.
+    pub scale_from_e_to_e: &'static str,
     pub key_move: &'static str,
     /// Where the key goes - see `state::KeyMove`, in its order.
     pub key_moves: [&'static str; 5],
@@ -276,6 +278,7 @@ pub const EN: Strings = Strings {
     there_and_back: "There and back",
     scale_from: "Start on: ",
     scale_from_drawn: "random",
+    scale_from_e_to_e: "From E to e",
     key_move: "Next key: ",
     key_moves: ["the same", "a semitone up", "a semitone down", "round the fifths", "round the fourths"],
     quick_full: "Full chords",
@@ -434,6 +437,7 @@ pub const PL: Strings = Strings {
     there_and_back: "Tam i z powrotem",
     scale_from: "Początek: ",
     scale_from_drawn: "losowo",
+    scale_from_e_to_e: "Od E do e",
     key_move: "Następna tonacja: ",
     key_moves: ["ta sama", "o półton w górę", "o półton w dół", "kołem kwintowym", "kołem kwartowym"],
     quick_full: "Pełne chwyty",
