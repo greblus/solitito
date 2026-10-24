@@ -1338,6 +1338,8 @@ export component AppWindow inherits Window {
                     toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
                     toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
+                SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
+                    toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
             }
             NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }

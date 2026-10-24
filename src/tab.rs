@@ -676,6 +676,13 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
         // worth more than the distinction, and the ring is what says where the
         // player is on the way back.
         let played = here.iter().any(|&j| done.get(j).copied().unwrap_or(false));
+        // An open string is drawn before the nut, as in a grip. In the first
+        // column it sat on the first fret, and a note there hid it - the ring
+        // then stood on a note other than the one being asked for.
+        if spot.fret == 0 {
+            out += &grip_dot(&spots[here[0]], base, dot_colour(played, spot), here.contains(&current), frets);
+            continue;
+        }
         let x = fret_x(spot.fret, base, columns);
         let y = string_y(spot.string);
         // The note due now wears a white ring: the phrase is a line, and the
@@ -1186,5 +1193,26 @@ mod tests {
         }
         assert!(!numbered.contains("♭3"), "a degree was written where a fret was asked for");
         assert!(numbered.contains(RED), "the root stopped being marked");
+    }
+}
+
+#[cfg(test)]
+mod open_string_tests {
+    use super::*;
+
+    fn spot(string: usize, fret: i32, interval: i32, name: &str) -> Spot {
+        Spot { string, fret, interval, name: Some(name.to_string()) }
+    }
+
+    /// The open G and the A flat on its first fret are two places, and both
+    /// are drawn: the open one before the nut.
+    #[test]
+    fn an_open_string_is_not_drawn_on_the_first_fret() {
+        let spots = [spot(3, 0, 9, "6"), spot(3, 1, 10, "♭7")];
+        let svg = neck(&spots, &[false, false], 0, false);
+        let xs: Vec<&str> = svg.match_indices("cx=\"").map(|(i, _)| &svg[i + 4..i + 12]).collect();
+        let circles = svg.matches("<circle").count();
+        assert!(circles >= 3, "a dot is missing: {circles} circles");
+        assert!(svg.contains(&format!("cx=\"{}\"", GRIP_LEFT - DOT_R - 7.0)), "the open string is not before the nut: {xs:?}");
     }
 }
