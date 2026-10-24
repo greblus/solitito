@@ -93,6 +93,20 @@ pub struct Strings {
     pub chip_struck: &'static str,
     pub chip_lock: &'static str,
     pub chip_attack: &'static str,
+    /// Scales: the way it runs, among the quick options.
+    pub chip_up: &'static str,
+    pub chip_down: &'static str,
+    pub chip_drawn: &'static str,
+    pub chip_scattered: &'static str,
+    /// The shuffle's name in Scales, where it draws the key.
+    pub random_key: &'static str,
+    pub there_and_back: &'static str,
+    pub scale_from: &'static str,
+    /// The degrees a scale may start on after 1 3 5 7: drawn.
+    pub scale_from_drawn: &'static str,
+    pub key_move: &'static str,
+    /// Where the key goes - see `state::KeyMove`, in its order.
+    pub key_moves: [&'static str; 5],
     /// Quick options of Chords: which shapes to draw.
     pub quick_full: &'static str,
     pub quick_shells: &'static str,
@@ -254,6 +268,16 @@ pub const EN: Strings = Strings {
     chip_struck: "Struck only",
     chip_lock: "Hold the quality",
     chip_attack: "Short strums",
+    chip_up: "Up",
+    chip_down: "Down",
+    chip_drawn: "Random",
+    chip_scattered: "Scattered",
+    random_key: "Random key",
+    there_and_back: "There and back",
+    scale_from: "Start on: ",
+    scale_from_drawn: "random",
+    key_move: "Next key: ",
+    key_moves: ["the same", "a semitone up", "a semitone down", "round the fifths", "round the fourths"],
     quick_full: "Full chords",
     quick_shells: "Shell voicings",
     tab_audio: "Audio",
@@ -402,6 +426,16 @@ pub const PL: Strings = Strings {
     chip_struck: "Tylko uderzone",
     chip_lock: "Trzymaj jakość",
     chip_attack: "Krótkie uderzenia",
+    chip_up: "W górę",
+    chip_down: "W dół",
+    chip_drawn: "Losowo",
+    chip_scattered: "Rozsypane",
+    random_key: "Losowa tonacja",
+    there_and_back: "Tam i z powrotem",
+    scale_from: "Początek: ",
+    scale_from_drawn: "losowo",
+    key_move: "Następna tonacja: ",
+    key_moves: ["ta sama", "o półton w górę", "o półton w dół", "kołem kwintowym", "kołem kwartowym"],
     quick_full: "Pełne chwyty",
     quick_shells: "Shelle",
     tab_audio: "Dźwięk",
@@ -584,6 +618,14 @@ mod tests {
             ("chip_struck", EN.chip_struck, PL.chip_struck),
             ("chip_lock", EN.chip_lock, PL.chip_lock),
             ("chip_attack", EN.chip_attack, PL.chip_attack),
+            ("chip_up", EN.chip_up, PL.chip_up),
+            ("chip_down", EN.chip_down, PL.chip_down),
+            ("chip_drawn", EN.chip_drawn, PL.chip_drawn),
+            ("chip_scattered", EN.chip_scattered, PL.chip_scattered),
+            ("random_key", EN.random_key, PL.random_key),
+            ("there_and_back", EN.there_and_back, PL.there_and_back),
+            ("scale_from", EN.scale_from, PL.scale_from),
+            ("key_move", EN.key_move, PL.key_move),
             ("quick_full", EN.quick_full, PL.quick_full),
             ("quick_shells", EN.quick_shells, PL.quick_shells),
             ("preview_tiles", EN.preview_tiles, PL.preview_tiles),
@@ -607,6 +649,18 @@ mod tests {
             assert!(!en.is_empty(), "{name}: English missing");
             assert!(!pl.is_empty(), "{name}: Polish missing");
             assert_ne!(en, pl, "{name}: Polish identical to English");
+        }
+    }
+
+    /// Every scale the app ships has a Polish name, and no two the same one.
+    #[test]
+    fn every_built_in_scale_has_its_own_polish_name() {
+        let names: Vec<String> = crate::model::load_all_scale_definitions().into_iter().map(|s| s.name).collect();
+        let mut polish = std::collections::HashSet::new();
+        for name in &names {
+            let pl = scale_name(Lang::Pl, name);
+            assert_ne!(pl, name, "{name}: no Polish name");
+            assert!(polish.insert(pl), "{name}: Polish name used twice");
         }
     }
 }
@@ -666,7 +720,28 @@ pub fn scale_name(lang: Lang, name: &str) -> &str {
         "Locrian" => "Lokrycka",
         "Bebop Dominant" => "Bebopowa dominantowa",
         "Bebop Major" => "Bebopowa durowa",
-        "Bebop Dorian" => "Bebopowa dorycka",
+        "Bebop Dorian" => "Bebopowa dorycka (z tercją wielką)",
+        "Bebop Dorian (major 7th)" => "Bebopowa dorycka (z septymą wielką)",
+        "Bebop Dominant b9 b13" => "Bebopowa dominantowa b9 b13",
+        "Bebop Tonic Minor (Dorian)" => "Bebopowa molowa toniczna (dorycka)",
+        "Pentatonic Dominant" => "Pentatonika dominantowa",
+        "Pentatonic Minor 6" => "Pentatonika molowa z sekstą",
+        "Major Blues Scale" => "Bluesowa durowa",
+        "Augmented Scale" => "Zwiększona (symetryczna)",
+        "Dorian b2" => "Dorycka b2",
+        "Mixolydian b6" => "Miksolidyjska b6",
+        "Locrian Natural 6" => "Lokrycka z sekstą wielką",
+        "Ionian #5" => "Jońska #5",
+        "Dorian #4" => "Dorycka #4",
+        "Lydian #9" => "Lidyjska #9",
+        "Superlocrian bb7" => "Superlokrycka bb7",
+        "Harmonic Major" => "Durowa harmoniczna",
+        "Dorian b5" => "Dorycka b5",
+        "Phrygian b4" => "Frygijska b4",
+        "Lydian b3" => "Lidyjska b3",
+        "Mixolydian b2" => "Miksolidyjska b2",
+        "Lydian Augmented #2" => "Lidyjska zwiększona #2",
+        "Locrian bb7" => "Lokrycka bb7",
         "Major 6 Diminished" => "Durowa 6 zmniejszona",
         "Minor 6 Diminished" => "Molowa 6 zmniejszona",
         "Dominant 7th Diminished" => "Dominantowa 7 zmniejszona",

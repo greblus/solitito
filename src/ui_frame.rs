@@ -216,7 +216,7 @@ impl UiFrame {
             set_if_changed(ui.get_current_item_index(), app.selected_library_idx as i32, |v| {
                 ui.set_current_item_index(v)
             });
-            ui.set_interval_input_text(app.intervals_input.clone().into());
+            ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
         }
         app.short_verdict = ui.get_short_verdict();
         app.lead_line = ui.get_lead_line();
@@ -239,6 +239,13 @@ impl UiFrame {
             app.reset_logic_state();
         }
         app.set_shuffle_chords(ui.get_shuffle_chords());
+        app.set_scale_way(
+            (ui.get_scale_direction().max(0) as usize).into(),
+            (ui.get_scale_from().max(0) as usize).into(),
+            ui.get_scale_there_and_back(),
+            (ui.get_key_move().max(0) as usize).into(),
+            ui.get_scale_in_order(),
+        );
     }
 
     /// The two formula text fields, saved as they are typed. They are read
@@ -347,7 +354,7 @@ impl UiFrame {
     }
 
     fn read_interval_text(ui: &AppWindow, app: &mut MyApp) {
-        let ui_txt = ui.get_interval_input_text().to_string();
+        let ui_txt = model::written_phrase(&ui.get_interval_input_text());
         if ui_txt != app.intervals_input {
             app.intervals_input = ui_txt;
             app.reset_logic_state();
@@ -869,7 +876,7 @@ impl UiFrame {
         // colour means one thing wherever it appears - and one stepped
         // over, or still to come, in grey.
         let progress: Vec<(String, i32, bool, Color)> = app
-            .progress_window(2, 4)
+            .progress_around(3)
             .into_iter()
             .map(|(i, d)| {
                 let result = match d {
@@ -889,7 +896,13 @@ impl UiFrame {
         if progress != self.last_progress {
             let chips: Vec<Chip> = progress
                 .iter()
-                .map(|(name, d, played, fg)| Chip { name: name.into(), current: *d == 0, played: *played, fg: *fg })
+                .map(|(name, d, played, fg)| Chip {
+                    name: name.into(),
+                    current: *d == 0,
+                    played: *played,
+                    fg: *fg,
+                    offset: *d,
+                })
                 .collect();
             ui.set_progress(slint::ModelRc::new(slint::VecModel::from(chips)));
             self.last_progress = progress;
@@ -949,7 +962,7 @@ impl UiFrame {
             if step.degree < all_names.len() {
                 // The octave marker is display only - the model has no
                 // octave, so 1 and 1' are checked identically.
-                let name = model::with_octave(&all_names[step.degree], step.octave);
+                let name = model::shown_degree(&all_names[step.degree], step.octave);
                 ui_names.push(SharedString::from(name));
                 let (r, g, b) = app.note_color(step_idx);
                 ui_colors.push(Color::from_rgb_u8(r, g, b));
@@ -1005,7 +1018,7 @@ impl UiFrame {
                         NoteState::Done => 4,
                     };
                     IntervalTile {
-                        degree: model::with_octave(&all_names[step.degree], step.octave).into(),
+                        degree: model::shown_degree(&all_names[step.degree], step.octave).into(),
                         note: note.into(),
                         state,
                     }
@@ -1037,7 +1050,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1048,7 +1061,8 @@ impl UiFrame {
             app.current_note_step,
             ui.get_preview(),
             app.grip_string,
-            ui.get_voice_leading()
+            ui.get_voice_leading(),
+            app.free_order()
         );
         if signature == self.last_tab {
             return;
@@ -1068,15 +1082,15 @@ impl UiFrame {
         self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
         let done = &app.collected_notes;
         let frets = ui.get_tab_frets();
+        // No ring under free order: nothing is "due", and a ring would say the
+        // opposite - for a grip, and for a scale let out of its order.
+        let due = app.note_due().unwrap_or(spots.len());
         let (svg, aspect) = if is_grip {
-            // No ring under free order: nothing is "due", and a ring would say
-            // the opposite.
-            let due = app.note_due().unwrap_or(spots.len());
             (tab::grip(&spots, done, due, frets), tab::grip_aspect())
         } else if Preview::from(ui.get_preview()) == Preview::Tab {
-            (tab::svg(&spots, done, app.current_note_step, frets), tab::aspect(spots.len()))
+            (tab::svg(&spots, done, due, frets), tab::aspect(spots.len()))
         } else {
-            (tab::neck(&spots, done, app.current_note_step, frets), tab::neck_aspect(&spots))
+            (tab::neck(&spots, done, due, frets), tab::neck_aspect(&spots))
         };
         ui.set_tab_aspect(aspect);
         ui.set_tab_image(svg_icon(&svg));

@@ -28,6 +28,8 @@ export struct Chip {
     current: bool,
     played: bool,
     fg: color,
+    /// Places from the current chord, negative behind it.
+    offset: int,
 }
 
 /// One degree of the chord in Intervals: its function, the note it is on this
@@ -119,19 +121,29 @@ component StepArrow inherits Rectangle {
 /// One chord of the progression strip.
 component ProgressChip inherits Rectangle {
     in property <Chip> chip;
+    /// A chord clicked: go there.
+    callback picked();
     border-radius: 10px;
-    background: root.chip.current ? #2F6FE0 : (root.chip.played ? #17271F : #1C212C);
+    background: root.chip.current ? #2F6FE0
+        : touch.has-hover ? #243049
+        : (root.chip.played ? #17271F : #1C212C);
     border-width: root.chip.current ? 2px : 0px;
     border-color: #5A8EF0;
+    touch := TouchArea {
+        enabled: !root.chip.current;
+        clicked => { root.picked(); }
+    }
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
+        padding-left: 8px;
+        padding-right: 8px;
         Text {
             text: root.chip.name;
             font-size: 15px;
             font-weight: root.chip.current ? 700 : 500;
             color: root.chip.current ? #FFFFFF : root.chip.fg;
+            horizontal-alignment: center;
             vertical-alignment: center;
+            overflow: elide;
         }
     }
 }
@@ -426,6 +438,12 @@ component ShapeThumb inherits TouchArea {
 /// ComboBox shows six rows and scrolls the rest behind a scrollbar too thin to
 /// notice, so twelve sound cards look like six; this one puts an arrow under the
 /// last row when there is more below.
+/// The window's height, for lists that open downwards to know how far they
+/// may: set by the window as it is sized.
+global WindowSpace {
+    in-out property <length> height: 800px;
+}
+
 component Dropdown inherits Rectangle {
     in property <[string]> model;
     in-out property <int> current-index: 0;
@@ -444,7 +462,13 @@ component Dropdown inherits Rectangle {
     in property <length> title-size: 26px;
 
     property <length> row-h: root.title-look ? 32px : 28px;
-    property <int> max-rows: root.title-look ? 10 : 6;
+    // As many rows as fit between where the list opens and the foot of the
+    // window, within bounds: never fewer than before, never a wall of them.
+    property <length> room: WindowSpace.height - self.absolute-position.y
+        - (root.title-look ? root.height : 0px) - 2 * root.pad - 24px;
+    property <int> max-rows: root.title-look
+        ? max(10, min(18, floor(root.room / root.row-h)))
+        : max(6, min(14, floor(root.room / root.row-h)));
     property <bool> overflows: root.model.length > root.max-rows;
     property <length> pad: 4px;
 
@@ -663,6 +687,14 @@ export global Tr {
     in-out property <string> chip_struck: "Struck only";
     in-out property <string> chip_lock: "Hold the quality";
     in-out property <string> chip_attack: "Short strums";
+    in-out property <string> chip_up: "Up";
+    in-out property <string> chip_down: "Down";
+    in-out property <string> chip_drawn: "Random";
+    in-out property <string> chip_scattered: "Scattered";
+    in-out property <string> random_key: "Random key";
+    in-out property <string> there_and_back: "There and back";
+    in-out property <string> scale_from: "Start on: ";
+    in-out property <string> key_move: "Next key: ";
     in-out property <string> quick_full: "Full chords";
     in-out property <string> quick_shells: "Shell voicings";
     in-out property <string> tab_audio: "Audio";
@@ -815,7 +847,8 @@ export component AppWindow inherits Window {
     callback toggle_full_screen();
     callback leave_full_screen() -> bool;
     changed width => { root.window_resized(); }
-    changed height => { root.window_resized(); }
+    changed height => { WindowSpace.height = self.height; root.window_resized(); }
+    init => { WindowSpace.height = self.height; }
     
     default-font-family: "Noto Sans"; 
 
@@ -838,6 +871,9 @@ export component AppWindow inherits Window {
     /// Stepping through the progression by hand, offered while paused so a
     /// chord that has gone by can be played again. -1 back, +1 forward.
     callback step_chord(int);
+    /// A chord of the strip clicked, `int` places from the current one: the
+    /// exercise pauses there, as stepping does.
+    callback go_to_chord(int);
     
     // Chord shapes for the current quality, plus the root string each sits on.
     in property <[image]> chord_diagrams;
@@ -852,6 +888,17 @@ export component AppWindow inherits Window {
     /// Scales: end the run on the root again, an octave up.
     in-out property <bool> scale_repeat_root: false;
     callback scale_repeat_root_changed(bool);
+    /// Scales: which way (0 up, 1 down, 2 drawn, 3 scattered), from which degree (0 to 3:
+    /// 1 3 5 7, 4 drawn), there and back, and where the key goes next (0 stays,
+    /// 1 up a semitone, 2 down, 3 round the fifths, 4 round the fourths).
+    in-out property <int> scale_direction: 0;
+    in-out property <int> scale_from: 0;
+    in-out property <bool> scale_there_and_back: false;
+    in-out property <int> key_move: 0;
+    in-out property <bool> scale_in_order: true;
+    in property <[string]> scale_from_items;
+    in property <[string]> key_move_items;
+    callback scale_way_changed();
     /// Which shapes to draw. Both ticked draws both; neither draws none.
     in-out property <bool> show_full_shapes: true;
     in-out property <bool> show_shell_shapes: false;
@@ -1270,8 +1317,24 @@ export component AppWindow inherits Window {
                 SideToggle { text: Tr.chip_struck; on: root.require_onset;
                     toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
             }
-            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.show_settings = false; root.pick_mode(2); }
+            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
+                expandable: root.current_mode == 2 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
+            // Which way the scale runs: one of three, so each switch sets it.
+            if root.current_mode == 2 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
+                    toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
+                SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
+                    toggled => { root.scale_direction = 1; root.scale_way_changed(); } }
+                SideToggle { text: Tr.chip_drawn; on: root.scale_direction == 2;
+                    toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
+                SideToggle { text: Tr.chip_scattered; on: root.scale_direction == 3;
+                    toggled => { root.scale_direction = 3; root.scale_way_changed(); } }
+                SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
+                    toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
+            }
             NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
             NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
@@ -1342,7 +1405,9 @@ export component AppWindow inherits Window {
             // Hidden in the fretboard trainer, which draws its own region at
             // random and has no order to shuffle.
             if root.current_mode != 4 : NavItem {
-                text: Tr.random_order;
+                // In Scales there is one run and no order to shuffle: what
+                // changes is the key.
+                text: root.current_mode == 2 ? Tr.random_key : Tr.random_order;
                 image: root.icon_shuffle;
                 selected: root.random_enabled;
                 clicked => { root.random_enabled = !root.random_enabled; }
@@ -1391,7 +1456,15 @@ export component AppWindow inherits Window {
             alignment: center;
             spacing: 6px;
             height: root.bar_h;
-            for c in root.progress : ProgressChip { chip: c; }
+            // All the same width, so the current chord stays where the eye is -
+            // and seven of them as wide as the column below, its 15px margins
+            // and the six gaps taken off. Measured against the window instead,
+            // they overflowed the column and the strip stood off to the right.
+            for c in root.progress : ProgressChip {
+                chip: c;
+                width: min(96px, (root.box_w - 2 * 15px - 6 * 6px) / 7);
+                picked => { root.go_to_chord(c.offset); }
+            }
         }
 
         // --- MAIN PRACTICE VIEW ---
@@ -2400,7 +2473,7 @@ export component AppWindow inherits Window {
                                     spacing: 15px;
                                     CheckBox { checked <=> root.random_enabled; }
                                     Text {
-                                        text: Tr.random_order;
+                                        text: root.current_mode == 2 ? Tr.random_key : Tr.random_order;
                                         color: #aaa; vertical-alignment: center;
                                     }
                                 }
@@ -2630,6 +2703,39 @@ export component AppWindow inherits Window {
                                     width: root.panel_w - 30px;
                                     text: Tr.repeat_root_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.scale_there_and_back;
+                                        toggled => { root.scale_way_changed(); }
+                                    }
+                                    Text { text: Tr.there_and_back; color: #aaa; vertical-alignment: center; }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text { text: Tr.scale_from; color: #aaa; vertical-alignment: center; width: 100px; }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: root.scale_from_items;
+                                        current-index <=> root.scale_from;
+                                        selected => { root.scale_way_changed(); }
+                                    }
+                                }
+                                // Unshuffled only: with the shuffle on, the key is drawn.
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text { text: Tr.key_move; color: #aaa; vertical-alignment: center; width: 100px; }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        enabled: !root.random_enabled;
+                                        model: root.key_move_items;
+                                        current-index <=> root.key_move;
+                                        selected => { root.scale_way_changed(); }
+                                    }
                                 }
                             }
 

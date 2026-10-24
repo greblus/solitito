@@ -1061,18 +1061,27 @@ fn the_same_chord_twice_has_to_be_played_twice() {
     assert_ne!(a.current_chord_index, 1, "a real second strum was refused");
 }
 
-/// The strip of the progression: what was played, what is asked, what is
-/// to come - in the order of this pass, never wrapping into the next one.
+/// The strip of the progression: from the first chord of the lap the
+/// current one walks to the middle and stays there, three behind and three to
+/// come - round the end into the next lap. A short tune is shown once, whole.
 #[test]
-fn the_progress_window_follows_the_order_of_play() {
+fn the_progress_strip_walks_to_the_middle_and_stays() {
     let mut a = app();
-    a.play_order = vec![3, 1, 4, 0, 2];
-    a.play_pos = 0;
-    assert_eq!(a.progress_window(2, 2), vec![(3, 0), (1, 1), (4, 2)]);
-    a.play_pos = 3;
-    assert_eq!(a.progress_window(2, 4), vec![(1, -2), (4, -1), (0, 0), (2, 1)]);
+    a.play_order = vec![3, 1, 4, 0, 2, 6, 5, 7];
+    let current_place = |a: &MyApp| a.progress_around(3).iter().position(|&(_, d)| d == 0).unwrap();
+    let firsts: Vec<usize> = (0..8).map(|pos| { a.play_pos = pos; a.progress_around(3)[0].0 }).collect();
+    let places: Vec<usize> = (0..8).map(|pos| { a.play_pos = pos; current_place(&a) }).collect();
+    assert_eq!(places, [0, 1, 2, 3, 3, 3, 3, 3], "the current chord did not walk to the middle and stay");
+    assert_eq!(firsts[..4], [3, 3, 3, 3], "the strip did not start on the first chord");
+    a.play_pos = 7;
+    let around = a.progress_around(3);
+    assert_eq!(around.len(), 7);
+    assert_eq!(around[4..], [(3, 1), (1, 2), (4, 3)], "the chords to come did not run on into the next lap");
+    a.play_order = vec![3, 1, 4];
+    a.play_pos = 2;
+    assert_eq!(a.progress_around(3), vec![(3, -2), (1, -1), (4, 0)]);
     a.play_order.clear();
-    assert!(a.progress_window(2, 4).is_empty());
+    assert!(a.progress_around(3).is_empty());
 }
 
 /// The detector's strikes, as the audio thread reports them, one hop of
@@ -1920,33 +1929,127 @@ fn the_shuffle_moves_a_scale_without_scattering_it() {
     assert_eq!(strings.len(), 3, "the scale did not go through the strings");
 }
 
-/// Up and down in turn, and through the strings with them: what is wanted
-/// is coverage, and a fair coin does not give it - twelve drawn passes came
-/// out with five descending in a row.
+/// The way is the player's: up, down, or drawn for every pass - and drawn,
+/// never three passes the same way, since a fair coin gave five descents in a
+/// row. The strings still come round in turn.
 #[test]
-fn a_scale_runs_both_ways() {
+fn a_scale_runs_the_way_it_is_asked_to() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
     let chord = a.chords[0].clone();
-    let mut ways = Vec::new();
-    let mut pairs = std::collections::HashSet::new();
-    for _ in 0..6 {
-        a.advance_chord();
+    let rises = |a: &MyApp| {
         let steps = a.get_active_indices(&chord);
-        ways.push(steps.first().unwrap().degree < steps.last().unwrap().degree);
-        pairs.insert((a.scale_start, a.scale_descending));
+        steps.first().unwrap().degree < steps.last().unwrap().degree
+    };
+    for (direction, up) in [(ScaleDirection::Up, true), (ScaleDirection::Down, false)] {
+        a.set_scale_way(direction, ScaleFrom::Root, false, KeyMove::Stays, true);
+        for _ in 0..4 {
+            a.advance_chord();
+            assert_eq!(rises(&a), up, "{direction:?} ran the other way");
+        }
     }
-    assert!(ways.windows(2).all(|w| w[0] != w[1]), "two passes ran the same way");
-    assert_eq!(pairs.len(), 6, "six passes did not cover the six ways to take it");
+    a.set_scale_way(ScaleDirection::Random, ScaleFrom::Root, false, KeyMove::Stays, true);
+    let mut ways = Vec::new();
+    let mut strings = std::collections::HashSet::new();
+    for _ in 0..40 {
+        a.advance_chord();
+        ways.push(rises(&a));
+        strings.insert(a.scale_start);
+    }
+    assert!(ways.contains(&true) && ways.contains(&false), "a drawn way never changed");
+    assert!(ways.windows(3).all(|w| !(w[0] == w[1] && w[1] == w[2])), "three passes ran the same way");
+    assert_eq!(strings.len(), 3, "the scale did not go through the strings");
 
     // Whichever way, it is the written run and not a shuffled one.
-    a.scale_descending = true;
+    a.set_scale_way(ScaleDirection::Down, ScaleFrom::Root, false, KeyMove::Stays, true);
     let down = a.get_active_indices(&chord);
-    a.scale_descending = false;
-    let up = a.get_active_indices(&chord);
-    let mut reversed = down.clone();
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::Stays, true);
+    let mut reversed = a.get_active_indices(&chord);
     reversed.reverse();
-    assert_eq!(reversed, up, "the descent is not the climb turned round");
+    assert_eq!(reversed, down, "the descent is not the climb turned round");
+}
+
+/// Choosing another scale is not a new pass: the way and the starting string
+/// stay as they were. They used to change with it.
+#[test]
+fn choosing_another_scale_keeps_the_way_and_the_string() {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    a.set_scale_way(ScaleDirection::Random, ScaleFrom::Root, false, KeyMove::Stays, true);
+    a.advance_chord();
+    let before = (a.scale_runs_down(), a.scale_start);
+    for index in 0..5 {
+        a.item_selected(index);
+        assert_eq!((a.scale_runs_down(), a.scale_start), before, "scale {index} changed the way");
+    }
+}
+
+/// From the third: the run turns round to start there, the tones below it an
+/// octave up; back again, it comes down the way it went up.
+#[test]
+fn a_scale_starts_where_asked_and_can_come_back() {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    let chord = a.chords[0].clone();
+    let names = chord.quality.interval_names();
+    a.scale_repeat_root = true;
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Third, false, KeyMove::Stays, true);
+    let steps = a.get_active_indices(&chord);
+    assert!(names[steps[0].degree].contains('3'), "it did not start on the third");
+    assert_eq!(steps.first().map(|s| s.degree), steps.last().map(|s| s.degree));
+    assert_eq!(steps.last().unwrap().octave, 1);
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Third, true, KeyMove::Stays, true);
+    let there_and_back = a.get_active_indices(&chord);
+    assert_eq!(there_and_back.len(), steps.len() * 2 - 1);
+    assert_eq!(there_and_back.first(), there_and_back.last());
+}
+
+/// Scattered: the scale's own tones, in an order drawn for every pass - and
+/// with "in order" off, they may be played in any order at all.
+#[test]
+fn a_scattered_scale_deals_its_own_tones_anew() {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    let chord = a.chords[0].clone();
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::Stays, true);
+    let mut up: Vec<Step> = a.get_active_indices(&chord);
+    a.set_scale_way(ScaleDirection::Scattered, ScaleFrom::Root, false, KeyMove::Stays, true);
+    let mut orders = std::collections::HashSet::new();
+    for _ in 0..10 {
+        a.advance_chord();
+        let mut dealt = a.get_active_indices(&chord);
+        orders.insert(dealt.iter().map(|s| (s.degree, s.octave)).collect::<Vec<_>>());
+        dealt.sort();
+        up.sort();
+        assert_eq!(dealt, up, "the scattered scale is not the scale");
+    }
+    assert!(orders.len() > 1, "every pass dealt the same order");
+    assert!(!a.free_order());
+    let dealt = a.get_active_indices(&chord);
+    a.set_scale_way(ScaleDirection::Scattered, ScaleFrom::Root, false, KeyMove::Stays, false);
+    assert!(a.free_order(), "out of order was not allowed");
+    assert_eq!(a.get_active_indices(&chord), dealt, "letting go of the order dealt the scale again");
+    // Nor does the random key: it moves the key, at once, and keeps the order.
+    let key = a.chords[0].root;
+    a.set_random_mode(true);
+    assert_ne!(a.chords[0].root, key, "the random key did not move the key");
+    assert_eq!(a.get_active_indices(&a.chords[0].clone()), dealt, "the random key dealt the scale again");
+}
+
+/// Unshuffled, the key moves as asked after every finished scale.
+#[test]
+fn the_key_moves_round_the_cycle() {
+    let mut a = app();
+    a.set_mode(AppMode::Scales as i32);
+    a.random_mode = false;
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::CycleOfFourths, true);
+    let start = a.chords[0].root as usize;
+    let keys: Vec<usize> = (0..12).map(|_| { a.advance_chord(); a.chords[0].root as usize }).collect();
+    assert_eq!(keys[0], (start + 5) % 12);
+    assert_eq!(keys[11], start, "twelve fourths did not come home");
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::Stays, true);
+    a.advance_chord();
+    assert_eq!(a.chords[0].root as usize, start);
 }
 
 /// And without the shuffle the string still moves, while the key stays: the

@@ -7,7 +7,7 @@
 //! `ChordQuality::scale_names` - so `3` and `7` are whatever third and seventh
 //! the chord has, and `2`, `4`, `6` and `9` come from its scale.
 
-use crate::model::{split_octave, with_octave, ChordQuality, Step};
+use crate::model::{shown_degree, split_octave, with_octave, ChordQuality, Step};
 
 /// The headings the levels are listed under, in order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -251,7 +251,14 @@ pub fn labels(names: &Names) -> Vec<String> {
                 return format!("{group} {nth}");
             }
             let turn = if level.rotated { " ↻" } else { "" };
-            format!("{group}: {}{turn}", level.cells[0])
+            let cell: Vec<String> = level.cells[0]
+                .split_whitespace()
+                .map(|token| {
+                    let (name, octave) = split_octave(token);
+                    shown_degree(name, octave)
+                })
+                .collect();
+            format!("{group}: {}{turn}", cell.join(" "))
         })
         .collect()
 }

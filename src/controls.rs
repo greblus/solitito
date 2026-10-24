@@ -60,6 +60,20 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_short_verdict_changed(saving(cfg, |s, on| s.short_verdict = on));
     ui.on_single_notes_changed(saving(cfg, |s, on| s.single_notes = on));
     ui.on_scale_repeat_root_changed(saving(cfg, |s, on| s.scale_repeat_root = on));
+    {
+        let cur = cfg.clone();
+        let uw = ui.as_weak();
+        ui.on_scale_way_changed(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            let mut cur = cur.borrow_mut();
+            cur.scale_direction = ui.get_scale_direction().max(0) as usize;
+            cur.scale_from = ui.get_scale_from().max(0) as usize;
+            cur.scale_there_and_back = ui.get_scale_there_and_back();
+            cur.key_move = ui.get_key_move().max(0) as usize;
+            cur.scale_in_order = ui.get_scale_in_order();
+            cur.save();
+        });
+    }
     ui.on_arp_direction_changed(saving(cfg, |s, idx: i32| s.arp_direction = idx.max(0) as usize));
     ui.on_arp_quality_changed(saving(cfg, |s, idx: i32| s.arp_quality = idx.max(0) as usize));
     ui.on_tab_frets_changed(saving(cfg, |s, on| s.tab_frets = on));
@@ -311,7 +325,7 @@ fn connect_practice(ui: &AppWindow, shared: &Shared) {
             app.reload_library();
             if let Some(ui) = uw.upgrade() {
                 show_library(&ui, &app);
-                ui.set_interval_input_text(app.intervals_input.clone().into());
+                ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
             }
         });
     }
@@ -471,13 +485,27 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
             ui.set_preview(cfg.borrow().preview_for(mode_idx) as i32);
             app.require_onset = cfg.borrow().require_onset_for(mode_idx);
             ui.set_require_onset(app.require_onset);
-            ui.set_interval_input_text(app.intervals_input.clone().into());
+            ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
             show_library(&ui, &app);
         });
     }
     {
         let app = shared.app.clone();
         ui.on_step_chord(move |delta| app.lock().unwrap().step_chord(delta));
+    }
+    {
+        let app = shared.app.clone();
+        let uw = ui.as_weak();
+        // Paused first: a chord jumped to is a chord to look at and play again,
+        // and the exercise must not run on from it on its own.
+        ui.on_go_to_chord(move |offset| {
+            if let Some(ui) = uw.upgrade() {
+                ui.set_paused(true);
+            }
+            let mut app = app.lock().unwrap();
+            app.paused = true;
+            app.step_chord(offset);
+        });
     }
     {
         let app = shared.app.clone();
@@ -494,7 +522,7 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
             app.item_selected(index);
             remember_song_or_scale(&app, &cfg);
             if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
-                ui.set_interval_input_text(app.intervals_input.clone().into());
+                ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
             }
         });
     }
@@ -505,7 +533,7 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
         let Some(ui) = uw.upgrade() else { return };
         app.secondary_item_selected(index);
         if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
-            ui.set_interval_input_text(app.intervals_input.clone().into());
+            ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
         }
     });
 }

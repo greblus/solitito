@@ -105,6 +105,92 @@ impl From<usize> for ArpDirection {
     }
 }
 
+/// Which way a scale runs, or that it is scattered. Saved as its index, 0 to 3.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum ScaleDirection {
+    #[default]
+    Up,
+    Down,
+    /// Drawn again for every pass.
+    Random,
+    /// The tones in an order drawn for every pass.
+    Scattered,
+}
+
+impl From<usize> for ScaleDirection {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => ScaleDirection::Down,
+            2 => ScaleDirection::Random,
+            3 => ScaleDirection::Scattered,
+            _ => ScaleDirection::Up,
+        }
+    }
+}
+
+/// Which degree a scale starts on: the root, the third, fifth or seventh,
+/// or one drawn for every pass. Saved as its index, 0 to 4.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum ScaleFrom {
+    #[default]
+    Root,
+    Third,
+    Fifth,
+    Seventh,
+    Random,
+}
+
+impl From<usize> for ScaleFrom {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => ScaleFrom::Third,
+            2 => ScaleFrom::Fifth,
+            3 => ScaleFrom::Seventh,
+            4 => ScaleFrom::Random,
+            _ => ScaleFrom::Root,
+        }
+    }
+}
+
+/// Where the key goes after a finished scale, when it is not drawn at random.
+/// Saved as its index, 0 to 4.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum KeyMove {
+    #[default]
+    Stays,
+    SemitoneUp,
+    SemitoneDown,
+    /// C G D A ...
+    CycleOfFifths,
+    /// C F Bb Eb ...
+    CycleOfFourths,
+}
+
+impl From<usize> for KeyMove {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => KeyMove::SemitoneUp,
+            2 => KeyMove::SemitoneDown,
+            3 => KeyMove::CycleOfFifths,
+            4 => KeyMove::CycleOfFourths,
+            _ => KeyMove::Stays,
+        }
+    }
+}
+
+impl KeyMove {
+    /// Semitones up to the next key.
+    fn step(self) -> usize {
+        match self {
+            KeyMove::Stays => 0,
+            KeyMove::SemitoneUp => 1,
+            KeyMove::SemitoneDown => 11,
+            KeyMove::CycleOfFifths => 7,
+            KeyMove::CycleOfFourths => 5,
+        }
+    }
+}
+
 /// What a formula is played against. Saved as its index, 0 to 2.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum FormulaExercise {
@@ -464,14 +550,30 @@ pub struct MyApp {
     /// And the string a scale is started from - an index into `START_STRINGS`,
     /// the three a scale is worth starting on.
     pub scale_start: usize,
-    /// How many passes have gone by, which is what the scale's string and
-    /// direction are counted through. See `reroll`.
+    /// How many passes have gone by, which is what the scale's string is
+    /// counted through. See `next_scale_pass`.
     pass: usize,
     /// The string an interval grip is taken from when the voices are not being
     /// led from the chord before. Drawn per chord - see `reroll`.
     pub grip_string: usize,
-    /// Whether this pass of the scale runs downwards. Drawn with the string.
+    /// Whether this pass runs downwards, where the direction is drawn - see
+    /// `ScaleDirection::Random`. Drawn with each pass, not with each redraw.
     pub scale_descending: bool,
+    /// Scales: which way, from which degree, whether back down again, and
+    /// where the key goes next.
+    pub scale_direction: ScaleDirection,
+    pub scale_from: ScaleFrom,
+    pub scale_there_and_back: bool,
+    pub key_move: KeyMove,
+    /// Scales: the tones in the order shown. Off, in any order.
+    pub scale_in_order: bool,
+    /// The order a scattered scale is dealt in this pass - see
+    /// `ScaleDirection::Scattered`.
+    scale_scatter: Vec<usize>,
+    /// The degree a scale starts on this pass where `ScaleFrom::Random`.
+    scale_from_drawn: usize,
+    /// How many passes in a row the drawn direction has run the same way.
+    same_way_passes: usize,
     /// Which string to suggest starting from (index into `START_STRINGS`), or
     /// None for no hint. The app CANNOT verify it - the model outputs 12 pitch
     /// classes with no position or octave - so this is a suggestion the player
@@ -698,6 +800,14 @@ impl MyApp {
             voicing_anchor: 5,
             scale_start: 0,
             scale_descending: false,
+            scale_direction: ScaleDirection::Up,
+            scale_from: ScaleFrom::Root,
+            scale_there_and_back: false,
+            key_move: KeyMove::Stays,
+            scale_in_order: true,
+            scale_scatter: Vec::new(),
+            scale_from_drawn: 0,
+            same_way_passes: 0,
             pass: 0,
             grip_string: 0,
             start_hint: None,
@@ -805,6 +915,8 @@ impl MyApp {
                 .iter()
                 .filter_map(|token| {
                     let (token, octave) = split_octave(token);
+                    // A ninth is the second an octave up, and is shown so.
+                    let octave = octave + compound_octave(token);
                     level_degree(token, &names).map(|degree| Step { degree, octave })
                 })
                 .collect();
@@ -821,6 +933,10 @@ impl MyApp {
         };
         let mut steps: Vec<Step> = self.intervals_input.split_whitespace().filter_map(read_step).collect();
 
+        if self.app_mode == AppMode::Scales {
+            steps = self.scale_from_its_start(steps, &names);
+        }
+
         // A scale read as a scale ends where it started: the same note an octave
         // up. It is a step of its own, so it has to be played - and it is marked
         // an octave up, which is what puts the tick on the strip as `1'`.
@@ -830,11 +946,18 @@ impl MyApp {
             }
         }
 
-        // Down as often as up: a scale known in one direction is half known -
-        // the fingers learn the climb and the ear never hears the descent. The
-        // way is drawn with the string it starts from, once per pass.
-        if self.app_mode == AppMode::Scales && self.scale_descending {
-            steps.reverse();
+        if self.app_mode == AppMode::Scales {
+            if self.scale_runs_down() {
+                steps.reverse();
+            }
+            if self.scale_direction == ScaleDirection::Scattered && self.scale_scatter.len() == steps.len() {
+                steps = self.scale_scatter.iter().map(|&i| steps[i]).collect();
+            }
+            // And back the way it came, without playing the turn twice.
+            if self.scale_there_and_back && steps.len() > 1 {
+                let back: Vec<Step> = steps[..steps.len() - 1].iter().rev().copied().collect();
+                steps.extend(back);
+            }
         }
 
         if steps.is_empty() && !names.is_empty() {
@@ -976,6 +1099,17 @@ impl MyApp {
             // `advance_chord` draws. The study itself is the player's choice
             // and is left alone; the generator is a row in the list for anyone
             // who wants a new phrase as well.
+            //
+            // In Scales the switch is called "random key", and switched on it
+            // draws one at once: waiting for the scale to be finished read as
+            // the switch doing nothing.
+            if on && self.app_mode == AppMode::Scales && !self.chords.is_empty() {
+                let current = self.chords[0].root as usize;
+                let next = self.rng.below_excluding(12, current);
+                self.chords[0].root = NoteName::from_index(next);
+                self.secondary_index = next;
+                self.reset_logic_state();
+            }
         }
     }
 
@@ -1017,18 +1151,24 @@ impl MyApp {
 
     /// What the strip shows as coming next - the real next entry in the order,
     /// not the chord one further along the song.
-    /// The chords around the current one in the order they are played, within
-    /// this pass of the progression: up to `behind` already played, the
-    /// current one, up to `ahead` still to come. Each with its distance from
-    /// the current one, negative behind it.
-    pub fn progress_window(&self, behind: usize, ahead: usize) -> Vec<(usize, i32)> {
-        let pos = self.play_pos.min(self.play_order.len().saturating_sub(1));
-        let from = pos.saturating_sub(behind);
-        let to = (pos + ahead).min(self.play_order.len().saturating_sub(1));
-        if self.play_order.is_empty() {
+    /// The strip of the progression: `2 * radius + 1` chords in the order
+    /// they are played, each with its distance from the current one, negative
+    /// behind it. It starts on the first chord of the lap and the current one
+    /// walks along it to the middle; from there the strip moves under it, so
+    /// there are always `radius` to come - round the end into the next lap,
+    /// whose order is not redrawn. A progression shorter than the strip is
+    /// shown once, whole.
+    pub fn progress_around(&self, radius: usize) -> Vec<(usize, i32)> {
+        let len = self.play_order.len();
+        if len == 0 {
             return Vec::new();
         }
-        (from..=to).map(|i| (self.play_order[i], i as i32 - pos as i32)).collect()
+        let pos = self.play_pos.min(len - 1);
+        let first = pos.saturating_sub(radius);
+        let shown = (2 * radius + 1).min(len);
+        (first..first + shown)
+            .map(|at| (self.play_order[at % len], at as i32 - pos as i32))
+            .collect()
     }
 
     pub fn next_chord_index(&self) -> usize {
@@ -1061,6 +1201,96 @@ impl MyApp {
         }
     }
 
+    /// Which way this pass of the scale runs.
+    pub fn scale_runs_down(&self) -> bool {
+        match self.scale_direction {
+            // Scattered, the order is dealt; it is drawn over the climb.
+            ScaleDirection::Up | ScaleDirection::Scattered => false,
+            ScaleDirection::Down => true,
+            ScaleDirection::Random => self.scale_descending,
+        }
+    }
+
+    /// The scale turned to start on the degree `scale_from` asks for, the
+    /// tones below it carried an octave up. A scale without that degree - a
+    /// pentatonic has no seventh - starts on its root.
+    fn scale_from_its_start(&self, steps: Vec<Step>, names: &[String]) -> Vec<Step> {
+        let token = match self.scale_from {
+            ScaleFrom::Root => return steps,
+            ScaleFrom::Third => "3",
+            ScaleFrom::Fifth => "5",
+            ScaleFrom::Seventh => "7",
+            ScaleFrom::Random => {
+                let start = self.scale_from_drawn % steps.len().max(1);
+                return rotated(steps, start);
+            }
+        };
+        let start = scale_degree(token, names)
+            .and_then(|degree| steps.iter().position(|s| s.degree == degree && s.octave == 0))
+            .unwrap_or(0);
+        rotated(steps, start)
+    }
+
+    /// A new order for a scattered scale, drawn over its tones before they
+    /// come back the way they went. Kept while it still fits the scale: only
+    /// a new pass or a new shape of the run - see `next_scale_pass` and
+    /// `set_scale_way` - asks for another, not every redraw.
+    fn deal_scattered_scale(&mut self) {
+        if self.app_mode != AppMode::Scales || self.scale_direction != ScaleDirection::Scattered {
+            return;
+        }
+        let Some(chord) = self.chords.first() else { return };
+        // The length the scatter is applied at: before there and back.
+        let back = self.scale_there_and_back;
+        self.scale_there_and_back = false;
+        let kept = std::mem::take(&mut self.scale_scatter);
+        let n = self.get_active_indices(&chord.clone()).len();
+        self.scale_there_and_back = back;
+        if kept.len() == n {
+            self.scale_scatter = kept;
+            return;
+        }
+        self.scale_scatter = (0..n).collect();
+        self.rng.shuffle(&mut self.scale_scatter);
+    }
+
+    /// A new pass of a scale: the next string to start from - taken in turn,
+    /// so all three come round - and, where the direction is drawn, a new way
+    /// and a new starting degree. Only a finished scale is a new pass: choosing
+    /// another scale or key keeps the way it was going.
+    fn next_scale_pass(&mut self) {
+        self.pass = self.pass.wrapping_add(1);
+        self.scale_start = self.pass % START_STRINGS.len();
+        // Drawn, but never three passes the same way: a fair coin gave five
+        // descents in a row, which read as a scale that only goes down.
+        let previous = self.scale_descending;
+        let mut down = self.rng.below(2) == 1;
+        if down == previous && self.same_way_passes >= 2 {
+            down = !previous;
+        }
+        self.same_way_passes = if down == previous { self.same_way_passes + 1 } else { 1 };
+        self.scale_descending = down;
+        self.scale_from_drawn = self.rng.below(12);
+        self.scale_scatter.clear();
+    }
+
+    /// The scale options, read from the UI. A change to the run's shape starts
+    /// the lap again; "in order" only changes how it is judged, so a scattered
+    /// scale keeps the order it was dealt.
+    pub fn set_scale_way(&mut self, direction: ScaleDirection, from: ScaleFrom, there_and_back: bool, key_move: KeyMove, in_order: bool) {
+        let changed = (self.scale_direction, self.scale_from, self.scale_there_and_back)
+            != (direction, from, there_and_back);
+        self.scale_direction = direction;
+        self.scale_from = from;
+        self.scale_there_and_back = there_and_back;
+        self.key_move = key_move;
+        self.scale_in_order = in_order;
+        if changed && self.app_mode == AppMode::Scales {
+            self.scale_scatter.clear();
+            self.reset_logic_state();
+        }
+    }
+
     /// Draws a new order of tones and a new string hint. Called on every chord
     /// change - never per frame, or the target would move while playing.
     fn reroll(&mut self) {
@@ -1080,14 +1310,12 @@ impl MyApp {
         // descending in a row, which reads as "it only goes down"; three
         // strings and two directions are coprime, so counting through them
         // gives all six pairs in six passes and never twice the same in a row.
-        self.pass = self.pass.wrapping_add(1);
-        self.scale_start = self.pass % START_STRINGS.len();
-        self.scale_descending = self.pass % 2 == 1;
         // And which strings an interval grip is taken on when nothing is
         // leading it there: the bottom four can carry the lowest voice.
         self.grip_string = self.rng.below(4);
         self.level_rotation = self.rng.below(8);
         self.step_order = (0..n).collect();
+        self.deal_scattered_scale();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
             if self.lead_line {
@@ -1162,7 +1390,11 @@ impl MyApp {
     /// Whether the set may be taken in any order. Only Intervals ever can: a
     /// scale or an arpeggio is an order, and a chord has none to walk.
     pub fn free_order(&self) -> bool {
-        self.app_mode == AppMode::Intervals && !self.interval_in_order && !self.steps_are_a_line()
+        match self.app_mode {
+            AppMode::Intervals => !self.interval_in_order && !self.steps_are_a_line(),
+            AppMode::Scales => !self.scale_in_order,
+            _ => false,
+        }
     }
 
     /// The step the exercise is waiting for, where it is waiting for a
@@ -1628,13 +1860,22 @@ impl MyApp {
         // finished scale does.
         let key_exercise = self.app_mode == AppMode::Scales
             || (self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Study);
-        if self.random_mode && key_exercise && !self.chords.is_empty() {
+        if key_exercise && !self.chords.is_empty() {
             let current = self.chords[0].root as usize;
-            let next = self.rng.below_excluding(12, current);
+            let next = if self.random_mode {
+                self.rng.below_excluding(12, current)
+            } else if self.app_mode == AppMode::Scales {
+                (current + self.key_move.step()) % 12
+            } else {
+                current
+            };
             self.chords[0].root = NoteName::from_index(next);
             // Keep the key combo honest; otherwise it would show the key the
             // player picked while the app asks for a different one.
             self.secondary_index = next;
+        }
+        if self.app_mode == AppMode::Scales {
+            self.next_scale_pass();
         }
 
         self.prev_chord_index = Some(self.current_chord_index);
@@ -1706,6 +1947,25 @@ fn arpeggio_degree(token: &str, names: &[String]) -> Option<usize> {
         _ => return None,
     };
     (degree < names.len()).then_some(degree)
+}
+
+/// How far above the octave a token names its tone: the ninth, eleventh and
+/// thirteenth are the second, fourth and sixth one octave up.
+fn compound_octave(token: &str) -> i8 {
+    let number = token.trim_start_matches(['b', '#']);
+    matches!(number, "9" | "11" | "13") as i8
+}
+
+/// `steps` started at `start`, those before it carried an octave up.
+fn rotated(steps: Vec<Step>, start: usize) -> Vec<Step> {
+    if start == 0 || start >= steps.len() {
+        return steps;
+    }
+    let (before, from) = steps.split_at(start);
+    from.iter()
+        .copied()
+        .chain(before.iter().map(|s| Step { degree: s.degree, octave: s.octave + 1 }))
+        .collect()
 }
 
 /// The degree a token of an interval level asks for. 1, 3, 5 and 7 are the

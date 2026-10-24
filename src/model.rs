@@ -60,6 +60,71 @@ pub fn with_octave(name: &str, octave: i8) -> String {
     }
 }
 
+/// A degree as the strip, the tiles and the exercise list show it. Above the
+/// octave it takes the compound number intervals are written with - octave 8,
+/// ninth 9, tenth 10, eleventh 11 and on, 15 the double octave - rather than a
+/// mark: `("1", 1)` -> `"8"`, `("b3", 1)` -> `"b10"`, `("2", 1)` -> `"9"`. Below
+/// the root it is the plain degree; which way the line goes is in its order,
+/// and where on the neck in the drawing. A name that is not a numbered degree
+/// keeps its marks, as `with_octave` writes them.
+pub fn shown_degree(name: &str, octave: i8) -> String {
+    let (open, inner, close) = match name.strip_prefix('(').and_then(|n| n.strip_suffix(')')) {
+        Some(inner) => ("(", inner, ")"),
+        None => ("", name, ""),
+    };
+    let accidental = inner.trim_end_matches(|c: char| c.is_ascii_digit());
+    let Ok(number) = inner[accidental.len()..].parse::<i32>() else {
+        return with_octave(name, octave);
+    };
+    let compound = number + 7 * i32::from(octave.max(0));
+    format!("{open}{accidental}{compound}{close}")
+}
+
+/// A written phrase as the text field shows it: tones above the octave by
+/// their compound numbers - `"1 3 5 7 1' 3'"` -> `"1 3 5 7 8 10"`. Tones below
+/// the root keep their commas: the field is edited, and a line going below the
+/// root has no other way to say so. See `written_phrase` for the way back.
+pub fn shown_phrase(text: &str) -> String {
+    text.split_whitespace()
+        .map(|token| {
+            let (name, octave) = split_octave(token);
+            if octave > 0 && plain_degree(name).is_some() {
+                shown_degree(name, octave)
+            } else {
+                token.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A phrase typed or shown with compound numbers, back in the octave marks
+/// the exercises are read in: 8 -> 1', 10 -> 3', 15 -> 1''. The ninth,
+/// eleventh and thirteenth stay as written: a 9 means the tension, which is
+/// what it meant before.
+pub fn written_phrase(text: &str) -> String {
+    text.split_whitespace()
+        .map(|token| {
+            let accidental = token.trim_end_matches(|c: char| c.is_ascii_digit());
+            match token[accidental.len()..].parse::<i8>() {
+                Ok(number) if number >= 8 && !matches!(number, 9 | 11 | 13) => {
+                    let base = (number - 1) % 7 + 1;
+                    with_octave(&format!("{accidental}{base}"), (number - 1) / 7)
+                }
+                _ => token.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The number of a degree written within the octave, 1 to 7, with any
+/// accidental before it.
+fn plain_degree(name: &str) -> Option<i8> {
+    let accidental = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    name[accidental.len()..].parse::<i8>().ok().filter(|n| (1..=7).contains(n))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScaleDefinition {
     pub name: String,
@@ -841,5 +906,49 @@ mod scale_library_tests {
         assert_eq!(of("Phrygian b4"), [0, 1, 3, 4, 7, 8, 10]);
         assert_eq!(of("Harmonic Major"), [0, 2, 4, 5, 7, 8, 11]);
         assert_eq!(of("Augmented Scale"), [0, 3, 4, 7, 8, 11]);
+    }
+}
+
+#[cfg(test)]
+mod shown_degree_tests {
+    use super::shown_degree;
+
+    #[test]
+    fn above_the_octave_degrees_take_their_compound_numbers() {
+        assert_eq!(shown_degree("1", 1), "8");
+        assert_eq!(shown_degree("2", 1), "9");
+        assert_eq!(shown_degree("b3", 1), "b10");
+        assert_eq!(shown_degree("#4", 1), "#11");
+        assert_eq!(shown_degree("5", 1), "12");
+        assert_eq!(shown_degree("b6", 1), "b13");
+        assert_eq!(shown_degree("bb7", 1), "bb14");
+        assert_eq!(shown_degree("1", 2), "15");
+        assert_eq!(shown_degree("(7)", 1), "(14)");
+        assert_eq!(shown_degree("2", 0), "2");
+        // Below the root: the plain degree.
+        assert_eq!(shown_degree("7", -1), "7");
+        assert_eq!(shown_degree("b3", -2), "b3");
+    }
+}
+
+#[cfg(test)]
+mod phrase_text_tests {
+    use super::*;
+
+    #[test]
+    fn the_text_field_shows_compound_numbers_and_reads_them_back() {
+        assert_eq!(shown_phrase("1 3 5 7 1' 3' 5' 7' 1''"), "1 3 5 7 8 10 12 14 15");
+        assert_eq!(shown_phrase("1 7, 5, 3,"), "1 7, 5, 3,");
+        assert_eq!(written_phrase("1 3 5 7 8 10 12 14 15"), "1 3 5 7 1' 3' 5' 7' 1''");
+        assert_eq!(written_phrase("1 3 5 9 b10"), "1 3 5 9 b3'");
+        // Every phrase the app ships comes back exactly as it was written.
+        for phrase in parse_scale_definitions(ARPEGGIOS_PATTERNS_DEF) {
+            let text = phrase.names.join(" ");
+            assert_eq!(written_phrase(&shown_phrase(&text)), text, "{}", phrase.name);
+        }
+        for scale in parse_scale_definitions(BUILTIN_SCALES_DEF) {
+            let text = scale.names.join(" ");
+            assert_eq!(written_phrase(&shown_phrase(&text)), text, "{}", scale.name);
+        }
     }
 }

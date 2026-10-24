@@ -175,6 +175,11 @@ struct SettingsSnapshot {
     arp_direction: i32,
     arp_quality: i32,
     scale_repeat_root: bool,
+    scale_direction: i32,
+    scale_from: i32,
+    scale_there_and_back: bool,
+    key_move: i32,
+    scale_in_order: bool,
     show_full_shapes: bool,
     show_shell_shapes: bool,
     ai_debug: bool,
@@ -226,6 +231,11 @@ impl SettingsSnapshot {
             arp_direction: ui.get_arp_direction(),
             arp_quality: ui.get_arp_quality(),
             scale_repeat_root: ui.get_scale_repeat_root(),
+            scale_direction: ui.get_scale_direction(),
+            scale_from: ui.get_scale_from(),
+            scale_there_and_back: ui.get_scale_there_and_back(),
+            key_move: ui.get_key_move(),
+            scale_in_order: ui.get_scale_in_order(),
             show_full_shapes: ui.get_show_full_shapes(),
             show_shell_shapes: ui.get_show_shell_shapes(),
             ai_debug: ui.get_ai_debug_visible(),
@@ -523,6 +533,11 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_arp_direction(cfg.arp_direction as i32);
     ui.set_arp_quality(cfg.arp_quality as i32);
     ui.set_scale_repeat_root(cfg.scale_repeat_root);
+    ui.set_scale_direction(cfg.scale_direction.min(3) as i32);
+    ui.set_scale_in_order(cfg.scale_in_order);
+    ui.set_scale_from(cfg.scale_from.min(4) as i32);
+    ui.set_scale_there_and_back(cfg.scale_there_and_back);
+    ui.set_key_move(cfg.key_move.min(4) as i32);
     ui.set_show_full_shapes(cfg.show_full_shapes);
     ui.set_show_shell_shapes(cfg.show_shell_shapes);
     ui.set_formula_jazz_names(cfg.formula_jazz_names);
@@ -552,7 +567,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_icon_pause(svg_icon(ICON_PAUSE));
     ui.set_icon_play(svg_icon(ICON_PLAY));
     apply_language(ui, lang, Some(app));
-    ui.set_interval_input_text(app.intervals_input.clone().into()); 
+    ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into()); 
 }
 
 /// Lists the inputs and opens the one saved, or the default.
@@ -729,6 +744,15 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     }
     // The exercise list is named in the language too; the choice standing in
     // it is kept, as above.
+    // The scale's two lists too, their choices kept.
+    let (from, moves) = (ui.get_scale_from(), ui.get_key_move());
+    let starts: Vec<slint::SharedString> =
+        ["1", "3", "5", "7", t.scale_from_drawn].iter().map(|&s| s.into()).collect();
+    ui.set_scale_from_items(ModelRc::from(Rc::new(VecModel::from(starts))));
+    let next_keys: Vec<slint::SharedString> = t.key_moves.iter().map(|&s| s.into()).collect();
+    ui.set_key_move_items(ModelRc::from(Rc::new(VecModel::from(next_keys))));
+    ui.set_scale_from(from);
+    ui.set_key_move(moves);
     let level = ui.get_interval_level();
     let levels: Vec<slint::SharedString> =
         interval_levels::labels(&interval_levels::Names {
@@ -816,6 +840,14 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_random_order(t.random_order.into());
     g.set_show_diagrams(t.show_diagrams.into());
     g.set_repeat_root(t.repeat_root.into());
+    g.set_chip_up(t.chip_up.into());
+    g.set_chip_down(t.chip_down.into());
+    g.set_chip_drawn(t.chip_drawn.into());
+    g.set_chip_scattered(t.chip_scattered.into());
+    g.set_random_key(t.random_key.into());
+    g.set_there_and_back(t.there_and_back.into());
+    g.set_scale_from(t.scale_from.into());
+    g.set_key_move(t.key_move.into());
     g.set_repeat_root_hint(t.repeat_root_hint.into());
     g.set_shapes_kind(t.shapes_kind.into());
     g.set_shapes_no_shell(t.shapes_no_shell.into());

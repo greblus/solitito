@@ -150,6 +150,19 @@ pub struct Settings {
     /// Scales: finish the run on the root again, an octave up.
     #[serde(default)]
     pub scale_repeat_root: bool,
+    /// Scales: the way, the starting degree, there and back, and the next key
+    /// - see `state::ScaleDirection`, `ScaleFrom` and `KeyMove`, by index.
+    #[serde(default)]
+    pub scale_direction: usize,
+    #[serde(default)]
+    pub scale_from: usize,
+    #[serde(default)]
+    pub scale_there_and_back: bool,
+    #[serde(default)]
+    pub key_move: usize,
+    /// Scales: the tones in the order shown, as by default; off, any order.
+    #[serde(default = "yes")]
+    pub scale_in_order: bool,
     /// Which shapes to draw. Both together is a legitimate answer - the row
     /// then holds ten thumbnails where four fit comfortably, which is for
     /// comparing them rather than playing from - and so is neither, which
@@ -342,6 +355,11 @@ impl Default for Settings {
             gates: HashMap::new(),
             formula_jazz_names: false,
             scale_repeat_root: false,
+            scale_direction: 0,
+            scale_from: 0,
+            scale_there_and_back: false,
+            key_move: 0,
+            scale_in_order: true,
             show_diagrams: true,
             arp_exercise: 0,
             arp_direction: 0,
