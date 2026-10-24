@@ -83,6 +83,7 @@ pub struct UiFrame {
     /// The progression strip and what is heard, pushed only when they change:
     /// both are lists, and a new model every frame would redraw them for nothing.
     last_progress: Vec<(String, i32, bool, Color)>,
+    last_song_keys: Vec<String>,
     last_heard: (String, Vec<(String, bool)>),
     last_heard_push: Instant,
     last_ui_tick: Option<Instant>,
@@ -133,6 +134,7 @@ impl UiFrame {
             last_answer: None,
             last_diagram_key: String::new(),
             last_progress: Vec::new(),
+            last_song_keys: Vec::new(),
             last_heard: (String::new(), Vec::new()),
             last_heard_push: now,
             last_ui_tick: None,
@@ -755,6 +757,9 @@ impl UiFrame {
         self.show_shapes(ui, chord);
         Self::show_chord_colour(ui, app);
         self.show_progress(ui, app);
+        if app.app_mode == AppMode::Chords {
+            self.show_song_keys(ui, app);
+        }
         self.show_heard(ui, app, chord);
         if app.app_mode != AppMode::Chords {
             self.show_steps(ui, app, chord);
@@ -867,6 +872,24 @@ impl UiFrame {
             MatchStatus::None => Color::from_rgb_u8(255, 255, 255),
         };
         ui.set_chord_text_color(slint::Brush::SolidColor(colour));
+    }
+
+    /// Chords: the keys the tune may be played in, its own marked.
+    fn show_song_keys(&mut self, ui: &AppWindow, app: &MyApp) {
+        let Some(tonic) = app.song_tonic() else { return };
+        let marked = i18n::strings(Lang::from_setting(ui.get_language_idx())).key_original;
+        let keys: Vec<String> = (0..12)
+            .map(|pc| {
+                let name = NoteName::from_index(pc).to_string().to_string();
+                if pc == tonic { format!("{name}{marked}") } else { name }
+            })
+            .collect();
+        if keys != self.last_song_keys {
+            let model: Vec<SharedString> = keys.iter().map(|k| k.into()).collect();
+            ui.set_song_keys(ModelRc::new(VecModel::from(model)));
+            self.last_song_keys = keys;
+        }
+        set_if_changed(ui.get_song_key(), ((tonic + app.transpose) % 12) as i32, |v| ui.set_song_key(v));
     }
 
     fn show_progress(&mut self, ui: &AppWindow, app: &MyApp) {

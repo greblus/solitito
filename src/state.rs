@@ -509,6 +509,9 @@ pub struct MyApp {
     pub lead_line: bool,
     /// The pitch class of the step credited last in Intervals.
     pub last_played: Option<usize>,
+    /// Chords: semitones up the tune is played in, 0 to 11. Back to 0 with
+    /// every new tune.
+    pub transpose: usize,
     
     /// Randomise the exercise order. What it means depends on the mode: in
     /// Chords it picks the next chord at random, in the note modes it also
@@ -792,6 +795,7 @@ impl MyApp {
             level_rotation: 0,
             lead_line: false,
             last_played: None,
+            transpose: 0,
             
             paused: false,
             random_mode: false,
@@ -1403,6 +1407,8 @@ impl MyApp {
 
     pub fn item_selected(&mut self, index: i32) {
         self.selected_library_idx = index as usize;
+        // Another tune comes in its own key.
+        self.transpose = 0;
         if self.reads_songs() {
             self.saved_song_idx = self.selected_library_idx;
         }
@@ -1515,6 +1521,26 @@ impl MyApp {
         }
     }
 
+    /// The key the tune now selected is written in, as a pitch class: the root
+    /// of its last chord, which is the tonic in nearly every standard. `None`
+    /// with no tune.
+    pub fn song_tonic(&self) -> Option<usize> {
+        let song = self.song_library.get(self.selected_library_idx)?;
+        song.chords.last().map(|c| c.root as usize)
+    }
+
+    /// Chords: play the tune in `key`, a pitch class. The progression starts
+    /// again in it.
+    pub fn set_song_key(&mut self, key: usize) {
+        let Some(tonic) = self.song_tonic() else { return };
+        let transpose = (key % 12 + 12 - tonic) % 12;
+        if transpose != self.transpose {
+            self.transpose = transpose;
+            self.reload_library_content();
+            self.reset_logic_state();
+        }
+    }
+
     /// Reads the library again for whatever mode is running.
     ///
     /// Public for the one caller outside: switching a formula exercise to "over
@@ -1542,6 +1568,11 @@ impl MyApp {
                     let song = &self.song_library[self.selected_library_idx];
                     self.song_title = song.title.clone();
                     self.chords = song.chords.clone();
+                    if self.app_mode == AppMode::Chords {
+                        for chord in &mut self.chords {
+                            chord.root = NoteName::from_index(chord.root as usize + self.transpose);
+                        }
+                    }
                 }
             }
             AppMode::Arpeggios if self.arp_exercise == ArpExercise::Study => {

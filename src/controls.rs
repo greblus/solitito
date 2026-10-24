@@ -496,6 +496,10 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
     }
     {
         let app = shared.app.clone();
+        ui.on_song_key_selected(move |key| app.lock().unwrap().set_song_key(key.max(0) as usize));
+    }
+    {
+        let app = shared.app.clone();
         let uw = ui.as_weak();
         // Paused first: a chord jumped to is a chord to look at and play again,
         // and the exercise must not run on from it on its own.

@@ -236,7 +236,9 @@ component SideToggle inherits Rectangle {
     background: touch.has-hover ? #1C212C : transparent;
     touch := TouchArea { clicked => { root.toggled(); } }
     HorizontalLayout {
-        padding-left: 44px;
+        // Lined up with the text of a list above it in the quick options:
+        // its row's 12px and the list's own 10px.
+        padding-left: 22px;
         padding-right: 12px;
         spacing: 8px;
         label := Text {
@@ -460,6 +462,9 @@ component Dropdown inherits Rectangle {
     in property <bool> title-look: false;
     in property <string> title-text;
     in property <length> title-size: 26px;
+    /// The open list at least this wide, from the box's left edge rightwards:
+    /// for a box in the narrow side bar, whose entries would not fit it.
+    in property <length> list-width: 0px;
 
     property <length> row-h: root.title-look ? 32px : 28px;
     // As many rows as fit between where the list opens and the foot of the
@@ -512,8 +517,8 @@ component Dropdown inherits Rectangle {
     }
 
     popup := PopupWindow {
-        width: root.title-look ? max(root.width * 0.7, 300px) : root.width;
-        x: (root.width - self.width) / 2;
+        width: root.title-look ? max(root.width * 0.7, 300px) : max(root.width, root.list-width);
+        x: root.list-width > 0 ? 0 : (root.width - self.width) / 2;
         y: root.title-look ? root.height : 0;
         height: min(root.model.length, root.max-rows) * root.row-h + 2 * root.pad
                 + (root.overflows ? 14px : 0px);
@@ -955,6 +960,11 @@ export component AppWindow inherits Window {
 
     in property <[string]> secondary_items;
     in property <string> secondary_label: "Key (Root):";
+    /// Chords: the twelve keys a tune may be played in, its own marked, and
+    /// the one it is played in now.
+    in property <[string]> song_keys;
+    in-out property <int> song_key: 0;
+    callback song_key_selected(int);
     /// Intervals: the exercises, as `interval_levels::Level::label` reads them.
     in property <[string]> interval_levels;
     in-out property <int> interval_level: 9;
@@ -1295,6 +1305,18 @@ export component AppWindow inherits Window {
                 path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
             if root.current_mode == 0 && root.quick_open && !root.show_settings : VerticalLayout {
                 padding-bottom: 4px;
+                // The key the tune is played in: the whole progression moves.
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 4px;
+                    Dropdown {
+                        list-width: 220px;
+                        model: root.song_keys;
+                        current-index <=> root.song_key;
+                        selected => { root.song_key_selected(self.current-index); }
+                    }
+                }
                 SideToggle { text: Tr.quick_full; on: root.show_full_shapes;
                     toggled => { root.show_full_shapes = !root.show_full_shapes;
                         root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
@@ -1312,6 +1334,18 @@ export component AppWindow inherits Window {
                 path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
             if root.current_mode == 1 && root.quick_open && !root.show_settings : VerticalLayout {
                 padding-bottom: 4px;
+                // The exercise, the setting most often changed while playing.
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 4px;
+                    Dropdown {
+                        list-width: 340px;
+                        model: root.interval_levels;
+                        current-index <=> root.interval_level;
+                        selected => { root.interval_level_changed(self.current-index); }
+                    }
+                }
                 SideToggle { text: Tr.chip_single; on: root.single_notes;
                     toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
                 SideToggle { text: Tr.chip_in_order; on: root.interval_in_order;
@@ -1326,6 +1360,18 @@ export component AppWindow inherits Window {
             // Which way the scale runs: one of three, so each switch sets it.
             if root.current_mode == 2 && root.quick_open && !root.show_settings : VerticalLayout {
                 padding-bottom: 4px;
+                // The key: the scale itself is chosen from its title above it.
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 4px;
+                    Dropdown {
+                        list-width: 220px;
+                        model: root.secondary_items;
+                        current-index <=> root.current_secondary_index;
+                        selected => { root.secondary_item_selected(self.current-index); }
+                    }
+                }
                 SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
                     toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
@@ -1341,14 +1387,69 @@ export component AppWindow inherits Window {
                 SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
                     toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
             }
-            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.show_settings = false; root.pick_mode(3); }
+            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
+                expandable: root.current_mode == 3 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
+            // Which exercise, and what it needs: the chord a study stands on, or
+            // which way each arpeggio runs over the changes. The study or tune
+            // itself is chosen from the title above the exercise.
+            if root.current_mode == 3 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 6px;
+                Dropdown {
+                    list-width: 220px;
+                    model: [Tr.arp_study, Tr.arp_changes];
+                    current-index <=> root.arp_exercise;
+                    selected(v) => { root.arp_exercise_changed(v); }
+                }
+                if root.arp_exercise == 0 : Dropdown {
+                    list-width: 220px;
+                    model: ["m7", "Maj7", "7", "m7b5", "dim7"];
+                    current-index <=> root.arp_quality;
+                    selected(v) => { root.arp_quality_changed(v); }
+                }
+                if root.arp_exercise == 1 : Dropdown {
+                    list-width: 220px;
+                    model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
+                    current-index <=> root.arp_direction;
+                    selected(v) => { root.arp_direction_changed(v); }
+                }
+            }
             NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                 expandable: root.current_mode == 5 && !root.show_settings;
                 expanded: root.quick_open;
                 path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
             if root.current_mode == 5 && root.quick_open && !root.show_settings : VerticalLayout {
                 padding-bottom: 4px;
+                // The exercise, and how many tones a formula has - named in
+                // the list, where a bare digit would say nothing.
+                VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 4px;
+                    spacing: 6px;
+                    Dropdown {
+                        list-width: 220px;
+                        model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
+                        current-index <=> root.formula_exercise;
+                        selected(v) => { root.formula_exercise_changed(v); }
+                    }
+                    Dropdown {
+                        list-width: 220px;
+                        model: [Tr.formula_notes + "1", Tr.formula_notes + "2", Tr.formula_notes + "3",
+                                Tr.formula_notes + "4", Tr.formula_notes + "5", Tr.formula_notes + "6",
+                                Tr.formula_notes + "7", Tr.formula_notes + "8", Tr.formula_notes + "9",
+                                Tr.formula_notes + "10", Tr.formula_notes + "11", Tr.formula_notes + "12"];
+                        current-index: root.formula_notes - 1;
+                        selected(v) => {
+                            root.formula_notes = v + 1;
+                            root.formula_notes_changed(v + 1);
+                        }
+                    }
+                }
                 SideToggle { text: Tr.chip_single; on: root.single_notes;
                     toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
                 SideToggle { text: Tr.chip_in_order; on: root.in_order;
@@ -2434,8 +2535,6 @@ export component AppWindow inherits Window {
                             // Intervals is played from a list of exercises; scales and
                             // studies keep the degrees written out, editable.
                             if root.current_mode == 1 : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
                                 Text { text: Tr.interval_level; color: #aaa; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                     width: root.ctrl_w;
@@ -2721,8 +2820,6 @@ export component AppWindow inherits Window {
                                     Text { text: Tr.there_and_back; color: #aaa; vertical-alignment: center; }
                                 }
                                 HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 10px;
                                     Text { text: Tr.scale_from; color: #aaa; vertical-alignment: center; width: 100px; }
                                     // From E to e the run starts where first position does.
                                     Dropdown {
@@ -2735,8 +2832,6 @@ export component AppWindow inherits Window {
                                 }
                                 // Unshuffled only: with the shuffle on, the key is drawn.
                                 HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 10px;
                                     Text { text: Tr.key_move; color: #aaa; vertical-alignment: center; width: 100px; }
                                     Dropdown {
                                         width: root.ctrl_w;

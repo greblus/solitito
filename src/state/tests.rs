@@ -3084,3 +3084,23 @@ fn saved_numbers_read_back_as_the_same_exercise() {
     assert_eq!(FormulaPlacement::from(3), FormulaPlacement::Outside);
     assert_eq!(FormulaPlacement::from(8).wanted(), None, "anything else asks for no particular verdict");
 }
+
+/// Chords in another key: every root moves by the same step, the qualities
+/// stay, and a new tune comes back in its own key.
+#[test]
+fn a_tune_is_played_in_the_key_chosen() {
+    let mut a = app();
+    a.set_mode(AppMode::Chords as i32);
+    a.item_selected(0);
+    let written: Vec<(usize, String)> = a.chords.iter().map(|c| (c.root as usize, c.quality.to_string())).collect();
+    let tonic = a.song_tonic().unwrap();
+    a.set_song_key((tonic + 5) % 12);
+    let moved: Vec<(usize, String)> = a.chords.iter().map(|c| (c.root as usize, c.quality.to_string())).collect();
+    for ((r0, q0), (r1, q1)) in written.iter().zip(&moved) {
+        assert_eq!(*r1, (r0 + 5) % 12);
+        assert_eq!(q0, q1);
+    }
+    assert_eq!(a.chords.last().unwrap().root as usize, (tonic + 5) % 12);
+    a.item_selected(1);
+    assert_eq!(a.transpose, 0, "a new tune kept the old key");
+}

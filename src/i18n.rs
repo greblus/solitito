@@ -98,6 +98,8 @@ pub struct Strings {
     pub chip_down: &'static str,
     pub chip_drawn: &'static str,
     pub chip_scattered: &'static str,
+    /// After the key a tune is written in, in the key list of Chords.
+    pub key_original: &'static str,
     /// The shuffle's name in Scales, where it draws the key.
     pub random_key: &'static str,
     pub there_and_back: &'static str,
@@ -274,6 +276,7 @@ pub const EN: Strings = Strings {
     chip_down: "Down",
     chip_drawn: "Random",
     chip_scattered: "Scattered",
+    key_original: " (original)",
     random_key: "Random key",
     there_and_back: "There and back",
     scale_from: "Start on: ",
@@ -433,6 +436,7 @@ pub const PL: Strings = Strings {
     chip_down: "W dół",
     chip_drawn: "Losowo",
     chip_scattered: "Rozsypane",
+    key_original: " (oryginał)",
     random_key: "Losowa tonacja",
     there_and_back: "Tam i z powrotem",
     scale_from: "Początek: ",
@@ -626,6 +630,7 @@ mod tests {
             ("chip_down", EN.chip_down, PL.chip_down),
             ("chip_drawn", EN.chip_drawn, PL.chip_drawn),
             ("chip_scattered", EN.chip_scattered, PL.chip_scattered),
+            ("key_original", EN.key_original, PL.key_original),
             ("random_key", EN.random_key, PL.random_key),
             ("there_and_back", EN.there_and_back, PL.there_and_back),
             ("scale_from", EN.scale_from, PL.scale_from),
