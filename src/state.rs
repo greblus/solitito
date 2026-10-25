@@ -1256,9 +1256,11 @@ impl MyApp {
     /// Where the hand stands for a scale from E to e this pass: the frets it
     /// covers, and the note the run starts on. The hand is round a fret where
     /// the start degree lies on some string, in the first twelve - drawn for
-    /// every pass - as `tab::hand_from` has it. The run starts on
-    /// that degree as low as the hand has it, the low E string first; run
-    /// downwards, as high, the high e first. `None` outside a scale from E to e.
+    /// every pass - as `tab::hand_from` has it. The run starts on the outer
+    /// string: on the start degree where the low E has it under the hand, and
+    /// where it does not, on the lowest tone of the scale there, so the low E
+    /// is played too. Run downwards, the same from the high e. `None` outside
+    /// a scale from E to e.
     pub fn scale_hand(&self, chord: &Chord) -> Option<((i32, i32), i32)> {
         if self.app_mode != AppMode::Scales || !self.scale_e_to_e {
             return None;
@@ -1267,10 +1269,18 @@ impl MyApp {
         let fret = *frets.get(self.scale_place_drawn % frets.len().max(1))?;
         let (lo, hi) = tab::hand_from(fret);
         let pc = self.start_pc(chord)?;
-        let under_hand = (0..6)
-            .flat_map(|string| (lo..=hi).map(move |fret| tab::TUNING[string] + fret))
-            .filter(|pitch| pitch.rem_euclid(12) == pc);
-        let start = if self.scale_runs_down() { under_hand.max() } else { under_hand.min() };
+        let down = self.scale_runs_down();
+        let outer = if down { 5 } else { 0 };
+        let on_outer: Vec<i32> = (lo..=hi).map(|fret| tab::TUNING[outer] + fret).collect();
+        let degree_there = on_outer.iter().copied().filter(|pitch| pitch.rem_euclid(12) == pc);
+        let root = chord.root as i32;
+        let intervals = chord.quality.intervals();
+        let in_scale = |pitch: &i32| intervals.iter().any(|&i| (pitch - root - i as i32).rem_euclid(12) == 0);
+        let start = if down {
+            degree_there.max().or_else(|| on_outer.iter().copied().filter(in_scale).max())
+        } else {
+            degree_there.min().or_else(|| on_outer.iter().copied().filter(in_scale).min())
+        };
         Some(((lo, hi), start?))
     }
 

@@ -3085,9 +3085,10 @@ fn e_to_e_app() -> MyApp {
 }
 
 /// From E to e: the hand stands at a place drawn for every pass and does not
-/// move. Up, the run climbs from the start degree as low as the hand has it to
-/// the top, every tone of the scale on the way; down, from as high as the
-/// hand has it to the bottom. There and back comes back to the start.
+/// move. Up, the run starts on the low E - on the start degree where the hand
+/// has it there, on the lowest tone otherwise - and climbs to the top, every
+/// tone of the scale on the way; down, the same from the high e. There and
+/// back comes back to the start.
 #[test]
 fn a_scale_from_e_to_e_runs_one_way_under_the_hand() {
     let mut a = e_to_e_app();
@@ -3104,7 +3105,18 @@ fn a_scale_from_e_to_e_runs_one_way_under_the_hand() {
                 a.advance_chord();
                 let (run, spots, (lo, hi)) = hand_run(&a, &chord);
                 let (low, high) = (40 + lo, 64 + hi);
-                assert_eq!(run[0].rem_euclid(12), pc, "{from:?}: not started on its degree");
+                let outer = if down { 64 } else { 40 };
+                assert!((lo..=hi).contains(&(run[0] - outer)), "{from:?} {direction:?}: not started on the outer string");
+                // On its degree where the outer string has it under the hand;
+                // where it has not, the outer string is filled in from its end.
+                let degree_there = (lo..=hi).any(|fret| (outer + fret).rem_euclid(12) == pc);
+                if degree_there {
+                    assert_eq!(run[0].rem_euclid(12), pc, "{from:?}: not started on its degree");
+                } else {
+                    let first = (low..=high).filter(|&p| in_d_major(p) && (lo..=hi).contains(&(p - outer)));
+                    let first = if down { first.max() } else { first.min() };
+                    assert_eq!(Some(run[0]), first, "{from:?}: the outer string not filled in");
+                }
                 let one_way = run.windows(2).all(|w| if down { w[1] < w[0] } else { w[1] > w[0] });
                 assert!(one_way, "{from:?} {direction:?}: not one way: {run:?}");
                 let end = if down { low } else { high };
