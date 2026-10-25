@@ -77,6 +77,8 @@ pub struct UiFrame {
     /// The fretboard trainer's last answer: the note it credited, kept on the
     /// neck after it moves on to the next one.
     last_answer: Option<(usize, bool)>,
+    /// The note the fretboard hint was opened for: a new one closes it.
+    hint_target: Option<usize>,
     /// Rasterising the SVGs is not free and the shapes only change when the chord
     /// QUALITY does, which is far less often than every frame.
     last_diagram_key: String,
@@ -132,6 +134,7 @@ impl UiFrame {
             last_tab: String::new(),
             last_voicing: Vec::new(),
             last_answer: None,
+            hint_target: None,
             last_diagram_key: String::new(),
             last_progress: Vec::new(),
             last_song_keys: Vec::new(),
@@ -692,6 +695,7 @@ impl UiFrame {
         set_if_changed(ui.get_chord_name(), name.clone().into(), |v| ui.set_chord_name(v));
         set_if_changed(ui.get_start_hint(), app.region.describe().into(), |v| ui.set_start_hint(v));
         self.draw_fretboard_region(ui, app);
+        self.show_fretboard_hint(ui, app);
         ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
             MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
             _ => Color::from_rgb_u8(255, 255, 255),
@@ -738,6 +742,30 @@ impl UiFrame {
         self.last_tab = signature;
         ui.set_tab_aspect(tab::region_aspect(from, to));
         ui.set_tab_image(svg_icon(&tab::region(&strings, from, to, &marks, &label, right)));
+    }
+
+    /// The hint the note's tile opens: where the note lies on the neck as far
+    /// up as a region is drawn. Closed again by the next note, so it is asked for
+    /// each time and not left standing as the answer to every one - unless the
+    /// quick option keeps it on.
+    fn show_fretboard_hint(&mut self, ui: &AppWindow, app: &MyApp) {
+        if self.hint_target != app.fret_target {
+            self.hint_target = app.fret_target;
+            ui.set_note_hint_open(false);
+            ui.set_note_hint_note(-1);
+        }
+        let Some(pc) = app.fret_target.map(|target| target % 12) else { return };
+        let shown = ui.get_note_hint_open() || ui.get_fret_hint();
+        if !shown || ui.get_note_hint_note() == pc as i32 {
+            return;
+        }
+        let strings: Vec<usize> = app.region.strings.strings().to_vec();
+        let (from, to) = tab::HINT_FRETS;
+        let marks = places_of(pc, &[0, 1, 2, 3, 4, 5], from, to);
+        let label = model::NoteName::from_index(pc).to_string().to_string();
+        ui.set_note_hint_aspect(tab::region_aspect(from, to));
+        ui.set_note_hint_image(svg_icon(&tab::neck_hint(&strings, &marks, &label)));
+        ui.set_note_hint_note(pc as i32);
     }
 
     /// Takes down the drawing under the exercise, if there is one.
@@ -1074,7 +1102,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1086,7 +1114,8 @@ impl UiFrame {
             ui.get_preview(),
             app.grip_string,
             ui.get_voice_leading(),
-            app.free_order()
+            app.free_order(),
+            app.scale_hand(chord)
         );
         if signature == self.last_tab {
             return;
@@ -1104,7 +1133,7 @@ impl UiFrame {
             place_phrase(app, chord, steps)
         };
         self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
-        let done = &app.collected_notes;
+        let done = &this_way_only(app, chord, steps, &app.collected_notes);
         let frets = ui.get_tab_frets();
         // No ring under free order: nothing is "due", and a ring would say the
         // opposite - for a grip, and for a scale let out of its order.
@@ -1312,6 +1341,28 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
         .collect()
 }
 
+/// What a scale has played since it last turned round: on the way back the
+/// notes ahead were green from the way up, and the player walked on green with
+/// nothing left to show where the run was going. Only the drawing forgets -
+/// the judge keeps every credit.
+fn this_way_only(app: &MyApp, chord: &Chord, steps: &[model::Step], done: &[bool]) -> Vec<bool> {
+    if app.app_mode != AppMode::Scales {
+        return done.to_vec();
+    }
+    let intervals = chord.quality.intervals();
+    let pitch = |s: &model::Step| intervals.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32;
+    let due = app.note_due().unwrap_or(steps.len()).min(steps.len());
+    // The last turn at or before the step due: where the way changed sign.
+    let turn = (1..due)
+        .rev()
+        .find(|&i| {
+            let (before, after) = (pitch(&steps[i]) - pitch(&steps[i - 1]), steps.get(i + 1).map(|n| pitch(n) - pitch(&steps[i])));
+            after.is_some_and(|after| before.signum() != after.signum())
+        })
+        .unwrap_or(0);
+    done.iter().enumerate().map(|(i, &d)| d && i >= turn).collect()
+}
+
 /// A phrase laid on the neck. A scale starts from a drawn string, after every
 /// pass: the shape is the same everywhere, and one place on the neck practised
 /// over and over is not the exercise. An arpeggio study keeps the position its
@@ -1408,5 +1459,34 @@ fn bar_colour(bar: usize, level: f32, targets: &[usize]) -> Color {
         (true, false) => Color::from_rgb_u8(255, 50, 50),
         (false, _) if pitch_class == 0 => Color::from_rgb_u8(60, 60, 80),
         (false, _) => Color::from_rgb_u8(30, 30, 30),
+    }
+}
+
+#[cfg(test)]
+mod this_way_tests {
+    use super::*;
+    use crate::state::tests::app;
+    use crate::state::{KeyMove, ScaleDirection, ScaleFrom};
+
+    /// There and back: on the way down only what was played since the turn is
+    /// green; the judge's own record is left as it was.
+    #[test]
+    fn the_way_back_starts_without_green() {
+        let mut a = app();
+        a.set_mode(AppMode::Scales as i32);
+        a.set_scale_e_to_e(false);
+        a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, true, KeyMove::Stays, true);
+        let chord = a.chords[0].clone();
+        let steps = a.ordered_active_indices(&chord);
+        let top = steps.len() / 2;
+        // Up to the top and two steps back down.
+        for k in 0..top + 3 {
+            a.collected_notes[k] = true;
+        }
+        a.current_note_step = top + 3;
+        let shown = this_way_only(&a, &chord, &steps, &a.collected_notes);
+        assert!(shown[..top].iter().all(|&d| !d), "the way up still green: {shown:?}");
+        assert!(shown[top..top + 3].iter().all(|&d| d), "the way down not green: {shown:?}");
+        assert!(a.collected_notes[..top].iter().all(|&d| d), "the judge forgot");
     }
 }

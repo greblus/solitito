@@ -61,11 +61,11 @@ akord, przechodzi do następnego.
   Domyślnie surowo — pojedynczo, po kolei i tylko to, co uderzone — albo wyłącz te trzy
   i graj chwyty, a decyduje sam model.
 - **Skale** — 47 skal: mody skali durowej, molowej melodycznej, molowej harmonicznej
-  i durowej harmonicznej, pentatoniki, bluesowe, symetryczne i bebopowe. W górę, w dół,
-  kierunek losowany na każdy przebieg albo dźwięki rozsypane w kolejności losowanej na każdy
-  przebieg; po kolei albo w dowolnej kolejności; **Od E do e** — każdy dźwięk skali pod jedną
-  ręką, od niskiej struny E do wysokiej e, a ręka stoi przy wybranym stopniu w miejscu gryfu
-  losowanym na każdy przebieg: w górę, na sam dół i z powrotem; tam i z powrotem; początek na 1, 3, 5, 7 albo
+  i durowej harmonicznej, pentatoniki, bluesowe, symetryczne i bebopowe. W górę, w dół albo
+  kierunek losowany na każdy przebieg; po kolei albo w dowolnej kolejności; **Od E do e** —
+  skala pod jedną ręką, od niskiej struny E do wysokiej e, a ręka stoi w miejscu gryfu
+  losowanym na każdy przebieg: w górę od wybranego stopnia na niskiej E albo w dół od niego
+  na wysokiej e; tam i z powrotem; początek na 1, 3, 5, 7 albo
   gdziekolwiek. Tonacja zostaje albo po każdym przebiegu przesuwa się o półton, kołem
   kwintowym lub kwartowym, albo jest losowana — razem ze struną, od której zaczyna się skala.
 

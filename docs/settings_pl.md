@@ -65,7 +65,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Debug na konsoli** | Wypisuje linię dla każdej zaliczonej funkcji wraz z tym, co usłyszano. Okno na ocenianie; w Windowsie wydanie release nie ma konsoli, na której mogłoby to wypisać |
 | **Kończ powtórzoną prymą** | Tylko Skale: przebieg czyta się 1 2 3 4 5 6 7 8, gdzie 8 to pryma oktawę wyżej. To osobny krok i trzeba go zagrać |
 | **Tam i z powrotem** | Skale: w górę i z powrotem w jednym przebiegu, także w szybkich opcjach |
-| **Początek** | Skale: przebieg zaczyna się od 1, 3, 5 albo 7 skali, albo od dźwięku losowanego na każdy przebieg, i idzie przez oktawę do tego samego dźwięku. Przy **Od E do e** przebieg zaczyna się od tego stopnia w miejscu gryfu losowanym na każdy przebieg, na dowolnej strunie |
+| **Początek** | Skale: przebieg zaczyna się od 1, 3, 5 albo 7 skali, albo od dźwięku losowanego na każdy przebieg, i idzie przez oktawę do tego samego dźwięku. Przy **Od E do e** przebieg zaczyna się od tego stopnia pod ręką losowaną na każdy przebieg, na skrajnej strunie, która go ma |
 | **Ruch tonacji** | Skale, przy wyłączonym losowaniu: po każdym przebiegu tonacja zostaje, przesuwa się o półton w górę lub w dół albo idzie kołem kwintowym lub kwartowym |
 | **Prowadzenie głosów** | Interwały, przy włączonym losowaniu: każdy akord zaczyna się od składnika najbliższego ostatnio zagranemu dźwiękowi, nigdy od tego samego, więc wylosowane ćwiczenie dalej czyta się jak linia |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |
@@ -106,20 +106,19 @@ sięgać w trakcie grania:
 |---|---|
 | Akordy | tonacja utworu, **Pełne chwyty**, **Shelle**, **Trzymaj jakość**, **Krótkie uderzenia** |
 | Interwały | ćwiczenie, **Pojedynczo**, **Po kolei**, **Tylko uderzone** |
-| Skale | tonacja, **W górę**, **W dół**, **Losowo**, **Rozsypane**, **Po kolei**, **Od E do e**, **Tam i z powrotem** |
+| Skale | tonacja, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem** |
 | Arpeggia | ćwiczenie oraz akord studium albo kierunek przy ogrywaniu zmian |
 | Formuły | ćwiczenie, liczba dźwięków w formule, **Pojedynczo**, **Po kolei** |
-| Gryf | **Pojedynczo** |
+| Gryf | **Podpowiedź**: gryf do 15. progu z każdym miejscem szukanego dźwięku, przy każdym dźwięku; wyłączona, pokazuje ją jednorazowo kliknięcie w dźwięk |
 
-W Skalach **Losowo** losuje kierunek na każdy przebieg, nigdy trzy razy w tę samą stronę,
-a **Rozsypane** rozdaje dźwięki w kolejności losowanej na każdy przebieg; przy wyłączonym
-**Po kolei** można je grać w dowolnej kolejności. **Od E do e** to każdy dźwięk skali
-pod jedną ręką, od niskiej struny E do wysokiej e. Ręka stoi przy stopniu wybranym
-w **Początku**, w jednym z jego miejsc na pierwszych dwunastu progach — na dowolnej strunie
-i w innym miejscu przy każdym przebiegu — i obejmuje próg niżej i trzy wyżej, a od pustej
-struny progi 0–4; nie przesuwa się. Przebieg zaczyna się od tego dźwięku, idzie w górę, na sam
-dół i z powrotem do startu; w dół najpierw schodzi. Domyślnie włączone; **Tam i z powrotem**
-nic do niego nie dodaje.
+W Skalach **Losowo** losuje kierunek na każdy przebieg, nigdy trzy razy w tę samą stronę;
+przy wyłączonym **Po kolei** dźwięki można grać w dowolnej kolejności. **Od E do e** to skala
+pod jedną ręką, od niskiej struny E do wysokiej e. Ręka stoi na progu, na którym stopień
+wybrany w **Początku** leży na którejś strunie, w pierwszych dwunastu — przy każdym przebiegu
+na innym — i obejmuje próg niżej i trzy wyżej, a od pustej struny progi 0–4; nie przesuwa się.
+W górę przebieg zaczyna się od tego stopnia najniżej, jak ręka go ma — na niskiej E, jeśli tam
+leży — i idzie do góry; w dół zaczyna najwyżej — na wysokiej e — i schodzi na dół. **Tam
+i z powrotem** wraca do startu. Domyślnie włączone.
 
 **Losowanie** znaczy w każdym trybie co innego, bo w każdym co innego warto losować:
 
@@ -130,8 +129,8 @@ nic do niego nie dodaje.
 | Skale | tonację — od razu i po każdym przejściu — oraz strunę, od której zaczyna się skala |
 | Arpeggia | tonację w studiach, kolejność akordów przy ogrywaniu zmian |
 
-Losowanie nigdy nie zmienia kolejności dźwięków w Skalach i Arpeggiach. Rozdane losowo
-studium nie jest tym studium; skala w innej kolejności to **Rozsypane**, wybrane świadomie.
+Losowanie nigdy nie zmienia kolejności dźwięków w Skalach i Arpeggiach: rozdana losowo skala
+albo studium nie jest już tą skalą ani tym studium.
 
 Przy wyłączonym losowaniu skala i tak przesuwa się po każdym przejściu: tonacja tak, jak mówi
 **Ruch tonacji**, a jeśli skala nie idzie od E do e, także struna, od której się zaczyna —

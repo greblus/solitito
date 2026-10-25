@@ -229,6 +229,9 @@ component HintBubble inherits Rectangle {
 component SideToggle inherits Rectangle {
     in property <string> text;
     in property <bool> on;
+    /// Said in the bubble on hover, where the label alone does not say
+    /// enough. Without it the bubble only finishes a label cut short.
+    in property <string> hint;
     callback toggled();
 
     height: 32px;
@@ -272,8 +275,10 @@ component SideToggle inherits Rectangle {
     OverflowHint {
         x: root.width + 8px;
         y: 4px;
-        text: root.text;
-        shown: touch.has-hover && label.preferred-width > label.width;
+        text: root.hint != "" ? root.hint : root.text;
+        // A pixel of slack: "Tam i z powrotem" fits to a fraction of one, and
+        // the bubble repeated a label that was there whole.
+        shown: touch.has-hover && (root.hint != "" || label.preferred-width > label.width + 1px);
     }
 }
 
@@ -695,7 +700,9 @@ export global Tr {
     in-out property <string> chip_up: "Up";
     in-out property <string> chip_down: "Down";
     in-out property <string> chip_drawn: "Random";
-    in-out property <string> chip_scattered: "Scattered";
+    in-out property <string> chip_drawn_hint: "Up or down";
+    in-out property <string> note_hint_hover: "Click to see a hint";
+    in-out property <string> chip_hint: "Hint";
     in-out property <string> chip_e_to_e: "From E to e";
     in-out property <string> random_key: "Random key";
     in-out property <string> there_and_back: "There and back";
@@ -894,7 +901,7 @@ export component AppWindow inherits Window {
     /// Scales: end the run on the root again, an octave up.
     in-out property <bool> scale_repeat_root: false;
     callback scale_repeat_root_changed(bool);
-    /// Scales: which way (0 up, 1 down, 2 drawn, 3 scattered), from which degree (0 to 3:
+    /// Scales: which way (0 up, 1 down, 2 drawn), from which degree (0 to 3:
     /// 1 3 5 7, 4 drawn), there and back, and where the key goes next (0 stays,
     /// 1 up a semitone, 2 down, 3 round the fifths, 4 round the fourths).
     in-out property <int> scale_direction: 0;
@@ -931,6 +938,16 @@ export component AppWindow inherits Window {
     /// the drawing and the picture scales with the window instead of sitting in
     /// a fixed 150px band.
     in property <float> tab_aspect: 3.5;
+    /// The fretboard trainer's hint: the neck to the fifteenth fret with the
+    /// note asked for on it. Opened by a click on the note, closed by the next
+    /// note. `note_hint_note` is the note it was drawn for, -1 for none.
+    in-out property <bool> note_hint_open: false;
+    in property <image> note_hint_image;
+    in property <float> note_hint_aspect: 3.5;
+    in-out property <int> note_hint_note: -1;
+    /// The quick option: the hint with every note.
+    in-out property <bool> fret_hint: false;
+    callback fret_hint_changed(bool);
     in-out property <bool> voice_leading: true;
     callback voice_leading_changed(bool);
     in-out property <bool> lead_line: false;
@@ -1213,6 +1230,9 @@ export component AppWindow inherits Window {
     /// through it, and the Hearing bar names what is played against it. A
     /// scale is one item, and an arpeggio study one chord - what moves there
     /// is the key.
+    /// The fretboard trainer's line of names: the note in a tile, where to
+    /// play it in a pill under it.
+    property <bool> note_tile: root.current_mode == 4 && root.preview == 0;
     property <bool> walks_progression: root.current_mode != 2 && root.current_mode != 4
         && root.current_mode != 5 && !(root.current_mode == 3 && root.arp_exercise == 0);
     property <length> box_w: root.wide_view
@@ -1298,7 +1318,14 @@ export component AppWindow inherits Window {
             }
 
             NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
+                expandable: root.current_mode == 4 && !root.show_settings;
+                expanded: root.quick_open;
                 path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
+            if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
+                padding-bottom: 4px;
+                SideToggle { text: Tr.chip_hint; on: root.fret_hint;
+                    toggled => { root.fret_hint = !root.fret_hint; root.fret_hint_changed(root.fret_hint); } }
+            }
             NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
                 expandable: root.current_mode == 0 && !root.show_settings;
                 expanded: root.quick_open;
@@ -1376,10 +1403,8 @@ export component AppWindow inherits Window {
                     toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
                     toggled => { root.scale_direction = 1; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_drawn; on: root.scale_direction == 2;
+                SideToggle { text: Tr.chip_drawn; hint: Tr.chip_drawn_hint; on: root.scale_direction == 2;
                     toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_scattered; on: root.scale_direction == 3;
-                    toggled => { root.scale_direction = 3; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
                     toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
@@ -1627,7 +1652,8 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.current_mode != 5 : Text {
+            // The fretboard trainer's tile carries the note itself.
+            if root.current_mode != 5 && !root.note_tile : Text {
                 text: root.chord_name;
                 font-size: 60px; 
                 font-weight: 400; 
@@ -2067,7 +2093,7 @@ export component AppWindow inherits Window {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
-            if root.current_mode != 0 && root.start_hint != "" : Text {
+            if root.current_mode != 0 && root.start_hint != "" && !root.note_tile : Text {
                 text: root.start_hint;
                 // In the fretboard trainer this line IS the exercise - it says
                 // where to play. Elsewhere it is a side suggestion, so it stays
@@ -2085,6 +2111,76 @@ export component AppWindow inherits Window {
                 color: white; 
             }
             
+            // THE FRETBOARD TRAINER as names: the note asked for, framed as
+            // the tile due now in Intervals, and under it where to play it, in
+            // a pill like the one that says "now" there. The sizes are those
+            // of the plain line it replaced; the note keeps the colour that
+            // says it was heard.
+            if root.note_tile : VerticalLayout {
+                alignment: center;
+                spacing: 25px;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: max(130px, tile_note.preferred-width + 60px);
+                        height: 120px;
+                        border-radius: 16px;
+                        background: #1A2640;
+                        border-width: 2px;
+                        border-color: #2F6FE0;
+                        tile_note := Text {
+                            text: root.chord_name;
+                            font-size: 60px;
+                            font-weight: 400;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            color: root.chord_text_color;
+                        }
+                        tile_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.note_hint_open = !root.note_hint_open; }
+                        }
+                        OverflowHint {
+                            x: parent.width + 10px;
+                            y: (parent.height - 26px) / 2;
+                            text: Tr.note_hint_hover;
+                            shown: tile_touch.has-hover && !root.note_hint_open && !root.fret_hint;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 52px;
+                        border-radius: 26px;
+                        background: #2F6FE0;
+                        HorizontalLayout {
+                            padding-left: 24px;
+                            padding-right: 24px;
+                            Text {
+                                text: root.start_hint;
+                                font-size: 32px;
+                                color: #FFFFFF;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                // The hint, under the tile it was asked from.
+                // Measured against the room beside the side bar, not the
+                // column, which is narrow here, and centred by hand over it.
+                if (root.note_hint_open || root.fret_hint) && root.note_hint_image.width > 0 : Rectangle {
+                    property <length> hint_w: min((root.width - root.sidebar_w) * 92 / 100 - 30px, 1100px);
+                    height: self.hint_w / root.note_hint_aspect;
+                    Image {
+                        source: root.note_hint_image;
+                        width: parent.hint_w;
+                        height: parent.height;
+                        x: (parent.width - self.width) / 2;
+                    }
+                }
+            }
+
             // INTERVALS drawn as tiles: the chord's degrees, the note each is
             // on, and where it stands. One of the views the settings offer.
             if root.current_mode == 1 && root.preview == 3 : HorizontalLayout {

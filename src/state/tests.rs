@@ -2014,37 +2014,15 @@ fn a_scale_starts_where_asked_and_can_come_back() {
     assert_eq!(there_and_back.first(), there_and_back.last());
 }
 
-/// Scattered: the scale's own tones, in an order drawn for every pass - and
-/// with "in order" off, they may be played in any order at all.
+/// The random key moves the key at once, not after the scale is finished.
 #[test]
-fn a_scattered_scale_deals_its_own_tones_anew() {
+fn the_random_key_moves_the_key_at_once() {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
-    a.set_scale_e_to_e(false);
-    let chord = a.chords[0].clone();
-    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, false, KeyMove::Stays, true);
-    let mut up: Vec<Step> = a.get_active_indices(&chord);
-    a.set_scale_way(ScaleDirection::Scattered, ScaleFrom::Root, false, KeyMove::Stays, true);
-    let mut orders = std::collections::HashSet::new();
-    for _ in 0..10 {
-        a.advance_chord();
-        let mut dealt = a.get_active_indices(&chord);
-        orders.insert(dealt.iter().map(|s| (s.degree, s.octave)).collect::<Vec<_>>());
-        dealt.sort();
-        up.sort();
-        assert_eq!(dealt, up, "the scattered scale is not the scale");
-    }
-    assert!(orders.len() > 1, "every pass dealt the same order");
-    assert!(!a.free_order());
-    let dealt = a.get_active_indices(&chord);
-    a.set_scale_way(ScaleDirection::Scattered, ScaleFrom::Root, false, KeyMove::Stays, false);
-    assert!(a.free_order(), "out of order was not allowed");
-    assert_eq!(a.get_active_indices(&chord), dealt, "letting go of the order dealt the scale again");
-    // Nor does the random key: it moves the key, at once, and keeps the order.
+    a.set_random_mode(false);
     let key = a.chords[0].root;
     a.set_random_mode(true);
     assert_ne!(a.chords[0].root, key, "the random key did not move the key");
-    assert_eq!(a.get_active_indices(&a.chords[0].clone()), dealt, "the random key dealt the scale again");
 }
 
 /// Unshuffled, the key moves as asked after every finished scale.
@@ -3106,56 +3084,45 @@ fn e_to_e_app() -> MyApp {
     a
 }
 
-/// From E to e: the hand stands where the pass drew the start degree, on any
-/// string, and does not move. The run is every tone of the scale under it,
-/// from the low E string to the high e: from the start up to the top, down to
-/// the bottom and back to the start.
+/// From E to e: the hand stands at a place drawn for every pass and does not
+/// move. Up, the run climbs from the start degree as low as the hand has it to
+/// the top, every tone of the scale on the way; down, from as high as the
+/// hand has it to the bottom. There and back comes back to the start.
 #[test]
-fn a_scale_from_e_to_e_goes_round_the_hand() {
+fn a_scale_from_e_to_e_runs_one_way_under_the_hand() {
     let mut a = e_to_e_app();
     let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
     let chord = Chord { root: NoteName::D, quality: ChordQuality::CustomScale(major) };
     a.chords = vec![chord.clone()];
     let in_d_major = |p: i32| [2, 4, 6, 7, 9, 11, 1].contains(&(p.rem_euclid(12)));
     for (from, pc) in [(ScaleFrom::Root, 2), (ScaleFrom::Third, 6), (ScaleFrom::Fifth, 9), (ScaleFrom::Seventh, 1)] {
-        a.set_scale_way(ScaleDirection::Up, from, false, KeyMove::Stays, true);
-        let mut starts = Vec::new();
-        for _ in 0..30 {
-            a.advance_chord();
-            let (run, spots, (lo, hi)) = hand_run(&a, &chord);
-            let (low, high) = (40 + lo, 64 + hi);
-            assert_eq!(run[0].rem_euclid(12), pc, "{from:?}: not started on its degree");
-            assert_eq!(run.first(), run.last(), "{from:?}: does not end where it began");
-            assert!(run[1] > run[0] || run[0] == *run.iter().max().unwrap(), "{from:?}: up did not go up first");
-            assert!(run.windows(2).all(|w| w[0] != w[1]), "a note twice running: {run:?}");
-            let tones: Vec<i32> = (low..=high).filter(|&p| in_d_major(p)).collect();
-            assert!(tones.iter().all(|t| run.contains(t)), "{from:?}: a tone under the hand left out");
-            assert!(run.iter().all(|p| tones.contains(p)), "{from:?}: a note outside the hand");
-            assert_eq!(run.len(), 2 * tones.len() - 1);
-            assert_eq!(spots.len(), run.len(), "{from:?}: not every note drawn");
-            assert!(spots.iter().all(|s| (lo..=hi).contains(&s.fret)), "{from:?}: the hand moved");
-            starts.push((run[0], lo));
+        for down in [false, true] {
+            let direction = if down { ScaleDirection::Down } else { ScaleDirection::Up };
+            a.set_scale_way(direction, from, false, KeyMove::Stays, true);
+            let mut hands = Vec::new();
+            for _ in 0..30 {
+                a.advance_chord();
+                let (run, spots, (lo, hi)) = hand_run(&a, &chord);
+                let (low, high) = (40 + lo, 64 + hi);
+                assert_eq!(run[0].rem_euclid(12), pc, "{from:?}: not started on its degree");
+                let one_way = run.windows(2).all(|w| if down { w[1] < w[0] } else { w[1] > w[0] });
+                assert!(one_way, "{from:?} {direction:?}: not one way: {run:?}");
+                let end = if down { low } else { high };
+                let tones: Vec<i32> = (low..=high).filter(|&p| in_d_major(p)).collect();
+                let on_the_way: Vec<i32> =
+                    tones.iter().copied().filter(|&p| if down { p <= run[0] } else { p >= run[0] }).collect();
+                assert_eq!(run.len(), on_the_way.len(), "{from:?}: a tone on the way left out");
+                assert!((run.last().unwrap() - end).abs() <= 2, "{from:?}: stopped short of the end");
+                assert_eq!(spots.len(), run.len(), "{from:?}: not every note drawn");
+                assert!(spots.iter().all(|s| (lo..=hi).contains(&s.fret)), "{from:?}: the hand moved");
+                hands.push(lo);
+            }
+            assert!(hands.windows(2).all(|w| w[0] != w[1]), "{from:?}: the same hand twice running");
         }
-        assert!(starts.windows(2).all(|w| w[0] != w[1]), "{from:?}: the same place twice running");
     }
-}
-
-/// Run downwards, the run sets off down from its start and comes back to it.
-#[test]
-fn a_scale_from_e_to_e_downwards_sets_off_down() {
-    let mut a = e_to_e_app();
-    let major = a.scale_definitions.iter().find(|s| s.name == "Major Scale (Ionian)").unwrap().clone();
-    let chord = Chord { root: NoteName::D, quality: ChordQuality::CustomScale(major) };
-    a.chords = vec![chord.clone()];
-    a.set_scale_way(ScaleDirection::Down, ScaleFrom::Third, false, KeyMove::Stays, true);
-    for _ in 0..20 {
-        a.advance_chord();
-        let (down, _, _) = hand_run(&a, &chord);
-        assert_eq!(down[0].rem_euclid(12), 6, "not started on the third");
-        assert_eq!(down.first(), down.last(), "does not end where it began");
-        // Started on the lowest note under the hand, there is no down to go.
-        assert!(down[1] < down[0] || down[0] == *down.iter().min().unwrap(), "down went up first: {down:?}");
-    }
+    a.set_scale_way(ScaleDirection::Up, ScaleFrom::Root, true, KeyMove::Stays, true);
+    let (run, _, _) = hand_run(&a, &chord);
+    assert_eq!(run.first(), run.last(), "there and back did not come back");
 }
 
 /// From E to e in every key, from every start, at every place drawn, every
@@ -3193,4 +3160,24 @@ fn a_scale_from_e_to_e_is_placed_anew_when_chosen() {
         hands.insert(a.scale_hand(&chord).unwrap());
     }
     assert!(hands.len() > 2, "the scale kept to {hands:?}");
+}
+
+/// Up, the run starts on the start degree as low as the hand has it - on the
+/// low E where it lies there; down, as high - on the high e where it lies
+/// there.
+#[test]
+fn a_scale_from_e_to_e_starts_on_the_outer_string_it_can() {
+    let mut a = e_to_e_app();
+    let chord = a.chords[0].clone();
+    for (direction, down) in [(ScaleDirection::Up, false), (ScaleDirection::Down, true)] {
+        a.set_scale_way(direction, ScaleFrom::Root, false, KeyMove::Stays, true);
+        for _ in 0..30 {
+            a.advance_chord();
+            let ((lo, hi), start) = a.scale_hand(&chord).unwrap();
+            let (run, _, _) = hand_run(&a, &chord);
+            let roots: Vec<i32> = run.iter().copied().filter(|p| p.rem_euclid(12) == run[0].rem_euclid(12)).collect();
+            let outer = if down { *roots.iter().max().unwrap() } else { *roots.iter().min().unwrap() };
+            assert_eq!(run[0], outer, "{direction:?}: hand {lo}..{hi}, started on {start}: {run:?}");
+        }
+    }
 }

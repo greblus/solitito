@@ -106,7 +106,8 @@ impl From<usize> for ArpDirection {
     }
 }
 
-/// Which way a scale runs, or that it is scattered. Saved as its index, 0 to 3.
+/// Which way a scale runs. Saved as its index, 0 to 2; the 3 an older
+/// version saved for a scattered scale reads as up.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum ScaleDirection {
     #[default]
@@ -114,8 +115,6 @@ pub enum ScaleDirection {
     Down,
     /// Drawn again for every pass.
     Random,
-    /// The tones in an order drawn for every pass.
-    Scattered,
 }
 
 impl From<usize> for ScaleDirection {
@@ -123,7 +122,6 @@ impl From<usize> for ScaleDirection {
         match index {
             1 => ScaleDirection::Down,
             2 => ScaleDirection::Random,
-            3 => ScaleDirection::Scattered,
             _ => ScaleDirection::Up,
         }
     }
@@ -575,9 +573,6 @@ pub struct MyApp {
     pub scale_e_to_e: bool,
     /// Scales: the tones in the order shown. Off, in any order.
     pub scale_in_order: bool,
-    /// The order a scattered scale is dealt in this pass - see
-    /// `ScaleDirection::Scattered`.
-    scale_scatter: Vec<usize>,
     /// The degree a scale starts on this pass where `ScaleFrom::Random`.
     scale_from_drawn: usize,
     /// Which of its places on the neck a scale from E to e starts on this
@@ -818,7 +813,6 @@ impl MyApp {
             key_move: KeyMove::Stays,
             scale_e_to_e: true,
             scale_in_order: true,
-            scale_scatter: Vec::new(),
             scale_from_drawn: 0,
             scale_place_drawn: 0,
             same_way_passes: 0,
@@ -968,12 +962,8 @@ impl MyApp {
             if self.scale_runs_down() {
                 steps.reverse();
             }
-            if self.scale_direction == ScaleDirection::Scattered && self.scale_scatter.len() == steps.len() {
-                steps = self.scale_scatter.iter().map(|&i| steps[i]).collect();
-            }
-            // And back the way it came, without playing the turn twice. From
-            // E to e the run has come back already.
-            if self.scale_there_and_back && !whole_neck && steps.len() > 1 {
+            // And back the way it came, without playing the turn twice.
+            if self.scale_there_and_back && steps.len() > 1 {
                 let back: Vec<Step> = steps[..steps.len() - 1].iter().rev().copied().collect();
                 steps.extend(back);
             }
@@ -1224,8 +1214,7 @@ impl MyApp {
     /// Which way this pass of the scale runs.
     pub fn scale_runs_down(&self) -> bool {
         match self.scale_direction {
-            // Scattered, the order is dealt; it is drawn over the climb.
-            ScaleDirection::Up | ScaleDirection::Scattered => false,
+            ScaleDirection::Up => false,
             ScaleDirection::Down => true,
             ScaleDirection::Random => self.scale_descending,
         }
@@ -1265,37 +1254,47 @@ impl MyApp {
     }
 
     /// Where the hand stands for a scale from E to e this pass: the frets it
-    /// covers, and the note the run starts on. That note is the start degree
-    /// at one of its places in the first twelve frets, on whichever string -
-    /// drawn for every pass - and the hand is round it, as `tab::hand_from`
-    /// has it. `None` outside a scale from E to e.
+    /// covers, and the note the run starts on. The hand is round a fret where
+    /// the start degree lies on some string, in the first twelve - drawn for
+    /// every pass - as `tab::hand_from` has it. The run starts on
+    /// that degree as low as the hand has it, the low E string first; run
+    /// downwards, as high, the high e first. `None` outside a scale from E to e.
     pub fn scale_hand(&self, chord: &Chord) -> Option<((i32, i32), i32)> {
         if self.app_mode != AppMode::Scales || !self.scale_e_to_e {
             return None;
         }
-        let places = self.start_places(chord);
-        let &(string, fret) = places.get(self.scale_place_drawn % places.len().max(1))?;
-        Some((tab::hand_from(fret), tab::TUNING[string] + fret))
+        let frets = self.hand_frets(chord);
+        let fret = *frets.get(self.scale_place_drawn % frets.len().max(1))?;
+        let (lo, hi) = tab::hand_from(fret);
+        let pc = self.start_pc(chord)?;
+        let under_hand = (0..6)
+            .flat_map(|string| (lo..=hi).map(move |fret| tab::TUNING[string] + fret))
+            .filter(|pitch| pitch.rem_euclid(12) == pc);
+        let start = if self.scale_runs_down() { under_hand.max() } else { under_hand.min() };
+        Some(((lo, hi), start?))
     }
 
-    /// Every place of the start degree in the first twelve frets, string by
-    /// string.
-    fn start_places(&self, chord: &Chord) -> Vec<(usize, i32)> {
+    /// The pitch class of the degree a scale starts on.
+    fn start_pc(&self, chord: &Chord) -> Option<i32> {
         let intervals = chord.quality.intervals();
-        let degree = self.start_degree(&chord.quality.interval_names());
-        let Some(&interval) = intervals.get(degree) else { return Vec::new() };
-        let pc = (chord.root as i32 + interval as i32) % 12;
-        (0..6)
-            .flat_map(|string| (0..=12).map(move |fret| (string, fret)))
-            .filter(|&(string, fret)| (tab::TUNING[string] + fret) % 12 == pc)
+        let interval = *intervals.get(self.start_degree(&chord.quality.interval_names()))?;
+        Some((chord.root as i32 + interval as i32) % 12)
+    }
+
+    /// Every fret in the first twelve where the start degree lies on some
+    /// string: the places the hand can stand. Each once - two strings with it
+    /// on one fret are the same hand.
+    fn hand_frets(&self, chord: &Chord) -> Vec<i32> {
+        let Some(pc) = self.start_pc(chord) else { return Vec::new() };
+        (0..=12)
+            .filter(|&fret| (0..6).any(|string| (tab::TUNING[string] + fret) % 12 == pc))
             .collect()
     }
 
-    /// From E to e: every tone of the scale under the hand, from the low E
-    /// string to the high e, started on the note `scale_hand` drew - up to the
-    /// top, down to the bottom and back to where it began, so the run ends on
-    /// its first note. Run downwards it is turned round afterwards: from the
-    /// same note down first.
+    /// From E to e: the tones of the scale under the hand, from the note
+    /// `scale_hand` starts on to the top - which, started on the low E string,
+    /// is all of them but what lies below it there. Run downwards, from the
+    /// start to the bottom: the steps up to it, turned round afterwards.
     fn e_to_e_from_its_start(&self, chord: &Chord) -> Vec<Step> {
         let Some(((lo, hi), start_pitch)) = self.scale_hand(chord) else {
             return Vec::new();
@@ -1305,30 +1304,11 @@ impl MyApp {
         let steps = scale_between(&intervals, root, tab::TUNING[0] + lo, tab::TUNING[5] + hi);
         let pitch = |s: &Step| root + intervals[s.degree] as i32 + 12 * s.octave as i32;
         let start = steps.iter().position(|s| pitch(s) == start_pitch).unwrap_or(0);
-        round_trip(&steps, start)
-    }
-
-    /// A new order for a scattered scale, drawn over its tones before they
-    /// come back the way they went. Kept while it still fits the scale: only
-    /// a new pass or a new shape of the run - see `next_scale_pass` and
-    /// `set_scale_way` - asks for another, not every redraw.
-    fn deal_scattered_scale(&mut self) {
-        if self.app_mode != AppMode::Scales || self.scale_direction != ScaleDirection::Scattered {
-            return;
+        if self.scale_runs_down() {
+            steps[..=start].to_vec()
+        } else {
+            steps[start..].to_vec()
         }
-        let Some(chord) = self.chords.first() else { return };
-        // The length the scatter is applied at: before there and back.
-        let back = self.scale_there_and_back;
-        self.scale_there_and_back = false;
-        let kept = std::mem::take(&mut self.scale_scatter);
-        let n = self.get_active_indices(&chord.clone()).len();
-        self.scale_there_and_back = back;
-        if kept.len() == n {
-            self.scale_scatter = kept;
-            return;
-        }
-        self.scale_scatter = (0..n).collect();
-        self.rng.shuffle(&mut self.scale_scatter);
     }
 
     /// A new pass of a scale: another string to start from - drawn, and never
@@ -1351,12 +1331,10 @@ impl MyApp {
         self.same_way_passes = if down == previous { self.same_way_passes + 1 } else { 1 };
         self.scale_descending = down;
         self.scale_from_drawn = self.rng.below(12);
-        self.scale_scatter.clear();
     }
 
     /// The scale options, read from the UI. A change to the run's shape starts
-    /// the lap again; "in order" only changes how it is judged, so a scattered
-    /// scale keeps the order it was dealt.
+    /// the lap again; "in order" only changes how it is judged.
     pub fn set_scale_way(&mut self, direction: ScaleDirection, from: ScaleFrom, there_and_back: bool, key_move: KeyMove, in_order: bool) {
         let changed = (self.scale_direction, self.scale_from, self.scale_there_and_back)
             != (direction, from, there_and_back);
@@ -1366,7 +1344,6 @@ impl MyApp {
         self.key_move = key_move;
         self.scale_in_order = in_order;
         if changed && self.app_mode == AppMode::Scales {
-            self.scale_scatter.clear();
             self.reset_logic_state();
         }
     }
@@ -1376,8 +1353,7 @@ impl MyApp {
         if self.scale_e_to_e != on {
             self.scale_e_to_e = on;
             if self.app_mode == AppMode::Scales {
-                self.scale_scatter.clear();
-                self.reset_logic_state();
+                    self.reset_logic_state();
             }
         }
     }
@@ -1388,7 +1364,7 @@ impl MyApp {
         // Where the hand stands from E to e: drawn for every pass and every
         // new exercise, and another place than the one before. Drawn only
         // between passes, a scale just chosen always stood at the nut.
-        let places = self.chords.first().map_or(1, |chord| self.start_places(chord).len());
+        let places = self.chords.first().map_or(1, |chord| self.hand_frets(chord).len());
         if places > 1 {
             self.scale_place_drawn = (self.scale_place_drawn + 1 + self.rng.below(places - 1)) % places;
         }
@@ -1413,7 +1389,6 @@ impl MyApp {
         self.grip_string = self.rng.below(4);
         self.level_rotation = self.rng.below(8);
         self.step_order = (0..n).collect();
-        self.deal_scattered_scale();
         if self.random_mode {
             self.rng.shuffle(&mut self.step_order);
             if self.lead_line {
@@ -2091,16 +2066,6 @@ fn scale_between(intervals: &[u8], root: i32, low: i32, high: i32) -> Vec<Step> 
             Some(Step { degree, octave: above_root.div_euclid(12) as i8 })
         })
         .collect()
-}
-
-/// `steps` walked from `start` up to the top, down to the bottom and up to
-/// `start` again, no note played twice in a row.
-fn round_trip(steps: &[Step], start: usize) -> Vec<Step> {
-    let Some(last) = steps.len().checked_sub(1) else { return Vec::new() };
-    let up = steps[start..].iter();
-    let down = steps[..last].iter().rev();
-    let back_up = steps[1..=start.min(last)].iter();
-    up.chain(down).chain(back_up).copied().collect()
 }
 
 /// `steps` started at `start`, those before it carried an octave up.

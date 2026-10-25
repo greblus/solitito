@@ -90,9 +90,11 @@ pub fn root_above_low_e(root_pc: usize) -> i32 {
     TUNING[0] + (root_pc as i32 - TUNING[0]).rem_euclid(12)
 }
 
-/// A phrase laid under a hand that does not move: every note on the lowest
-/// string that takes it between frets `lo` and `hi`. Octave 0 of the steps is
-/// `root_above_low_e`. A note the hand cannot reach is left out.
+/// A phrase laid under a hand that does not move: every note at the lowest
+/// fret that takes it between frets `lo` and `hi` - only the G and B strings,
+/// a third apart, ever both reach one note, and then an open B is not moved
+/// to the fourth fret of the G. Octave 0 of the steps is `root_above_low_e`.
+/// A note the hand cannot reach is left out.
 pub fn place_in_hand(
     root_pc: usize,
     intervals: &[u8],
@@ -106,7 +108,9 @@ pub fn place_in_hand(
         .filter_map(|step| {
             let interval = *intervals.get(step.degree)? as i32 + 12 * step.octave as i32;
             let pitch = root + interval;
-            let string = (0..6).find(|&s| (lo..=hi).contains(&(pitch - TUNING[s])))?;
+            let string = (0..6)
+                .filter(|&s| (lo..=hi).contains(&(pitch - TUNING[s])))
+                .min_by_key(|&s| pitch - TUNING[s])?;
             Some(Spot {
                 string,
                 fret: pitch - TUNING[string],
@@ -542,10 +546,35 @@ fn dot_colour(played: bool, spot: &Spot) -> &'static str {
 
 /// The fret a box starts on, written over its first column.
 fn fret_number(base: i32) -> String {
+    fret_number_at(base, base)
+}
+
+/// The inlays of a neck in a box starting at fret `base`: one dot on the 3rd,
+/// 5th, 7th, 9th and 15th frets, between the D and G strings, and two on the
+/// 12th, a string further out each way. Under the notes, so they never hide
+/// one.
+fn inlays(base: i32, columns: i32) -> String {
+    const INLAY: &str = "rgba(200, 205, 215, 0.22)";
+    let between = |low: usize| (string_y(low) + string_y(low + 1)) / 2.0;
+    let dot = |fret: i32, y: f32| {
+        let x = GRIP_LEFT + FRET_GAP * ((fret - base) as f32 + 0.5);
+        format!("<circle cx=\"{x}\" cy=\"{y}\" r=\"9\" fill=\"{INLAY}\"/>")
+    };
+    let shown = |fret: i32| (base..base + columns).contains(&fret);
+    let mut out: String = [3, 5, 7, 9, 15].into_iter().filter(|&f| shown(f)).map(|f| dot(f, between(2))).collect();
+    if shown(12) {
+        out += &dot(12, between(1));
+        out += &dot(12, between(3));
+    }
+    out
+}
+
+/// The number of `fret` over its column, in a box starting at fret `base`.
+fn fret_number_at(fret: i32, base: i32) -> String {
     format!(
         "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"26\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{base}</text>",
-        x = GRIP_LEFT + FRET_GAP * 0.5,
+         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{BLUE}\">{fret}</text>",
+        x = GRIP_LEFT + FRET_GAP * ((fret - base) as f32 + 0.5),
         y = GRIP_TOP - 44.0,
     )
 }
@@ -739,7 +768,7 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
 /// The first fret drawn for a region, and how many columns the box has.
 fn region_columns(fret_from: i32, fret_to: i32) -> (i32, i32) {
     let base = fret_from.max(1).min(15);
-    (base, (fret_to - base + 1).clamp(4, 13))
+    (base, (fret_to - base + 1).clamp(4, 15))
 }
 
 /// The region a fretboard exercise is asking within: the frets it covers and
@@ -764,26 +793,76 @@ pub fn region(
     label: &str,
     right: bool,
 ) -> String {
+    let fill = if right { GREEN } else { RED };
+    region_marked(strings, fret_from, fret_to, marks, label, fill, false)
+}
+
+/// The frets a fretboard hint shows: all a region can be drawn in, the open
+/// strings to the fifteenth fret.
+pub const HINT_FRETS: (i32, i32) = (0, crate::fretboard::MAX_FRET as i32);
+
+/// A hint for the fretboard trainer: the open strings to fret 15, the region's strings
+/// bright, and the note asked for at every place on them, in blue - not the
+/// green of an answer, since nothing has been played. The neck's inlays
+/// count the frets, so no number is written over them.
+pub fn neck_hint(strings: &[usize], marks: &[(usize, i32)], label: &str) -> String {
+    region_marked(strings, HINT_FRETS.0, HINT_FRETS.1, marks, label, BLUE, true)
+}
+
+fn region_marked(
+    strings: &[usize],
+    fret_from: i32,
+    fret_to: i32,
+    marks: &[(usize, i32)],
+    label: &str,
+    fill: &str,
+    whole_neck: bool,
+) -> String {
     let (base, columns) = region_columns(fret_from, fret_to);
     let (w, h) = box_size(columns);
     let mut out = open_svg(w, h);
+    // A note on an open string is drawn before the nut, where the string's
+    // name stands - and an open string sounds its own name, so the mark says
+    // it in its place.
+    let open = |string: usize| marks.contains(&(string, 0));
     for string in (0..6).rev() {
-        out += &region_string(string, columns, strings.contains(&string));
+        out += &region_string(string, columns, strings.contains(&string), !open(string));
     }
     out += &fret_lines(columns);
-    out += &fret_number(base);
-    let fill = if right { GREEN } else { RED };
+    // A few frets say where they are with the number of the first; the
+    // whole neck says it with its inlays.
+    if whole_neck {
+        out += &inlays(base, columns);
+    } else {
+        out += &fret_number(base);
+    }
     for &(string, fret) in marks {
-        out += &dot(fret_x(fret, base, columns), string_y(string), fill, label);
+        out += &if fret == 0 {
+            open_dot(string_y(string), fill, label)
+        } else {
+            dot(fret_x(fret, base, columns), string_y(string), fill, label)
+        };
     }
     out.push_str("</svg>");
     out
 }
 
-/// One string of a region, named at the left: bright when it is in play, dim
-/// when it is only there to keep the others in their place.
-fn region_string(string: usize, columns: i32, in_play: bool) -> String {
-    const STRING_NAMES: [&str; 6] = ["E", "A", "D", "G", "B", "E"];
+/// A note on an open string, before the nut: an empty circle, as in a grip.
+fn open_dot(y: f32, colour: &str, label: &str) -> String {
+    let x = GRIP_LEFT - DOT_R - 7.0;
+    format!(
+        "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" stroke=\"{colour}\" \
+         stroke-width=\"5\"></circle>{}",
+        dot_label(x, y, label)
+    )
+}
+
+/// One string of a region, named at the left unless a note there stands in
+/// its place: bright when it is in play, dim when it is only there to keep
+/// the others in their place.
+fn region_string(string: usize, columns: i32, in_play: bool, named: bool) -> String {
+    // The high string small, as the region's own line writes it.
+    const STRING_NAMES: [&str; 6] = ["E", "A", "D", "G", "B", "e"];
     let colour = if in_play { BLUE } else { DIM };
     let y = string_y(string);
     format!(
@@ -791,7 +870,7 @@ fn region_string(string: usize, columns: i32, in_play: bool) -> String {
          text-anchor=\"end\" dominant-baseline=\"central\" fill=\"{colour}\">{name}</text>",
         line(GRIP_LEFT, y, GRIP_LEFT + FRET_GAP * columns as f32, y, colour),
         name_x = GRIP_LEFT - 12.0,
-        name = STRING_NAMES[string],
+        name = if named { STRING_NAMES[string] } else { "" },
     )
 }
 
@@ -848,6 +927,35 @@ pub fn svg(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String
 
 #[cfg(test)]
 mod tests {
+    /// The hint marks the note at every place to the fifteenth fret, in blue,
+    /// an open string before the nut in place of its name. `SOLITITO_HINT_SVG` writes it out
+    /// to look at.
+    #[test]
+    fn the_fretboard_hint_marks_every_place_in_blue() {
+        let marks: Vec<(usize, i32)> = (0..6)
+            .flat_map(|string| (HINT_FRETS.0..=HINT_FRETS.1).map(move |fret| (string, fret)))
+            .filter(|&(string, fret)| (TUNING[string] + fret) % 12 == 0)
+            .collect();
+        assert_eq!(marks.len(), 8, "C on every string, twice on the e strings: {marks:?}");
+        let svg = neck_hint(&[0, 1, 2], &marks, "C");
+        assert!(svg.matches(BLUE).count() >= 6, "the marks are not blue");
+        assert!(!svg.contains(GREEN) && !svg.contains(RED), "a hint is not an answer");
+        if let Ok(path) = std::env::var("SOLITITO_HINT_SVG") {
+            std::fs::write(path, &svg).unwrap();
+        }
+        // E on the open low and high strings: two empty circles before the nut.
+        let marks: Vec<(usize, i32)> = (0..6)
+            .flat_map(|string| (HINT_FRETS.0..=HINT_FRETS.1).map(move |fret| (string, fret)))
+            .filter(|&(string, fret)| (TUNING[string] + fret) % 12 == 4)
+            .collect();
+        assert!(marks.contains(&(0, 0)) && marks.contains(&(5, 0)), "{marks:?}");
+        let svg = neck_hint(&[0, 1, 2], &marks, "E");
+        assert_eq!(svg.matches("fill=\"none\"").count(), 2, "the open strings are not before the nut");
+        if let Ok(path) = std::env::var("SOLITITO_HINT_SVG_OPEN") {
+            std::fs::write(path, &svg).unwrap();
+        }
+    }
+
     use super::*;
 
 

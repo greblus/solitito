@@ -535,10 +535,11 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_arp_direction(cfg.arp_direction as i32);
     ui.set_arp_quality(cfg.arp_quality as i32);
     ui.set_scale_repeat_root(cfg.scale_repeat_root);
-    ui.set_scale_direction(cfg.scale_direction.min(3) as i32);
+    ui.set_scale_direction(state::ScaleDirection::from(cfg.scale_direction) as i32);
     ui.set_scale_in_order(cfg.scale_in_order);
     ui.set_scale_from(cfg.scale_from.min(4) as i32);
     ui.set_scale_e_to_e(cfg.scale_e_to_e);
+    ui.set_fret_hint(cfg.fret_hint);
     ui.set_scale_there_and_back(cfg.scale_there_and_back);
     ui.set_key_move(cfg.key_move.min(4) as i32);
     ui.set_show_full_shapes(cfg.show_full_shapes);
@@ -846,7 +847,9 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chip_up(t.chip_up.into());
     g.set_chip_down(t.chip_down.into());
     g.set_chip_drawn(t.chip_drawn.into());
-    g.set_chip_scattered(t.chip_scattered.into());
+    g.set_chip_drawn_hint(t.chip_drawn_hint.into());
+    g.set_note_hint_hover(t.note_hint_hover.into());
+    g.set_chip_hint(t.chip_hint.into());
     g.set_chip_e_to_e(t.scale_from_e_to_e.into());
     g.set_random_key(t.random_key.into());
     g.set_there_and_back(t.there_and_back.into());

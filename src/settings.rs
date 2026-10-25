@@ -166,6 +166,10 @@ pub struct Settings {
     /// Scales: from the low E to the high one, first position. On by default.
     #[serde(default = "yes")]
     pub scale_e_to_e: bool,
+    /// The fretboard trainer: the hint - where the note lies on the neck -
+    /// shown with every note, not only when the note is clicked.
+    #[serde(default)]
+    pub fret_hint: bool,
     /// Which shapes to draw. Both together is a legitimate answer - the row
     /// then holds ten thumbnails where four fit comfortably, which is for
     /// comparing them rather than playing from - and so is neither, which
@@ -364,6 +368,7 @@ impl Default for Settings {
             key_move: 0,
             scale_in_order: true,
             scale_e_to_e: true,
+            fret_hint: false,
             show_diagrams: true,
             arp_exercise: 0,
             arp_direction: 0,
