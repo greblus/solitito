@@ -2167,16 +2167,29 @@ export component AppWindow inherits Window {
                     }
                 }
                 // The hint, under the tile it was asked from.
-                // Measured against the room beside the side bar, not the
-                // column, which is narrow here, and centred by hand over it.
+                // Sized as the neck is in the other modes - a third of the
+                // window high at most, on a card - but against the room beside
+                // the side bar rather than this mode's narrow column, and
+                // centred by hand over it.
                 if (root.note_hint_open || root.fret_hint) && root.note_hint_image.width > 0 : Rectangle {
-                    property <length> hint_w: min((root.width - root.sidebar_w) * 92 / 100 - 30px, 1100px);
+                    property <length> box_h: min(root.height / 3, 380px);
+                    property <length> hint_w: min((root.width - root.sidebar_w) * 92 / 100,
+                        self.box_h * root.note_hint_aspect);
                     height: self.hint_w / root.note_hint_aspect;
-                    Image {
-                        source: root.note_hint_image;
+                    Rectangle {
                         width: parent.hint_w;
                         height: parent.height;
                         x: (parent.width - self.width) / 2;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: #222835;
+                        clip: true;
+                        Image {
+                            source: root.note_hint_image;
+                            image-fit: contain;
+                            width: 100%;
+                            height: 100%;
+                        }
                     }
                 }
             }

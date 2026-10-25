@@ -450,12 +450,16 @@ const STEP_X: f32 = 56.0;
 const MARGIN_X: f32 = 34.0;
 const MARGIN_Y: f32 = 30.0;
 /// Room around a grip box: at the left for the nut, and above it for the fret
-/// the shape starts on.
-const GRIP_LEFT: f32 = 52.0;
+/// the shape starts on. At the left it also holds an open string's note before
+/// the nut, ringed when it is due - at 52 the ring ran off the picture.
+const GRIP_LEFT: f32 = 62.0;
 /// Room above the box for the fret number - and enough of it that the number
 /// clears a dot sitting on the top string, whose centre is ON the box's edge.
 const GRIP_TOP: f32 = 88.0;
 const FRET_GAP: f32 = 56.0;
+/// How far the white ring of the note due reaches from the note's centre:
+/// its radius and half its stroke, and a little air.
+const RING_REACH: f32 = DOT_R + 7.0 + 2.5 + 3.0;
 use crate::diagrams::CARD;
 const BLUE: &str = "rgba(74, 144, 226, 1)";
 const RED: &str = "rgba(208, 2, 27, 1)";
@@ -583,7 +587,9 @@ fn fret_number_at(fret: i32, base: i32) -> String {
 fn box_size(columns: i32) -> (f32, f32) {
     (
         GRIP_LEFT + FRET_GAP * columns as f32 + MARGIN_X,
-        GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y,
+        // The ring on the low string reaches past the margin the strip
+        // keeps, and was cut along the bottom.
+        GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y.max(RING_REACH),
     )
 }
 
@@ -697,14 +703,14 @@ fn grip_dot(spot: &Spot, base: i32, colour: &str, is_due: bool, frets: bool) -> 
 /// reads as if the hand could not move, and where the position sits is half of
 /// what the picture is for.
 fn neck_columns(spots: &[Spot]) -> (i32, i32) {
-    let lowest = spots.iter().map(|s| s.fret).min().unwrap_or(1);
-    let highest = spots.iter().map(|s| s.fret).max().unwrap_or(5);
-    let base = (lowest - 1).max(1).min(15);
-    (base, (highest - base + 2).clamp(6, 13))
+    let highest = spots.iter().map(|s| s.fret).max().unwrap_or(0);
+    (1, highest.max(crate::fretboard::MAX_FRET as i32))
 }
 
-/// A phrase on the neck: the position it is played in, every note of it drawn
-/// where the finger goes, and the one due now ringed in white.
+/// A phrase on the neck: the whole of it, from the open strings to the
+/// fifteenth fret - or further, where the phrase goes - with its strings named
+/// and its inlays, every note drawn where the finger goes, and the one due now
+/// ringed in white. A grip is drawn the same way.
 ///
 /// The strip has the ORDER on its horizontal axis, which is right for reading a
 /// line but makes a thirty-note study thirty columns wide - and at that width
@@ -712,18 +718,16 @@ fn neck_columns(spots: &[Spot]) -> (i32, i32) {
 /// picture is the size of a hand however long the phrase is, and what moves is
 /// the ring, not the page.
 pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String {
-    if spots.is_empty() {
-        return grip(spots, done, current, frets);
-    }
     let (base, columns) = neck_columns(spots);
     let (w, h) = box_size(columns);
     let mut out = open_svg(w, h);
-    for i in 0..6 {
-        let y = GRIP_TOP + i as f32 * STRING_GAP;
-        out += &line(GRIP_LEFT, y, GRIP_LEFT + FRET_GAP * columns as f32, y, BLUE);
+    // An open string's note stands before the nut, where its name would.
+    for string in (0..6).rev() {
+        let open = spots.iter().any(|s| s.string == string && s.fret == 0);
+        out += &region_string(string, columns, true, !open);
     }
     out += &fret_lines(columns);
-    out += &fret_number(base);
+    out += &inlays(base, columns);
     // One dot per PLACE, not per step: a phrase comes back to the same finger
     // over and over, and six dots on top of each other are one dot with a
     // muddy edge. The step due now decides what the place looks like.
@@ -884,10 +888,6 @@ pub fn neck_aspect(spots: &[Spot]) -> f32 {
     box_aspect(neck_columns(spots).1)
 }
 
-/// How wide a grip box is against its height - see `aspect` for the strip.
-pub fn grip_aspect() -> f32 {
-    box_aspect(5)
-}
 
 /// The strip as an SVG, ready for `Image::load_from_svg_data`.
 ///
@@ -1134,7 +1134,8 @@ mod tests {
             name: Some("5".into()),
         }];
         let svg = grip(&spots, &[false], 1, true);
-        assert!(svg.contains("cx=\"23.64\""), "open dot is not left of the nut");
+        let open_x = GRIP_LEFT - DOT_R - 7.0;
+        assert!(svg.contains(&format!("cx=\"{open_x}\"")), "open dot is not left of the nut");
         assert!(
             svg.contains("fill=\"none\" stroke=\"rgba(74, 144, 226, 1)\" stroke-width=\"5\""),
             "open dot is not an empty circle"
@@ -1153,8 +1154,9 @@ mod tests {
         assert_eq!((spots[0].string, spots[0].fret), (3, 2), "A root moved off G2");
         assert_eq!((spots[2].string, spots[2].fret), (5, 0), "open E fifth moved");
         let svg = grip(&spots, &[false; 3], 3, false);
+        let open_x = GRIP_LEFT - DOT_R - 7.0;
         assert!(
-            svg.contains("cx=\"23.64\" cy=\"88\" fill=\"none\""),
+            svg.contains(&format!("cx=\"{open_x}\" cy=\"88\" fill=\"none\"")),
             "the open E fifth was drawn inside the fretboard"
         );
     }

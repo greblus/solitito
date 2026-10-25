@@ -1138,9 +1138,7 @@ impl UiFrame {
         // No ring under free order: nothing is "due", and a ring would say the
         // opposite - for a grip, and for a scale let out of its order.
         let due = app.note_due().unwrap_or(spots.len());
-        let (svg, aspect) = if is_grip {
-            (tab::grip(&spots, done, due, frets), tab::grip_aspect())
-        } else if Preview::from(ui.get_preview()) == Preview::Tab {
+        let (svg, aspect) = if Preview::from(ui.get_preview()) == Preview::Tab {
             (tab::svg(&spots, done, due, frets), tab::aspect(spots.len()))
         } else {
             (tab::neck(&spots, done, due, frets), tab::neck_aspect(&spots))
@@ -1379,11 +1377,14 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::S
         );
     }
     let from = (app.app_mode == AppMode::Scales).then_some(app.scale_start);
+    // Read the way the steps were written: a level of Intervals counts its
+    // degrees through the chord's scale, and against the chord's four tones
+    // alone its tensions had nowhere to go - a chord scale drew an empty neck.
     tab::place_from(
         chord.root as usize,
-        &chord.quality.intervals(),
+        &app.degree_intervals(chord),
         steps,
-        &chord.quality.interval_names(),
+        &app.degree_names(chord),
         None,
         from,
     )
@@ -1488,5 +1489,24 @@ mod this_way_tests {
         assert!(shown[..top].iter().all(|&d| !d), "the way up still green: {shown:?}");
         assert!(shown[top..top + 3].iter().all(|&d| d), "the way down not green: {shown:?}");
         assert!(a.collected_notes[..top].iter().all(|&d| d), "the judge forgot");
+    }
+
+    /// Every level of Intervals longer than a grip lies on the neck in full,
+    /// over every chord of the tune: a chord scale once drew an empty neck.
+    #[test]
+    fn every_line_of_intervals_is_drawn_on_the_neck() {
+        let mut a = app();
+        a.set_mode(AppMode::Intervals as i32);
+        for level in 0..crate::interval_levels::LEVELS.len() {
+            a.set_interval_level(level);
+            for chord in a.chords.clone() {
+                let steps = a.ordered_active_indices(&chord);
+                if steps.len() <= 4 {
+                    continue;
+                }
+                let spots = place_phrase(&a, &chord, &steps);
+                assert_eq!(spots.len(), steps.len(), "level {level} over {chord:?}");
+            }
+        }
     }
 }
