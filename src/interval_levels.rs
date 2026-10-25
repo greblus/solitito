@@ -16,6 +16,9 @@ pub enum Group {
     TwoTones,
     ThreeTones,
     FourTones,
+    /// The four tones and the first again an octave up: five notes, so not
+    /// listed as four.
+    FourTonesToTheOctave,
     RootToFifth,
     FifthToNinth,
     VoiceLeading,
@@ -24,7 +27,7 @@ pub enum Group {
     PassingNoteScales,
 }
 
-pub const GROUPS: usize = 10;
+pub const GROUPS: usize = 11;
 
 /// Where a scale run starts: on a tone of the chord, or anywhere in its scale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -136,10 +139,10 @@ pub const LEVELS: [Level; 50] = [
     line(FourTones, same("5 7 1' 3'")),
     line(FourTones, same("7 1' 3' 5'")),
     turned(FourTones, same("1 3 5 7")),
-    line(FourTones, same("1 3 5 7 1'")),
-    line(FourTones, same("3 5 7 1' 3'")),
-    line(FourTones, same("5 7 1' 3' 5'")),
-    line(FourTones, same("7 1' 3' 5' 7'")),
+    line(FourTonesToTheOctave, same("1 3 5 7 1'")),
+    line(FourTonesToTheOctave, same("3 5 7 1' 3'")),
+    line(FourTonesToTheOctave, same("5 7 1' 3' 5'")),
+    line(FourTonesToTheOctave, same("7 1' 3' 5' 7'")),
     // Four notes of the chord's pentatonic sound, in four orders and turned.
     dealt(RootToFifth, by_kind("1 2 3 5", "1 3 4 5", "1 2 3 5")),
     line(RootToFifth, by_kind("2 1 5 3", "3 1 5 4", "2 1 5 3")),
@@ -225,8 +228,8 @@ impl Level {
 }
 
 /// How the levels read in the list, in its order. A level is named by its
-/// group and the major chord's cell - over other chords the tones follow the
-/// chord, and the exercise shows them as it is played. Voice leading is
+/// group and the major chord's cell, and the minor and diminished chords'
+/// cells where they differ. Voice leading is
 /// numbered instead: its cells differ between chords, and over a major chord
 /// four of the five are the same.
 pub fn labels(names: &Names) -> Vec<String> {
@@ -251,16 +254,31 @@ pub fn labels(names: &Names) -> Vec<String> {
                 return format!("{group} {nth}");
             }
             let turn = if level.rotated { " ↻" } else { "" };
-            let cell: Vec<String> = level.cells[0]
-                .split_whitespace()
-                .map(|token| {
-                    let (name, octave) = split_octave(token);
-                    shown_degree(name, octave)
-                })
-                .collect();
-            format!("{group}: {}{turn}", cell.join(" "))
+            // Where a minor or a diminished chord takes other tones, they are
+            // named too: the list said 1 2 3 5 while the neck asked for the
+            // minor chord's 1 b3 4 5.
+            let (major, minor, diminished) = (level.cells[0], level.cells[2], level.cells[4]);
+            let mut label = format!("{group}: {}", shown_cell(major));
+            if minor != major {
+                label += &format!(" · m: {}", shown_cell(minor));
+            }
+            if diminished != major && diminished != minor {
+                label += &format!(" · °: {}", shown_cell(diminished));
+            }
+            label + turn
         })
         .collect()
+}
+
+/// A cell as the list writes it: compound numbers above the octave.
+fn shown_cell(cell: &str) -> String {
+    cell.split_whitespace()
+        .map(|token| {
+            let (name, octave) = split_octave(token);
+            shown_degree(name, octave)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Which of a level's five cells a chord takes. A scale played as a chord is
