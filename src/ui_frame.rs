@@ -1014,7 +1014,7 @@ impl UiFrame {
             if step.degree < all_names.len() {
                 // The octave marker is display only - the model has no
                 // octave, so 1 and 1' are checked identically.
-                let name = model::shown_degree(&all_names[step.degree], step.octave);
+                let name = shown_step(app, &all_names[step.degree], step.octave);
                 ui_names.push(SharedString::from(name));
                 let (r, g, b) = app.note_color(step_idx);
                 ui_colors.push(Color::from_rgb_u8(r, g, b));
@@ -1073,7 +1073,7 @@ impl UiFrame {
                         NoteState::Done => 4,
                     };
                     IntervalTile {
-                        degree: model::shown_degree(&all_names[step.degree], step.octave).into(),
+                        degree: shown_step(app, &all_names[step.degree], step.octave).into(),
                         note: note.into(),
                         state,
                     }
@@ -1340,6 +1340,18 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// A step's degree as the screen writes it. In Intervals the plain degree, as
+/// the list of exercises has it - the octave is where the hand takes the note;
+/// in the phrases of Scales and Arpeggios, where the run through the octave is
+/// the exercise, the compound number above it.
+fn shown_step(app: &MyApp, name: &str, octave: i8) -> String {
+    if app.app_mode == AppMode::Intervals {
+        crate::interval_levels::plain_degree(name)
+    } else {
+        model::shown_degree(name, octave)
+    }
 }
 
 /// What a scale has played since it last turned round: on the way back the

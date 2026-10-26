@@ -49,22 +49,13 @@ akord, przechodzi do następnego.
 - **Akordy** — pełne standardy jazzowe. Zielony potwierdza trafienie dokładne, żółty przyjmuje
   triadę albo substytucję (voicing bez prymy, `m7` odczytane jako `m`), czerwony znaczy, że
   akord został wykryty, ale sygnał jest za słaby, by go zatwierdzić.
-- **Interwały** — dźwięki każdego akordu grane pojedynczo, z listy 50 ćwiczeń zapisanych
-  stopniami, więc jedno ćwiczenie pasuje do każdego akordu w standardzie: `3` to tercja wielka
-  nad akordem durowym i mała nad molowym, `9` i `6` pochodzą ze skali akordu. Lista idzie od
-  pojedynczych składników, par i triad, przez czterodźwiękowe struktury od prymy i od kwinty,
-  do linii prowadzących z akordu w następny (septyma schodzi na tercję kolejnego), rozwiązań
-  zawieszeń i skali akordu przez oktawę — od dowolnego jej dźwięku, z dźwiękiem przejściowym,
-  który stawia każdy składnik akordu na mocnej części taktu, albo bez niego. Dźwięk powyżej
-  oktawy ma swój numer złożony — 8, 9, 10 i dalej. Lista podpisuje każde ćwiczenie dźwiękami
-  nad akordem durowym i dominantowym; gdzie akord molowy lub półzmniejszony bierze inne, stoją
-  po `m:`, a dźwięki akordu zmniejszonego po `°:`. *Struktura 1–5: 1 2 3 5 · m: 1 3 4 5* to
-  1 2 3 5 nad akordem durowym i 1 ♭3 4 5 nad molowym, bo sekunda leży o półton od małej tercji
-  i brzmi z nią dysonansowo. ↻ oznacza losowy przewrót. Przy losowaniu **Prowadzenie głosów**
-  w ustawieniach zaczyna każdy akord od składnika najbliższego ostatnio zagranemu dźwiękowi.
-  Domyślnie surowo — pojedynczo, po kolei i tylko to, co uderzone — albo wyłącz te trzy
-  i graj chwyty, a decyduje sam model. Każde ćwiczenie z przykładami nad każdym rodzajem akordu
-  opisuje [ćwiczenie interwałów](docs/intervals-practice_pl.md).
+- **Interwały** — grasz dźwięki każdego akordu po kolei, jeden po drugim. Ćwiczenia są zapisane
+  numerami, a nie nazwami dźwięków: `3` to „trzeci dźwięk tego akordu”, czyli E w C maj7 i E♭
+  w Cm7. Dzięki temu jedno ćwiczenie pasuje do każdego akordu w piosence, a ty uczysz się słyszeć
+  brzmienie, a nie zapamiętywać chwyty. Na liście jest 50 ćwiczeń: od jednego dźwięku, przez
+  całe akordy i krótkie melodie, po przejścia z akordu w akord i skale. Po `m:` na liście stoją
+  dźwięki dla akordów molowych, a ↻ oznacza losowy przewrót. Wszystko, z przykładami, opisuje
+  [ćwiczenie interwałów](docs/intervals-practice_pl.md).
 - **Skale** — 47 skal: mody skali durowej, molowej melodycznej, molowej harmonicznej
   i durowej harmonicznej, pentatoniki, bluesowe, symetryczne i bebopowe. W górę, w dół albo
   kierunek losowany na każdy przebieg; po kolei albo w dowolnej kolejności; **Od E do e** —

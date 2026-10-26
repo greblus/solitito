@@ -49,23 +49,13 @@ chord, the app moves on to the next one.
 - **Chords** — full jazz standards. Green confirms an exact match, yellow accepts a triad or
   a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
   detected but the signal is too weak to lock.
-- **Intervals** — play the tones of each chord one at a time, from a list of 50 exercises
-  written as degrees, so one exercise fits every chord in a standard: `3` is the major third
-  over a major chord and the minor one over a minor chord, `9` and `6` come from the chord's
-  own scale. The list goes from single chord tones, pairs and triads, through four-note
-  structures from the root and from the fifth, to lines that lead from one chord into the
-  next (the seventh falling to the next third), suspensions resolving, and the chord's scale
-  through an octave — from any of its tones, with or without the passing note that puts
-  every chord tone on a beat. A tone above the octave is written as its compound number — 8,
-  9, 10 and on. The list names each exercise by its tones over a major or dominant chord;
-  where a minor or half-diminished chord takes other tones they follow `m:`, and a diminished
-  chord's follow `°:`. *Structure 1–5: 1 2 3 5 · m: 1 3 4 5* is 1 2 3 5 over a major chord and
-  1 ♭3 4 5 over a minor one: a second lies a semitone from the minor third and clashes with it.
-  ↻ marks a random inversion. With the shuffle on, **Voice leading** in the settings starts each chord on
-  its tone nearest the last note played. Strict by default — one note at a time, in order, and only
-  what was struck — or turn those three off and strum the grips instead, with the model
-  deciding and nothing arguing with it. Every exercise, with examples over each kind of chord,
-  is in [practising intervals](docs/intervals-practice.md).
+- **Intervals** — play the notes of each chord, one after another. The exercises are written in
+  numbers, not note names: `3` means "the third note of this chord", so E in C maj7 and E♭ in
+  Cm7. One exercise therefore fits every chord in a song, and you learn to hear the sound instead
+  of memorising grips. The list holds 50 exercises: from a single note, through whole chords and
+  short tunes, to moving from chord to chord and scales. `m:` on the list gives the notes for
+  minor chords, and ↻ means a random inversion. Everything, with examples, is in
+  [practising intervals](docs/intervals-practice.md).
 - **Scales** — 47 scales: the modes of the major, melodic minor, harmonic minor and harmonic
   major scales, pentatonics, blues, symmetric and bebop scales. Up, down, or a direction
   drawn for every pass; in order or in any order; **From E to e** — the scale under one hand,

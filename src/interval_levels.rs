@@ -7,7 +7,7 @@
 //! `ChordQuality::scale_names` - so `3` and `7` are whatever third and seventh
 //! the chord has, and `2`, `4`, `6` and `9` come from its scale.
 
-use crate::model::{shown_degree, split_octave, with_octave, ChordQuality, Step};
+use crate::model::{split_octave, with_octave, ChordQuality, Step};
 
 /// The headings the levels are listed under, in order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -16,9 +16,6 @@ pub enum Group {
     TwoTones,
     ThreeTones,
     FourTones,
-    /// The four tones and the first again an octave up: five notes, so not
-    /// listed as four.
-    FourTonesToTheOctave,
     RootToFifth,
     FifthToNinth,
     VoiceLeading,
@@ -27,7 +24,7 @@ pub enum Group {
     PassingNoteScales,
 }
 
-pub const GROUPS: usize = 11;
+pub const GROUPS: usize = 10;
 
 /// Where a scale run starts: on a tone of the chord, or anywhere in its scale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,10 +136,10 @@ pub const LEVELS: [Level; 50] = [
     line(FourTones, same("5 7 1' 3'")),
     line(FourTones, same("7 1' 3' 5'")),
     turned(FourTones, same("1 3 5 7")),
-    line(FourTonesToTheOctave, same("1 3 5 7 1'")),
-    line(FourTonesToTheOctave, same("3 5 7 1' 3'")),
-    line(FourTonesToTheOctave, same("5 7 1' 3' 5'")),
-    line(FourTonesToTheOctave, same("7 1' 3' 5' 7'")),
+    line(FourTones, same("1 3 5 7 1'")),
+    line(FourTones, same("3 5 7 1' 3'")),
+    line(FourTones, same("5 7 1' 3' 5'")),
+    line(FourTones, same("7 1' 3' 5' 7'")),
     // Four notes of the chord's pentatonic sound, in four orders and turned.
     dealt(RootToFifth, by_kind("1 2 3 5", "1 3 4 5", "1 2 3 5")),
     line(RootToFifth, by_kind("2 1 5 3", "3 1 5 4", "2 1 5 3")),
@@ -270,15 +267,24 @@ pub fn labels(names: &Names) -> Vec<String> {
         .collect()
 }
 
-/// A cell as the list writes it: compound numbers above the octave.
+/// A cell as the list writes it: plain degrees, the octave left out - a 9 is
+/// the 2 and `1'` the 1. The judge hears which note and not in which octave,
+/// and the grip on the neck takes each one where the hand has it, so a
+/// compound number would ask for something nothing checks.
 fn shown_cell(cell: &str) -> String {
     cell.split_whitespace()
-        .map(|token| {
-            let (name, octave) = split_octave(token);
-            shown_degree(name, octave)
-        })
+        .map(|token| plain_degree(split_octave(token).0))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// A degree brought inside the octave: `9` -> `2`, `b13` -> `b6`.
+pub fn plain_degree(name: &str) -> String {
+    let accidental = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    match name[accidental.len()..].parse::<u32>() {
+        Ok(number) if number > 7 => format!("{accidental}{}", (number - 1) % 7 + 1),
+        _ => name.to_string(),
+    }
 }
 
 /// Which of a level's five cells a chord takes. A scale played as a chord is

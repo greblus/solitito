@@ -399,7 +399,7 @@ pub const EN: Strings = Strings {
     intervals_label: "Intervals: ",
     interval_level: "Exercise: ",
     level_groups: [
-        "One tone", "Two tones", "Three tones", "Four tones", "Four tones to the octave",
+        "One tone", "Two tones", "Three tones", "Four tones",
         "Structure 1–5", "Structure 5–9", "Voice leading", "Suspension resolved",
         "Chord scale", "Passing-note scale",
     ],
@@ -561,7 +561,7 @@ pub const PL: Strings = Strings {
     intervals_label: "Interwały: ",
     interval_level: "Ćwiczenie: ",
     level_groups: [
-        "Jeden dźwięk", "Dwa dźwięki", "Trzy dźwięki", "Cztery dźwięki", "Cztery dźwięki z oktawą",
+        "Jeden dźwięk", "Dwa dźwięki", "Trzy dźwięki", "Cztery dźwięki",
         "Struktura 1–5", "Struktura 5–9", "Prowadzenie głosów", "Rozwiązanie zawieszenia",
         "Skala akordu", "Skala z dźwiękiem przejściowym",
     ],

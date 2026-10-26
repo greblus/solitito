@@ -187,8 +187,13 @@ fn the_list_names_a_level_by_its_cells_and_voice_leading_by_number() {
     assert_eq!(labels.len(), LEVELS.len());
     // The major chord's cell, and the minor and diminished ones where they differ.
     assert!(labels.contains(&"Struktura 1–5: 1 2 3 5 · m: 1 3 4 5".to_string()), "{labels:#?}");
-    assert!(labels.contains(&"Struktura 5–9: 6 5 9 7 · m: 7 5 9 8 · °: b6 5 9 7".to_string()), "{labels:#?}");
-    assert!(labels.contains(&"Cztery dźwięki z oktawą: 1 3 5 7 8".to_string()), "{labels:#?}");
+    // Plain degrees: the 9 is the 2 and the octave's root the 1.
+    assert!(labels.contains(&"Struktura 5–9: 6 5 2 7 · m: 7 5 2 1 · °: b6 5 2 7".to_string()), "{labels:#?}");
+    assert!(labels.contains(&"Cztery dźwięki: 1 3 5 7 1".to_string()), "{labels:#?}");
+    let mut unique = labels.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), labels.len(), "two exercises read the same on the list");
     assert!(labels.contains(&"Cztery dźwięki: 1 3 5 7".to_string()), "{labels:#?}");
     assert!(labels.contains(&"Trzy dźwięki: 1 3 5 ↻".to_string()));
     assert!(labels.contains(&"Prowadzenie głosów 5".to_string()));
@@ -315,4 +320,47 @@ fn a_run_from_a_drawn_tone_starts_on_a_chord_tone_or_a_scale_tone() {
         })
         .collect();
     assert_eq!(starts.len(), 7, "every tone of the scale can start the run");
+}
+
+/// How the grips of Intervals lie: fret span, skipped strings, open strings
+/// under a high hand, and grips that fell back to a phrase.
+/// `cargo test --release -- --ignored --nocapture grip_survey`
+#[test]
+#[ignore]
+fn grip_survey() {
+    let mut a = app();
+    a.set_mode(AppMode::Intervals as i32);
+    a.set_random_mode(false);
+    let qualities = [ChordQuality::Major7, ChordQuality::Dominant7, ChordQuality::Minor7, ChordQuality::HalfDiminished, ChordQuality::Diminished];
+    let (mut n, mut fallback, mut skips, mut wide, mut open_high, mut span_sum) = (0, 0, 0, 0, 0, 0);
+    let mut spans = [0usize; 20];
+    for li in 0..LEVELS.len() {
+        a.set_interval_level(li);
+        for close in [false, true] {
+            for q in &qualities {
+                for pc in 0..12 {
+                    let chord = Chord { root: NoteName::from_index(pc), quality: q.clone() };
+                    a.chords = vec![chord.clone()];
+                    let steps = a.get_active_indices(&chord);
+                    if !(2..=4).contains(&steps.len()) { continue; }
+                    for (anchor, from) in [(1, 0), (5, 1), (9, 2), (3, 3)] {
+                        let spots = crate::tab::place_voiced(pc, &a.degree_intervals(&chord), &steps, &a.degree_names(&chord), None, anchor, from, close);
+                        n += 1;
+                        let mut strings: Vec<usize> = spots.iter().map(|s| s.string).collect();
+                        strings.sort();
+                        if strings.windows(2).any(|w| w[0] == w[1]) || spots.len() != steps.len() { fallback += 1; continue; }
+                        skips += strings.windows(2).filter(|w| w[1] > w[0] + 1).count();
+                        let fretted: Vec<i32> = spots.iter().map(|s| s.fret).filter(|&f| f > 0).collect();
+                        let span = fretted.iter().max().unwrap_or(&0) - fretted.iter().min().unwrap_or(&0) + if fretted.is_empty() { 0 } else { 1 };
+                        spans[span as usize] += 1;
+                        span_sum += span;
+                        if span > 4 { wide += 1; }
+                        if spots.iter().any(|s| s.fret == 0) && fretted.iter().any(|&f| f > 4) { open_high += 1; }
+                    }
+                }
+            }
+        }
+    }
+    println!("grips {n}: fell back to a phrase {fallback}, skipped strings {skips}, wider than 4 frets {wide}, open under a high hand {open_high}, mean span {:.2}", span_sum as f32 / (n - fallback) as f32);
+    println!("span histogram (frets: count) {:?}", spans.iter().enumerate().filter(|(_, &c)| c > 0).collect::<Vec<_>>());
 }
