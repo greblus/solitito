@@ -64,7 +64,8 @@ chord, the app moves on to the next one.
   chord on a tone drawn for it, the rest following round. With the shuffle on, **Voice leading** in the settings starts each chord on
   its tone nearest the last note played. Strict by default — one note at a time, in order, and only
   what was struck — or turn those three off and strum the grips instead, with the model
-  deciding and nothing arguing with it.
+  deciding and nothing arguing with it. Every exercise, with examples over each kind of chord,
+  is in [practising intervals](docs/intervals-practice.md).
 - **Scales** — 47 scales: the modes of the major, melodic minor, harmonic minor and harmonic
   major scales, pentatonics, blues, symmetric and bebop scales. Up, down, or a direction
   drawn for every pass; in order or in any order; **From E to e** — the scale under one hand,
@@ -129,6 +130,7 @@ the pictures at all.
 The rest of the documentation is in `docs/`:
 | | |
 |---|---|
+| [**Practising intervals**](docs/intervals-practice.md) | The fifty exercises group by group, with what each one asks over every kind of chord, how to read the list, and a II–V–I to try them on |
 | [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
 | [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, the diagnostic modes, and recording a session with what the app made of it |
 | [Settings](docs/settings.md) | Every option in the three tabs, and the shuffle, the pause and the chord strip on the main window |

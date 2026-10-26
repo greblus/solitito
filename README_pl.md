@@ -64,7 +64,8 @@ akord, przechodzi do następnego.
   Przy losowaniu **Prowadzenie głosów**
   w ustawieniach zaczyna każdy akord od składnika najbliższego ostatnio zagranemu dźwiękowi.
   Domyślnie surowo — pojedynczo, po kolei i tylko to, co uderzone — albo wyłącz te trzy
-  i graj chwyty, a decyduje sam model.
+  i graj chwyty, a decyduje sam model. Każde ćwiczenie z przykładami nad każdym rodzajem akordu
+  opisuje [ćwiczenie interwałów](docs/intervals-practice_pl.md).
 - **Skale** — 47 skal: mody skali durowej, molowej melodycznej, molowej harmonicznej
   i durowej harmonicznej, pentatoniki, bluesowe, symetryczne i bebopowe. W górę, w dół albo
   kierunek losowany na każdy przebieg; po kolei albo w dowolnej kolejności; **Od E do e** —
@@ -130,6 +131,7 @@ ucha z rękami, zamiast klepania schematów.
 Reszta dokumentacji w `docs/`:
 | | |
 |---|---|
+| [**Ćwiczenie interwałów**](docs/intervals-practice_pl.md) | Pięćdziesiąt ćwiczeń grupa po grupie: co każde każe zagrać nad każdym rodzajem akordu, jak czytać listę i II–V–I do wypróbowania |
 | [**Ćwiczenie z formułami**](docs/formulas-practice_pl.md) | Trzy ćwiczenia z formułami krok po kroku: co grać, czego słuchać, co to za szyfry na ekranie |
 | [Wybór wejścia](docs/audio-input_pl.md) | Co znaczą nazwy urządzeń w Linuksie, gdzie trzymane są ustawienia i jakie są tryby diagnostyczne |
 | [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z trzech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |
