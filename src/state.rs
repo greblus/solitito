@@ -550,6 +550,10 @@ pub struct MyApp {
     /// See `reroll`: the fret the first grip of an Intervals exercise is taken
     /// near.
     pub voicing_anchor: i32,
+    /// The fret a chain of led grips is drawn back to - one for the whole
+    /// exercise, where `voicing_anchor` is drawn again for every grip taken on
+    /// its own.
+    pub home_anchor: i32,
     /// And the string a scale is started from - an index into `START_STRINGS`,
     /// the three a scale is worth starting on.
     pub scale_start: usize,
@@ -805,6 +809,7 @@ impl MyApp {
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
+            home_anchor: 5,
             scale_start: 0,
             scale_descending: false,
             scale_direction: ScaleDirection::Up,
@@ -1751,6 +1756,7 @@ impl MyApp {
         self.success_timer = 0.0;
         self.match_status = MatchStatus::None;
         self.chord_history.clear();
+        self.home_anchor = 1 + self.rng.below(9) as i32;
         self.reroll();
         self.update_collected_notes_size();
     }

@@ -1158,20 +1158,31 @@ impl UiFrame {
     fn place_grip(&self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::Spot> {
         let lead = ui.get_voice_leading() && !app.random_mode;
         let prev = (lead && !self.last_voicing.is_empty()).then_some(self.last_voicing.as_slice());
-        tab::place_voiced(
+        // The first note is the bass where the exercise is an inversion: the
+        // chord's own tones, in the order written. In a structure, a line or a
+        // suspension it is a melody, and the grip is just the closest one.
+        let inversion = !app.random_mode
+            && app.level().is_none_or(|level| {
+                use crate::interval_levels::Group::*;
+                matches!(level.group, OneTone | TwoTones | ThreeTones | FourTones)
+            });
+        tab::place_grip_voiced(
             chord.root as usize,
             &app.degree_intervals(chord),
             steps,
             &app.degree_names(chord),
             prev,
-            app.voicing_anchor,
+            // Led, the hand keeps to one place for the exercise; taken one by
+            // one, each grip is drawn its own.
+            if lead { app.home_anchor } else { app.voicing_anchor },
             app.grip_string,
-            // Shuffled, the grips are close forms only - inversions, packed
-            // inside an octave on neighbouring strings. With no line to lead
-            // there is nothing holding them together, and spread forms drawn
-            // at random read as a different chord each time rather than as one
-            // shape moving.
+            // Shuffled, the grips are close forms only - packed inside an
+            // octave on neighbouring strings. With no line to lead there is
+            // nothing holding them together, and spread forms drawn at random
+            // read as a different chord each time rather than as one shape
+            // moving.
             app.random_mode,
+            inversion,
         )
     }
 

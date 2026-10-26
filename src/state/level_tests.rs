@@ -334,6 +334,7 @@ fn grip_survey() {
     let qualities = [ChordQuality::Major7, ChordQuality::Dominant7, ChordQuality::Minor7, ChordQuality::HalfDiminished, ChordQuality::Diminished];
     let (mut n, mut fallback, mut skips, mut wide, mut open_high, mut span_sum) = (0, 0, 0, 0, 0, 0);
     let mut spans = [0usize; 20];
+    let mut by_anchor: std::collections::BTreeMap<i32, (i32, i32)> = Default::default();
     for li in 0..LEVELS.len() {
         a.set_interval_level(li);
         for close in [false, true] {
@@ -343,8 +344,9 @@ fn grip_survey() {
                     a.chords = vec![chord.clone()];
                     let steps = a.get_active_indices(&chord);
                     if !(2..=4).contains(&steps.len()) { continue; }
+                    let chord_tones = matches!(LEVELS[li].group, Group::OneTone | Group::TwoTones | Group::ThreeTones | Group::FourTones);
                     for (anchor, from) in [(1, 0), (5, 1), (9, 2), (3, 3)] {
-                        let spots = crate::tab::place_voiced(pc, &a.degree_intervals(&chord), &steps, &a.degree_names(&chord), None, anchor, from, close);
+                        let spots = crate::tab::place_grip_voiced(pc, &a.degree_intervals(&chord), &steps, &a.degree_names(&chord), None, anchor, from, close, !close && chord_tones);
                         n += 1;
                         let mut strings: Vec<usize> = spots.iter().map(|s| s.string).collect();
                         strings.sort();
@@ -354,6 +356,10 @@ fn grip_survey() {
                         let span = fretted.iter().max().unwrap_or(&0) - fretted.iter().min().unwrap_or(&0) + if fretted.is_empty() { 0 } else { 1 };
                         spans[span as usize] += 1;
                         span_sum += span;
+                        let low = fretted.iter().min().copied().unwrap_or(0);
+                        let e = by_anchor.entry(anchor).or_default();
+                        e.0 += low;
+                        e.1 += 1;
                         if span > 4 { wide += 1; }
                         if spots.iter().any(|s| s.fret == 0) && fretted.iter().any(|&f| f > 4) { open_high += 1; }
                     }
@@ -363,4 +369,65 @@ fn grip_survey() {
     }
     println!("grips {n}: fell back to a phrase {fallback}, skipped strings {skips}, wider than 4 frets {wide}, open under a high hand {open_high}, mean span {:.2}", span_sum as f32 / (n - fallback) as f32);
     println!("span histogram (frets: count) {:?}", spans.iter().enumerate().filter(|(_, &c)| c > 0).collect::<Vec<_>>());
+    for (anchor, (sum, count)) in by_anchor {
+        println!("asked for fret {anchor}: lowest fretted note on average at {:.1}", sum as f32 / count as f32);
+    }
+}
+
+/// Unshuffled, a grip of the chord's own tones has the note asked for first in
+/// the bass - that is the inversion an exercise starting on the 3 or the b7
+/// asks for - in every such level, key and kind of chord.
+#[test]
+fn a_grip_has_its_first_note_in_the_bass() {
+    let mut a = app();
+    a.set_mode(AppMode::Intervals as i32);
+    a.set_random_mode(false);
+    let qualities = [ChordQuality::Major7, ChordQuality::Dominant7, ChordQuality::Minor7, ChordQuality::HalfDiminished, ChordQuality::Diminished];
+    for li in 0..LEVELS.len() {
+        a.set_interval_level(li);
+        for q in &qualities {
+            for pc in 0..12 {
+                let chord = Chord { root: NoteName::from_index(pc), quality: q.clone() };
+                a.chords = vec![chord.clone()];
+                let steps = a.get_active_indices(&chord);
+                let chord_tones = matches!(LEVELS[li].group, Group::OneTone | Group::TwoTones | Group::ThreeTones | Group::FourTones);
+                if !(2..=4).contains(&steps.len()) || !chord_tones {
+                    continue;
+                }
+                for close in [false] {
+                    let spots = crate::tab::place_voiced(pc, &a.degree_intervals(&chord), &steps, &a.degree_names(&chord), None, 5, 1, close);
+                    let pitch = |s: &crate::tab::Spot| crate::tab::TUNING[s.string] + s.fret;
+                    let lowest = spots.iter().map(pitch).min().unwrap();
+                    assert_eq!(pitch(&spots[0]), lowest, "level {li} {q:?} on {pc}: the first note is not the bass");
+                }
+            }
+        }
+    }
+}
+
+/// Where a chain of led grips goes over a tune: started high, does it drift to
+/// the nut? `cargo test --release -- --ignored --nocapture grip_drift`
+#[test]
+#[ignore]
+fn grip_drift() {
+    let mut a = app();
+    a.set_mode(AppMode::Intervals as i32);
+    a.set_random_mode(false);
+    let song = crate::model::load_songs().into_iter().find(|s| s.title == "Autumn Leaves").unwrap();
+    for level in [9usize, 13, 17, 22, 27, 32] {
+        a.set_interval_level(level);
+        for start in [5, 9] {
+            let mut prev: Option<Vec<crate::tab::Spot>> = None;
+            let mut lows = Vec::new();
+            for chord in song.chords.iter().cycle().take(40) {
+                a.chords = vec![chord.clone()];
+                let steps = a.get_active_indices(chord);
+                let spots = crate::tab::place_voiced(chord.root as usize, &a.degree_intervals(chord), &steps, &a.degree_names(chord), prev.as_deref(), start, 1, false);
+                lows.push(spots.iter().map(|s| s.fret).filter(|&f| f > 0).min().unwrap_or(0));
+                prev = Some(spots);
+            }
+            let tail = &lows[20..];
+            println!("level {level} start {start}: first {:?} ... last 20 mean {:.1}", &lows[..8], tail.iter().sum::<i32>() as f32 / tail.len() as f32);
+        }
+    }
 }

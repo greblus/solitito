@@ -282,6 +282,25 @@ pub fn place_voiced(
     from_string: usize,
     close_only: bool,
 ) -> Vec<Spot> {
+    place_grip_voiced(root_pc, intervals, steps, names, prev, anchor, from_string, close_only, !close_only)
+}
+
+/// The same, and saying whether the note asked for first has to be the bass.
+/// It does where the exercise is an inversion - the tones of the chord in
+/// the order written; in a line, a structure or a suspension it is a melody,
+/// and holding its first note under the rest cost a stretch for nothing.
+#[allow(clippy::too_many_arguments)]
+pub fn place_grip_voiced(
+    root_pc: usize,
+    intervals: &[u8],
+    steps: &[Step],
+    names: &[String],
+    prev: Option<&[Spot]>,
+    anchor: i32,
+    from_string: usize,
+    close_only: bool,
+    bass_first: bool,
+) -> Vec<Spot> {
     // Each note as its degree and its pitch class.
     let notes: Vec<(usize, i32)> = steps
         .iter()
@@ -304,13 +323,18 @@ pub fn place_voiced(
     // ninth above the G - a skipped string and a stretch - where the Ab on the
     // low E makes a grip of four neighbouring strings.
     for stack_order in orders(notes.len()) {
-        // Shuffled, the note asked for first is the bass: the shuffle chooses
-        // the inversion, and the grip is its close form.
-        if close_only && stack_order[0] != 0 {
+        // In an inversion the note asked for first is the bass: started on the
+        // b7, a grip with the root under it drew root position and only the
+        // ring said otherwise. Shuffled, or in a melody, the order says nothing
+        // about the bass and the grip is simply the closest one. Either way the
+        // rest stack in any order.
+        if bass_first && stack_order[0] != 0 {
             continue;
         }
         let stack: Vec<(usize, i32)> = stack_order.iter().map(|&i| notes[i]).collect();
-        let reordered = stack_order.windows(2).any(|w| w[0] > w[1]);
+        // Unshuffled, the order played breaks ties; shuffled it is drawn and
+        // must not choose the shape.
+        let reordered = !close_only && stack_order.windows(2).any(|w| w[0] > w[1]);
         for strings in string_sets(notes.len()) {
             let skipped = strings.windows(2).filter(|w| w[1] > w[0] + 1).count() as i32;
             for base in 0..=15 {
@@ -321,10 +345,20 @@ pub fn place_voiced(
                 // stretch to a fifth fret next, and the order played breaks
                 // ties with the order stacked.
                 let stretched = spots.iter().any(|s| s.fret == base + 4) && spots.iter().any(|s| s.fret == base && base > 0);
-                let shape = skipped * 60 + stretched as i32 * 30 + reordered as i32 * 8;
+                // An open string costs too. They made the closest grips at
+                // the nut, so a chain of led grips slid down to it chord by
+                // chord, and nothing pulled it back up.
+                let open = spots.iter().filter(|s| s.fret == 0).count() as i32;
+                let shape = skipped * 60 + stretched as i32 * 30 + open * 12 + reordered as i32 * 8;
                 let cost = shape
                     + match prev {
-                        Some(prev) => voice_travel(prev, &in_dealt_order(spots.clone(), &stack_order)),
+                        // Led from the grip before, and drawn gently back to
+                        // the place asked for: a progression led by the
+                        // nearest voice keeps stepping down, and over a tune
+                        // the hand ended at the nut and stayed there.
+                        Some(prev) => {
+                            voice_travel(prev, &in_dealt_order(spots.clone(), &stack_order)) + (base - anchor).abs() * 2
+                        }
                         // Nothing to lead from: take it where the caller pointed -
                         // the string first, then the fret. Without the string the
                         // lowest set of strings won every tie and a whole progression
@@ -332,8 +366,13 @@ pub fn place_voiced(
                         // Close forms: the narrowest placement of the stack wins and
                         // the hand position only breaks ties, so the shape still walks
                         // the neck as the anchor is drawn.
-                        None if close_only => grip_width(&spots) * 24 + (base - anchor).abs(),
-                        None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs(),
+                        // Narrow, but not at any price: a semitone narrower
+                        // is not worth a stretch to a fifth fret.
+                        // The place drawn weighs six to a fret: at one, the
+                        // costs of the shape outweighed it and the first grip
+                        // of a tune sat at the nut wherever it was asked for.
+                        None if close_only => grip_width(&spots) * 8 + (base - anchor).abs() * 6,
+                        None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs() * 6,
                     };
                 if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                     best = Some((cost, in_dealt_order(spots, &stack_order)));
@@ -1220,21 +1259,26 @@ mod tests {
         );
     }
 
-    /// And the shuffle still changes the shape: three inversions, not one grip
-    /// drawn over and over.
+    /// Shuffled, the order is drawn and the grip is simply the closest one:
+    /// the same shape whichever note comes first, each dot still the step
+    /// that asked for it.
     #[test]
-    fn the_shuffle_chooses_which_note_is_in_the_bass() {
-        let mut basses = std::collections::HashSet::new();
+    fn a_shuffled_grip_keeps_its_shape() {
+        let mut shapes = std::collections::HashSet::new();
         for lead in 0..3usize {
             let mut d: Vec<usize> = (0..3).collect();
             d.rotate_left(lead);
             let steps: Vec<Step> =
                 d.iter().map(|&x| Step { degree: x, octave: 0 }).collect();
             let g = place_voiced(0, &[0, 4, 7], &steps, &[], None, 5, 0, true);
-            let low = g.iter().min_by_key(|s| TUNING[s.string] + s.fret).unwrap();
-            basses.insert(low.interval);
+            for (spot, &x) in g.iter().zip(&d) {
+                assert_eq!(spot.interval, [0, 4, 7][x], "a dot moved to another step");
+            }
+            let mut places: Vec<(usize, i32)> = g.iter().map(|s| (s.string, s.fret)).collect();
+            places.sort();
+            shapes.insert(places);
         }
-        assert_eq!(basses.len(), 3, "the shuffle drew the same inversion: {basses:?}");
+        assert_eq!(shapes.len(), 1, "the shuffle changed the shape: {shapes:?}");
     }
 
     /// The hand position is still what moves the shape along the neck - it only
