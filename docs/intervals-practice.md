@@ -45,11 +45,11 @@ Structure 5–9: 6 5 9 7 · m: 7 5 9 8 · °: b6 5 9 7
 ```
 
 The numbers after `m:` are degrees of *that* chord, so the `3` there is its minor third — over
-Cm7 the first line is C E♭ F G. A minor chord trades the second for the fourth because a
-second rubs against the minor third.
+Cm7 the first line is C E♭ F G. A minor chord trades the second for the fourth: a second lies a
+semitone from the minor third and clashes with it.
 
-`↻` marks an exercise that starts each chord on a tone drawn for that chord, the rest following
-round in order: `1 3 5 ↻` may come as `3 5 8` over one chord and `5 8 10` over the next.
+`↻` marks a random inversion, drawn again for every chord: `1 3 5 ↻` may come as `3 5 8` over
+one chord and `5 8 10` over the next.
 
 Voice leading is numbered instead of spelled out: its cells differ from chord to chord, so a
 single line of degrees would say less than the number.

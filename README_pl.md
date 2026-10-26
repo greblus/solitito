@@ -59,9 +59,8 @@ akord, przechodzi do następnego.
   oktawy ma swój numer złożony — 8, 9, 10 i dalej. Lista podpisuje każde ćwiczenie dźwiękami
   nad akordem durowym i dominantowym; gdzie akord molowy lub półzmniejszony bierze inne, stoją
   po `m:`, a dźwięki akordu zmniejszonego po `°:`. *Struktura 1–5: 1 2 3 5 · m: 1 3 4 5* to
-  1 2 3 5 nad akordem durowym i 1 ♭3 4 5 nad molowym, bo sekunda tarłaby o małą tercję. ↻
-  zaczyna każdy akord od składnika losowanego na ten akord, a reszta idzie po kolei za nim.
-  Przy losowaniu **Prowadzenie głosów**
+  1 2 3 5 nad akordem durowym i 1 ♭3 4 5 nad molowym, bo sekunda leży o półton od małej tercji
+  i brzmi z nią dysonansowo. ↻ oznacza losowy przewrót. Przy losowaniu **Prowadzenie głosów**
   w ustawieniach zaczyna każdy akord od składnika najbliższego ostatnio zagranemu dźwiękowi.
   Domyślnie surowo — pojedynczo, po kolei i tylko to, co uderzone — albo wyłącz te trzy
   i graj chwyty, a decyduje sam model. Każde ćwiczenie z przykładami nad każdym rodzajem akordu

@@ -25,7 +25,7 @@ akordu:
 | 7 | miksolidyjska | C D E F G A B♭ |
 | m7 | dorycka | C D E♭ F G A B♭ |
 | m7♭5 | lokrycka z ♮9 | C D E♭ F G♭ A♭ B♭ |
-| °7 | zmniejszona cała-pół | C D E♭ F G♭ A♭ B𝄫 (A) |
+| °7 | zmniejszona cała-pół (ton-półton) | C D E♭ F G♭ A♭ B𝄫 (A) |
 | m6, m(maj7) | molowa melodyczna | C D E♭ F G A B |
 
 Dźwięk powyżej oktawy ma swój numer złożony: `8` to pryma oktawę wyżej, dalej `9`, `10`, `12`,
@@ -44,11 +44,11 @@ Struktura 5–9: 6 5 9 7 · m: 7 5 9 8 · °: b6 5 9 7
 ```
 
 Liczby po `m:` to stopnie *tego* akordu, więc `3` jest tam jego małą tercją: nad Cm7 pierwsza
-linia to C E♭ F G. Akord molowy zamienia sekundę na kwartę, bo sekunda tarłaby o małą tercję.
+linia to C E♭ F G. Akord molowy zamienia sekundę na kwartę, bo sekunda leży o półton od małej
+tercji i brzmi z nią dysonansowo.
 
-`↻` oznacza ćwiczenie, które zaczyna każdy akord od składnika losowanego dla tego akordu, a reszta
-idzie po kolei za nim: `1 3 5 ↻` może przyjść jako `3 5 8` nad jednym akordem i `5 8 10` nad
-następnym.
+`↻` oznacza losowy przewrót, inny dla każdego akordu: `1 3 5 ↻` może przyjść jako `3 5 8` nad
+jednym akordem i `5 8 10` nad następnym.
 
 Prowadzenie głosów jest ponumerowane zamiast rozpisane: jego komórki zmieniają się od akordu do
 akordu, więc jedna linia stopni powiedziałaby mniej niż numer.

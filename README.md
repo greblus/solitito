@@ -60,8 +60,8 @@ chord, the app moves on to the next one.
   9, 10 and on. The list names each exercise by its tones over a major or dominant chord;
   where a minor or half-diminished chord takes other tones they follow `m:`, and a diminished
   chord's follow `°:`. *Structure 1–5: 1 2 3 5 · m: 1 3 4 5* is 1 2 3 5 over a major chord and
-  1 ♭3 4 5 over a minor one, where a second would rub against the minor third. ↻ starts each
-  chord on a tone drawn for it, the rest following round. With the shuffle on, **Voice leading** in the settings starts each chord on
+  1 ♭3 4 5 over a minor one: a second lies a semitone from the minor third and clashes with it.
+  ↻ marks a random inversion. With the shuffle on, **Voice leading** in the settings starts each chord on
   its tone nearest the last note played. Strict by default — one note at a time, in order, and only
   what was struck — or turn those three off and strum the grips instead, with the model
   deciding and nothing arguing with it. Every exercise, with examples over each kind of chord,
