@@ -235,6 +235,23 @@ fn accidental(n: i32) -> Option<&'static str> {
 /// that it is formally `Fb`.
 pub fn note_name(key: &Key, func: usize) -> String {
     let (deg, alt) = DEGREE[func];
+    spell(key, deg, alt)
+}
+
+/// The note a degree name - `#4`, `b3`, `bb7`, a passing `(#5)` - names in a
+/// key, spelled by its own accidental: the Lydian `#4` of C is F#, where the
+/// semitones alone would say b5 and Gb. `None` for a name that is not a degree.
+pub fn degree_note_name(key: &Key, name: &str) -> Option<String> {
+    let name = name.trim_matches(['(', ')']);
+    let number = name.trim_start_matches(['b', '#']);
+    let accidentals = &name[..name.len() - number.len()];
+    let alt = accidentals.chars().map(|c| if c == '#' { 1 } else { -1 }).sum();
+    let degree: usize = number.parse().ok().filter(|&n| n >= 1)?;
+    Some(spell(key, (degree - 1) % 7, alt))
+}
+
+/// The note `alt` semitones off degree `deg` of the key's major scale.
+fn spell(key: &Key, deg: usize, alt: i32) -> String {
     let letter = (key.letter + deg) % 7;
     let target = (key.pitch() + MAJOR[deg]).rem_euclid(12);
 
@@ -620,6 +637,22 @@ pub fn chord_tones_in(mask: u16, chord_root: usize, chord_pcs: u16, degree: usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A degree is spelled by its own accidental: the Lydian #4 of C is F#,
+    /// not the Gb that six semitones read as a function would give.
+    #[test]
+    fn a_degree_is_spelled_by_its_name() {
+        let c = parse_key("C").unwrap();
+        let spelled = |name| degree_note_name(&c, name).unwrap();
+        assert_eq!(spelled("#4"), "F#");
+        assert_eq!(spelled("b5"), "Gb");
+        assert_eq!(spelled("b3"), "Eb");
+        assert_eq!(spelled("bb7"), "A");
+        assert_eq!(spelled("(#5)"), "G#");
+        assert_eq!(spelled("(7)"), "B");
+        assert_eq!(degree_note_name(&parse_key("Bb").unwrap(), "#4").as_deref(), Some("E"));
+        assert_eq!(degree_note_name(&c, "x"), None);
+    }
 
     #[test]
     fn the_whole_set_is_two_thousand_and_forty_eight() {

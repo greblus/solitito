@@ -1058,8 +1058,11 @@ impl UiFrame {
                 .enumerate()
                 .filter(|(_, step)| step.degree < all_names.len())
                 .map(|(step_idx, step)| {
+                    // Spelled by the degree's own name, so a Lydian #4 reads F#
+                    // and not the Gb its semitones alone would give.
                     let note = match (&key, intervals.get(step.degree)) {
-                        (Some(key), Some(&semis)) => formulas::note_name(key, semis as usize % 12),
+                        (Some(key), Some(&semis)) => formulas::degree_note_name(key, &all_names[step.degree])
+                            .unwrap_or_else(|| formulas::note_name(key, semis as usize % 12)),
                         _ => String::new(),
                     };
                     let state = match app.note_state(step_idx) {
