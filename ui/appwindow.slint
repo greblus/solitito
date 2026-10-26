@@ -497,7 +497,7 @@ component Dropdown inherits Rectangle {
         spacing: 8px;
         alignment: root.title-look ? center : stretch;
 
-        Text {
+        box_text := Text {
             horizontal-stretch: root.title-look ? 0 : 1;
             text: root.title-look ? root.title-text
                 : root.current-index >= 0 && root.current-index < root.model.length
@@ -519,6 +519,16 @@ component Dropdown inherits Rectangle {
             root.opened();
             popup.show();
         }
+    }
+
+    // The whole entry on hover, where the box cuts it short - the exercises
+    // of Intervals in the side bar end in "…" before the notes they name.
+    OverflowHint {
+        x: root.width + 8px;
+        y: 4px;
+        text: box_text.text;
+        shown: touch.has-hover && !root.title-look
+            && box_text.preferred-width > box_text.width + 1px;
     }
 
     popup := PopupWindow {
