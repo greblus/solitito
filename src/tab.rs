@@ -296,63 +296,70 @@ pub fn place_voiced(
     if notes.is_empty() || notes.len() > 4 {
         return place(root_pc, intervals, steps, names);
     }
-    let order = voice_order(&notes, close_only);
-    let stack: Vec<(usize, i32)> = order.iter().map(|&i| notes[i]).collect();
-
     let mut best: Option<(i32, Vec<Spot>)> = None;
-    // Every set of strings, low to high, and every hand position on the neck.
-    for strings in string_sets(notes.len()) {
-        for base in 0..=15 {
-            let Some(spots) = stack_grip(&stack, &strings, base, intervals, names) else {
-                continue;
-            };
-            let cost = match prev {
-                Some(prev) => voice_travel(prev, &spots),
-                // Nothing to lead from: take it where the caller pointed -
-                // the string first, then the fret. Without the string the
-                // lowest set of strings won every tie and a whole progression
-                // sat on the bottom of the neck.
-                // Close forms: the narrowest placement of the stack wins and
-                // the hand position only breaks ties, so the shape still walks
-                // the neck as the anchor is drawn. Which string the bass lands
-                // on is not asked for - the rotation has already chosen which
-                // NOTE is in the bass, and asking for both left the search
-                // nothing it could satisfy.
-                None if close_only => grip_width(&spots) * 24 + (base - anchor).abs(),
-                None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs(),
-            };
-            if best.as_ref().is_none_or(|(c, _)| cost < *c) {
-                best = Some((cost, in_dealt_order(spots, &order)));
+    // Every order the notes can be stacked in, bottom up, on every set of
+    // strings and at every hand position. The order they are PLAYED in is the
+    // exercise's; the order they are stacked in only has to fit the hand.
+    // Stacked in the order played, 3 5 7 8 over Ab maj7 had to put the Ab a
+    // ninth above the G - a skipped string and a stretch - where the Ab on the
+    // low E makes a grip of four neighbouring strings.
+    for stack_order in orders(notes.len()) {
+        // Shuffled, the note asked for first is the bass: the shuffle chooses
+        // the inversion, and the grip is its close form.
+        if close_only && stack_order[0] != 0 {
+            continue;
+        }
+        let stack: Vec<(usize, i32)> = stack_order.iter().map(|&i| notes[i]).collect();
+        let reordered = stack_order.windows(2).any(|w| w[0] > w[1]);
+        for strings in string_sets(notes.len()) {
+            let skipped = strings.windows(2).filter(|w| w[1] > w[0] + 1).count() as i32;
+            for base in 0..=15 {
+                let Some(spots) = stack_grip(&stack, &strings, base, intervals, names) else {
+                    continue;
+                };
+                // A skipped string costs more than any other difference, a
+                // stretch to a fifth fret next, and the order played breaks
+                // ties with the order stacked.
+                let stretched = spots.iter().any(|s| s.fret == base + 4) && spots.iter().any(|s| s.fret == base && base > 0);
+                let shape = skipped * 60 + stretched as i32 * 30 + reordered as i32 * 8;
+                let cost = shape
+                    + match prev {
+                        Some(prev) => voice_travel(prev, &in_dealt_order(spots.clone(), &stack_order)),
+                        // Nothing to lead from: take it where the caller pointed -
+                        // the string first, then the fret. Without the string the
+                        // lowest set of strings won every tie and a whole progression
+                        // sat on the bottom of the neck.
+                        // Close forms: the narrowest placement of the stack wins and
+                        // the hand position only breaks ties, so the shape still walks
+                        // the neck as the anchor is drawn.
+                        None if close_only => grip_width(&spots) * 24 + (base - anchor).abs(),
+                        None => (strings[0] as i32 - from_string as i32).abs() * 24 + (base - anchor).abs(),
+                    };
+                if best.as_ref().is_none_or(|(c, _)| cost < *c) {
+                    best = Some((cost, in_dealt_order(spots, &stack_order)));
+                }
             }
         }
     }
     best.map(|(_, s)| s).unwrap_or_else(|| place(root_pc, intervals, steps, names))
 }
 
-/// Which voice sits where, bottom up, as indices into `notes`.
-///
-/// Normally the order the steps are DEALT in, so a set written 1 3 5 is
-/// stacked in that order, each voice above the one below it.
-///
-/// That is what spread the grips out under the shuffle: a set dealt 5 1 3 has
-/// to climb in that order, which is an octave and a half wide and not a grip
-/// anybody plays. Close forms instead stack the set in its written order and
-/// ROTATE it, so the note asked for first is the bass - root position and its
-/// two inversions for a triad, and the same for a shell. Measured over 12 roots
-/// x 3 qualities x 3 inversions: every triad comes out between 6 and 9
-/// semitones wide.
-fn voice_order(notes: &[(usize, i32)], close_only: bool) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..notes.len()).collect();
-    let mut degrees: Vec<usize> = notes.iter().map(|&(degree, _)| degree).collect();
-    degrees.sort_unstable();
-    let distinct = degrees.windows(2).all(|w| w[0] != w[1]);
-    if !close_only || !distinct {
-        return order;
+/// Every order of `n` items, as indices.
+fn orders(n: usize) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = vec![Vec::new()];
+    for _ in 0..n {
+        out = out
+            .iter()
+            .flat_map(|done| {
+                (0..n).filter(|i| !done.contains(i)).map(|i| {
+                    let mut next = done.clone();
+                    next.push(i);
+                    next
+                })
+            })
+            .collect();
     }
-    order.sort_by_key(|&i| notes[i].0);
-    let lead = order.iter().position(|&i| i == 0).unwrap_or(0);
-    order.rotate_left(lead);
-    order
+    out
 }
 
 /// The stack laid on `strings`, one note each, with the hand at fret `base` -
@@ -370,9 +377,9 @@ fn stack_grip(
         // The lowest fret at or above the hand's position that plays it.
         let fret = base + (pc - TUNING[string] - base).rem_euclid(12);
         let pitch = TUNING[string] + fret;
-        // A grip covers four frets, and a voicing rises with the strings: two
-        // notes crossing over read as a mistake on paper even when the hand
-        // could take them.
+        // A grip covers four frets - one for each finger - or five with a
+        // stretch, and a voicing rises with the strings: two notes crossing
+        // over read as a mistake on paper even when the hand could take them.
         if fret > base + 4 || fret > 17 || pitch <= last_pitch {
             return None;
         }
