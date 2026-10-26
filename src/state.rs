@@ -2093,7 +2093,7 @@ fn rotated(steps: Vec<Step>, start: usize) -> Vec<Step> {
 /// The degree a token of an interval level asks for. 1, 3, 5 and 7 are the
 /// chord's own, however it spells them - the diminished chord's seventh is
 /// `bb7` - and anything else is looked for across its scale.
-fn level_degree(token: &str, names: &[String]) -> Option<usize> {
+pub(crate) fn level_degree(token: &str, names: &[String]) -> Option<usize> {
     let own = &names[..names.len().min(4)];
     match token {
         // A sixth chord's fourth tone is its sixth: there "7" is that.

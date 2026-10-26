@@ -58,13 +58,14 @@ Każda pozycja na liście ma nazwę grupy i numery dźwięków. Numery na począ
 durowych i dominantowych, takich jak C maj7 albo C7. Czasem po nich jest jeszcze `m:` albo `°:`:
 
 ```
-Struktura 1–5: 1 2 3 5 · m: 1 3 4 5
+Struktura 1–5: 1 2 3 5 · m: 1 b3 4 5
 ```
 
-- po **`m:`** są numery dla akordów molowych (np. Cm7) i półzmniejszonych (np. Cm7♭5);
-- po **`°:`** są numery dla akordów zmniejszonych (np. C°7).
+- po **`m:`** są numery dla akordów molowych (np. Cm7), zapisane tak, jak ma je akord molowy:
+  `b3`, `b7`. Korzystają z nich też akordy półzmniejszone (np. Cm7♭5); u nich `5` to `b5`;
+- po **`°:`** są numery dla akordów zmniejszonych (np. C°7), z `b3`, `b5` i `bb7`.
 
-Po co to? W akordzie molowym `2` leży tuż obok `3`, tylko jeden próg dalej. Te dwa dźwięki obok
+Po co to? W akordzie molowym `2` leży tuż obok `b3`, tylko jeden próg dalej. Te dwa dźwięki obok
 siebie brzmią ostro i nieładnie. Dlatego w akordzie molowym zamiast `2` gramy `4`. Nad Cm7 ta
 pozycja to C E♭ F G.
 

@@ -57,13 +57,14 @@ Each entry on the list has a group name and the note numbers. The numbers at the
 major and dominant chords, like C maj7 or C7. Sometimes `m:` or `°:` follows:
 
 ```
-Structure 1–5: 1 2 3 5 · m: 1 3 4 5
+Structure 1–5: 1 2 3 5 · m: 1 b3 4 5
 ```
 
-- after **`m:`** come the numbers for minor chords (like Cm7) and half-diminished ones (like Cm7♭5);
-- after **`°:`** come the numbers for diminished chords (like C°7).
+- after **`m:`** come the numbers for minor chords (like Cm7), written as a minor chord has them:
+  `b3`, `b7`. Half-diminished chords (like Cm7♭5) use them too; there the `5` is a `b5`;
+- after **`°:`** come the numbers for diminished chords (like C°7), with `b3`, `b5` and `bb7`.
 
-Why? In a minor chord `2` sits right next to `3`, just one fret away. Two notes that close sound
+Why? In a minor chord `2` sits right next to `b3`, just one fret away. Two notes that close sound
 sharp and harsh together. So in a minor chord you play `4` instead of `2`. Over Cm7 that entry is
 C E♭ F G.
 

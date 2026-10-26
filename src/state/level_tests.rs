@@ -186,9 +186,9 @@ fn the_list_names_a_level_by_its_cells_and_voice_leading_by_number() {
     });
     assert_eq!(labels.len(), LEVELS.len());
     // The major chord's cell, and the minor and diminished ones where they differ.
-    assert!(labels.contains(&"Struktura 1–5: 1 2 3 5 · m: 1 3 4 5".to_string()), "{labels:#?}");
+    assert!(labels.contains(&"Struktura 1–5: 1 2 3 5 · m: 1 b3 4 5".to_string()), "{labels:#?}");
     // Plain degrees: the 9 is the 2 and the octave's root the 1.
-    assert!(labels.contains(&"Struktura 5–9: 6 5 2 7 · m: 7 5 2 1 · °: b6 5 2 7".to_string()), "{labels:#?}");
+    assert!(labels.contains(&"Struktura 5–9: 6 5 2 7 · m: b7 5 2 1 · °: b6 b5 2 bb7".to_string()), "{labels:#?}");
     assert!(labels.contains(&"Cztery dźwięki: 1 3 5 7 1".to_string()), "{labels:#?}");
     let mut unique = labels.clone();
     unique.sort();

@@ -256,11 +256,13 @@ pub fn labels(names: &Names) -> Vec<String> {
             // minor chord's 1 b3 4 5.
             let (major, minor, diminished) = (level.cells[0], level.cells[2], level.cells[4]);
             let mut label = format!("{group}: {}", shown_cell(major));
+            // Spelled as those chords have them, as the neck shows them: the
+            // minor chord's third is b3.
             if minor != major {
-                label += &format!(" · m: {}", shown_cell(minor));
+                label += &format!(" · m: {}", spelled_cell(minor, &ChordQuality::Minor7));
             }
             if diminished != major && diminished != minor {
-                label += &format!(" · °: {}", shown_cell(diminished));
+                label += &format!(" · °: {}", spelled_cell(diminished, &ChordQuality::Diminished));
             }
             label + turn
         })
@@ -274,6 +276,22 @@ pub fn labels(names: &Names) -> Vec<String> {
 fn shown_cell(cell: &str) -> String {
     cell.split_whitespace()
         .map(|token| plain_degree(split_octave(token).0))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A cell spelled over `quality`, plain: each token as the degree it asks of
+/// that chord, read the way the judge reads it.
+fn spelled_cell(cell: &str, quality: &ChordQuality) -> String {
+    let names = quality.scale_names();
+    cell.split_whitespace()
+        .map(|token| {
+            let name = split_octave(token).0;
+            match crate::state::level_degree(name, &names) {
+                Some(degree) => names[degree].clone(),
+                None => plain_degree(name),
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }
