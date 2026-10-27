@@ -2210,18 +2210,28 @@ export component AppWindow inherits Window {
 
             // INTERVALS drawn as tiles: the chord's degrees, the note each is
             // on, and where it stands. One of the views the settings offer.
-            if root.current_mode == 1 && root.preview == 3 : HorizontalLayout {
-                alignment: center;
-                spacing: 12px;
-                // Sized to the column: four tiles at full size, more of them
-                // narrower, so a long pattern does not run off the edge.
-                property <length> tile_w: min(112px,
-                    (root.content_w - 30px - (root.interval_tiles.length - 1) * 12px)
+            if root.current_mode == 1 && root.preview == 3 : Rectangle {
+                height: 124px;
+                // Four tiles at full size, more of them narrower, so a long
+                // pattern does not run off the edge - measured against the
+                // room beside the side bar, not the column: there a chord
+                // scale's nine tiles came out some 50px wide. The row is
+                // centred by hand over the column, free to be wider than it.
+                HorizontalLayout {
+                    property <length> tile_w: min(112px,
+                        ((root.width - root.sidebar_w) * 92 / 100 - 30px
+                            - (root.interval_tiles.length - 1) * 12px)
                         / max(1, root.interval_tiles.length));
-                for t in root.interval_tiles : IntervalCard {
-                    width: parent.tile_w;
-                    height: 124px;
-                    tile: t;
+                    spacing: 12px;
+                    width: root.interval_tiles.length * self.tile_w
+                        + max(0, root.interval_tiles.length - 1) * self.spacing;
+                    height: parent.height;
+                    x: (parent.width - self.width) / 2;
+                    for t in root.interval_tiles : IntervalCard {
+                        width: parent.tile_w;
+                        height: 124px;
+                        tile: t;
+                    }
                 }
             }
 
