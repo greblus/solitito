@@ -2153,6 +2153,9 @@ mod level_tests;
 mod line_harness;
 
 #[cfg(test)]
+mod formula_harness;
+
+#[cfg(test)]
 mod repeat_harness;
 
 #[cfg(test)]

@@ -236,6 +236,14 @@ impl UiFrame {
             }
         }
         app.single_notes = ui.get_single_notes();
+        // In Formulas the strict judge - the single-frame estimate alone - is
+        // Single notes: off, the set is strummed, and the estimate names one
+        // note of a chord. Struck whole, 17 strums of four tones credited 17
+        // strict and 64 loose (`formula_harness`). SOLITITO_FORMULA_STRICT
+        // still pins it for measuring.
+        if std::env::var_os("SOLITITO_FORMULA_STRICT").is_none() {
+            app.strict_formulas = app.single_notes;
+        }
         app.require_onset = ui.get_require_onset();
         // The extra step changes the length of the run, so the strip and the
         // marks have to be rebuilt when it is switched.
@@ -700,6 +708,7 @@ impl UiFrame {
             MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
             _ => Color::from_rgb_u8(255, 255, 255),
         }));
+        set_if_changed(ui.get_fret_done(), app.match_status == MatchStatus::Exact, |v| ui.set_fret_done(v));
         ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
     }
 
@@ -1133,7 +1142,12 @@ impl UiFrame {
         let spots = if is_grip {
             self.place_grip(ui, app, chord, steps)
         } else {
-            place_phrase(app, chord, steps)
+            // A line of Intervals - a chord scale - is taken where the grips
+            // are: without a place to go to it sat at the nut every time.
+            let lead = ui.get_voice_leading() && !app.random_mode;
+            let anchor = (app.app_mode == AppMode::Intervals)
+                .then_some(if lead { app.home_anchor } else { app.voicing_anchor });
+            place_phrase(app, chord, steps, anchor)
         };
         self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
         let done = &this_way_only(app, chord, steps, &app.collected_notes);
@@ -1391,7 +1405,7 @@ fn this_way_only(app: &MyApp, chord: &Chord, steps: &[model::Step], done: &[bool
 /// pass: the shape is the same everywhere, and one place on the neck practised
 /// over and over is not the exercise. An arpeggio study keeps the position its
 /// source is written in.
-fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::Spot> {
+fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Option<i32>) -> Vec<tab::Spot> {
     // From E to e the hand stands where the pass drew it, and does not move.
     if let Some((hand, _)) = app.scale_hand(chord) {
         return tab::place_in_hand(
@@ -1411,7 +1425,7 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step]) -> Vec<tab::S
         &app.degree_intervals(chord),
         steps,
         &app.degree_names(chord),
-        None,
+        anchor,
         from,
     )
 }
@@ -1530,7 +1544,7 @@ mod this_way_tests {
                 if steps.len() <= 4 {
                     continue;
                 }
-                let spots = place_phrase(&a, &chord, &steps);
+                let spots = place_phrase(&a, &chord, &steps, None);
                 assert_eq!(spots.len(), steps.len(), "level {level} over {chord:?}");
             }
         }

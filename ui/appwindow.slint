@@ -957,6 +957,9 @@ export component AppWindow inherits Window {
     in-out property <int> note_hint_note: -1;
     /// The quick option: the hint with every note.
     in-out property <bool> fret_hint: false;
+    /// The fretboard trainer's note has been played: its tile turns the green
+    /// of a tile done in Intervals and Formulas.
+    in property <bool> fret_done: false;
     callback fret_hint_changed(bool);
     in-out property <bool> voice_leading: true;
     callback voice_leading_changed(bool);
@@ -2135,16 +2138,17 @@ export component AppWindow inherits Window {
                         width: max(130px, tile_note.preferred-width + 60px);
                         height: 120px;
                         border-radius: 16px;
-                        background: #1A2640;
+                        background: root.fret_done ? #17271F : #1A2640;
                         border-width: 2px;
-                        border-color: #2F6FE0;
+                        border-color: root.fret_done ? #24563A : #2F6FE0;
+                        animate background, border-color { duration: 150ms; }
                         tile_note := Text {
                             text: root.chord_name;
                             font-size: 60px;
                             font-weight: 400;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            color: root.chord_text_color;
+                            color: root.fret_done ? #6EE7A0 : #FFFFFF;
                         }
                         tile_touch := TouchArea {
                             mouse-cursor: pointer;
