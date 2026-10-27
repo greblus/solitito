@@ -96,11 +96,12 @@ pub struct Settings {
     #[serde(default)]
     pub formula_placement: u8,
     /// Name what falls outside the chord as a tension - b9, #11, b13 - instead
-    /// of by its plain function. Off by default: the plain functions are the
-    /// language the whole mode is written in, and the jazz names are a second
-    /// vocabulary to learn.
-    #[serde(default)]
-    pub formula_jazz_names: bool,
+    /// of by its plain degree: in Formulas, in Scales, and in the chord scales
+    /// of Intervals. Off by default: the plain degrees are the language the
+    /// app is written in, and the jazz names are a second vocabulary to learn.
+    /// Was Formulas' own switch, and a saved one still turns this on.
+    #[serde(default, alias = "formula_jazz_names")]
+    pub jazz_notation: bool,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -360,7 +361,7 @@ impl Default for Settings {
             audio_device: None,
             audio_channel: 1,
             gates: HashMap::new(),
-            formula_jazz_names: false,
+            jazz_notation: false,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,
@@ -688,6 +689,14 @@ mod tests {
         // And a file written before it existed must still load, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.short_verdict);
+    }
+
+    #[test]
+    fn jazz_notation_takes_over_the_formulas_switch() {
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":5,"formula_jazz_names":true}"#).unwrap();
+        assert!(old.jazz_notation, "a switch saved in Formulas was lost");
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&old).unwrap()).unwrap();
+        assert!(back.jazz_notation);
     }
 
     #[test]

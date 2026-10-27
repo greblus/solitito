@@ -574,10 +574,16 @@ fn dot(x: f32, y: f32, fill: &str, label: &str) -> String {
     )
 }
 
-/// The white writing inside a dot.
+/// The white writing inside a dot, smaller where it is longer: a tension
+/// written the jazz way, `♭13`, did not fit in at the size a `3` is.
 fn dot_label(x: f32, y: f32, label: &str) -> String {
+    let size = match label.chars().count() {
+        0..=2 => 24,
+        3 => 19,
+        _ => 15,
+    };
     format!(
-        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"24\" \
+        "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"{size}\" \
          text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{}</text>",
         with_accidentals_font(label)
     )

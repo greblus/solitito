@@ -190,7 +190,7 @@ struct SettingsSnapshot {
     show_spectrum: bool,
     audio_device: i32,
     audio_channel: i32,
-    formula_jazz_names: bool,
+    jazz_notation: bool,
     formula_exercise: i32,
     formula_placement: i32,
     formula_notes: i32,
@@ -247,7 +247,7 @@ impl SettingsSnapshot {
             show_spectrum: ui.get_show_spectrum(),
             audio_device: ui.get_audio_device_index(),
             audio_channel: ui.get_audio_channel_index(),
-            formula_jazz_names: ui.get_formula_jazz_names(),
+            jazz_notation: ui.get_jazz_notation(),
             formula_exercise: ui.get_formula_exercise(),
             formula_placement: ui.get_formula_placement(),
             formula_notes: ui.get_formula_notes(),
@@ -544,7 +544,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_key_move(cfg.key_move.min(4) as i32);
     ui.set_show_full_shapes(cfg.show_full_shapes);
     ui.set_show_shell_shapes(cfg.show_shell_shapes);
-    ui.set_formula_jazz_names(cfg.formula_jazz_names);
+    ui.set_jazz_notation(cfg.jazz_notation);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -892,6 +892,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_placement_outside(t.placement_outside.into());
     g.set_against_chord(t.against_chord.into());
     g.set_jazz_names(t.jazz_names.into());
+    g.set_jazz_names_hint(t.jazz_names_hint.into());
     g.set_chord_tones(t.chord_tones.into());
     g.set_fav_hint(t.fav_hint.into());
     g.set_fav_add(t.fav_add.into());

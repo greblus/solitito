@@ -536,7 +536,7 @@ impl UiFrame {
     /// The count is the lesson - the word beside it is only a label on the count.
     fn show_formula_placement(&self, ui: &AppWindow, app: &MyApp) {
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-        let jazz_names = self.shared.cfg.borrow().formula_jazz_names;
+        let jazz_names = self.shared.cfg.borrow().jazz_notation;
         let shown = match &app.formula_chord {
             Some(chord) if app.formula_exercise.has_chord() => placement_over(app, chord, &t, jazz_names),
             _ => Placement::default(),
@@ -1013,9 +1013,22 @@ impl UiFrame {
         }
     }
 
+    /// Whether the degrees on screen are named the jazz way: where a scale is
+    /// shown - Scales, and the chord scales of Intervals - and the switch is on.
+    fn jazz_notation(&self, app: &MyApp) -> bool {
+        let scale_shown = match app.app_mode {
+            AppMode::Scales => true,
+            AppMode::Intervals => app.level().is_some_and(|level| level.run.is_some()),
+            _ => false,
+        };
+        scale_shown && self.shared.cfg.borrow().jazz_notation
+    }
+
     /// The note modes: the steps as a strip of names, as tiles, and on the neck.
     fn show_steps(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord) {
         let all_names = app.degree_names(chord);
+        let jazz = self.jazz_notation(app);
+        let shown_names = if jazz { model::jazz_names(&all_names) } else { all_names.clone() };
         let active_indices = app.ordered_active_indices(chord);
         let mut ui_names = Vec::new();
         let mut ui_colors = Vec::new();
@@ -1023,7 +1036,7 @@ impl UiFrame {
             if step.degree < all_names.len() {
                 // The octave marker is display only - the model has no
                 // octave, so 1 and 1' are checked identically.
-                let name = shown_step(app, &all_names[step.degree], step.octave);
+                let name = shown_step(app, &shown_names[step.degree], step.octave, jazz);
                 ui_names.push(SharedString::from(name));
                 let (r, g, b) = app.note_color(step_idx);
                 ui_colors.push(Color::from_rgb_u8(r, g, b));
@@ -1042,8 +1055,8 @@ impl UiFrame {
         set_if_changed(ui.get_interval_step(), step, |v| ui.set_interval_step(v));
         ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(ui_names))));
         ui.set_interval_colors(ModelRc::from(Rc::new(VecModel::from(ui_colors))));
-        self.show_tiles(ui, app, chord, &active_indices, &all_names);
-        self.draw_steps_on_neck(ui, app, chord, &active_indices);
+        self.show_tiles(ui, app, chord, &active_indices, &all_names, &shown_names, jazz);
+        self.draw_steps_on_neck(ui, app, chord, &active_indices, jazz);
     }
 
     fn show_tiles(
@@ -1053,6 +1066,8 @@ impl UiFrame {
         chord: &Chord,
         active_indices: &[model::Step],
         all_names: &[String],
+        shown_names: &[String],
+        jazz: bool,
     ) {
         // Intervals draws the steps as tiles, with the note each degree
         // falls on in this chord. Pushed only when something changed:
@@ -1082,7 +1097,7 @@ impl UiFrame {
                         NoteState::Done => 4,
                     };
                     IntervalTile {
-                        degree: shown_step(app, &all_names[step.degree], step.octave).into(),
+                        degree: shown_step(app, &shown_names[step.degree], step.octave, jazz).into(),
                         note: note.into(),
                         state,
                     }
@@ -1099,7 +1114,7 @@ impl UiFrame {
     /// falls on, and the ones already played lit green. Not in the fretboard
     /// trainer, which draws its own region, and not in Chords, which has its
     /// shapes.
-    fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step]) {
+    fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool) {
         let drawable = matches!(
             app.app_mode,
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
@@ -1114,7 +1129,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1127,7 +1142,8 @@ impl UiFrame {
             app.grip_string,
             ui.get_voice_leading(),
             app.free_order(),
-            app.scale_hand(chord)
+            app.scale_hand(chord),
+            jazz
         );
         if signature == self.last_tab {
             return;
@@ -1147,7 +1163,7 @@ impl UiFrame {
             let lead = ui.get_voice_leading() && !app.random_mode;
             let anchor = (app.app_mode == AppMode::Intervals)
                 .then_some(if lead { app.home_anchor } else { app.voicing_anchor });
-            place_phrase(app, chord, steps, anchor)
+            place_phrase(app, chord, steps, anchor, jazz)
         };
         self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
         let done = &this_way_only(app, chord, steps, &app.collected_notes);
@@ -1370,9 +1386,12 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
 /// A step's degree as the screen writes it. In Intervals the plain degree, as
 /// the list of exercises has it - the octave is where the hand takes the note;
 /// in the phrases of Scales and Arpeggios, where the run through the octave is
-/// the exercise, the compound number above it.
-fn shown_step(app: &MyApp, name: &str, octave: i8) -> String {
-    if app.app_mode == AppMode::Intervals {
+/// the exercise, the compound number above it. A jazz name is already the
+/// whole answer: it counts nothing past the octave.
+fn shown_step(app: &MyApp, name: &str, octave: i8, jazz: bool) -> String {
+    if jazz {
+        name.to_string()
+    } else if app.app_mode == AppMode::Intervals {
         crate::interval_levels::plain_degree(name)
     } else {
         model::shown_degree(name, octave)
@@ -1405,14 +1424,15 @@ fn this_way_only(app: &MyApp, chord: &Chord, steps: &[model::Step], done: &[bool
 /// pass: the shape is the same everywhere, and one place on the neck practised
 /// over and over is not the exercise. An arpeggio study keeps the position its
 /// source is written in.
-fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Option<i32>) -> Vec<tab::Spot> {
+fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Option<i32>, jazz: bool) -> Vec<tab::Spot> {
+    let named = |names: Vec<String>| if jazz { model::jazz_names(&names) } else { names };
     // From E to e the hand stands where the pass drew it, and does not move.
     if let Some((hand, _)) = app.scale_hand(chord) {
         return tab::place_in_hand(
             chord.root as usize,
             &chord.quality.intervals(),
             steps,
-            &chord.quality.interval_names(),
+            &named(chord.quality.interval_names()),
             hand,
         );
     }
@@ -1424,7 +1444,7 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Optio
         chord.root as usize,
         &app.degree_intervals(chord),
         steps,
-        &app.degree_names(chord),
+        &named(app.degree_names(chord)),
         anchor,
         from,
     )
@@ -1544,7 +1564,7 @@ mod this_way_tests {
                 if steps.len() <= 4 {
                     continue;
                 }
-                let spots = place_phrase(&a, &chord, &steps, None);
+                let spots = place_phrase(&a, &chord, &steps, None, false);
                 assert_eq!(spots.len(), steps.len(), "level {level} over {chord:?}");
             }
         }

@@ -80,6 +80,36 @@ pub fn shown_degree(name: &str, octave: i8) -> String {
     format!("{open}{accidental}{compound}{close}")
 }
 
+/// The degrees of a scale as jazz writes them over its chord. What lies
+/// between the chord's tones is a tension above it - a 2 is a 9, a 4 an 11, a
+/// 6 a 13, each with its accidental - and nothing is counted past the octave:
+/// the root on top is 1 again, and where on the neck is in the drawing. A
+/// plain 4 over a major third stays 4: a semitone above the third, it is the
+/// note to pass over there, not a tension to hold.
+pub fn jazz_names(names: &[String]) -> Vec<String> {
+    let major_third = names.iter().any(|n| n == "3");
+    names.iter().map(|n| jazz_degree(n, major_third)).collect()
+}
+
+fn jazz_degree(name: &str, major_third: bool) -> String {
+    let (open, inner, close) = match name.strip_prefix('(').and_then(|n| n.strip_suffix(')')) {
+        Some(inner) => ("(", inner, ")"),
+        None => ("", name, ""),
+    };
+    let accidental = inner.trim_end_matches(|c: char| c.is_ascii_digit());
+    let Ok(number) = inner[accidental.len()..].parse::<i32>() else {
+        return name.to_string();
+    };
+    let jazz = match (number - 1) % 7 + 1 {
+        2 => 9,
+        4 if accidental.is_empty() && major_third => 4,
+        4 => 11,
+        6 => 13,
+        plain => plain,
+    };
+    format!("{open}{accidental}{jazz}{close}")
+}
+
 /// A written phrase as the text field shows it: tones above the octave by
 /// their compound numbers - `"1 3 5 7 1' 3'"` -> `"1 3 5 7 8 10"`. Tones below
 /// the root keep their commas: the field is edited, and a line going below the
@@ -906,6 +936,35 @@ mod scale_library_tests {
         assert_eq!(of("Phrygian b4"), [0, 1, 3, 4, 7, 8, 10]);
         assert_eq!(of("Harmonic Major"), [0, 2, 4, 5, 7, 8, 11]);
         assert_eq!(of("Augmented Scale"), [0, 3, 4, 7, 8, 11]);
+    }
+}
+
+#[cfg(test)]
+mod jazz_names_tests {
+    use super::jazz_names;
+
+    fn jazz(text: &str) -> String {
+        let names: Vec<String> = text.split_whitespace().map(str::to_string).collect();
+        jazz_names(&names).join(" ")
+    }
+
+    #[test]
+    fn tensions_are_named_above_the_chord() {
+        assert_eq!(jazz("1 b2 3 4 5 b6 b7"), "1 b9 3 4 5 b13 b7");
+        assert_eq!(jazz("1 2 b3 4 5 6 b7"), "1 9 b3 11 5 13 b7");
+        assert_eq!(jazz("1 2 3 #4 5 6 7"), "1 9 3 #11 5 13 7");
+        assert_eq!(jazz("1 b2 #2 3 b5 #5 b7"), "1 b9 #9 3 b5 #5 b7");
+    }
+
+    #[test]
+    fn nothing_is_counted_past_the_octave() {
+        assert_eq!(jazz("8 9 10 11 b13"), "1 9 3 11 b13");
+    }
+
+    #[test]
+    fn a_passing_note_keeps_its_brackets() {
+        assert_eq!(jazz("1 3 5 7 2 #4 6 4 (#5)"), "1 3 5 7 9 #11 13 4 (#5)");
+        assert_eq!(jazz("1 b3 5 b7 2 4 6 (7)"), "1 b3 5 b7 9 11 13 (7)");
     }
 }
 
