@@ -2156,6 +2156,9 @@ mod line_harness;
 mod formula_harness;
 
 #[cfg(test)]
+mod chord_probe;
+
+#[cfg(test)]
 mod repeat_harness;
 
 #[cfg(test)]

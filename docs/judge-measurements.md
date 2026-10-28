@@ -360,6 +360,29 @@ every strum seen and no ringing chord taken for one, where the take6
 onset head's two strikes on the chord's notes saw 9 strums and fired on
 all 17 chords while they rang. Without the detector, the envelope.
 
+### diminished_heard_whole
+
+*`src/state/chords_mode.rs`*
+
+A diminished seventh asked for in Chords passes when the pitch head hears
+all four of its notes above 0.5, whatever the chord name says.
+
+Measured on two recordings of D♭°7 from the D string (`dim-g3`, `dim-g5`,
+the model read through `chord_probe`, every 40 ms). The chord name was
+`dim` in 39 readings of 514 and 6 of 547; nearly all the rest was a
+dominant seventh on one of the chord's notes, G 7 most often - the weak D
+and F the pitch head also hears are overtones of the B♭, and with the G
+they spell it. The pitch head heard three of the four notes in 394 and 491
+readings, all four in 162 and 165; the top E dies first.
+
+Through the Chords bucket, the name alone first passed the chord 17.7 s
+into `dim-g3`'s 23 s of it and never in `dim-g5`'s 21 s; with this rule,
+0.75 s and 0.8 s after the first strum. Over the other chords of the song
+in `dim-g3` (B♭maj7, D7, E♭maj7, G7, Cm7, F7, Dm7) it credits nothing.
+
+Three of the four notes with nothing outside them passed more often
+in the same simulation but is not taken: G B♭ D♭ is also E♭7 without its root.
+
 ## Voices
 
 ### NEXT_VOICE

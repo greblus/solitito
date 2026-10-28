@@ -1343,6 +1343,32 @@ fn a_diminished_seventh_is_the_same_chord_from_all_four_roots() {
     assert_ne!(a.prev_status(), MatchStatus::Exact, "Db dim7 is not C dim7");
 }
 
+/// The name the model gives a diminished seventh is most often a dominant on
+/// one of its notes. With all four notes in the pitch head it is the chord
+/// anyway; three of them and a root under them is the dominant it was named.
+#[test]
+fn a_diminished_seventh_named_as_a_dominant_passes_on_its_four_notes() {
+    let attempt = |heard: &[usize], named: &str| {
+        let mut a = app();
+        a.app_mode = AppMode::Chords;
+        a.set_random_mode(false);
+        a.short_verdict = false;
+        a.transition_delay = 0.05;
+        a.chords = vec![Chord { root: NoteName::Df, quality: ChordQuality::Diminished }];
+        a.reset_logic_state();
+        for _ in 0..10 {
+            a.last_pitches = [0.0; 12];
+            for &pc in heard { a.last_pitches[pc] = 0.9; }
+            a.check_progress_with_ai(0.02, named, 0.8);
+        }
+        a.prev_status()
+    };
+    // Db E G Bb, named G 7: the chord.
+    assert_eq!(attempt(&[1, 4, 7, 10], "G 7"), MatchStatus::Exact);
+    // Eb G Bb Db, named Eb 7: three of its notes, and a root that is not one.
+    assert_ne!(attempt(&[3, 7, 10, 1], "D# 7"), MatchStatus::Exact);
+}
+
 /// A shell voicing of a m7b5 is the m7 shell, note for note - the fifth is
 /// the only place the two chords differ, and a shell has no fifth. The app
 /// draws that shape in shell mode, so it has to accept hearing it.

@@ -780,6 +780,11 @@ fn parse_chords_line(line: &str) -> Vec<Chord> {
     line.split_whitespace().filter_map(parse_single_chord).collect()
 }
 
+#[cfg(test)]
+pub(crate) fn parse_chords_line_pub(line: &str) -> Vec<Chord> {
+    parse_chords_line(line)
+}
+
 fn parse_single_chord(s: &str) -> Option<Chord> {
     let (root_str, qual_str) = if s.len() > 1 && (s.chars().nth(1).unwrap() == 'b' || s.chars().nth(1).unwrap() == '#') {
         (&s[0..2], &s[2..])

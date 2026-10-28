@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Pitch-head level at which a note of a diminished seventh counts as heard -
+/// the level the recordings in `diminished_heard_whole` were measured at.
+const DIM_TONE_HEARD: f32 = 0.5;
+
 impl MyApp {
     pub(super) fn check_chord(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
         let Some(target) = self.chords.get(self.current_chord_index) else {
@@ -13,10 +17,12 @@ impl MyApp {
             self.success_timer = (self.success_timer - dt * 2.0).max(0.0);
             return;
         }
-        let reading = match ai_root {
+        let named = match ai_root {
             Some(root) => chord_reading(target, root, ai_qual, self.shells_only),
             None => ChordReading::Wrong,
         };
+        let heard_by_its_notes = self.diminished_heard_whole(target);
+        let reading = if heard_by_its_notes { ChordReading::Exact } else { named };
         // A chord asked for twice in a row has to be played twice. Without
         // this the ring of the pass before matches the moment the target is
         // set and the progression runs itself.
@@ -29,7 +35,8 @@ impl MyApp {
             return;
         }
 
-        let is_weak_signal = confidence < self.chord_confidence;
+        // The confidence is the chord name's, and the name is what was wrong.
+        let is_weak_signal = confidence < self.chord_confidence && !heard_by_its_notes;
         // Green means the target chord was heard, clearly enough to be
         // trusted - the same condition the bucket paints green on. With
         // this on, that is the whole test: no waiting for it to be held,
@@ -48,6 +55,24 @@ impl MyApp {
         if self.held_past(self.transition_delay) {
             self.advance_chord();
         }
+    }
+
+    /// Whether the pitch head hears all four notes of a diminished seventh
+    /// asked for.
+    ///
+    /// The chord name misses this chord on a guitar. Over a recording of D♭°7
+    /// strummed again and again, the model named it `dim` 6 times in 547
+    /// readings and a dominant seventh on one of its notes nearly every other
+    /// time, while the pitch head heard all four notes 165 times. Four notes a
+    /// minor third apart are this chord and nothing else; a dominant holds them
+    /// all only as a seventh with a flat ninth, which is this chord with a
+    /// root under it. Measurements: `docs/judge-measurements.md#diminished_heard_whole`.
+    fn diminished_heard_whole(&self, target: &Chord) -> bool {
+        target.quality == ChordQuality::Diminished
+            && target
+                .get_target_indices()
+                .iter()
+                .all(|&pc| self.last_pitches[pc % 12] > DIM_TONE_HEARD)
     }
 
     /// The leaky bucket: a clear reading of the chord fills the success timer
