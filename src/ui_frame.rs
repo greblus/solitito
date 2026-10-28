@@ -76,7 +76,6 @@ pub struct UiFrame {
     last_voicing: Vec<tab::Spot>,
     /// The fretboard trainer's last answer: the note it credited, kept on the
     /// neck after it moves on to the next one.
-    last_answer: Option<(usize, bool)>,
     /// The note the fretboard hint was opened for: a new one closes it.
     hint_target: Option<usize>,
     /// Rasterising the SVGs is not free and the shapes only change when the chord
@@ -133,7 +132,6 @@ impl UiFrame {
             last_interval_len: 0,
             last_tab: String::new(),
             last_voicing: Vec::new(),
-            last_answer: None,
             hint_target: None,
             last_diagram_key: String::new(),
             last_progress: Vec::new(),
@@ -702,7 +700,6 @@ impl UiFrame {
         };
         set_if_changed(ui.get_chord_name(), name.clone().into(), |v| ui.set_chord_name(v));
         set_if_changed(ui.get_start_hint(), app.region.describe().into(), |v| ui.set_start_hint(v));
-        self.draw_fretboard_region(ui, app);
         self.show_fretboard_hint(ui, app);
         ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
             MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
@@ -710,47 +707,6 @@ impl UiFrame {
         }));
         set_if_changed(ui.get_fret_done(), app.match_status == MatchStatus::Exact, |v| ui.set_fret_done(v));
         ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
-    }
-
-    /// The region drawn on the neck, and the ANSWER in it: where the note that
-    /// is sounding lies, green if it is the one asked for. Nothing before that
-    /// - drawing the target first would turn the mode into copying a picture.
-    fn draw_fretboard_region(&mut self, ui: &AppWindow, app: &MyApp) {
-        if !Preview::from(ui.get_preview()).draws_on_neck() {
-            self.clear_drawing(ui);
-            return;
-        }
-        let strings: Vec<usize> = app.region.strings.strings().to_vec();
-        let (from, to) = (app.region.fret_from as i32, app.region.fret_to() as i32);
-        // What the JUDGE credited, not a reading of its own. Marking the neck
-        // from `steady_note` - three frames of the estimate - while the judge
-        // passes a note on one frame of it, or on the model's pitch head, meant
-        // the trainer moved on from notes the drawing had never marked: right,
-        // and never lit.
-        //
-        // Only a right answer is drawn. A wrong one leaves the box empty: the
-        // note asked for is on the screen already, and marking every stray note
-        // on the neck was more to read than to learn from. And it is kept after
-        // the trainer moves on, so there is something to look at while the next
-        // note is read.
-        if let (MatchStatus::Exact, Some(target)) = (app.match_status, app.fret_target) {
-            self.last_answer = Some((target % 12, true));
-        }
-        let (heard, right) = match self.last_answer {
-            Some((pc, was_right)) => (Some(pc), was_right),
-            None => (None, false),
-        };
-        let marks = heard.map_or_else(Vec::new, |pc| places_of(pc, &strings, from, to));
-        let label = heard
-            .map(|pc| model::NoteName::from_index(pc).to_string().to_string())
-            .unwrap_or_default();
-        let signature = format!("{strings:?}|{from}|{to}|{marks:?}|{label}|{right}");
-        if signature == self.last_tab {
-            return;
-        }
-        self.last_tab = signature;
-        ui.set_tab_aspect(tab::region_aspect(from, to));
-        ui.set_tab_image(svg_icon(&tab::region(&strings, from, to, &marks, &label, right)));
     }
 
     /// The hint the note's tile opens: where the note lies on the neck as far
@@ -1222,7 +1178,7 @@ impl UiFrame {
         // over from the note modes was turning up under them.
         let draws = matches!(
             app.app_mode,
-            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard
+            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
         );
         if !draws {
             self.clear_drawing(ui);

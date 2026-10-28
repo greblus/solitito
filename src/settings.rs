@@ -330,7 +330,10 @@ pub const PREVIEW_TILES: usize = Preview::Tiles as usize;
 /// fretboard trainer one note whose whole point is WHERE it lies. Chords and
 /// Formulas draw neither and keep an entry only so the index stays the
 /// `AppMode` discriminant.
-pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 2, 1];
+pub const DEFAULT_PREVIEWS: [usize; MODE_NAMES.len()] = [1, 2, 1, 1, 0, 1];
+
+/// The fretboard trainer's index in `MODE_NAMES`.
+const FRETBOARD: usize = 4;
 
 fn first_interval_level() -> usize {
     crate::interval_levels::DEFAULT
@@ -524,6 +527,12 @@ impl Settings {
     /// back to the default for it rather than to a fixed view.
     pub fn preview_for(&self, mode: i32) -> usize {
         let i = mode.max(0) as usize;
+        // The fretboard trainer shows its note as a tile and nothing else: the
+        // hint under it draws the whole neck. A neck view saved before stays
+        // in the file and is not read.
+        if i == FRETBOARD {
+            return 0;
+        }
         self.previews
             .get(i)
             .copied()

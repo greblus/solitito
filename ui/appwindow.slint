@@ -747,9 +747,7 @@ export global Tr {
     in-out property <string> preview_names: "Line of intervals";
     in-out property <string> preview_tab: "Tablature";
     in-out property <string> preview_neck: "On the neck";
-    in-out property <string> preview_note_names: "Note names";
     in-out property <string> preview_functions: "Interval functions";
-    in-out property <string> preview_note_names_neck: "Note names on the neck";
     in-out property <string> preview_tiles: "Interval tiles";
     in-out property <string> preview_functions_neck: "Interval functions on the neck";
     in-out property <string> tab_frets: "Fret numbers instead of degrees";
@@ -1246,7 +1244,7 @@ export component AppWindow inherits Window {
     /// is the key.
     /// The fretboard trainer's line of names: the note in a tile, where to
     /// play it in a pill under it.
-    property <bool> note_tile: root.current_mode == 4 && root.preview == 0;
+    property <bool> note_tile: root.current_mode == 4;
     property <bool> walks_progression: root.current_mode != 2 && root.current_mode != 4
         && root.current_mode != 5 && !(root.current_mode == 3 && root.arp_exercise == 0);
     property <length> box_w: root.wide_view
@@ -2139,9 +2137,9 @@ export component AppWindow inherits Window {
                         width: max(130px, tile_note.preferred-width + 60px);
                         height: 120px;
                         border-radius: 16px;
-                        background: root.fret_done ? #17271F : #1A2640;
-                        border-width: 2px;
-                        border-color: root.fret_done ? #24563A : #2F6FE0;
+                        background: root.fret_done ? #17271F : #161A22;
+                        border-width: 1px;
+                        border-color: root.fret_done ? #24563A : #222835;
                         animate background, border-color { duration: 150ms; }
                         tile_note := Text {
                             text: root.chord_name;
@@ -2149,7 +2147,7 @@ export component AppWindow inherits Window {
                             font-weight: 400;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            color: root.fret_done ? #6EE7A0 : #FFFFFF;
+                            color: root.fret_done ? #6EE7A0 : #E8EAF0;
                         }
                         tile_touch := TouchArea {
                             mouse-cursor: pointer;
@@ -2168,14 +2166,16 @@ export component AppWindow inherits Window {
                     Rectangle {
                         height: 52px;
                         border-radius: 26px;
-                        background: #2F6FE0;
+                        background: #161A22;
+                        border-width: 1px;
+                        border-color: #222835;
                         HorizontalLayout {
                             padding-left: 24px;
                             padding-right: 24px;
                             Text {
                                 text: root.start_hint;
                                 font-size: 32px;
-                                color: #FFFFFF;
+                                color: #C9CEDA;
                                 vertical-alignment: center;
                             }
                         }
@@ -2823,7 +2823,7 @@ export component AppWindow inherits Window {
                             // Wherever there is a phrase to draw: the note modes.
                             // Chords have their shapes and the fretboard trainer
                             // draws its own region.
-                            if root.current_mode >= 1 && root.current_mode <= 4 : VerticalLayout {
+                            if root.current_mode >= 1 && root.current_mode <= 3 : VerticalLayout {
                                 spacing: 4px;
                                 // Intervals only: the other modes walk a line, and
                                 // a line has no voices to lead.
@@ -2877,7 +2877,7 @@ export component AppWindow inherits Window {
                                     // grip in Intervals is one - both are drawn on
                                     // the neck whichever of the two is picked, so
                                     // offering both was a control that did nothing.
-                                    if root.current_mode == 4 || root.current_mode == 1 : Dropdown {
+                                    if root.current_mode == 1 : Dropdown {
                                         width: root.ctrl_w;
                                         // The fretboard trainer asks for a NOTE and
                                         // Intervals for a function of the chord.
@@ -2886,9 +2886,7 @@ export component AppWindow inherits Window {
                                         // on the neck - unless fret numbers are
                                         // switched on, which is its own option.
                                         // Intervals has the tiles as a third entry.
-                                        model: root.current_mode == 4
-                                            ? [Tr.preview_note_names, Tr.preview_note_names_neck]
-                                            : [Tr.preview_functions, Tr.preview_functions_neck, Tr.preview_tiles];
+                                        model: [Tr.preview_functions, Tr.preview_functions_neck, Tr.preview_tiles];
                                         // One-way and set by hand, because the
                                         // entries are 0, 2 and 3 of the same setting.
                                         current-index: root.preview == 0 ? 0 : (root.preview == 3 ? 2 : 1);
@@ -2897,7 +2895,7 @@ export component AppWindow inherits Window {
                                             root.preview_changed(root.preview);
                                         }
                                     }
-                                    if root.current_mode != 4 && root.current_mode != 1 : Dropdown {
+                                    if root.current_mode != 1 : Dropdown {
                                         width: root.ctrl_w;
                                         model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
                                         current-index <=> root.preview;
