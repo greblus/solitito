@@ -183,14 +183,13 @@ struct SettingsSnapshot {
     scale_e_to_e: bool,
     show_full_shapes: bool,
     show_shell_shapes: bool,
-    ai_debug: bool,
     startup_mode: i32,
     language: i32,
     intervals: String,
-    show_spectrum: bool,
     audio_device: i32,
     audio_channel: i32,
     jazz_notation: bool,
+    chord_degrees: bool,
     formula_exercise: i32,
     formula_placement: i32,
     formula_notes: i32,
@@ -240,14 +239,13 @@ impl SettingsSnapshot {
             scale_e_to_e: ui.get_scale_e_to_e(),
             show_full_shapes: ui.get_show_full_shapes(),
             show_shell_shapes: ui.get_show_shell_shapes(),
-            ai_debug: ui.get_ai_debug_visible(),
             startup_mode: ui.get_startup_mode(),
             language: ui.get_language_idx(),
             intervals: ui.get_interval_input_text().to_string(),
-            show_spectrum: ui.get_show_spectrum(),
             audio_device: ui.get_audio_device_index(),
             audio_channel: ui.get_audio_channel_index(),
             jazz_notation: ui.get_jazz_notation(),
+            chord_degrees: ui.get_chord_degrees(),
             formula_exercise: ui.get_formula_exercise(),
             formula_placement: ui.get_formula_placement(),
             formula_notes: ui.get_formula_notes(),
@@ -403,7 +401,6 @@ fn new_analysis_state() -> Arc<Mutex<AudioAnalysis>> {
         class_strike_age: [u32::MAX; 12],
         strikes_live: false,
         frames_since_onset: 0,
-        spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
         bass_boost_enabled: DEFAULT_BOOST_ENABLED,
         bass_boost_gain: DEFAULT_BOOST_GAIN,
@@ -545,6 +542,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_show_full_shapes(cfg.show_full_shapes);
     ui.set_show_shell_shapes(cfg.show_shell_shapes);
     ui.set_jazz_notation(cfg.jazz_notation);
+    ui.set_chord_degrees(cfg.chord_degrees);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -562,8 +560,6 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_show_heard(cfg.show_heard);
     ui.set_quick_open(cfg.quick_options_open);
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
-    ui.set_show_spectrum(cfg.show_spectrum);
-    ui.set_ai_debug_visible(cfg.ai_debug);
     ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
     ui.set_icon_gear(svg_icon(ICON_GEAR));
     ui.set_icon_star(svg_icon(ICON_STAR));
@@ -891,6 +887,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_against_chord(t.against_chord.into());
     g.set_jazz_names(t.jazz_names.into());
     g.set_jazz_names_hint(t.jazz_names_hint.into());
+    g.set_chord_degrees(t.chord_degrees.into());
     g.set_chord_tones(t.chord_tones.into());
     g.set_fav_hint(t.fav_hint.into());
     g.set_fav_add(t.fav_add.into());
@@ -901,9 +898,6 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chord_confidence(t.chord_confidence.into());
     g.set_note_threshold(t.note_threshold.into());
     g.set_hold_time(t.hold_time.into());
-    g.set_show_debug(t.show_debug.into());
-    g.set_show_spectrum(t.show_spectrum.into());
-    g.set_ai_prediction(t.ai_prediction.into());
     g.set_intervals_label(t.intervals_label.into());
     g.set_interval_level(t.interval_level.into());
     g.set_intervals_hint(t.intervals_hint.into());

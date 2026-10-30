@@ -55,8 +55,6 @@ fn saving<T>(
 /// The options that only need to be remembered: the frame reads them from the
 /// window, or the window reads them itself.
 fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
-    ui.on_show_spectrum_changed(saving(cfg, |s, on| s.show_spectrum = on));
-    ui.on_ai_debug_changed(saving(cfg, |s, on| s.ai_debug = on));
     ui.on_short_verdict_changed(saving(cfg, |s, on| s.short_verdict = on));
     ui.on_single_notes_changed(saving(cfg, |s, on| s.single_notes = on));
     ui.on_fret_hint_changed(saving(cfg, |s, on| s.fret_hint = on));
@@ -83,6 +81,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_lead_line_changed(saving(cfg, |s, on| s.lead_line = on));
     ui.on_show_diagrams_changed(saving(cfg, |s, on| s.show_diagrams = on));
     ui.on_jazz_notation_changed(saving(cfg, |s, on| s.jazz_notation = on));
+    ui.on_chord_degrees_changed(saving(cfg, |s, on| s.chord_degrees = on));
     ui.on_formula_exercise_changed(saving(cfg, |s, v: i32| s.formula_exercise = v.clamp(0, 2) as u8));
     ui.on_formula_placement_changed(saving(cfg, |s, v: i32| s.formula_placement = v.clamp(0, 3) as u8));
     ui.on_formula_notes_changed(saving(cfg, |s, n: i32| s.formula_notes = n.clamp(1, 12) as usize));

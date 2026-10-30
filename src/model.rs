@@ -110,6 +110,24 @@ fn jazz_degree(name: &str, major_third: bool) -> String {
     format!("{open}{accidental}{jazz}{close}")
 }
 
+/// A chord's degree in its tune, as a progression is written: the numeral
+/// counted from `tonic`, upper case over a major third and lower over a minor
+/// one, so that a ii-V-I reads `ii V I`. The numeral alone: an accidental and
+/// the kind of seventh stand in the chord's name right above it, so in G minor
+/// an F7 is `VII` and a Db dim in Bb is `iii`, as the Dm7 before it is.
+pub fn progression_degree(chord: &Chord, tonic: usize) -> String {
+    const NUMERALS: [&str; 12] =
+        ["I", "II", "II", "III", "III", "IV", "V", "V", "VI", "VI", "VII", "VII"];
+    let diminished = matches!(chord.quality, ChordQuality::HalfDiminished | ChordQuality::Diminished);
+    let semitones = (chord.root as usize + 12 - tonic % 12) % 12;
+    // Between the IV and the V a diminished chord leans up, from the IV.
+    let numeral = if semitones == 6 && diminished { "IV" } else { NUMERALS[semitones] };
+    match chord.quality {
+        ChordQuality::Major7 | ChordQuality::Dominant7 | ChordQuality::CustomScale(_) => numeral.to_string(),
+        _ => numeral.to_lowercase(),
+    }
+}
+
 /// A written phrase as the text field shows it: tones above the octave by
 /// their compound numbers - `"1 3 5 7 1' 3'"` -> `"1 3 5 7 8 10"`. Tones below
 /// the root keep their commas: the field is edited, and a line going below the
@@ -342,6 +360,9 @@ impl Chord {
 pub struct Song {
     pub title: String,
     pub chords: Vec<Chord>,
+    /// The tune's home, where its last chord is not: `Four | Eb` on the title
+    /// line, for a tune that ends on a turnaround.
+    pub tonic: Option<NoteName>,
 }
 
 // --- ARPEGGIO PATTERNS ---
@@ -539,10 +560,10 @@ const SONGS_DB: &str = r#"
 Autumn Leaves
 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7
 
-All The Things You Are
+All The Things You Are | Ab
 Fm7 Bbm7 Eb7 AbMaj7 DbMaj7 G7 CMaj7 CMaj7 Cm7 Fm7 Bb7 EbMaj7 AbMaj7 Am7 D7 GMaj7 GMaj7 Am7 D7 GMaj7 GMaj7 F#m7 B7 EMaj7 C7+5 Fm7 Bbm7 Eb7 AbMaj7 DbMaj7 Gbm7 C7 Fm7 Fm7
 
-Blue Bossa
+Blue Bossa | C
 Cm7 Cm7 Fm7 Fm7 Dm7b5 G7 Cm7 Cm7 Ebm7 Ab7 DbMaj7 DbMaj7 Dm7b5 G7 Cm7 Dm7b5 G7
 
 Take The A Train
@@ -554,7 +575,7 @@ Em7b5 A7 Cm7 F7 Fm7 Bb7 EbMaj7 Ab7 BbMaj7 Em7b5 A7 Dm7b5 G7 Cm7b5 F7 BbMaj7 Em7b
 Satin Doll
 Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7 Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7 GMaj7 Gm7 C7 FMaj7 FMaj7 Am7 D7 GMaj7 GMaj7 Dm7 G7 Dm7 G7 Em7 A7 Em7 A7 D7 Db7 CMaj7 CMaj7
 
-Girl From Ipanema
+Girl From Ipanema | F
 FMaj7 FMaj7 G7 G7 Gm7 Gb7 FMaj7 Gb7 FMaj7 FMaj7 G7 G7 Gm7 Gb7 FMaj7 FMaj7 GbMaj7 GbMaj7 B7 B7 F#m7 F#m7 D7 D7 Gm7 Gm7 Eb7 Eb7 Am7 D7 Gm7 C7
 
 Black Orpheus
@@ -563,7 +584,7 @@ Am7 Bm7b5 E7 Am7 Dm7 G7 CMaj7 FMaj7 Bm7b5 E7 Am7 E7 Am7 Bm7b5 E7 Am7 Dm7 G7 CMaj
 Misty
 EbMaj7 Cm7 Fm7 Bb7 Gm7 C7 Fm7 Bb7 EbMaj7 Cm7 Fm7 Bb7 EbMaj7 EbMaj7 Bbm7 Eb7 AbMaj7 Abm7 Db7 EbMaj7 Cm7 Fm7 Bb7 EbMaj7 EbMaj7
 
-My Funny Valentine
+My Funny Valentine | C
 Cm CmMaj7 Cm7 Cm6 AbMaj7 Fm7 Dm7b5 G7 Cm CmMaj7 Cm7 Cm6 AbMaj7 Fm7 Dm7b5 G7 EbMaj7 Fm7 Gm7 Fm7 EbMaj7 Fm7 Gm7 Fm7 AbMaj7 Fm7 Dm7b5 G7 Cm7 Bbm7 A7 AbMaj7 Dm7b5 G7 Cm7 G7
 
 Someday My Prince Will Come
@@ -575,19 +596,19 @@ Dm7b5 G7 Cm7 F7 BbMaj7 BbMaj7 Em7b5 A7 Dm7 Dm7 Dm7 Dm7 Em7b5 A7 Dm7 Dm7 Dm7 Dm7
 Song For My Father
 Fm7 Fm7 Eb7 Eb7 Db7 C7 Fm7 Fm7 Fm7 Fm7 Eb7 Eb7 Db7 C7 Fm7 Fm7 Eb9 Eb9 Db9 Db9 Fm7 Fm7 Eb9 Eb9 Db9 C7 Fm7 Fm7
 
-Maiden Voyage
+Maiden Voyage | D
 D9 D9 D9 D9 F9 F9 F9 F9 Eb9 Eb9 Eb9 Eb9 Db9 Db9 Db9 Db9
 
 Cantaloupe Island
 Fm7 Fm7 Fm7 Fm7 Db7 Db7 Db7 Db7 Dm7 Dm7 Dm7 Dm7 Fm7 Fm7 Fm7 Fm7
 
-Watermelon Man
+Watermelon Man | F
 F7 F7 F7 F7 Bb7 Bb7 F7 F7 C7 Bb7 F7 C7
 
 Impressions
 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Ebm7 Ebm7 Ebm7 Ebm7 Dm7 Dm7 Dm7 Dm7
 
-Solar
+Solar | C
 CmMaj7 CmMaj7 Gm7 C7 FMaj7 FMaj7 Fm7 Bb7 EbMaj7 EbMaj7 Ebm7 Ab7 DbMaj7 Dm7b5 G7
 
 Tune Up
@@ -596,13 +617,13 @@ Em7 A7 DMaj7 DMaj7 Dm7 G7 CMaj7 CMaj7 Cm7 F7 BbMaj7 BbMaj7 Em7 A7 DMaj7 DMaj7
 So What
 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Dm7 Ebm7 Ebm7 Ebm7 Ebm7 Dm7 Dm7 Dm7 Dm7
 
-Giant Steps
+Giant Steps | B
 BMaj7 D7 GMaj7 Bb7 EbMaj7 Am7 D7 GMaj7 Bb7 EbMaj7 F#7 BMaj7 Fm7 Bb7 EbMaj7 Am7 D7 GMaj7 C#m7 F#7 BMaj7 Fm7 Bb7 EbMaj7 C#m7 F#7
 
 Body And Soul
 Ebm7 Bb7 Ebm7 D7 DbMaj7 Gb7 Fm7 E7 EbMaj7 Em7 A7 DMaj7 Em7 A7 DMaj7 Dm7 G7 CMaj7 Ebdim Dm7 G7 CMaj7 B7 Em7 A7 D7 Gm7 C7 Fm7 Bb7 EbMaj7 Ab7 DbMaj7
 
-There Is No Greater Love
+There Is No Greater Love | Bb
 BbMaj7 BbMaj7 Eb7 Eb7 BbMaj7 G7 Cm7 F7 Dm7 G7 Cm7 F7 BbMaj7 G7 Cm7 F7 BbMaj7 BbMaj7 Eb7 Ab7 Dm7 G7 Cm7 F7 BbMaj7 G7 Cm7 F7
 
 All Blues
@@ -611,7 +632,7 @@ G7 G7 G7 G7 Gm7 Gm7 G7 G7 D7 Eb7 D7 G7 G7
 Footprints
 Cm7 Cm7 Cm7 Cm7 Fm7 Fm7 Cm7 Cm7 D7 Db7 Cm7 Cm7
 
-Four
+Four | Eb
 EbMaj7 EbMaj7 Ebm7 Ab7 Fm7 Bb7 Bbm7 Eb7 AbMaj7 AbMaj7 Abm7 Db7 EbMaj7 C7 Fm7 Bb7
 
 Have You Met Miss Jones
@@ -623,28 +644,28 @@ GMaj7 GMaj7 Gm7 C7 FMaj7 FMaj7 Fm7 Bb7 EbMaj7 Am7b5 D7 Gm7 Am7b5 D7 GMaj7 Gm7 C7
 Just Friends
 FMaj7 FMaj7 FMaj7 FMaj7 Fm7 Bb7 C7 C7 A7 A7 D7 D7 Dm7 G7 CMaj7 CMaj7
 
-Lady Bird
+Lady Bird | C
 CMaj7 CMaj7 Fm7 Bb7 CMaj7 CMaj7 Bbm7 Eb7 AbMaj7 AbMaj7 Am7 D7 Dm7 G7 CMaj7 EbMaj7 AbMaj7 DbMaj7
 
 Night And Day
 EbMaj7 G7b5 CMaj7 C7 Fm7 Bb7 EbMaj7 EbMaj7 Dm7b5 G7 CMaj7 C7 Fm7 Bb7 EbMaj7 EbMaj7 Fm7b5 Bb7 EbMaj7 EbMaj7 Fm7b5 Bb7 EbMaj7 EbMaj7
 
-Oleo
+Oleo | Bb
 BbMaj7 Gm7 Cm7 F7 BbMaj7 Gm7 Cm7 F7 E7 A7 D7 G7 C7 F7 BbMaj7 Gm7 Cm7 F7
 
-On Green Dolphin Street
+On Green Dolphin Street | Eb
 EbMaj7 EbMaj7 EbMaj7 EbMaj7 GbMaj7 GbMaj7 GbMaj7 GbMaj7 FMaj7 FMaj7 EMaj7 EMaj7 EbMaj7 EbMaj7 Dm7 G7 C7 C7 Fm7 Bb7 EbMaj7 Dm7 G7
 
-Recorda Me
+Recorda Me | A
 Am7 Am7 Cm7 Cm7 Cm7 F7 BbMaj7 BbMaj7 Bbm7 Eb7 AbMaj7 AbMaj7 Gm7 C7 FMaj7 E7
 
-St Thomas
+St Thomas | C
 CMaj7 CMaj7 Em7b5 A7 Dm7 G7 CMaj7 C7 FMaj7 Fm7 Em7 A7 Dm7 G7 CMaj7 G7
 
-Wave
+Wave | D
 DMaj7 DMaj7 Bm7b5 E7 Em7 A7 DMaj7 Ddim Am7 D7 GMaj7 Gm6 F#7 F#7 B7 B7 E7 E7 A7 A7 Dm7 G7
 
-Yardbird Suite
+Yardbird Suite | C
 CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 D7 D7 Dm7 G7 CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 Dm7 G7 CMaj7 E7
 "#;
 
@@ -771,7 +792,11 @@ fn parse_songs(content: &str) -> Vec<Song> {
     let lines: Vec<&str> = content.trim().split('\n').filter(|l| !l.trim().is_empty()).collect();
     for chunk in lines.chunks(2) {
         if chunk.len() < 2 { continue; }
-        songs.push(Song { title: chunk[0].trim().to_string(), chords: parse_chords_line(chunk[1]) });
+        let (title, tonic) = match chunk[0].split_once('|') {
+            Some((title, key)) => (title, parse_single_chord(key.trim()).map(|chord| chord.root)),
+            None => (chunk[0], None),
+        };
+        songs.push(Song { title: title.trim().to_string(), chords: parse_chords_line(chunk[1]), tonic });
     }
     songs
 }
@@ -941,6 +966,34 @@ mod scale_library_tests {
         assert_eq!(of("Phrygian b4"), [0, 1, 3, 4, 7, 8, 10]);
         assert_eq!(of("Harmonic Major"), [0, 2, 4, 5, 7, 8, 11]);
         assert_eq!(of("Augmented Scale"), [0, 3, 4, 7, 8, 11]);
+    }
+}
+
+#[cfg(test)]
+mod progression_degree_tests {
+    use super::*;
+
+    fn degrees(line: &str, key: &str) -> String {
+        let tonic = parse_single_chord(key).unwrap().root as usize;
+        parse_chords_line(line).iter().map(|c| progression_degree(c, tonic)).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn a_progression_is_written_from_its_tonic() {
+        assert_eq!(degrees("Cm7 F7 BbMaj7", "Bb"), "ii V I");
+        assert_eq!(degrees("Am7b5 D7 Gm7", "G"), "ii V i");
+        assert_eq!(degrees("Cm7 F7 BbMaj7 EbMaj7", "G"), "iv VII III VI");
+        assert_eq!(degrees("Dm7 Dbdim Cm7", "Bb"), "iii iii ii");
+        assert_eq!(degrees("F#m7b5 Gb7", "C"), "iv V");
+    }
+
+    #[test]
+    fn every_tune_is_at_home_on_its_tonic() {
+        let songs = parse_songs(SONGS_DB);
+        let tonic = |title: &str| songs.iter().find(|s| s.title == title).and_then(|s| s.tonic);
+        assert_eq!(tonic("Four"), Some(NoteName::Ef));
+        assert_eq!(tonic("Autumn Leaves"), None);
+        assert!(songs.iter().all(|s| !s.title.contains('|')));
     }
 }
 

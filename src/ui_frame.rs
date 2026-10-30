@@ -40,12 +40,6 @@ pub struct UiFrame {
     /// The language the window started in.
     lang: Lang,
 
-    // Built once and then written into, NOT replaced every frame. Assigning a
-    // fresh model makes Slint throw away all 48 bars and build them again, and
-    // at 60 frames a second that was most of a core - visible only with the
-    // settings panel open, because the spectrum lives inside it.
-    spectrum_data: Rc<VecModel<f32>>,
-    spectrum_colors: Rc<VecModel<Color>>,
 
     // Taken after the initial set_* calls, so persisted settings count as the
     // baseline rather than as a change. Retaken when the panel closes: the mark
@@ -83,7 +77,7 @@ pub struct UiFrame {
     last_diagram_key: String,
     /// The progression strip and what is heard, pushed only when they change:
     /// both are lists, and a new model every frame would redraw them for nothing.
-    last_progress: Vec<(String, i32, bool, Color)>,
+    last_progress: Vec<(String, String, i32, bool, Color)>,
     last_song_keys: Vec<String>,
     last_heard: (String, Vec<(String, bool)>),
     last_heard_push: Instant,
@@ -101,29 +95,20 @@ pub struct UiFrame {
     // confidence figure jitters by a point between frames, and the meter is
     // smoothed so it never settles exactly. Both are therefore held back unless
     // they have something new to say.
-    last_ai_text: String,
     last_ai_name: String,
-    last_ai_push: Instant,
     last_level_db: f32,
     last_level_push: Instant,
     last_tiles: Vec<IntervalTile>,
-    last_spectrum_push: Instant,
 }
 
 impl UiFrame {
     pub fn new(ui: &AppWindow, shared: Shared, file_mode: bool, lang: Lang) -> Self {
-        let spectrum_data = Rc::new(VecModel::from(vec![0.0_f32; 48]));
-        let spectrum_colors = Rc::new(VecModel::from(vec![Color::from_rgb_u8(30, 30, 30); 48]));
-        ui.set_spectrum_data(ModelRc::from(spectrum_data.clone()));
-        ui.set_spectrum_colors(ModelRc::from(spectrum_colors.clone()));
         let now = Instant::now();
         UiFrame {
             ui: ui.as_weak(),
             shared,
             file_mode,
             lang,
-            spectrum_data,
-            spectrum_colors,
             baseline: SettingsSnapshot::read(ui),
             settings_were_open: false,
             chord_latch: ChordLatch::default(),
@@ -140,13 +125,10 @@ impl UiFrame {
             last_heard_push: now,
             last_ui_tick: None,
             last_formula_chords: (0, String::new(), usize::MAX),
-            last_ai_text: String::new(),
             last_ai_name: String::new(),
-            last_ai_push: now,
             last_level_db: f32::NEG_INFINITY,
             last_level_push: now,
             last_tiles: Vec::new(),
-            last_spectrum_push: now,
         }
     }
 
@@ -156,10 +138,7 @@ impl UiFrame {
         let app_handle = Arc::clone(&self.shared.app);
         let mut app = app_handle.lock().unwrap();
 
-        let (spectrum_vis, in_level) = {
-            let s = app.analysis_state.lock().unwrap();
-            (s.spectrum_visual, s.input_level)
-        };
+        let in_level = app.analysis_state.lock().unwrap().input_level;
         self.show_input_level(&ui, in_level);
 
         self.read_practice_options(&ui, &mut app);
@@ -183,13 +162,11 @@ impl UiFrame {
             self.show_song_step(&ui, &app);
         }
         self.drop_drawing_of_other_modes(&ui, &app);
-
-        self.show_spectrum(&ui, &app, &spectrum_vis);
     }
 
     fn show_input_level(&mut self, ui: &AppWindow, in_level: f32) {
         // Half a decibel is below what the bar can show anyway. At most 20
-        // times a second, like the spectrum: the meter in the side navigation
+        // times a second: the meter in the side navigation
         // is always on screen, and every new level redraws the window.
         let level_db = lin_to_db(in_level);
         if (level_db - self.last_level_db).abs() > 0.5
@@ -440,7 +417,7 @@ impl UiFrame {
         };
         let current_confidence = if named { current_confidence } else { 0.0 };
 
-        self.show_model_answer(ui, &shown, current_confidence);
+        self.last_ai_name.clone_from(&shown);
 
         // Real elapsed time, not assumed. Capped so a thread stall does not
         // jump the whole threshold at once.
@@ -457,22 +434,6 @@ impl UiFrame {
         // verdict can only re-arm on a new onset id.
         if std::env::var("SOLITITO_STRUM").is_ok() {
             print_strum_trace(app, onset_id, since_onset, &shown, current_confidence, before);
-        }
-    }
-
-    /// The chord name appears at once - that is what is being read. A changed
-    /// percentage on the same chord waits its turn, at five updates a second
-    /// rather than sixty.
-    fn show_model_answer(&mut self, ui: &AppWindow, shown: &str, confidence: f32) {
-        let text = format!("{} ({:.0}%)", shown, confidence * 100.0);
-        let name_changed = shown != self.last_ai_name;
-        if (name_changed || self.last_ai_push.elapsed() >= Duration::from_millis(200))
-            && text != self.last_ai_text
-        {
-            ui.set_ai_text(text.clone().into());
-            self.last_ai_text = text;
-            self.last_ai_name = shown.to_string();
-            self.last_ai_push = Instant::now();
         }
     }
 
@@ -892,7 +853,7 @@ impl UiFrame {
         // in the colour it was passed on - the big name's palette, so one
         // colour means one thing wherever it appears - and one stepped
         // over, or still to come, in grey.
-        let progress: Vec<(String, i32, bool, Color)> = app
+        let progress: Vec<(String, String, i32, bool, Color)> = app
             .progress_around(3)
             .into_iter()
             .map(|(i, d)| {
@@ -907,14 +868,15 @@ impl UiFrame {
                     MatchStatus::Flicker => Color::from_rgb_u8(255, 90, 90),
                     MatchStatus::None => Color::from_rgb_u8(138, 146, 163),
                 };
-                (app.chord_label(i), d, result != MatchStatus::None, fg)
+                (app.chord_label(i), app.chord_degree(i), d, result != MatchStatus::None, fg)
             })
             .collect();
         if progress != self.last_progress {
             let chips: Vec<Chip> = progress
                 .iter()
-                .map(|(name, d, played, fg)| Chip {
+                .map(|(name, degree, d, played, fg)| Chip {
                     name: name.into(),
+                    degree: degree.into(),
                     current: *d == 0,
                     played: *played,
                     fg: *fg,
@@ -1184,49 +1146,6 @@ impl UiFrame {
             self.clear_drawing(ui);
         }
     }
-
-    fn show_spectrum(&mut self, ui: &AppWindow, app: &MyApp, spectrum_vis: &[f32; 48]) {
-        // Outside the branch above on purpose. It used to sit inside the "chord
-        // mode with a song loaded" arm, so the fretboard trainer - which carries
-        // no chords at all - never pushed a frame and the spectrum froze while
-        // the model kept predicting. That was the "sometimes it does not draw".
-        let targets: Vec<usize> = match app.app_mode {
-            AppMode::Fretboard => app.fret_target.into_iter().collect(),
-            _ => app.chords.get(app.current_chord_index)
-                    .map(|c| c.get_target_indices())
-                    .unwrap_or_default(),
-        };
-        // Skipped entirely when nothing shows it: the bars are the panel's most
-        // expensive content, and off by default.
-        if !ui.get_show_spectrum() && !ui.get_ai_debug_visible() {
-            return;
-        }
-        // And rationed even when shown. With signal every one of the 48 bars
-        // moves on every frame, so this alone would keep the whole panel
-        // redrawing at sixty frames a second; twenty is more than the eye reads
-        // off a level display.
-        if self.last_spectrum_push.elapsed() < Duration::from_millis(50) {
-            return;
-        }
-        self.last_spectrum_push = Instant::now();
-        let spec_colors: Vec<Color> = spectrum_vis
-            .iter()
-            .enumerate()
-            .map(|(i, &level)| bar_colour(i, level, &targets))
-            .collect();
-        // Only rows that actually moved: setting a row notifies whether or not
-        // the value changed, and in silence most of them do not.
-        for (i, v) in spectrum_vis.iter().enumerate() {
-            if self.spectrum_data.row_data(i) != Some(*v) {
-                self.spectrum_data.set_row_data(i, *v);
-            }
-        }
-        for (i, c) in spec_colors.iter().enumerate() {
-            if self.spectrum_colors.row_data(i) != Some(*c) {
-                self.spectrum_colors.set_row_data(i, *c);
-            }
-        }
-    }
 }
 
 /// The model's chord over the last answers: the name with the most summed
@@ -1464,18 +1383,6 @@ fn shapes_caption(t: &i18n::Strings, shapes: Option<diagrams::Shapes>, chord: &C
                 .collect();
             format!("{}{}7b9{}", t.shapes_no_shell, names.join("7b9, "), t.shapes_no_shell_end)
         }
-    }
-}
-
-/// A bar of the spectrum: green where it sounds and is asked for, red where it
-/// sounds and is not, and in silence dark - a shade lighter on every C.
-fn bar_colour(bar: usize, level: f32, targets: &[usize]) -> Color {
-    let pitch_class = (bar + 40) % 12;
-    match (level > 0.05, targets.contains(&pitch_class)) {
-        (true, true) => Color::from_rgb_u8(50, 255, 100),
-        (true, false) => Color::from_rgb_u8(255, 50, 50),
-        (false, _) if pitch_class == 0 => Color::from_rgb_u8(60, 60, 80),
-        (false, _) => Color::from_rgb_u8(30, 30, 30),
     }
 }
 

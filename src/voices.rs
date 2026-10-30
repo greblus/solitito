@@ -167,7 +167,7 @@ mod diagnostics {
         let mut pos = 0usize;
         let mut frame = 0usize;
         while pos + crate::audio::FFT_SIZE < signal.len() {
-            let (cqt, _, _, _) = analyzer.compute_cqt_chroma(
+            let (cqt, _, _) = analyzer.compute_cqt_chroma(
                 &signal[pos..pos + crate::audio::FFT_SIZE], true, 5.0,
             );
             let found = voices_tuned(

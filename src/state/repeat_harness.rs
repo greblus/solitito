@@ -169,7 +169,7 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
                 st.mark_strikes(s);
             }
             if rms > gate {
-                let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
+                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt)
                     .filter(|&(_, s)| s >= MONO_MIN_SCORE)
                     .map(|(note, _)| note);
@@ -259,7 +259,7 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
                 st.mark_strikes(s);
             }
             if rms > gate {
-                let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
+                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
                 st.cqt_pitch = heard.map(|x| x % 12);
                 st.cqt_semitone = heard;
@@ -358,7 +358,7 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
                 st.mark_strikes(s);
             }
             if rms > gate {
-                let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
+                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
                 st.cqt_pitch = heard.map(|x| x % 12);
                 st.cqt_semitone = heard;

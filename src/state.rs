@@ -752,7 +752,7 @@ impl MyApp {
         let start_song = if !song_library.is_empty() { 
             song_library[0].clone() 
         } else { 
-            Song { title: "No Songs".into(), chords: vec![] } 
+            Song { title: "No Songs".into(), chords: vec![], tonic: None } 
         };
 
         Self {
@@ -1585,7 +1585,7 @@ impl MyApp {
     /// with no tune.
     pub fn song_tonic(&self) -> Option<usize> {
         let song = self.song_library.get(self.selected_library_idx)?;
-        song.chords.last().map(|c| c.root as usize)
+        song.tonic.or_else(|| song.chords.last().map(|c| c.root)).map(|root| root as usize)
     }
 
     /// Chords: play the tune in `key`, a pitch class. The progression starts
@@ -1867,6 +1867,16 @@ impl MyApp {
             .get(index)
             .map(|c| format!("{} {}", c.root.to_string(), c.quality.to_string()))
             .unwrap_or_default()
+    }
+
+    /// The chord's degree in its tune. Counted from the tonic the chords are
+    /// standing on, so a tune moved to another key keeps its numerals.
+    pub fn chord_degree(&self, index: usize) -> String {
+        let (Some(chord), Some(tonic)) = (self.chords.get(index), self.song_tonic()) else {
+            return String::new();
+        };
+        let moved = if self.app_mode == AppMode::Chords { self.transpose } else { 0 };
+        crate::model::progression_degree(chord, tonic + moved)
     }
 
     /// How the previous chord was passed - `None` means it was stepped over.

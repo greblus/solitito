@@ -356,7 +356,7 @@ mod diagnostics {
             let ear = (at >= crate::audio::FFT_SIZE)
                 .then(|| {
                     let chunk = &signal[at - crate::audio::FFT_SIZE..at];
-                    let (cqt, _, _, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
+                    let (cqt, _, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
                     crate::audio::mono_pitch(&cqt)
                         .filter(|&(_, score)| score >= crate::audio::MONO_MIN_SCORE)
                         .map(|(note, _)| note)

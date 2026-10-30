@@ -730,7 +730,6 @@ pub(crate) fn app() -> MyApp {
         cqt_semitone: None,
         input_history: [[0.0; TOTAL_FEATURES]; CTX_FRAMES],
         frame_live: [false; CTX_FRAMES],
-        spectrum_visual: [0.0; 48],
         chroma_sum: [0.0; 12],
         bass_boost_enabled: false,
         bass_boost_gain: 1.0,
@@ -3085,6 +3084,20 @@ fn a_tune_is_played_in_the_key_chosen() {
     assert_eq!(a.chords.last().unwrap().root as usize, (tonic + 5) % 12);
     a.item_selected(1);
     assert_eq!(a.transpose, 0, "a new tune kept the old key");
+}
+
+/// The numerals say where a chord stands in its tune, and the key the tune is
+/// played in does not move that.
+#[test]
+fn a_tune_moved_to_another_key_keeps_its_degrees() {
+    let mut a = app();
+    a.set_mode(AppMode::Chords as i32);
+    a.item_selected(0);
+    let degrees = |a: &MyApp| (0..a.chords.len()).map(|i| a.chord_degree(i)).collect::<Vec<_>>();
+    let written = degrees(&a);
+    assert_eq!(written[..3], ["iv", "VII", "III"], "Autumn Leaves from G");
+    a.set_song_key(a.song_tonic().unwrap() + 5);
+    assert_eq!(degrees(&a), written);
 }
 
 /// A scale from E to e, laid out as the neck draws it: each note's pitch and

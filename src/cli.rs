@@ -364,7 +364,7 @@ impl ProbeWindow {
             return;
         }
         let amplified: Vec<f32> = chunk.iter().map(|&x| x * audio::INPUT_GAIN).collect();
-        let (cqt, chroma, bass, _) =
+        let (cqt, chroma, bass) =
             analyzer.compute_cqt_chroma(&amplified, boost.is_some(), boost.unwrap_or(1.0));
         let mut features = Vec::with_capacity(audio::TOTAL_FEATURES);
         features.extend_from_slice(&cqt);

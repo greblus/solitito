@@ -218,6 +218,7 @@ pub struct Strings {
     pub against_chord: &'static str,
     pub jazz_names: &'static str,
     pub jazz_names_hint: &'static str,
+    pub chord_degrees: &'static str,
     pub chord_tones: &'static str,
     pub fav_name: &'static str,
     pub fav_pick: &'static str,
@@ -231,9 +232,6 @@ pub struct Strings {
     pub chord_confidence: &'static str,
     pub note_threshold: &'static str,
     pub hold_time: &'static str,
-    pub show_debug: &'static str,
-    pub show_spectrum: &'static str,
-    pub ai_prediction: &'static str,
     pub intervals_label: &'static str,
     /// Intervals: the exercise, and the headings its list is grouped under -
     /// see `interval_levels::Group`.
@@ -377,6 +375,7 @@ pub const EN: Strings = Strings {
     placement_outside: "outside it",
     against_chord: "Relative to ",
     jazz_names: "Jazz notation (b9, #11, b13)",
+    chord_degrees: "Degrees in the chord strip",
     jazz_names_hint: "Notes outside the chord as tensions: 9 for 2, 11 for 4, 13 for 6. All within one octave, the root on top is 1 again.",
     chord_tones: "chord tones",
     fav_name: "name it",
@@ -391,9 +390,6 @@ pub const EN: Strings = Strings {
     chord_confidence: "Chord confidence: ",
     note_threshold: "Note threshold: ",
     hold_time: "Hold time: ",
-    show_debug: "Show AI Debug in Main Window",
-    show_spectrum: "Show spectrum",
-    ai_prediction: "AI Prediction:  ",
     intervals_label: "Intervals: ",
     interval_level: "Exercise: ",
     level_groups: [
@@ -538,6 +534,7 @@ pub const PL: Strings = Strings {
     placement_outside: "na zewnątrz",
     against_chord: "Względem ",
     jazz_names: "Zapis jazzowy (b9, #11, b13)",
+    chord_degrees: "Stopnie na pasku akordów",
     jazz_names_hint: "Dźwięki spoza akordu jako napięcia: 9 zamiast 2, 11 zamiast 4, 13 zamiast 6. Wszystko w jednej oktawie, pryma na górze to znów 1.",
     chord_tones: "dźwięków akordu",
     fav_name: "nazwij",
@@ -552,9 +549,6 @@ pub const PL: Strings = Strings {
     chord_confidence: "Pewność akordu: ",
     note_threshold: "Próg dźwięku: ",
     hold_time: "Czas przytrzymania: ",
-    show_debug: "Pokaż podgląd modelu w oknie głównym",
-    show_spectrum: "Pokaż widmo",
-    ai_prediction: "Rozpoznano:  ",
     intervals_label: "Interwały: ",
     interval_level: "Ćwiczenie: ",
     level_groups: [

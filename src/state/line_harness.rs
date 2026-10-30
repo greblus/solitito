@@ -127,7 +127,7 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8])
             st.mark_strikes(&struck);
             if rms > GATE {
                 let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-                let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+                let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
                 let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
                 st.cqt_pitch = heard.map(|x| x % 12);
                 st.cqt_semitone = heard;

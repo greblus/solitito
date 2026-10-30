@@ -57,7 +57,6 @@ pub struct AudioAnalysis {
     /// Whether each history frame carries signal (true) or is silence pushed in
     /// by the noise gate (false). Parallel to `input_history`.
     pub frame_live: [bool; CTX_FRAMES],
-    pub spectrum_visual: [f32; 48],
     pub chroma_sum: [f32; 12],
     pub bass_boost_enabled: bool,
     pub bass_boost_gain: f32,
@@ -213,14 +212,13 @@ impl CqtAnalyzer {
         })
     }
 
-    /// One frame's features: the normalised CQT, the chroma, the bass energy,
-    /// and the part of the CQT the spectrum display shows.
+    /// One frame's features: the normalised CQT, the chroma and the bass energy.
     pub fn compute_cqt_chroma(
         &mut self,
         audio_chunk: &[f32],
         boost_enabled: bool,
         boost_gain: f32,
-    ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
         self.windowed_fft(audio_chunk);
 
         // The CQT: a sparse multiply per bin, over the non-zero weights only -
@@ -241,8 +239,7 @@ impl CqtAnalyzer {
         let norm_cqt = log_normalise(&cqt_mag);
         let chroma = self.chroma_of(&norm_cqt);
         let bass = bass_energy(&norm_cqt);
-        let visual: Vec<f32> = norm_cqt.iter().skip(24).take(48).cloned().collect();
-        (norm_cqt, chroma, bass, visual)
+        (norm_cqt, chroma, bass)
     }
 
     /// The chunk, under the Hann window and zero-padded, through the FFT into
@@ -1033,7 +1030,7 @@ impl Listener {
     /// what the ear and the voices make of it.
     fn analyse(&mut self, window: &[f32], boost_enabled: bool, boost_gain: f32) {
         let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
-        let (cqt, chroma, bass, visual) =
+        let (cqt, chroma, bass) =
             self.analyzer.compute_cqt_chroma(&amplified, boost_enabled, boost_gain);
 
         // One frame, one note: no window memory, so a scale is tracked instead
@@ -1062,9 +1059,6 @@ impl Listener {
         frame.extend_from_slice(&chroma);
         frame.extend_from_slice(&bass);
         state.push_frame(&frame);
-        for (shown, &v) in state.spectrum_visual.iter_mut().zip(&visual) {
-            *shown = v;
-        }
         state.chroma_sum = chroma.try_into().unwrap_or([0.0; 12]);
     }
 
@@ -1081,9 +1075,6 @@ impl Listener {
         state.voices = 0;
         state.gate_open = false;
         state.push_silence();
-        for x in &mut state.spectrum_visual {
-            *x *= 0.7;
-        }
     }
 }
 
@@ -1121,7 +1112,7 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
         while pos + FFT_SIZE < samples.len() {
             let start = Instant::now();
             let chunk = &samples[pos..pos+FFT_SIZE];
-            let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
+            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
             // The same ear and the same attack detector as the live path, so a
             // recording replayed here is judged the way it was when played.
             // Without these a replay pushes features and nothing else, and the
@@ -1288,7 +1279,6 @@ mod fill_tests {
             class_strike_age: [u32::MAX; 12],
             strikes_live: false,
             frames_since_onset: 0,
-            spectrum_visual: [0.0; 48],
             chroma_sum: [0.0; 12],
             bass_boost_enabled: false,
             bass_boost_gain: 1.0,
@@ -1497,7 +1487,7 @@ mod voices_diagnostics {
         let mut frames = 0usize;
         let mut pos = 0usize;
         while pos + FFT_SIZE < signal.len() {
-            let (_, chroma, _, _) = analyzer.compute_cqt_chroma(&signal[pos..pos + FFT_SIZE], true, 5.0);
+            let (_, chroma, _) = analyzer.compute_cqt_chroma(&signal[pos..pos + FFT_SIZE], true, 5.0);
             let peak = chroma.iter().cloned().fold(0.0f32, f32::max);
             // Only frames with something in them: the gaps say nothing.
             if peak > 1e-3 {
@@ -1515,7 +1505,7 @@ mod voices_diagnostics {
         let mut pos2 = 0usize;
         let mut heard: Vec<Option<usize>> = Vec::new();
         while pos2 + FFT_SIZE < signal.len() {
-            let (cqt, _, _, _) = analyzer.compute_cqt_chroma(&signal[pos2..pos2 + FFT_SIZE], true, 5.0);
+            let (cqt, _, _) = analyzer.compute_cqt_chroma(&signal[pos2..pos2 + FFT_SIZE], true, 5.0);
             heard.push(mono_pitch(&cqt).map(|(pc, _)| pc));
             pos2 += HOP_LENGTH * 4;
         }

@@ -25,6 +25,8 @@ component NoteBar inherits Rectangle {
 /// for one already played, the colour it was passed on.
 export struct Chip {
     name: string,
+    /// Its degree in the tune, as a progression is written.
+    degree: string,
     current: bool,
     played: bool,
     fg: color,
@@ -121,6 +123,7 @@ component StepArrow inherits Rectangle {
 /// One chord of the progression strip.
 component ProgressChip inherits Rectangle {
     in property <Chip> chip;
+    in property <bool> show_degree;
     /// A chord clicked: go there.
     callback picked();
     border-radius: 10px;
@@ -133,16 +136,24 @@ component ProgressChip inherits Rectangle {
         enabled: !root.chip.current;
         clicked => { root.picked(); }
     }
-    HorizontalLayout {
+    VerticalLayout {
+        alignment: center;
         padding-left: 8px;
         padding-right: 8px;
         Text {
             text: root.chip.name;
-            font-size: 15px;
+            font-size: 17px;
             font-weight: root.chip.current ? 700 : 500;
             color: root.chip.current ? #FFFFFF : root.chip.fg;
             horizontal-alignment: center;
             vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.show_degree : Text {
+            text: root.chip.degree;
+            font-size: 15px;
+            color: root.chip.current ? #DCE7FF : #8A92A3;
+            horizontal-alignment: center;
             overflow: elide;
         }
     }
@@ -662,24 +673,6 @@ component IconToggle inherits Rectangle {
     }
 }
 
-component DebugBar inherits Rectangle {
-    in property <float> level;
-    in property <color> active_color; 
-    // No fixed size: the bar filled 60px inside a 50px box and 48 bars at a
-    // fixed 8px came to 478px regardless of how wide the panel actually was.
-    // Letting the layout distribute the width keeps it inside the panel.
-    min-width: 3px;
-    horizontal-stretch: 1;
-    background: #111;
-    
-    Rectangle {
-        y: parent.height - self.height;
-        height: parent.height * level; 
-        background: active_color;      
-        width: 100%;
-    }
-}
-
 export global Tr {
     // Filled once at startup from the i18n module. Fields must match `Strings`
     // in src/i18n.rs.
@@ -795,6 +788,7 @@ export global Tr {
     in-out property <string> against_chord: "Relative to ";
     in-out property <string> jazz_names: "Jazz notation";
     in-out property <string> jazz_names_hint: "";
+    in-out property <string> chord_degrees: "Degrees in the chord strip";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
@@ -808,9 +802,6 @@ export global Tr {
     in-out property <string> chord_confidence: "Chord confidence: ";
     in-out property <string> note_threshold: "Note threshold: ";
     in-out property <string> hold_time: "Hold time: ";
-    in-out property <string> show_debug: "Show AI Debug in Main Window";
-    in-out property <string> show_spectrum: "Show spectrum";
-    in-out property <string> ai_prediction: "AI Prediction:  ";
     in-out property <string> intervals_label: "Intervals: ";
     in-out property <string> interval_level: "Exercise: ";
     in-out property <string> intervals_hint: "";
@@ -882,7 +873,6 @@ export component AppWindow inherits Window {
     in property <string> start_hint: "";
     in property <brush> chord_text_color: white;
     
-    in property <string> ai_text: "";
     /// The progression around the current chord, in the order it is played.
     in property <[Chip]> progress;
     /// What is being heard: the chord the model names in Chords, the note the
@@ -980,8 +970,6 @@ export component AppWindow inherits Window {
     callback arp_direction_changed(int);
     in-out property <int> arp_quality: 0;
     callback arp_quality_changed(int);
-    in property <[float]> spectrum_data;
-    in property <[color]> spectrum_colors; 
     
     in property <[string]> library_items;
     in property <string> library_label: "Select Song:"; 
@@ -1064,15 +1052,6 @@ export component AppWindow inherits Window {
     callback favourite_search();
     callback favourite_deleted(int);
     
-    // hidden in the main window by default
-    in-out property <bool> ai_debug_visible: false;
-    callback ai_debug_changed(bool);
-    /// The spectrum in the settings panel. Off by default: it is a calibration
-    /// aid, and drawing 48 bars sixty times a second is the most expensive thing
-    /// in the panel by a wide margin.
-    in-out property <bool> show_spectrum: false;
-    callback show_spectrum_changed(bool);
-
     // --- SETTINGS ---
     in-out property <bool> show_settings: false;
     // The panel and the zoomed shape take the focus; when they close it has
@@ -1082,6 +1061,10 @@ export component AppWindow inherits Window {
     /// user to Practice - picking a mode with the Audio tab open otherwise looks
     /// like nothing happened, the song list being on the tab next door.
     in-out property <int> settings_tab: 0;
+    /// The tab on screen: the one chosen, or Audio in the fretboard trainer,
+    /// which has no Practice tab to stand on.
+    property <int> settings_page: root.current_mode == 4 && root.settings_tab == 2
+        ? 0 : root.settings_tab;
 
     /// Mode buttons go through this rather than calling `mode_changed` directly.
     function pick_mode(m: int) {
@@ -1115,6 +1098,8 @@ export component AppWindow inherits Window {
     /// 0 any placement, 1 one that spells the chord out, 2 colours, 3 outside.
     in-out property <bool> jazz_notation: false;
     callback jazz_notation_changed(bool);
+    in-out property <bool> chord_degrees: true;
+    callback chord_degrees_changed(bool);
     in-out property <int> formula_placement: 0;
     callback formula_placement_changed(int);
     /// The next chord of the tune under the formula, over the changes.
@@ -1245,6 +1230,14 @@ export component AppWindow inherits Window {
     /// The fretboard trainer's line of names: the note in a tile, where to
     /// play it in a pill under it.
     property <bool> note_tile: root.current_mode == 4;
+    /// A mode standing on the chords of a tune: Chords, Intervals, and
+    /// Arpeggios over the changes, where a study has just the one chord.
+    property <bool> shows_changes: root.current_mode == 0 || root.current_mode == 1
+        || (root.current_mode == 3 && root.arp_exercise == 1);
+    /// Scales and a study of Arpeggios: a key and the degrees of the run to
+    /// set. Over the changes both come from the tune.
+    property <bool> takes_a_written_run: (root.current_mode == 2 || root.current_mode == 3)
+        && !root.shows_changes;
     property <bool> walks_progression: root.current_mode != 2 && root.current_mode != 4
         && root.current_mode != 5 && !(root.current_mode == 3 && root.arp_exercise == 0);
     property <length> box_w: root.wide_view
@@ -1596,7 +1589,7 @@ export component AppWindow inherits Window {
 
         // PROGRESSION STRIP: where in the tune the player is. Above the
         // centred column, so it does not move the chord name up or down.
-        if !root.show_settings && (root.current_mode == 0 || root.current_mode == 1)
+        if !root.show_settings && root.shows_changes
             && root.progress.length > 1 : Rectangle {
             height: root.bar_h;
             // All the same width, so the current chord stays where the eye is -
@@ -1615,6 +1608,7 @@ export component AppWindow inherits Window {
                 x: (parent.width - self.width) / 2;
                 for c in root.progress : ProgressChip {
                     chip: c;
+                    show_degree: root.chord_degrees;
                     width: parent.chip_w;
                     picked => { root.go_to_chord(c.offset); }
                 }
@@ -2115,14 +2109,6 @@ export component AppWindow inherits Window {
                 horizontal-alignment: center;
             }
             
-            // In the main window only when the checkbox is ticked
-            if root.ai_debug_visible : Text {
-                text: Tr.ai_prediction + root.ai_text;
-                font-size: 24px;
-                horizontal-alignment: center;
-                color: white; 
-            }
-            
             // THE FRETBOARD TRAINER as names: the note asked for, framed as
             // the tile due now in Intervals, and under it where to play it, in
             // a pill like the one that says "now" there. The sizes are those
@@ -2485,12 +2471,12 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     spacing: 4px;
                     height: 32px;
-                    TabButton { text: Tr.tab_audio; selected: root.settings_tab == 0; clicked => { root.settings_tab = 0; } }
+                    TabButton { text: Tr.tab_audio; selected: root.settings_page == 0; clicked => { root.settings_tab = 0; } }
                     // Nothing on it in the fretboard trainer: the note is drawn from
                     // the region and judged on its own, so an empty tab is all it
                     // would offer.
-                    TabButton { text: Tr.tab_practice; selected: root.settings_tab == 2; clicked => { root.settings_tab = 2; } }
-                    TabButton { text: Tr.tab_app; selected: root.settings_tab == 3; clicked => { root.settings_tab = 3; } }
+                    if root.current_mode != 4 : TabButton { text: Tr.tab_practice; selected: root.settings_page == 2; clicked => { root.settings_tab = 2; } }
+                    TabButton { text: Tr.tab_app; selected: root.settings_page == 3; clicked => { root.settings_tab = 3; } }
                     // Where a close is looked for: the panel's top right corner.
                     Rectangle {
                         width: 32px;
@@ -2501,7 +2487,7 @@ export component AppWindow inherits Window {
                         close_touch := TouchArea { clicked => { root.show_settings = false; } }
                     }
                 }
-                if root.settings_tab == 0 : ScrollView {
+                if root.settings_page == 0 : ScrollView {
                         VerticalLayout {
                             // Rows keep their own height and the slack falls to the
                             // bottom; without this the tab shares its spare height
@@ -2640,7 +2626,7 @@ export component AppWindow inherits Window {
 
                         }
                     }
-                if root.settings_tab == 2 : ScrollView {
+                if root.settings_page == 2 : ScrollView {
                         VerticalLayout {
                             // Rows keep their own height and the slack falls to the
                             // bottom; without this the tab shares its spare height
@@ -2665,7 +2651,7 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.current_mode == 2 || root.current_mode == 3 : HorizontalLayout {
+                            if root.takes_a_written_run : HorizontalLayout {
                                 Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                         width: root.ctrl_w;
@@ -2687,7 +2673,7 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.current_mode == 2 || root.current_mode == 3 : VerticalLayout {
+                            if root.takes_a_written_run : VerticalLayout {
                                 spacing: 8px;
                                 HorizontalLayout {
                                     // Packed left: with the default stretch the row hands its spare width
@@ -2979,6 +2965,19 @@ export component AppWindow inherits Window {
                                         current-index <=> root.key_move;
                                         selected => { root.scale_way_changed(); }
                                     }
+                                }
+                            }
+
+                            if root.shows_changes : HorizontalLayout {
+                                alignment: start;
+                                spacing: 15px;
+                                CheckBox {
+                                    checked <=> root.chord_degrees;
+                                    toggled => { root.chord_degrees_changed(self.checked); }
+                                }
+                                Text {
+                                    text: Tr.chord_degrees;
+                                    color: #aaa; vertical-alignment: center;
                                 }
                             }
 
@@ -3284,7 +3283,7 @@ export component AppWindow inherits Window {
 
                         }
                     }
-                if root.settings_tab == 3 : ScrollView {
+                if root.settings_page == 3 : ScrollView {
                         VerticalLayout {
                             // Rows keep their own height and the slack falls to the
                             // bottom; without this the tab shares its spare height
@@ -3293,57 +3292,6 @@ export component AppWindow inherits Window {
                             alignment: start;
                             padding: 15px;
                             spacing: 18px;
-
-                            Text {
-                                text: Tr.ai_prediction + root.ai_text;
-                                font-size: 18px;
-                                font-weight: 700;
-                                horizontal-alignment: center;
-                                color: white;
-                            }
-
-                            if root.show_spectrum : Rectangle {
-                                height: 60px;
-                                background: black;
-                                border-radius: 4px;
-                                HorizontalLayout {
-                                    // NOT packed left, unlike the rows of controls
-                                    // above: this one is meant to fill. Packed, the
-                                    // layout gave every bar its 3px minimum and left
-                                    // the rest of the panel black - 48 bars in 191px
-                                    // of a 520px panel.
-                                    padding: 2px;
-                                    spacing: 1px;
-                                    for val[i] in root.spectrum_data : DebugBar {
-                                        level: val;
-                                        active_color: root.spectrum_colors[i];
-                                    }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.ai_debug_visible;
-                                    toggled => { root.ai_debug_changed(self.checked); }
-                                }
-                                Text { text: Tr.show_debug; color: #aaa; vertical-alignment: center; }
-                            }
-
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.show_spectrum;
-                                    toggled => { root.show_spectrum_changed(self.checked); }
-                                }
-                                Text { text: Tr.show_spectrum; color: #aaa; vertical-alignment: center; }
-                            }
 
                             HorizontalLayout {
                                 // Packed left: with the default stretch the row hands its spare width

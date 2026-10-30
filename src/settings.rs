@@ -59,16 +59,6 @@ pub struct Settings {
     /// musical half of the idea, shuffling both is the experiment.
     #[serde(default)]
     pub shuffle_chords: bool,
-    /// The spectrum in the settings panel. Off by default - it is a calibration
-    /// aid, and 48 bars redrawn with every frame are what the panel spends most
-    /// of its time on.
-    #[serde(default)]
-    pub show_spectrum: bool,
-    /// The model's reading of the chord in the main window. Off by default, and
-    /// remembered like the spectrum beside it - it was not, and a restart put it
-    /// out with nothing said.
-    #[serde(default)]
-    pub ai_debug: bool,
     /// Input device to open, by name. `None` means the system default. Saved
     /// because on Windows the right interface is not always the default one,
     /// and picking it again on every launch is the sort of thing that makes an
@@ -102,6 +92,10 @@ pub struct Settings {
     /// Was Formulas' own switch, and a saved one still turns this on.
     #[serde(default, alias = "formula_jazz_names")]
     pub jazz_notation: bool,
+    /// Write each chord's degree in the tune under its name in the progression
+    /// strip.
+    #[serde(default = "yes")]
+    pub chord_degrees: bool,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -359,12 +353,11 @@ impl Default for Settings {
             single_notes: true,
             interval_require_onset: true,
             shuffle_chords: false,
-            show_spectrum: false,
-            ai_debug: false,
             audio_device: None,
             audio_channel: 1,
             gates: HashMap::new(),
             jazz_notation: false,
+            chord_degrees: true,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,

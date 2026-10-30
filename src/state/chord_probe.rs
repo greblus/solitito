@@ -73,7 +73,7 @@ fn named_between(audio: &[f32], from: f32, to: f32) -> Vec<String> {
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         if rms > 0.001 {
             let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-            let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
             let mut frame = Vec::with_capacity(TOTAL_FEATURES);
             frame.extend_from_slice(&cqt);
             frame.extend_from_slice(&chroma);
@@ -200,7 +200,7 @@ fn answers(audio: &[f32]) -> Vec<(String, f32)> {
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         if rms > 0.001 {
             let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-            let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
             let mut frame = Vec::with_capacity(TOTAL_FEATURES);
             frame.extend_from_slice(&cqt);
             frame.extend_from_slice(&chroma);
@@ -374,7 +374,7 @@ fn a_recording_read_by_the_model() {
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         if rms > 0.001 {
             let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-            let (cqt, chroma, bass, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
             let mut frame = Vec::with_capacity(TOTAL_FEATURES);
             frame.extend_from_slice(&cqt);
             frame.extend_from_slice(&chroma);
