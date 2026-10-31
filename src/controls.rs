@@ -82,6 +82,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_show_diagrams_changed(saving(cfg, |s, on| s.show_diagrams = on));
     ui.on_jazz_notation_changed(saving(cfg, |s, on| s.jazz_notation = on));
     ui.on_chord_degrees_changed(saving(cfg, |s, on| s.chord_degrees = on));
+    ui.on_chord_strip_changed(saving(cfg, |s, on| s.chord_strip = on));
     ui.on_formula_exercise_changed(saving(cfg, |s, v: i32| s.formula_exercise = v.clamp(0, 2) as u8));
     ui.on_formula_placement_changed(saving(cfg, |s, v: i32| s.formula_placement = v.clamp(0, 3) as u8));
     ui.on_formula_notes_changed(saving(cfg, |s, n: i32| s.formula_notes = n.clamp(1, 12) as usize));

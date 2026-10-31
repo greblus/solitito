@@ -201,6 +201,39 @@ when you play about two notes a second or slower. The details are in
 | **Shuffle the chords as well** | Mixes up the order of the chords in the song too |
 | **Voice leading** | With the shuffle on, starts every chord on the note nearest the one you played last |
 | **View** | Shows the numbers, the grip on the neck, or tiles with the note name under every number |
+| **Chord strip** | Shows the chords of the song at the top of the window. Off: you keep them in your head |
+
+## Playing without the chord strip
+
+The strip at the top of the window shows the chord you are on and the ones coming next. At first
+that helps: you get used to the song's chords. But a player who reads them is always a moment
+late. The next chord arrives as a surprise, and only then do you look for its notes.
+
+So the goal is to play with your head one step ahead. While you play over one chord, you are
+already thinking of the next one, and you know which notes you will play there before you get
+there.
+
+Take **Two tones: 3 5** in All the Things You Are. It starts like this:
+
+| chord | Fm7 | B♭m7 | E♭7 | A♭maj7 |
+|---|---|---|---|---|
+| `3 5` | A♭ C | D♭ F | G B♭ | C E♭ |
+
+While your fingers play A♭ and C over Fm7, your head is already on B♭m7: D♭ and F. When you get
+there, it moves on to E♭7: G and B♭. Nothing catches you by surprise.
+
+Best of all is to plan the notes of the next **two** chords. Then the notes you have to play stop
+taking up your attention, and you have time left to improvise: to choose where on the neck you
+play them.
+
+How to get there:
+
+1. Play with the strip on until the song's chords feel familiar.
+2. Turn **Chord strip** off in Settings, on the Practice tab. Only the current chord is left on
+   screen.
+3. Before each chord changes, name the next one to yourself, and its notes. Go slowly: if you get
+   lost, turn the strip back on for a while.
+4. When the next chord comes easily, try to think two chords ahead.
 
 ## Where to start
 
@@ -210,6 +243,7 @@ when you play about two notes a second or slower. The details are in
 3. **Structure 1–5** and **5–9** with the shuffle on.
 4. **Voice leading** in a song with a II–V–I in it, like Autumn Leaves.
 5. **Chord scale** from `3` and from `7`, and last the **Passing-note scale**.
+6. Any of these again [without the chord strip](#playing-without-the-chord-strip).
 
 ---
 

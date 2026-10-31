@@ -96,6 +96,10 @@ pub struct Settings {
     /// strip.
     #[serde(default = "yes")]
     pub chord_degrees: bool,
+    /// The progression strip itself. Turned off once a progression is known:
+    /// the next chords are then kept in the head, which is the exercise.
+    #[serde(default = "yes")]
+    pub chord_strip: bool,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -358,6 +362,7 @@ impl Default for Settings {
             gates: HashMap::new(),
             jazz_notation: false,
             chord_degrees: true,
+            chord_strip: true,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,

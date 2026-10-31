@@ -789,6 +789,8 @@ export global Tr {
     in-out property <string> jazz_names: "Jazz notation";
     in-out property <string> jazz_names_hint: "";
     in-out property <string> chord_degrees: "Degrees in the chord strip";
+    in-out property <string> chord_strip: "Chord strip";
+    in-out property <string> chord_strip_hint: "";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
@@ -1100,6 +1102,8 @@ export component AppWindow inherits Window {
     callback jazz_notation_changed(bool);
     in-out property <bool> chord_degrees: true;
     callback chord_degrees_changed(bool);
+    in-out property <bool> chord_strip: true;
+    callback chord_strip_changed(bool);
     in-out property <int> formula_placement: 0;
     callback formula_placement_changed(int);
     /// The next chord of the tune under the formula, over the changes.
@@ -1589,7 +1593,7 @@ export component AppWindow inherits Window {
 
         // PROGRESSION STRIP: where in the tune the player is. Above the
         // centred column, so it does not move the chord name up or down.
-        if !root.show_settings && root.shows_changes
+        if !root.show_settings && root.shows_changes && root.chord_strip
             && root.progress.length > 1 : Rectangle {
             height: root.bar_h;
             // All the same width, so the current chord stays where the eye is -
@@ -2968,7 +2972,28 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.shows_changes : HorizontalLayout {
+                            if root.shows_changes : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.chord_strip;
+                                        toggled => { root.chord_strip_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.chord_strip;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.chord_strip_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            if root.shows_changes && root.chord_strip : HorizontalLayout {
                                 alignment: start;
                                 spacing: 15px;
                                 CheckBox {

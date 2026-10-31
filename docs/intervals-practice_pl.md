@@ -202,6 +202,38 @@ w części *Lines in order*.
 | **Losuj także kolejność akordów** | Miesza też kolejność akordów w piosence |
 | **Prowadzenie głosów** | Przy mieszaniu zaczyna każdy akord od dźwięku najbliższego temu, który zagrałeś ostatnio |
 | **Widok** | Pokazuje numery, chwyt na gryfie albo kafelki z nazwą dźwięku pod każdym numerem |
+| **Pasek akordów** | Pokazuje akordy piosenki na górze okna. Wyłączony: trzymasz je w głowie |
+
+## Gra bez paska akordów
+
+Pasek na górze okna pokazuje akord, na którym jesteś, i te, które nadchodzą. Na początku to pomaga:
+oswajasz się z akordami piosenki. Ale kto je odczytuje, ten zawsze jest chwilę spóźniony. Następny
+akord spada na ciebie jak niespodzianka i dopiero wtedy szukasz jego dźwięków.
+
+Celem jest więc gra z głową o krok do przodu. Kiedy grasz na jednym akordzie, myślisz już
+o następnym i wiesz, jakie dźwięki tam zagrasz, zanim do niego dojdziesz.
+
+Weźmy **Dwa dźwięki: 3 5** w All the Things You Are. Początek wygląda tak:
+
+| akord | Fm7 | B♭m7 | E♭7 | A♭maj7 |
+|---|---|---|---|---|
+| `3 5` | A♭ C | D♭ F | G B♭ | C E♭ |
+
+Kiedy palce grają A♭ i C na Fm7, głowa jest już na B♭m7: D♭ i F. Gdy tam dojdziesz, przechodzi dalej,
+na E♭7: G i B♭. Nic cię nie zaskakuje.
+
+Najlepiej jest zaplanować dźwięki **dwóch** kolejnych akordów. Wtedy to, co musisz zagrać, przestaje
+zajmować twoją uwagę i zostaje ci czas na improwizację: na wybór miejsca na gryfie, w którym te
+dźwięki zagrasz.
+
+Jak do tego dojść:
+
+1. Graj z włączonym paskiem, aż akordy piosenki staną się znajome.
+2. Wyłącz **Pasek akordów** w Ustawieniach, w zakładce Ćwiczenia. Na ekranie zostaje tylko bieżący
+   akord.
+3. Zanim akord się zmieni, nazwij w myślach następny i jego dźwięki. Idź powoli: jeśli się
+   pogubisz, włącz pasek na chwilę.
+4. Kiedy następny akord przychodzi bez trudu, spróbuj myśleć o dwa akordy do przodu.
 
 ## Od czego zacząć
 
@@ -212,6 +244,7 @@ w części *Lines in order*.
 3. **Struktura 1–5** i **5–9** z włączonym losowaniem.
 4. **Prowadzenie głosów** w piosence, w której jest II–V–I, na przykład w Autumn Leaves.
 5. **Skala akordu** od `3` i od `7`, a na końcu **skala z dźwiękiem przejściowym**.
+6. Dowolne z tych ćwiczeń jeszcze raz, [bez paska akordów](#gra-bez-paska-akordów).
 
 ---
 
