@@ -50,9 +50,9 @@ akord, przechodzi do następnego.
   triadę albo substytucję (voicing bez prymy, `m7` odczytane jako `m`), czerwony znaczy, że
   akord został wykryty, ale sygnał jest za słaby, by go zatwierdzić.
 - **Interwały** — grasz dźwięki każdego akordu po kolei, jeden po drugim. Ćwiczenia są zapisane
-  numerami, a nie nazwami dźwięków: `3` to „trzeci dźwięk tego akordu”, czyli E w C maj7 i E♭
-  w Cm7. Dzięki temu jedno ćwiczenie pasuje do każdego akordu w piosence, a ty uczysz się słyszeć
-  brzmienie, a nie zapamiętywać chwyty. Na liście jest 50 ćwiczeń: od jednego dźwięku, przez
+  numerami, a nie nazwami dźwięków: `3` to „tercja tego akordu”, czyli E w C maj7 i E♭
+  w Cm7. Dzięki temu jedno ćwiczenie pasuje do każdego akordu w utworze, a ty uczysz się wizualizacji
+  gryfu i słyszenia interwałów, a nie zapamiętywania chwytów. Na liście jest 50 ćwiczeń: od jednego dźwięku, przez
   całe akordy i krótkie melodie, po przejścia z akordu w akord i skale. Po `m:` na liście stoją
   dźwięki dla akordów molowych, a ↻ oznacza losowy przewrót. Wszystko, z przykładami, opisuje
   [ćwiczenie interwałów](docs/intervals-practice_pl.md).
@@ -111,8 +111,8 @@ Każdy tryb nutowy można pokazać na trzy sposoby: linii interwałów, tabulatu
 na podstrunnicy — a jeśli trzeba, z numerami progów zamiast stopni. Obrazki pomagają,
 dopóki interwały są czarną magią i wydają się trudne, z czasem stanie się to naturalne.
 
-Ważne, żeby z nich w końcu zrezygnować. Ten program ma nauczyć wizualizacji w głowie i połączenia
-ucha z rękami, zamiast klepania schematów.
+Ważne, żeby z nich w końcu zrezygnować. Ten program ma nauczyć wizualizacji gryfu i słyszenia
+interwałów, zamiast klepania schematów.
 
 ---
 

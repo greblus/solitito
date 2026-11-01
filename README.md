@@ -50,9 +50,9 @@ chord, the app moves on to the next one.
   a common substitution (a rootless voicing, an `m7` read as `m`), red means the chord was
   detected but the signal is too weak to lock.
 - **Intervals** — play the notes of each chord, one after another. The exercises are written in
-  numbers, not note names: `3` means "the third note of this chord", so E in C maj7 and E♭ in
-  Cm7. One exercise therefore fits every chord in a song, and you learn to hear the sound instead
-  of memorising grips. The list holds 50 exercises: from a single note, through whole chords and
+  numbers, not note names: `3` means "the third of this chord", so E in C maj7 and E♭ in
+  Cm7. One exercise therefore fits every chord in a song, and you learn to visualise the neck and
+  hear intervals instead of memorising grips. The list holds 50 exercises: from a single note, through whole chords and
   short tunes, to moving from chord to chord and scales. `m:` on the list gives the notes for
   minor chords, and ↻ means a random inversion. Everything, with examples, is in
   [practising intervals](docs/intervals-practice.md).
@@ -108,8 +108,9 @@ help while the intervals are still new: they say where the fingers go, and the f
 help further still, for when a shape has to be found on the neck before its degrees mean
 anything.
 
-The idea is to stop using them. What this app is for is hearing intervals, not memorising
-shapes: reading `1 ♭3 5 ♭7` off a diagram is playing a box, hearing it is playing music. As
+The idea is to stop using them. What this app is for is visualising the neck and hearing
+intervals, not memorising shapes: reading `1 ♭3 5 ♭7` off a diagram is playing a box, seeing it
+on the neck in your head and hearing it is playing music. As
 the degrees become familiar, switch back to the line of names, and later practise without
 the pictures at all.
 

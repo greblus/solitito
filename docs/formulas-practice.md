@@ -22,8 +22,8 @@ random, that you have to find on the neck and play in any order you like.
 Two things follow, and they are the whole point of the mode:
 
 - **It has no name.** `1 b2 3 b5 6` is not "the something-something scale", so there is no
-  fingering to recall and no pattern to run up and down. You have to hear where each function
-  is and find it. That is a different skill from playing scales, and it is the one improvising
+  fingering to recall and no pattern to run up and down. You have to visualise the neck, hear the intervals, and
+  find each function. That is a different skill from playing scales, and it is the one improvising
   actually uses.
 - **It is the same exercise in every key.** The functions do not move; only where they land
   does. A formula practised properly ends up under your fingers everywhere, because it was
@@ -186,7 +186,7 @@ alone. That is the moment the mode starts doing its job.
 | **Notes in a formula** | 4–5 for a good start — too few to fall back on a scale shape. Any length is an exercise worth doing later |
 | **Key** | Fix it to work one key for a while, or leave it drawn per formula |
 | **Must contain** | `b3 b7` to only draw minor-seventh-flavoured sets, `b5` for tension, and so on |
-| **Play the notes in order** | Turns the set into a line, lowest function first. Harder, and good for hearing the shape rather than hunting the easy notes first |
+| **Play the notes in order** | Turns the set into a line, lowest function first. Harder, and good for visualising the neck and hearing intervals rather than hunting the easy notes first |
 | **Favourites** | Star a set you want to come back to tomorrow |
 
 **Nothing here is to be memorised.** The star is not a syllabus — it is for sets whose sound
@@ -213,12 +213,12 @@ matter of taste, it is a count of how many of the chord's tones the formula cove
 Take the plainest formula there is, a major triad — `1 3 5` — and put it on `C7` from four
 different degrees:
 
-| planted on | you play | what those notes are to C7 |
+| planted on | you play, with those notes counted from C7 under them | what that gives you |
 |---|---|---|
-| **1** | C E G | `1 3 5` — the chord, minus its seventh |
-| **bVII** | Bb D F | `b7 9 11` — the seventh plus two tensions, open and quartal |
-| **II** | D F# A | `9 #11 13` — not one note of the chord: pure colour |
-| **bVI** | Ab C Eb | `b13 1 #9` — the altered sound |
+| **1** | `C E G`<br>`1 3 5` | the chord, minus its seventh |
+| **bVII** | `Bb D F`<br>`b7 9 11` | the seventh plus two tensions, open and quartal |
+| **II** | `D F#  A`<br>`9 #11 13` | not one note of the chord: pure colour |
+| **bVI** | `Ab  C Eb`<br>`b13 1 #9` | the altered sound |
 
 One formula, three notes long, and four completely different results. Nothing changed but
 where you started it. Note the third row especially: a D major triad over C7 shares no note
@@ -238,23 +238,29 @@ fifth of a `m7b5`, which is characteristic too — it is not a perfect fifth).
 - **outside it** — it covers no tone of the chord at all
 - **colours it** — everything in between
 
-Worked through for one screen: `AbMaj7` (Ab C Eb G, so C and G are the characteristic tones)
-with the formula `1 b3 4 5 7`.
+Worked through for one screen: `AbMaj7` with the formula `1 b3 4 5 7`. The notes of the chord are:
 
-| planted on | root lands on | you play | chord tones hit | verdict |
+```
+Ab C Eb G
+1  3 5  7
+```
+
+So C and G are the characteristic tones.
+
+| planted on | root lands on | you play, with those notes counted from Ab under them | chord tones hit | verdict |
 |---|---|---|---|---|
-| I | Ab | Ab B Db Eb G | 3 | colours |
-| bII | A | A C D E Ab | 2 | colours |
-| II | Bb | Bb Db Eb F A | 1 | colours |
-| bIII | B | B D E Gb Bb | 0 | **outside** |
-| III | C | C Eb F G B | 3 | **spells it out** |
-| IV | Db | Db E Gb Ab C | 2 | colours |
-| bV | D | D F G A Db | 1 | colours |
-| V | Eb | Eb Gb Ab Bb D | 2 | colours |
-| bVI | E | E G A B Eb | 2 | colours |
-| VI | F | F Ab Bb C E | 2 | colours |
-| bVII | Gb | Gb A B Db F | 0 | **outside** |
-| VII | G | G Bb C D Gb | 2 | **spells it out** |
+| I | Ab | `Ab B  Db Eb G`<br>`1  b3 4  5  7` | 3 | colours |
+| bII | A | `A  C D  E  Ab`<br>`b2 3 b5 b6 1` | 2 | colours |
+| II | Bb | `Bb Db Eb F A`<br>`2  4  5  6 b2` | 1 | colours |
+| bIII | B | `B  D  E  Gb Bb`<br>`b3 b5 b6 b7 2` | 0 | **outside** |
+| III | C | `C Eb F G B`<br>`3 5  6 7 b3` | 3 | **spells it out** |
+| IV | Db | `Db E  Gb Ab C`<br>`4  b6 b7 1  3` | 2 | colours |
+| bV | D | `D  F G A  Db`<br>`b5 6 7 b2 4` | 1 | colours |
+| V | Eb | `Eb Gb Ab Bb D`<br>`5  b7 1  2  b5` | 2 | colours |
+| bVI | E | `E  G A  B  Eb`<br>`b6 7 b2 b3 5` | 2 | colours |
+| VI | F | `F Ab Bb C E`<br>`6 1  2  3 b6` | 2 | colours |
+| bVII | Gb | `Gb A  B  Db F`<br>`b7 b2 b3 4  6` | 0 | **outside** |
+| VII | G | `G Bb C D  Gb`<br>`7 2  3 b5 b7` | 2 | **spells it out** |
 
 So with **Placement** set to *spells the chord out*, this formula over this chord leaves the
 draw exactly two degrees to choose between. The kind you ask for is drawn at random from the
@@ -302,7 +308,7 @@ guess, then read.
   chord tone that is missing.
 
 **Where the lap goes.** Finishing the set draws **a new placement on the same chord**. That is
-deliberate: this exercise is one formula heard from twelve places, and the chord has to stand
+deliberate: this exercise is visualising the neck and hearing the intervals of one formula from twelve places, and the chord has to stand
 still for that to happen. A new chord comes from *another formula*.
 
 ---
@@ -355,7 +361,7 @@ will start predicting them — that is the skill arriving.
 | stage | exercise | settings | what you are learning |
 |---|---|---|---|
 | 1 | Formula in a key | 4 notes, note names on | to find functions on the neck at all |
-| 2 | Formula in a key | 5 notes, note names off | to hear a set instead of reading it |
+| 2 | Formula in a key | 5 notes, note names off | to visualise the neck and hear a set's intervals instead of reading them |
 | 3 | Over a chord | placement: *spells the chord out* | that a formula can be the chord |
 | 4 | Over a chord | *colours it*, then *outside it* | what colour and tension sound like |
 | 5 | Over a chord | *any*, guess before reading | to hear which of the three it is |

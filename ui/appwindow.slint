@@ -1363,6 +1363,8 @@ export component AppWindow inherits Window {
                     toggled => { root.lock_quality = !root.lock_quality; } }
                 SideToggle { text: Tr.chip_attack; on: root.short_verdict;
                     toggled => { root.short_verdict = !root.short_verdict; root.short_verdict_changed(root.short_verdict); } }
+                SideToggle { text: Tr.chord_strip; on: root.chord_strip;
+                    toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
             }
             NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
                 expandable: root.current_mode == 1 && !root.show_settings;
@@ -1388,6 +1390,8 @@ export component AppWindow inherits Window {
                     toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
                 SideToggle { text: Tr.chip_struck; on: root.require_onset;
                     toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
+                SideToggle { text: Tr.chord_strip; on: root.chord_strip;
+                    toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
             }
             NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
                 expandable: root.current_mode == 2 && !root.show_settings;

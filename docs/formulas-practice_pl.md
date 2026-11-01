@@ -172,7 +172,7 @@ moment, w którym tryb zaczyna robić swoje.
 | **Dźwięków w formule** | 4–5 na dobry początek — za mało, żeby oprzeć się na kształcie skali. Każda długość jest ćwiczeniem wartym zachodu później |
 | **Tonacja** | Ustal ją, żeby przez jakiś czas pracować w jednej, albo zostaw losowaną do każdej formuły |
 | **Musi zawierać** | `b3 b7`, żeby losowały się wyłącznie zbiory o zabarwieniu molowo-septymowym, `b5` dla napięcia, i tak dalej |
-| **Graj dźwięki po kolei** | Zamienia zbiór w linię, od najniższej funkcji. Trudniej, i dobre na słyszenie kształtu zamiast wyłuskiwania najłatwiejszych dźwięków |
+| **Graj dźwięki po kolei** | Zamienia zbiór w linię, od najniższej funkcji. Trudniej, i dobre na wizualizację gryfu i słyszenie interwałów zamiast wyłuskiwania najłatwiejszych dźwięków |
 | **Ulubione** | Zapisz zbiór, do którego chcesz wrócić jutro |
 
 **Niczego się tu nie zapamiętuje.** Formuła z gwiazdką nie jest do zapamiętania — pozwala zapisać
@@ -201,12 +201,12 @@ kwestią gustu, lecz liczby dźwięków akordu, które formuła pokrywa.
 Weź formułę najprostszą z możliwych, triadę durową — `1 3 5` — i postaw ją na `C7` z czterech
 różnych stopni:
 
-| postawiona na | grasz | czym te dźwięki są dla C7 |
+| postawiona na | grasz, a pod spodem te dźwięki liczone od C7 | co to daje |
 |---|---|---|
-| **1** | C E G | `1 3 5` — akord bez septymy |
-| **bVII** | Bb D F | `b7 9 11` — septyma i dwa napięcia, otwarcie i kwartowo |
-| **II** | D F# A | `9 #11 13` — ani jednego dźwięku akordu: sam kolor |
-| **bVI** | Ab C Eb | `b13 1 #9` — brzmienie alterowane |
+| **1** | `C E G`<br>`1 3 5` | akord bez septymy |
+| **bVII** | `Bb D F`<br>`b7 9 11` | septyma i dwa napięcia, otwarcie i kwartowo |
+| **II** | `D F#  A`<br>`9 #11 13` | ani jednego dźwięku akordu: sam kolor |
+| **bVI** | `Ab  C Eb`<br>`b13 1 #9` | brzmienie alterowane |
 
 Jedna formuła, trzy dźwięki, cztery zupełnie różne wyniki. Nie zmieniło się nic poza miejscem,
 od którego zacząłeś. Zwróć uwagę zwłaszcza na trzeci wiersz: triada D-dur nad C7 nie ma z
@@ -226,23 +226,29 @@ charakterystyczna — nie jest przecież kwintą czystą).
 - **na zewnątrz** — nie pokrywa ani jednego dźwięku akordu
 - **barwi akord** — wszystko pomiędzy
 
-Przerobione na jednym ekranie: `AbMaj7` (Ab C Eb G, więc charakterystyczne są C i G) z formułą
-`1 b3 4 5 7`.
+Przerobione na jednym ekranie: `AbMaj7` z formułą `1 b3 4 5 7`. Dźwięki akordu to:
 
-| stopień | pryma pada na | grasz | trafionych dźwięków akordu | werdykt |
+```
+Ab C Eb G
+1  3 5  7
+```
+
+Charakterystyczne są więc C i G.
+
+| stopień | pryma pada na | grasz, a pod spodem te dźwięki liczone od Ab | trafionych dźwięków akordu | werdykt |
 |---|---|---|---|---|
-| I | Ab | Ab B Db Eb G | 3 | barwi |
-| bII | A | A C D E Ab | 2 | barwi |
-| II | Bb | Bb Db Eb F A | 1 | barwi |
-| bIII | B | B D E Gb Bb | 0 | **na zewnątrz** |
-| III | C | C Eb F G B | 3 | **pasuje** |
-| IV | Db | Db E Gb Ab C | 2 | barwi |
-| bV | D | D F G A Db | 1 | barwi |
-| V | Eb | Eb Gb Ab Bb D | 2 | barwi |
-| bVI | E | E G A B Eb | 2 | barwi |
-| VI | F | F Ab Bb C E | 2 | barwi |
-| bVII | Gb | Gb A B Db F | 0 | **na zewnątrz** |
-| VII | G | G Bb C D Gb | 2 | **pasuje** |
+| I | Ab | `Ab B  Db Eb G`<br>`1  b3 4  5  7` | 3 | barwi |
+| bII | A | `A  C D  E  Ab`<br>`b2 3 b5 b6 1` | 2 | barwi |
+| II | Bb | `Bb Db Eb F A`<br>`2  4  5  6 b2` | 1 | barwi |
+| bIII | B | `B  D  E  Gb Bb`<br>`b3 b5 b6 b7 2` | 0 | **na zewnątrz** |
+| III | C | `C Eb F G B`<br>`3 5  6 7 b3` | 3 | **pasuje** |
+| IV | Db | `Db E  Gb Ab C`<br>`4  b6 b7 1  3` | 2 | barwi |
+| bV | D | `D  F G A  Db`<br>`b5 6 7 b2 4` | 1 | barwi |
+| V | Eb | `Eb Gb Ab Bb D`<br>`5  b7 1  2  b5` | 2 | barwi |
+| bVI | E | `E  G A  B  Eb`<br>`b6 7 b2 b3 5` | 2 | barwi |
+| VI | F | `F Ab Bb C E`<br>`6 1  2  3 b6` | 2 | barwi |
+| bVII | Gb | `Gb A  B  Db F`<br>`b7 b2 b3 4  6` | 0 | **na zewnątrz** |
+| VII | G | `G Bb C D  Gb`<br>`7 2  3 b5 b7` | 2 | **pasuje** |
 
 Przy ustawieniu **Nałożenie** na *pasuje do akordu* losowanie ma więc dla tej formuły nad tym
 akordem do wyboru dokładnie dwa stopnie. Rodzaj, o który prosisz, losowany jest spośród
@@ -288,8 +294,8 @@ klucza: najpierw zagraj, potem zgadnij, dopiero potem czytaj.
   akord nie ma", zamiast jako brakujący dźwięk akordu.
 
 **Dokąd prowadzi runda.** Domknięcie zbioru losuje **nowe nałożenie na tym samym akordzie**.
-Tak ma być: to ćwiczenie polega na usłyszeniu jednej formuły z dwunastu miejsc, a żeby to było
-możliwe, akord musi stać w miejscu. Nowy akord przychodzi z *nową formułą*.
+Tak ma być: to ćwiczenie polega na wizualizacji gryfu i słyszeniu interwałów jednej formuły z
+dwunastu miejsc, a żeby to było możliwe, akord musi stać w miejscu. Nowy akord przychodzi z *nową formułą*.
 
 ---
 
@@ -341,7 +347,7 @@ przewidywać — i to jest ten moment, o który chodzi.
 | etap | ćwiczenie | ustawienia | czego się uczysz |
 |---|---|---|---|
 | 1 | Formuła w tonacji | 4 dźwięki, nazwy nut włączone | znajdować interwały na gryfie |
-| 2 | Formuła w tonacji | 5 dźwięków, nazwy nut wyłączone | słyszeć zbiór, zamiast go czytać |
+| 2 | Formuła w tonacji | 5 dźwięków, nazwy nut wyłączone | wizualizować gryf i słyszeć interwały zbioru, zamiast go czytać |
 | 3 | Nad akordem | nałożenie: *pasuje do akordu* | że formuła potrafi być akordem |
 | 4 | Nad akordem | *barwi*, potem *na zewnątrz* | jak brzmi kolor i jak brzmi napięcie |
 | 5 | Nad akordem | *dowolne*, zgaduj przed czytaniem | słyszeć, które z trzech to jest |
