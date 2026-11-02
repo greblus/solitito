@@ -77,7 +77,7 @@ akord, przechodzi do następnego.
   grupach, od kształtu arpeggia do fraz, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
 
 <div align="center">
-<img width="560" alt="Linie Harrisa na zmianach Autumn Leaves, tercja akordu w ciągłej linii, na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
+<img width="560" alt="Ćwiczenie Ted Greene: arpeggio ściśnięte z napięciami nad Cm7, cała pozycja na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych

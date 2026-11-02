@@ -157,7 +157,7 @@ another place on the neck.
 
 | figure | what it does |
 |---|---|
-| **Condensed arpeggio** | every note of the chord in the position, from the lowest to the highest and back |
+| **Condensed** (the condensed arpeggio) | every note of the chord in the position, from the lowest to the highest and back |
 | **Groups of 4 up** | the same cut into groups of four notes, each from the next chord tone |
 | **Groups of 4 down** | the same from the top down |
 | **Random groups** | groups of four from notes drawn for the pass, up or down |

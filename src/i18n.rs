@@ -365,7 +365,7 @@ pub const EN: Strings = Strings {
     arp_position: "In one position",
     chip_position: "One position",
     arp_greene: "Ted Greene",
-    greene_sweep: "Condensed arpeggio",
+    greene_sweep: "Condensed",
     greene_groups_up: "Groups of 4 up",
     greene_groups_down: "Groups of 4 down",
     greene_groups_random: "Random groups",

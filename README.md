@@ -76,7 +76,7 @@ chord, the app moves on to the next one.
   groups, from the shape of an arpeggio to phrases, with examples, is in [practising arpeggios](docs/arpeggios-practice.md).
 
 <div align="center">
-<img width="560" alt="Harris lines over Autumn Leaves, the chord's third in one line, on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />
+<img width="560" alt="Ted Greene's exercise: the condensed arpeggio with tensions over Cm7, the whole position on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />
 </div>
 
 - **Formulas** — random selection from all subsets of the 12 chromatic functions that contain "1",
