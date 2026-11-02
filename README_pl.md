@@ -72,7 +72,8 @@ akord, przechodzi do następnego.
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu. Na zmianach są też linie Harrisa:
-  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór. Zestaw ćwiczeń w czterech
+  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór, oraz ćwiczenia Teda
+  Greene'a: wszystkie dźwięki akordu w jednej pozycji. Zestaw ćwiczeń w czterech
   grupach, od kształtu arpeggia do fraz, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
 
 <div align="center">
@@ -124,7 +125,7 @@ Reszta dokumentacji w `docs/`:
 | | |
 |---|---|
 | [**Ćwiczenie interwałów**](docs/intervals-practice_pl.md) | Pięćdziesiąt ćwiczeń grupa po grupie: co każde każe zagrać nad każdym rodzajem akordu, jak czytać listę i II–V–I do wypróbowania |
-| [**Ćwiczenie arpeggiów**](docs/arpeggios-practice_pl.md) | Studia, arpeggio na zmianach i linie Harrisa: skąd dodatkowy półton, figury i jedna linia przez cały utwór |
+| [**Ćwiczenie arpeggiów**](docs/arpeggios-practice_pl.md) | Zestaw ćwiczeń w czterech grupach: studia, arpeggio na zmianach, ćwiczenia Teda Greene'a w jednej pozycji i linie Harrisa |
 | [**Ćwiczenie z formułami**](docs/formulas-practice_pl.md) | Trzy ćwiczenia z formułami krok po kroku: co grać, czego słuchać, co to za szyfry na ekranie |
 | [Wybór wejścia](docs/audio-input_pl.md) | Co znaczą nazwy urządzeń w Linuksie, gdzie trzymane są ustawienia i jakie są tryby diagnostyczne |
 | [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z trzech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |

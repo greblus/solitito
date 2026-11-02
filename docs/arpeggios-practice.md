@@ -1,6 +1,7 @@
 # Practising arpeggios
 
-Arpeggios contains three exercises: a study in a key, over the changes, and Harris lines. The
+Arpeggios contains four exercises: a study in a key, over the changes, Harris lines and Ted
+Greene's exercises. The
 description below explains examples printed by the app itself.
 
 [← back to the README](../README.md)
@@ -36,6 +37,8 @@ One chord in one key (**Study in a key**). You learn where the chord's notes lie
    shape is not just one run from the bottom to the top.
 3. **Triplets**, then the minor, major and dominant studies over their chords.
 4. Turn **Random order** on: a new key after every pass.
+5. **Ted Greene**, **The whole position**: the condensed arpeggio, then groups of 4 up and
+   down. Every chord of the tune right through the position, from its lowest note to its highest.
 
 ### Group 2. Chord by chord
 
@@ -55,7 +58,9 @@ hand is.
 2. **In one position**: the whole pass of the tune under one hand. After the pass the app moves you
    to another place on the neck. That is how Ted Greene taught playing through changes: the same
    tune in one position after another, until you see it without the paper.
-3. Think of the next chord before you get there, as in
+3. **Ted Greene**, 8 or 4 notes: the condensed arpeggio through the changes, then groups of 4
+   and random groups. Last, **With tensions**.
+4. Think of the next chord before you get there, as in
    [playing without the chord strip](intervals-practice.md#playing-without-the-chord-strip).
 
 ### Group 4. The language
@@ -140,6 +145,45 @@ fits from. After every pass of the tune the app moves the position to another pl
 That is how Ted Greene taught playing through changes: the same tune in one position after another,
 until you see each one without the paper. In a position what counts is not how many octaves an
 arpeggio has, but what is under the hand: the chord's notes within a few frets.
+
+## Ted Greene's exercises
+
+Ted Greene practised arpeggios in position. He did not count how many octaves an arpeggio has; he
+took every note of the chord that lies under the hand: five frets, all the strings. The exercise
+stays in one position for the whole pass of the tune, and after every pass the app moves it to
+another place on the neck.
+
+**Figures:**
+
+| figure | what it does |
+|---|---|
+| **Condensed arpeggio** | every note of the chord in the position, from the lowest to the highest and back |
+| **Groups of 4 up** | the same cut into groups of four notes, each from the next chord tone |
+| **Groups of 4 down** | the same from the top down |
+| **Random groups** | groups of four from notes drawn for the pass, up or down |
+
+Over Cmaj7 in the 7th position:
+
+| figure | Cmaj7, the whole position |
+|---|---|
+| Condensed arpeggio | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
+| Groups of 4 up | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
+
+**Notes per chord:** 8, 4 or **The whole position**. With the whole position every chord plays the
+whole figure: right through the position and back, or every group. That is how one chord is
+practised. With 8 and 4 notes the line goes through the changes: every chord starts on its note
+nearest the one the chord before ended on, and the line turns round at the edge of the position.
+
+**With tensions** adds the notes Greene added to his arpeggios: `9` and `6` over maj7, `9` and `13`
+over 7, `9` and `11` over m7, `11` over m7♭5. In the app the ninth and thirteenth are written `2`
+and `6`, or `9` and `13` with jazz notation on. Over Cmaj7 in the 7th position:
+
+| | Cmaj7 with tensions |
+|---|---|
+| Condensed arpeggio | `B C D E G A B C D E G A B C D C B A G E D C B A G E D C B`<br>`7 1 2 3 5 6 7 1 2 3 5 6 7 1 2 1 7 6 5 3 2 1 7 6 5 3 2 1 7` |
+
+A richer arpeggio over a simpler chord sounds good: Greene suggested, for example, Em9 or Em11
+over Em.
 
 ## Harris lines
 
@@ -311,9 +355,10 @@ This is **In turn** with the scale down, at the start of Autumn Leaves:
 
 ### One line
 
-This is the start that matters most. The line does not begin again at every chord. After the
-change it plays the new chord's tone on a strong beat nearest the note it ended on, carrying on the
-same way. When a scale reaches the end of the guitar's range, it turns round: the scale down becomes
+The melodic line does not break off and start again at every chord; it moves smoothly into the
+next one.
+After the change it keeps going the same way and starts on the note of the new chord that lies
+nearest the last one played and falls on a strong beat. When a scale reaches the end of the guitar's range, it turns round: the scale down becomes
 the scale up and the other way about. That change of direction is forced by the range, not part of
 the figure. The arpeggio with the scale climbs a little with every chord, so when it reaches the top
 it begins again from the bottom.

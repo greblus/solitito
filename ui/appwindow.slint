@@ -767,6 +767,15 @@ export global Tr {
     in-out property <string> harris_into_root: "3rd into the root";
     in-out property <string> arp_position: "In one position";
     in-out property <string> chip_position: "One position";
+    in-out property <string> arp_greene: "Ted Greene";
+    in-out property <string> greene_sweep: "Condensed arpeggio";
+    in-out property <string> greene_groups_up: "Groups of 4 up";
+    in-out property <string> greene_groups_down: "Groups of 4 down";
+    in-out property <string> greene_groups_random: "Random groups";
+    in-out property <string> greene_whole: "The whole position";
+    in-out property <string> greene_tensions: "With tensions";
+    in-out property <string> greene_tensions_hint: "Over maj7 the 9 and 6, over 7 the 9 and 13, over m7 the 9 and 11, over m7b5 the 11.";
+    in-out property <string> greene_hint: "After Ted Greene: every chord tone under one hand, in one position; every pass of the tune in another.";
     in-out property <string> arp_position_hint: "";
     in-out property <string> harris_start: "Start";
     in-out property <string> harris_from_root: "From the root";
@@ -1004,6 +1013,12 @@ export component AppWindow inherits Window {
     /// Over the changes: the whole pass in one position.
     in-out property <bool> arp_position: false;
     callback arp_position_changed(bool);
+    /// Ted Greene's exercises: the figure walked in the position, and
+    /// whether the tensions are in it.
+    in-out property <int> greene_figure: 0;
+    callback greene_figure_changed(int);
+    in-out property <bool> greene_tensions: false;
+    callback greene_tensions_changed(bool);
     
     in property <[string]> library_items;
     in property <string> library_label: "Select Song:"; 
@@ -1471,7 +1486,7 @@ export component AppWindow inherits Window {
                 spacing: 6px;
                 Dropdown {
                     list-width: 260px;
-                    model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris];
+                    model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
                     current-index <=> root.arp_exercise;
                     selected(v) => { root.arp_exercise_changed(v); }
                 }
@@ -1501,20 +1516,35 @@ export component AppWindow inherits Window {
                     current-index <=> root.harris_figure;
                     selected(v) => { root.harris_figure_changed(v); }
                 }
-                if root.arp_exercise != 0 : Dropdown {
+                if root.arp_exercise == 3 : Dropdown {
+                    list-width: 260px;
+                    model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
+                    current-index <=> root.greene_figure;
+                    selected(v) => { root.greene_figure_changed(v); }
+                }
+                if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
                     list-width: 260px;
                     model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
                     current-index <=> root.harris_start;
                     selected(v) => { root.harris_start_changed(v); }
                 }
-                if root.arp_exercise != 0 : Dropdown {
+                if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
                     list-width: 220px;
                     model: [Tr.harris_eight, Tr.harris_four];
                     current-index <=> root.harris_notes;
                     selected(v) => { root.harris_notes_changed(v); }
                 }
-                if root.arp_exercise != 0 : SideToggle { text: Tr.chip_position; on: root.arp_position;
+                // The whole position is a third length, Greene's alone.
+                if root.arp_exercise == 3 : Dropdown {
+                    list-width: 220px;
+                    model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
+                    current-index <=> root.harris_notes;
+                    selected(v) => { root.harris_notes_changed(v); }
+                }
+                if root.arp_exercise == 1 || root.arp_exercise == 2 : SideToggle { text: Tr.chip_position; on: root.arp_position;
                     toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
+                if root.arp_exercise == 3 : SideToggle { text: Tr.greene_tensions; on: root.greene_tensions;
+                    toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
             }
             NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                 expandable: root.current_mode == 5 && !root.show_settings;
@@ -2840,7 +2870,7 @@ export component AppWindow inherits Window {
                                     }
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris];
+                                        model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
                                         current-index <=> root.arp_exercise;
                                         selected(v) => { root.arp_exercise_changed(v); }
                                     }
@@ -2887,7 +2917,7 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_figure_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise != 0 : HorizontalLayout {
+                                if root.arp_exercise == 1 || root.arp_exercise == 2 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
@@ -2901,7 +2931,7 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_start_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise != 0 : HorizontalLayout {
+                                if root.arp_exercise == 1 || root.arp_exercise == 2 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
@@ -2915,7 +2945,57 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_notes_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise != 0 : VerticalLayout {
+                                if root.arp_exercise == 3 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.harris_figure; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
+                                        current-index <=> root.greene_figure;
+                                        selected(v) => { root.greene_figure_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 3 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.harris_notes; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
+                                        current-index <=> root.harris_notes;
+                                        selected(v) => { root.harris_notes_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 3 : VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 15px;
+                                        CheckBox {
+                                            checked <=> root.greene_tensions;
+                                            toggled => { root.greene_tensions_changed(self.checked); }
+                                        }
+                                        Text { text: Tr.greene_tensions; color: #aaa; vertical-alignment: center; }
+                                    }
+                                    Text {
+                                        width: root.panel_w - 30px;
+                                        text: Tr.greene_tensions_hint;
+                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                    }
+                                    Text {
+                                        width: root.panel_w - 30px;
+                                        text: Tr.greene_hint;
+                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                    }
+                                }
+                                if root.arp_exercise == 1 || root.arp_exercise == 2 : VerticalLayout {
                                     spacing: 4px;
                                     HorizontalLayout {
                                         alignment: start;

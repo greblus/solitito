@@ -213,9 +213,17 @@ impl UiFrame {
                 notes: if ui.get_harris_notes() == 1 { 4 } else { 8 },
                 ..crate::harris::Recipe::default()
             };
-            if app.harris != harris || app.arp_position != ui.get_arp_position() {
+            // Greene's exercises have a third length: the whole position.
+            let greene = crate::harris::PositionRecipe {
+                figure: (ui.get_greene_figure().max(0) as usize).into(),
+                tensions: ui.get_greene_tensions(),
+                notes: match ui.get_harris_notes() { 1 => Some(4), 2 => None, _ => Some(8) },
+                ..app.greene
+            };
+            if app.harris != harris || app.arp_position != ui.get_arp_position() || app.greene != greene {
                 app.harris = harris;
                 app.arp_position = ui.get_arp_position();
+                app.greene = greene;
                 app.reset_logic_state();
             }
             if app.arp_quality != quality {
@@ -1349,10 +1357,9 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Optio
 /// chords to lead: the studies, and the other modes.
 fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
     let named = |names: Vec<String>| if jazz { model::jazz_names(&names) } else { names };
-    let recipe = app.line_recipe()?;
     // Kept in one position, the hand stands at one fret for the pass and
     // every note is laid under it, at the pitch the line asks for.
-    if let Some(fret) = recipe.position {
+    if let Some(fret) = app.held_position() {
         let hand = tab::hand_from(fret);
         let (chord, steps) = app.changes_so_far().pop()?;
         // The line counts its octaves from C3, the hand from the root above
@@ -1369,7 +1376,7 @@ fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
     }
     // One continuous line knows where it is: it is laid at its own pitches.
     // Every other line is led from the note before.
-    let one_line = recipe.start == crate::harris::Start::Continuous;
+    let one_line = app.line_recipe()?.start == crate::harris::Start::Continuous;
     let mut last = None;
     let mut spots = None;
     for (chord, steps) in app.changes_so_far() {
@@ -1553,10 +1560,11 @@ mod this_way_tests {
         a.set_mode(AppMode::Arpeggios as i32);
         a.set_random_mode(false);
         a.arp_position = true;
-        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (1, 0, 3), (2, 0, 3), (2, 2, 0), (2, 3, 3), (2, 4, 1), (2, 5, 3), (2, 6, 0), (2, 7, 2)] {
+        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (1, 0, 3), (2, 0, 3), (2, 2, 0), (2, 3, 3), (2, 4, 1), (2, 5, 3), (2, 6, 0), (2, 7, 2), (3, 0, 0), (3, 1, 0), (3, 2, 0), (3, 3, 0)] {
             a.arp_exercise = exercise.into();
             a.reload_library();
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
+            a.greene = crate::harris::PositionRecipe { figure: figure.into(), tensions: start == 0, notes: Some(8), ..Default::default() };
             for fret in [1, 5, 9] {
                 a.home_anchor = fret;
                 let (lo, hi) = tab::hand_from(fret);

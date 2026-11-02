@@ -569,6 +569,32 @@ and Dm7 from the third, three runs:
 No step credited before its note. The chromatic notes and the leap go
 through like any other; the limit is the usual one.
 
+### Ted Greene's exercises
+
+*`src/state/line_harness.rs`, `greene_in_position`*
+
+The exercise after Ted Greene walks every tone of a chord in one position:
+right through it and back, or in groups of four, each group a tone on - so
+a note comes back after three others, a dozen times over. With the tensions
+the 13 lies a semitone under the flat seventh and the 9 a tone above the
+root. Measured on the whole app in Arpeggios over C7, Cmaj7, G7 and Am7 at
+the seventh fret, the whole position - 17 to 48 notes - spliced at the
+pitches the app asks for, at 0.50 s a note:
+
+  figure         without tensions        with tensions
+  condensed      17-19 of 17-19, all     27-29 of 27-29, all
+  groups up      24-28, all              44-48, all
+  groups down    24-28, all              44-48, all
+
+No note was credited before it was played. The first run of the groups
+down stopped at the 25th note of 48, on every chord. It was the harness, not
+the judge: the line starts on its highest note, at the very start of the
+file, where the model has no history yet and answers late; the note was then
+credited only when it came round again four notes on, and every step after it
+waited the same. One note the line does not ask for, spliced in front, gives
+the model its history - as it has in the app, running all along - and then
+every figure goes through.
+
 ### The ear holding a ring
 
 *`src/state/judge.rs`, `ear_holds_only_a_ring`*

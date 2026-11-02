@@ -281,6 +281,10 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
                 *slot = Some(t);
             }
         }
+        if std::env::var("SOLITITO_LINE_STEPS").is_ok() {
+            let n = a.ordered_active_indices(&a.chords[0].clone()).len();
+            println!("    {t:.2} steps {n} due {} anchor {}", a.current_note_step, a.home_anchor);
+        }
         // A finished scale starts again: its marks are cleared, and with the
         // shuffle on it moves to a new key as well.
         let cleared = credited.iter().any(Option::is_some) && !a.collected_notes.iter().any(|&c| c);
@@ -450,6 +454,80 @@ fn harris_enclosures() {
             let got = credited.iter().filter(|c| c.is_some()).count();
             let missed: Vec<&String> = names.iter().zip(&credited).filter(|(_, c)| c.is_none()).map(|(n, _)| n).collect();
             println!("  {name:<34} {length:.2}s: {got}/{} credited, early {early:?}, missed {missed:?}  midi {midi:?}", midi.len());
+        }
+    }
+}
+
+/// Ted Greene's exercises over one chord, the whole position played as the
+/// app asks for it: the groups of four bring a note back after three others,
+/// and the tensions lie a semitone or a tone from the chord's own tones - the
+/// 13 under the flat seventh, the 9 above the root. Is each note credited
+/// when it is played?
+#[test]
+#[ignore = "diagnostic: needs AtoA.wav and both models"]
+fn greene_in_position() {
+    use crate::harris::{PositionFigure, PositionRecipe};
+    let (signal, notes) = atoa_notes();
+    let all = with_black_keys(&notes);
+    let figures = [("sweep", PositionFigure::Sweep), ("groups up", PositionFigure::GroupsUp), ("groups down", PositionFigure::GroupsDown)];
+    // G7 and Am7 with their tensions are white keys only: nothing spliced from
+    // a shifted note.
+    let chords = [
+        ("C7", Chord { root: NoteName::C, quality: ChordQuality::Dominant7 }),
+        ("Cmaj7", Chord { root: NoteName::C, quality: ChordQuality::Major7 }),
+        ("G7", Chord { root: NoteName::G, quality: ChordQuality::Dominant7 }),
+        ("Am7", Chord { root: NoteName::A, quality: ChordQuality::Minor7 }),
+    ];
+    let only = std::env::var("SOLITITO_GREENE_ONLY").ok();
+    for length in [0.5] {
+        for (kind, figure) in figures {
+            for (name, chord) in &chords {
+                for tensions in [false, true] {
+                    if only.as_deref().is_some_and(|o| o != format!("{kind}/{name}/{tensions}")) {
+                        continue;
+                    }
+                    let mut a = app();
+                    a.set_mode(AppMode::Arpeggios as i32);
+                    a.arp_exercise = ArpExercise::Greene;
+                    a.greene = PositionRecipe { figure, tensions, notes: None, ..Default::default() };
+                    a.random_mode = false;
+                    a.chords = vec![chord.clone()];
+                    a.play_order = vec![0];
+                    a.play_pos = 0;
+                    a.current_chord_index = 0;
+                    a.reset_logic_state();
+                    a.home_anchor = 7;
+                    let steps = a.ordered_active_indices(chord);
+                    let semis = a.degree_intervals(chord);
+                    let midi: Vec<u8> = steps
+                        .iter()
+                        .map(|s| (crate::harris::C3 + chord.root as i32 + semis[s.degree] as i32 + 12 * s.octave as i32) as u8)
+                        .collect();
+                    let Some(line) = midi.iter().map(|&m| all.iter().position(|n| n.1 == m)).collect::<Option<Vec<usize>>>() else {
+                        println!("  {kind}, {name}: a note AtoA lacks, {midi:?}");
+                        continue;
+                    };
+                    // One note the line does not ask for, first: the model
+                    // reads half a second of history and, at the start of a
+                    // file, answers the first note too late - in the app it
+                    // has been running all along. Its class is not the first
+                    // step's, so it credits nothing.
+                    let first_pc = midi[0] % 12;
+                    let primer = all.iter().position(|n| n.1 % 12 != first_pc && n.1 % 12 != (first_pc + 1) % 12 && n.2 == 0).unwrap();
+                    let mut primed = vec![primer];
+                    primed.extend(&line);
+                    let (audio, mut onsets) = splice_shifted(&signal, &all, &primed, length, 0.0);
+                    onsets.remove(0);
+                    let credited = credit_with(a, &audio, chord.root, midi.len());
+                    let early = onsets.iter().zip(&credited).filter(|(on, at)| at.is_some_and(|t| t < **on)).count();
+                    let got = credited.iter().filter(|c| c.is_some()).count();
+                    let first_missed = credited.iter().position(|c| c.is_none());
+                    println!(
+                        "  {kind:<12} {name:<6} tensions {tensions:<5} {length:.2}s: {got}/{} credited, early {early}, first missed {first_missed:?}",
+                        midi.len()
+                    );
+                }
+            }
         }
     }
 }

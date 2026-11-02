@@ -71,7 +71,8 @@ chord, the app moves on to the next one.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass. Over the changes there are also Harris lines: eighth
-  notes with the chord tones on the strong beats, through the whole tune. A set of exercises in four
+  notes with the chord tones on the strong beats, through the whole tune, and Ted Greene's
+  exercises: every note of the chord in one position. A set of exercises in four
   groups, from the shape of an arpeggio to phrases, with examples, is in [practising arpeggios](docs/arpeggios-practice.md).
 
 <div align="center">
@@ -124,7 +125,7 @@ The rest of the documentation is in `docs/`:
 | | |
 |---|---|
 | [**Practising intervals**](docs/intervals-practice.md) | The fifty exercises group by group, with what each one asks over every kind of chord, how to read the list, and a II–V–I to try them on |
-| [**Practising arpeggios**](docs/arpeggios-practice.md) | The studies, the arpeggio over the changes and Harris lines: where the extra half step comes from, the figures, and one line through a tune |
+| [**Practising arpeggios**](docs/arpeggios-practice.md) | A set of exercises in four groups: the studies, the arpeggio over the changes, Ted Greene's exercises in one position and Harris lines |
 | [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
 | [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, the diagnostic modes, and recording a session with what the app made of it |
 | [Settings](docs/settings.md) | Every option in the three tabs, and the shuffle, the pause and the chord strip on the main window |

@@ -66,7 +66,7 @@ impl From<i32> for AppMode {
     }
 }
 
-/// What the arpeggio mode practises. Saved as its index: 0 to 2.
+/// What the arpeggio mode practises. Saved as its index: 0 to 3.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum ArpExercise {
     /// A written phrase - a study - in a key of its own.
@@ -77,6 +77,9 @@ pub enum ArpExercise {
     /// A line in eighth notes over each chord of a standard, its chord
     /// tones on the beats - see `harris`.
     HarrisLines,
+    /// Ted Greene's exercises: every chord tone in one position, walked
+    /// through or four at a time - see `harris::position_line`.
+    Greene,
 }
 
 impl From<usize> for ArpExercise {
@@ -84,6 +87,7 @@ impl From<usize> for ArpExercise {
         match index {
             1 => ArpExercise::OverChanges,
             2 => ArpExercise::HarrisLines,
+            3 => ArpExercise::Greene,
             _ => ArpExercise::Study,
         }
     }
@@ -550,6 +554,11 @@ pub struct MyApp {
     /// Over the changes: the whole pass kept in one position, the fret
     /// `home_anchor` - drawn again for every pass.
     pub arp_position: bool,
+    /// Ted Greene's exercises; the fret and the seed are filled in from the
+    /// pass when the line is built - see `greene_recipe`.
+    pub greene: harris::PositionRecipe,
+    /// Passes of the tune so far: draws Greene's random groups anew each.
+    passes: u64,
     /// The studies: which chord they are read over. An index into
     /// `ARP_QUALITIES`.
     pub arp_quality: usize,
@@ -818,6 +827,8 @@ impl MyApp {
             arp_direction: ArpDirection::Up,
             harris: harris::Recipe::default(),
             arp_position: false,
+            greene: harris::PositionRecipe { notes: Some(8), ..Default::default() },
+            passes: 0,
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
@@ -903,18 +914,36 @@ impl MyApp {
     /// without a ring of its own - one of the user's scales - gets the plain
     /// arpeggio.
     fn harris_steps(&self, chord: &Chord) -> Vec<Step> {
-        let Some(recipe) = self.line_recipe() else {
-            return self.changes_run(chord);
-        };
-        let played = self.play_order.iter().take(self.play_pos + 1).filter_map(|&i| self.chords.get(i));
-        let is_due = self.play_order.get(self.play_pos).and_then(|&i| self.chords.get(i))
-            .is_some_and(|due| due.root == chord.root && due.quality == chord.quality);
-        let line = if is_due {
-            harris::line(played, recipe).pop().flatten()
-        } else {
-            harris::line(std::iter::once(chord), recipe).pop().flatten()
-        };
-        line.unwrap_or_else(|| self.changes_run(chord))
+        let played: Vec<&Chord> =
+            self.play_order.iter().take(self.play_pos + 1).filter_map(|&i| self.chords.get(i)).collect();
+        let is_due = played.last().is_some_and(|due| due.root == chord.root && due.quality == chord.quality);
+        let chords = if is_due { played } else { vec![chord] };
+        self.line_over(&chords).and_then(|mut line| line.pop().flatten()).unwrap_or_else(|| self.changes_run(chord))
+    }
+
+    /// The steps over each of `chords`, played in that order, in the
+    /// exercise over the changes now running. None in the studies.
+    fn line_over(&self, chords: &[&Chord]) -> Option<Vec<Option<Vec<Step>>>> {
+        if let Some(recipe) = self.greene_recipe() {
+            return Some(harris::position_line(chords.iter().copied(), recipe));
+        }
+        Some(harris::line(chords.iter().copied(), self.line_recipe()?))
+    }
+
+    /// Ted Greene's exercises as they run this pass: in the position drawn
+    /// for it, the random groups drawn for it.
+    pub fn greene_recipe(&self) -> Option<harris::PositionRecipe> {
+        let running = self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Greene;
+        running.then_some(harris::PositionRecipe { fret: self.home_anchor, seed: self.passes, ..self.greene })
+    }
+
+    /// The fret the hand stands at for the whole pass, where the exercise
+    /// keeps to one position: always in Greene's, by choice over the changes.
+    pub fn held_position(&self) -> Option<i32> {
+        match self.greene_recipe() {
+            Some(recipe) => Some(recipe.fret),
+            None => self.line_recipe().and_then(|recipe| recipe.position),
+        }
     }
 
     /// What the line over the changes is built from: the Harris figure, or
@@ -927,7 +956,7 @@ impl MyApp {
         }
         let position = self.arp_position.then_some(self.home_anchor);
         match self.arp_exercise {
-            ArpExercise::Study => None,
+            ArpExercise::Study | ArpExercise::Greene => None,
             ArpExercise::HarrisLines => Some(harris::Recipe { position, ..self.harris }),
             ArpExercise::OverChanges => {
                 let (figure, alternate) = match self.arp_direction {
@@ -972,10 +1001,9 @@ impl MyApp {
         }
         let played: Vec<&Chord> =
             self.play_order.iter().take(self.play_pos + 1).filter_map(|&i| self.chords.get(i)).collect();
-        let Some(recipe) = self.line_recipe() else {
+        let Some(line) = self.line_over(&played) else {
             return Vec::new();
         };
-        let line = harris::line(played.iter().copied(), recipe);
         played
             .into_iter()
             .zip(line)
@@ -990,7 +1018,9 @@ impl MyApp {
         // built for the chord and for where it falls in the progression.
         if self.app_mode == AppMode::Arpeggios {
             match self.arp_exercise {
-                ArpExercise::OverChanges | ArpExercise::HarrisLines => return self.harris_steps(chord),
+                ArpExercise::OverChanges | ArpExercise::HarrisLines | ArpExercise::Greene => {
+                    return self.harris_steps(chord);
+                }
                 ArpExercise::Study => {}
             }
         }
@@ -2111,6 +2141,7 @@ impl MyApp {
             // the same tune in another position.
             if self.app_mode == AppMode::Arpeggios {
                 self.home_anchor = 1 + self.rng.below(9) as i32;
+                self.passes += 1;
             }
         }
         self.current_chord_index = self.play_order[self.play_pos];

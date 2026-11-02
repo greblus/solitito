@@ -1,6 +1,7 @@
 # Ćwiczenie arpeggiów
 
-Arpeggia zawierają trzy ćwiczenia: studium w tonacji, ogrywanie zmian i linie Harrisa. Poniższy
+Arpeggia zawierają cztery ćwiczenia: studium w tonacji, ogrywanie zmian, linie Harrisa i ćwiczenia
+Teda Greene'a. Poniższy
 opis wyjaśnia przykłady wypisane przez sam program.
 
 [← powrót do README](../README_pl.md)
@@ -37,6 +38,8 @@ akordu.
    Greene, żeby kształt nie był tylko jednym przebiegiem z dołu do góry.
 3. **Triolowe**, potem studia molowe, durowe i dominantowe nad ich akordami.
 4. Włącz **Losową kolejność**: po każdym przejściu nowa tonacja.
+5. **Ted Greene**, **Cała pozycja**: arpeggio ściśnięte, potem grupy po 4 w górę i w dół.
+   Każdy akord utworu przez całą pozycję, od najniższego dźwięku do najwyższego.
 
 ### Grupa 2. Akord po akordzie
 
@@ -56,7 +59,9 @@ ręka.
 2. **W jednej pozycji**: całe przejście utworu pod jedną ręką. Po przejściu program przenosi cię
    w inne miejsce gryfu. Tak Ted Greene uczył grania przez zmiany: ten sam utwór w kolejnych
    pozycjach, aż zobaczysz go bez kartki.
-3. Myśl o następnym akordzie, zanim do niego dojdziesz, jak przy
+3. **Ted Greene**, 8 albo 4 dźwięki: arpeggio ściśnięte przez zmiany, potem grupy po 4 i
+   grupy losowe. Na koniec **Z napięciami**.
+4. Myśl o następnym akordzie, zanim do niego dojdziesz, jak przy
    [grze bez paska akordów](intervals-practice_pl.md#gra-bez-paska-akordów).
 
 ### Grupa 4. Język
@@ -143,6 +148,45 @@ pozycję w inne miejsce gryfu.
 Tak uczył grania przez zmiany Ted Greene: ten sam utwór w kolejnych pozycjach, aż każdą z nich
 zobaczysz bez kartki. W pozycji nie liczy się, ile oktaw ma arpeggio, tylko to, co jest pod ręką:
 dźwięki akordu w kilku progach.
+
+## Ćwiczenia Teda Greene'a
+
+Ted Greene ćwiczył arpeggia w pozycji. Nie liczył, ile oktaw ma arpeggio, tylko brał wszystkie
+dźwięki akordu, które leżą pod ręką: w pięciu progach, na wszystkich strunach. Ćwiczenie stoi w
+jednej pozycji przez całe przejście utworu, a po każdym przejściu program przenosi je w inne
+miejsce gryfu.
+
+**Figury:**
+
+| figura | co robi |
+|---|---|
+| **Arpeggio ściśnięte** | wszystkie dźwięki akordu w pozycji, od najniższego do najwyższego i z powrotem |
+| **Grupy po 4 w górę** | to samo pocięte na grupy po cztery dźwięki, każda od kolejnego dźwięku akordu |
+| **Grupy po 4 w dół** | to samo z góry na dół |
+| **Grupy losowe** | grupy po cztery od dźwięków wylosowanych na dane przejście, w górę albo w dół |
+
+Nad Cmaj7 w 7. pozycji:
+
+| figura | Cmaj7, cała pozycja |
+|---|---|
+| Arpeggio ściśnięte | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
+| Grupy po 4 w górę | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
+
+**Dźwięków na akord:** 8, 4 albo **Cała pozycja**. Przy całej pozycji każdy akord gra całą figurę,
+czyli przez całą pozycję i z powrotem albo wszystkie grupy. Tak ćwiczy się jeden akord. Przy 8 i 4
+dźwiękach linia idzie przez zmiany: każdy akord zaczyna się od swojego dźwięku najbliższego temu, na
+którym skończył poprzedni, a na granicy pozycji zawraca.
+
+**Z napięciami** dokłada dźwięki, które Greene dopisywał do arpeggiów: `9` i `6` nad maj7, `9` i
+`13` nad 7, `9` i `11` nad m7, `11` nad m7♭5. W programie nona i trzynastka są zapisane jako `2`
+i `6`, a z włączonym zapisem jazzowym jako `9` i `13`. Nad Cmaj7 w 7. pozycji:
+
+| | Cmaj7 z napięciami |
+|---|---|
+| Arpeggio ściśnięte | `B C D E G A B C D E G A B C D C B A G E D C B A G E D C B`<br>`7 1 2 3 5 6 7 1 2 3 5 6 7 1 2 1 7 6 5 3 2 1 7 6 5 3 2 1 7` |
+
+Bogatsze arpeggio nad prostszym akordem brzmi dobrze: Greene radził na przykład grać Em9 albo Em11
+nad Em.
 
 ## Linie Harrisa
 
@@ -311,9 +355,10 @@ Tak wygląda **Po kolei** w skali w dół, na początku Autumn Leaves:
 
 ### Ciągła linia
 
-To najważniejszy start. Linia nie zaczyna się od nowa przy każdym akordzie. Po zmianie akordu
-gra jego dźwięk na mocną część najbliższy temu, na którym skończyła, dalej w tę samą stronę. Gdy
-skala dojdzie do końca zakresu gitary, zawraca: skala w dół zmienia się w skalę w górę i
+Linia melodii nie urywa się i nie zaczyna od nowa przy każdym akordzie, tylko płynnie przechodzi
+do kolejnego akordu.
+Po zmianie akordu idzie w tę samą stronę co wcześniej i zaczyna od tego dźwięku nowego akordu,
+który leży najbliżej ostatnio zagranego i wypada na mocną część taktu. Gdy skala dojdzie do końca zakresu gitary, zawraca: skala w dół zmienia się w skalę w górę i
 odwrotnie. To zmiana kierunku wymuszona zakresem, a nie część figury. Arpeggio i skala z każdym
 akordem trochę się wznosi, więc gdy dojdzie do góry, zaczyna od nowa z dołu.
 

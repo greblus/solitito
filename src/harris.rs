@@ -446,6 +446,223 @@ fn step(note: Note) -> Step {
     }
 }
 
+// --- In one position --------------------------------------------------
+//
+// The exercises after Ted Greene: what matters is not how many octaves an
+// arpeggio spans but what lies under the hand. Every tone of the chord within
+// one position - five frets, all six strings - from the lowest to the
+// highest, and the figure walks that list: right through it and back, or four
+// at a time.
+
+/// What the line walks in one position.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum PositionFigure {
+    /// Every tone in the position, one after another, turning at either end.
+    #[default]
+    Sweep,
+    /// Four at a time, each group a tone further on: up, then down from the
+    /// top where the position ends.
+    GroupsUp,
+    /// The same from the top down.
+    GroupsDown,
+    /// Groups of four from tones drawn at random, either way.
+    GroupsRandom,
+}
+
+impl From<usize> for PositionFigure {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => PositionFigure::GroupsUp,
+            2 => PositionFigure::GroupsDown,
+            3 => PositionFigure::GroupsRandom,
+            _ => PositionFigure::Sweep,
+        }
+    }
+}
+
+/// The settings a line in one position is built from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct PositionRecipe {
+    pub figure: PositionFigure,
+    /// The tensions too - see `tensions`.
+    pub tensions: bool,
+    /// The fret the hand stands at; `tab::hand_from` gives the frets.
+    pub fret: i32,
+    /// Notes over each chord; `None` the whole figure: the position through
+    /// and back, or every group.
+    pub notes: Option<usize>,
+    /// Draws the random groups: the same within a pass, new the next.
+    pub seed: u64,
+}
+
+/// The tensions added to a chord's own tones, in semitones: the ninth and
+/// sixth over a major seventh, the ninth and thirteenth over a dominant, the
+/// ninth and eleventh over a minor, the eleventh over a half-diminished.
+fn tensions(quality: &ChordQuality) -> &'static [u8] {
+    match quality {
+        ChordQuality::Major7 => &[2, 9],
+        ChordQuality::Dominant7 => &[2, 9],
+        ChordQuality::Minor7 | ChordQuality::Minor6 | ChordQuality::MinorMajor7 => &[2, 5],
+        ChordQuality::HalfDiminished => &[5],
+        ChordQuality::Diminished | ChordQuality::CustomScale(_) => &[],
+    }
+}
+
+/// The lowest and highest pitch a position reaches, in semitones from C3:
+/// the low E at its lowest fret to the high E at its highest.
+fn position_range(fret: i32) -> (i32, i32) {
+    let (lo, hi) = crate::tab::hand_from(fret);
+    (crate::tab::TUNING[0] + lo - C3, crate::tab::TUNING[5] + hi - C3)
+}
+
+/// Every tone of the chord within the position, lowest first, in semitones
+/// above its root: the pitch is `C3 + root + semitones`, as in `line`.
+pub fn tones_in_position(chord: &Chord, fret: i32, with_tensions: bool) -> Vec<i32> {
+    let (lowest, highest) = position_range(fret);
+    let root = chord.root as i32;
+    let mut classes: Vec<u8> = chord.quality.intervals().iter().map(|i| i % 12).collect();
+    if with_tensions {
+        classes.extend(tensions(&chord.quality));
+    }
+    (lowest..=highest)
+        .map(|pitch| pitch - root)
+        .filter(|s| classes.contains(&(s.rem_euclid(12) as u8)))
+        .collect()
+}
+
+/// A walk through `len` tones from `at`, `n` of them, turning at either end;
+/// `up` is the way it goes and is left the way it went.
+fn sweep(len: usize, at: usize, up: &mut bool, n: usize) -> Vec<usize> {
+    let mut i = at.min(len.saturating_sub(1));
+    let mut out = vec![i];
+    while out.len() < n && len > 1 {
+        if *up && i + 1 == len {
+            *up = false;
+        } else if !*up && i == 0 {
+            *up = true;
+        }
+        i = if *up { i + 1 } else { i - 1 };
+        out.push(i);
+    }
+    out
+}
+
+/// Groups of four from `at`, each a tone further on, `n` notes of them; at
+/// the end of the position they turn and go back the other way.
+fn groups(len: usize, at: usize, up: &mut bool, n: usize) -> Vec<usize> {
+    if len < 4 {
+        return (0..len).collect();
+    }
+    let mut start = at.min(len - 1);
+    let mut out = Vec::new();
+    while out.len() < n {
+        // A group that would run past the end turns the walk round where it
+        // is - the group starting from the same tone the other way - so it
+        // neither jumps across the position nor repeats the note just played.
+        if *up && start + 4 > len {
+            *up = false;
+            start = start.max(3);
+        } else if !*up && start < 3 {
+            *up = true;
+            start = start.min(len - 4);
+        }
+        out.extend((0..4).map(|k| if *up { start + k } else { start - k }));
+        start = if *up { start + 1 } else { start - 1 };
+    }
+    out.truncate(n);
+    out
+}
+
+/// Groups of four from tones drawn at random, either way; never starting on
+/// the note just played, which the judge could take for the new one.
+fn random_groups(len: usize, rng: &mut crate::rng::Rng, n: usize, mut last: Option<usize>) -> Vec<usize> {
+    if len < 4 {
+        return (0..len).collect();
+    }
+    let mut out = Vec::new();
+    while out.len() < n {
+        let up = rng.below(2) == 0;
+        let start = if up { rng.below(len - 3) } else { 3 + rng.below(len - 3) };
+        if Some(start) == last {
+            continue;
+        }
+        out.extend((0..4).map(|k| if up { start + k } else { start - k }));
+        last = out.last().copied();
+    }
+    out.truncate(n);
+    out
+}
+
+/// The steps over each chord in one position, in the order given. The line
+/// goes on from chord to chord: each starts on its tone nearest the last
+/// note, the way the line was going.
+pub fn position_line<'a>(chords: impl IntoIterator<Item = &'a Chord>, recipe: PositionRecipe) -> Vec<Option<Vec<Step>>> {
+    let mut last: Option<i32> = None;
+    let mut up = recipe.figure != PositionFigure::GroupsDown;
+    let mut rng = crate::rng::Rng::with_seed(recipe.seed.wrapping_mul(0x9E37_79B9) ^ 0x51);
+    chords
+        .into_iter()
+        .map(|chord| {
+            ring(&chord.quality)?;
+            let tones = tones_in_position(chord, recipe.fret, recipe.tensions);
+            if tones.is_empty() {
+                return None;
+            }
+            let root = chord.root as i32;
+            let len = tones.len();
+            let at = match last {
+                None if up => 0,
+                None => len - 1,
+                Some(last) => {
+                    let onward = |i: &usize| if up { root + tones[*i] > last } else { root + tones[*i] < last };
+                    let nearest = |i: &usize| (root + tones[*i] - last).abs();
+                    (0..len).filter(onward).min_by_key(nearest)
+                        .or_else(|| (0..len).filter(|&i| root + tones[i] != last).min_by_key(nearest))
+                        .unwrap_or(0)
+                }
+            };
+            let whole = match recipe.figure {
+                PositionFigure::Sweep => 2 * len - 1,
+                PositionFigure::GroupsUp | PositionFigure::GroupsDown => 4 * (len - 3).max(1),
+                PositionFigure::GroupsRandom => 24,
+            };
+            let n = recipe.notes.unwrap_or(whole);
+            let just_played = last.and_then(|l| (0..len).find(|&i| root + tones[i] == l));
+            // A walk that turns at the end of the position may start on the
+            // very note the last chord ended on - the judge could take that
+            // one, still ringing, for the new. Then from the next tone in.
+            let walk_from = |at: usize, up: &mut bool| match recipe.figure {
+                PositionFigure::Sweep => sweep(len, at, up, n),
+                _ => groups(len, at, up, n),
+            };
+            let walk = match recipe.figure {
+                PositionFigure::GroupsRandom => random_groups(len, &mut rng, n, just_played),
+                _ => {
+                    // From `at`, or failing that the nearest start that does
+                    // not begin on the note just played.
+                    let mut starts: Vec<usize> = (0..len).collect();
+                    starts.sort_by_key(|&i| i.abs_diff(at));
+                    starts
+                        .into_iter()
+                        .map(|from| {
+                            let mut way = up;
+                            let walk = walk_from(from, &mut way);
+                            (walk, way)
+                        })
+                        .find(|(walk, _)| walk.first().copied() != just_played)
+                        .map(|(walk, way)| {
+                            up = way;
+                            walk
+                        })
+                        .unwrap_or_default()
+                }
+            };
+            last = walk.last().map(|&i| root + tones[i]);
+            Some(walk.iter().map(|&i| step(Note::Semitone(tones[i]))).collect())
+        })
+        .collect()
+}
+
 /// Semitones above the chord's root of a step of a Harris line.
 #[cfg(test)]
 fn step_semitones(ring: &Ring, step: Step) -> i32 {
@@ -884,6 +1101,105 @@ mod tests {
 }
 
 #[cfg(test)]
+mod in_position {
+    use super::*;
+    use crate::model::parse_chords_line_pub;
+
+    fn pitches(chord: &Chord, steps: &[Step]) -> Vec<i32> {
+        let ring = ring(&chord.quality).unwrap();
+        steps.iter().map(|&s| C3 + chord.root as i32 + step_semitones(ring, s)).collect()
+    }
+
+    /// The tones of a chord in a position are every one the hand reaches,
+    /// and only those: over Cmaj7 at the fifth fret, every C E G B from the
+    /// low E at the fourth fret to the high E at the eighth.
+    #[test]
+    fn the_tones_in_a_position_are_all_under_the_hand() {
+        let chord = parse_chords_line_pub("CMaj7")[0].clone();
+        let tones = tones_in_position(&chord, 5, false);
+        let midi: Vec<i32> = tones.iter().map(|s| C3 + s).collect();
+        let (lo, hi) = crate::tab::hand_from(5);
+        assert!(midi.iter().all(|&m| (40 + lo..=64 + hi).contains(&m)), "{midi:?}");
+        let expected: Vec<i32> = (40 + lo..=64 + hi).filter(|m| [0, 4, 7, 11].contains(&(m % 12))).collect();
+        assert_eq!(midi, expected);
+        // With the tensions the ninth and the sixth come in.
+        let more = tones_in_position(&chord, 5, true);
+        assert!(more.len() > tones.len());
+        assert!(more.iter().any(|s| s.rem_euclid(12) == 2) && more.iter().any(|s| s.rem_euclid(12) == 9));
+    }
+
+    fn recipe(figure: PositionFigure, notes: Option<usize>) -> PositionRecipe {
+        PositionRecipe { figure, tensions: false, fret: 5, notes, seed: 7 }
+    }
+
+    /// The whole position, one chord: the condensed arpeggio is every tone up
+    /// and back down; the groups are four at a time, each a tone on.
+    #[test]
+    fn the_whole_position_on_one_chord() {
+        let chord = parse_chords_line_pub("CMaj7")[0].clone();
+        let tones: Vec<i32> = tones_in_position(&chord, 5, false).iter().map(|s| C3 + s).collect();
+        let len = tones.len();
+
+        let sweep = pitches(&chord, &position_line([&chord], recipe(PositionFigure::Sweep, None))[0].clone().unwrap());
+        let mut there_and_back = tones.clone();
+        there_and_back.extend(tones.iter().rev().skip(1));
+        assert_eq!(sweep, there_and_back);
+
+        let up = pitches(&chord, &position_line([&chord], recipe(PositionFigure::GroupsUp, None))[0].clone().unwrap());
+        assert_eq!(up.len(), 4 * (len - 3));
+        assert_eq!(up[..8], [tones[0], tones[1], tones[2], tones[3], tones[1], tones[2], tones[3], tones[4]]);
+
+        let down = pitches(&chord, &position_line([&chord], recipe(PositionFigure::GroupsDown, None))[0].clone().unwrap());
+        assert_eq!(down[..4], [tones[len - 1], tones[len - 2], tones[len - 3], tones[len - 4]]);
+    }
+
+    /// The random groups are drawn once a pass: the same seed the same
+    /// groups, another seed others - and each group is four tones in a row.
+    #[test]
+    fn random_groups_hold_for_a_pass() {
+        let chord = parse_chords_line_pub("G7")[0].clone();
+        let draw = |seed| {
+            let r = PositionRecipe { seed, ..recipe(PositionFigure::GroupsRandom, None) };
+            pitches(&chord, &position_line([&chord], r)[0].clone().unwrap())
+        };
+        assert_eq!(draw(3), draw(3));
+        assert_ne!(draw(3), draw(4));
+        let tones: Vec<i32> = tones_in_position(&chord, 5, false).iter().map(|s| C3 + chord.root as i32 + s).collect();
+        for group in draw(3).chunks(4) {
+            let at: Vec<usize> = group.iter().map(|p| tones.iter().position(|t| t == p).unwrap()).collect();
+            let up = at.windows(2).all(|w| w[1] == w[0] + 1);
+            let down = at.windows(2).all(|w| w[0] == w[1] + 1);
+            assert!(up || down, "not a run of four: {group:?}");
+        }
+    }
+
+    /// Through a tune the line goes on from chord to chord: each starts on a
+    /// tone a few semitones from the last note, never the same note, and
+    /// stays in the position.
+    #[test]
+    fn through_a_tune_the_line_goes_on() {
+        let tune = parse_chords_line_pub("Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7");
+        for figure in [PositionFigure::Sweep, PositionFigure::GroupsUp, PositionFigure::GroupsDown, PositionFigure::GroupsRandom] {
+            for fret in [1, 5, 9] {
+                let r = PositionRecipe { fret, ..recipe(figure, Some(8)) };
+                let (lo, hi) = crate::tab::hand_from(fret);
+                let mut last: Option<i32> = None;
+                for (chord, steps) in tune.iter().zip(position_line(&tune, r)) {
+                    let p = pitches(chord, &steps.unwrap());
+                    assert_eq!(p.len(), 8);
+                    assert!(p.iter().all(|&m| (40 + lo..=64 + hi).contains(&m)), "{figure:?} at {fret}: {p:?}");
+                    if let (Some(last), false) = (last, figure == PositionFigure::GroupsRandom) {
+                        let leap = (p[0] - last).abs();
+                        assert!(leap > 0 && leap <= 5, "{figure:?} at {fret} into {chord:?}: {last} -> {}", p[0]);
+                    }
+                    last = p.last().copied();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod examples {
     use super::*;
     use crate::model::parse_chords_line_pub;
@@ -903,6 +1219,17 @@ mod examples {
         ];
         // The arpeggio over the changes, a chord at a time: four notes. Its
         // figure is printed as 800 or 900 plus the notes, to tell it apart.
+        // Greene's figures, the whole position at the seventh fret: printed
+        // as 1000 plus the figure, the start field 1 with the tensions.
+        for (figure, tensions) in [(0usize, false), (0, true), (1, false), (2, false)] {
+            let chord = parse_chords_line_pub("CMaj7")[0].clone();
+            let recipe = PositionRecipe { figure: figure.into(), tensions, fret: 7, notes: None, seed: 1 };
+            let ring = ring(&chord.quality).unwrap();
+            let steps = position_line([&chord], recipe)[0].clone().unwrap();
+            let pcs: Vec<String> = steps.iter().map(|&s| (chord.root as i32 + step_semitones(ring, s)).rem_euclid(12).to_string()).collect();
+            let names: Vec<String> = steps.iter().map(|s| super::names(ring, &chord.quality)[s.degree].clone()).collect();
+            println!("EX|CMaj7|{}|{}|{:?}|{:?}|{}|{}", 1000 + figure, tensions as u8, chord.root, chord.quality, pcs.join(" "), names.join(" "));
+        }
         let fours = [("Dm7 G7 CMaj7", 8, 0), ("Dm7 G7 CMaj7", 8, 1), ("Dm7 G7 CMaj7", 8, 2), ("Dm7 G7 CMaj7", 8, 3)];
         let cases = cases.iter().map(|&(t, f, s)| (t, f, s, 8)).chain(fours.iter().map(|&(t, f, s)| (t, f, s, 4)));
         for (tune, figure, start, notes) in cases {
