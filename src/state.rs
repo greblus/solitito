@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::VecDeque; 
 use crate::audio::AudioAnalysis;
 use crate::arpeggio;
+use crate::harris;
 use crate::interval_levels::{self, Level};
 use crate::rng::Rng;
 use crate::fretboard::Region;
@@ -65,7 +66,7 @@ impl From<i32> for AppMode {
     }
 }
 
-/// What the arpeggio mode practises. Saved as its index: 0 and 1.
+/// What the arpeggio mode practises. Saved as its index: 0 to 2.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum ArpExercise {
     /// A written phrase - a study - in a key of its own.
@@ -73,12 +74,16 @@ pub enum ArpExercise {
     Study,
     /// An arpeggio built for each chord of a standard, along its changes.
     OverChanges,
+    /// A line in eighth notes over each chord of a standard, its chord
+    /// tones on the beats - see `harris`.
+    HarrisLines,
 }
 
 impl From<usize> for ArpExercise {
     fn from(index: usize) -> Self {
         match index {
             1 => ArpExercise::OverChanges,
+            2 => ArpExercise::HarrisLines,
             _ => ArpExercise::Study,
         }
     }
@@ -540,6 +545,8 @@ pub struct MyApp {
     /// 2 alternating from down, 3 alternating from up - the four the studies
     /// are written in.
     pub arp_direction: ArpDirection,
+    /// The figure, the start and the length of the lines over the changes.
+    pub harris: harris::Recipe,
     /// The studies: which chord they are read over. An index into
     /// `ARP_QUALITIES`.
     pub arp_quality: usize,
@@ -806,6 +813,7 @@ impl MyApp {
             shuffle_chords: false,
             arp_exercise: ArpExercise::Study,
             arp_direction: ArpDirection::Up,
+            harris: harris::Recipe::default(),
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
@@ -900,14 +908,80 @@ impl MyApp {
             .collect()
     }
 
+    /// The line over the chord now due, built along the tune in the order it
+    /// is played, so a continuous line goes on from the chord before. A chord
+    /// without a ring of its own - one of the user's scales - gets the plain
+    /// arpeggio.
+    fn harris_steps(&self, chord: &Chord) -> Vec<Step> {
+        let played = self.play_order.iter().take(self.play_pos + 1).filter_map(|&i| self.chords.get(i));
+        let is_due = self.play_order.get(self.play_pos).and_then(|&i| self.chords.get(i))
+            .is_some_and(|due| due.root == chord.root && due.quality == chord.quality);
+        let line = if is_due {
+            harris::line(played, self.harris).pop().flatten()
+        } else {
+            harris::line(std::iter::once(chord), self.harris).pop().flatten()
+        };
+        line.unwrap_or_else(|| self.changes_run(chord, false))
+    }
+
+    /// Whether the steps index the chord's Harris ring rather than its tones.
+    fn on_a_harris_ring(&self, chord: &Chord) -> Option<&'static harris::Ring> {
+        let lines = self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::HarrisLines;
+        lines.then(|| harris::ring(&chord.quality)).flatten()
+    }
+
     /// Which way the arpeggio runs over the chord now due.
     fn changes_descending(&self) -> bool {
+        self.descending_at(self.play_pos)
+    }
+
+    /// Which way the arpeggio runs over the chord at `pos` in the play order.
+    fn descending_at(&self, pos: usize) -> bool {
         match self.arp_direction {
             ArpDirection::Up => false,
             ArpDirection::Down => true,
-            ArpDirection::AlternateDownFirst => self.play_pos % 2 == 0,
-            ArpDirection::AlternateUpFirst => self.play_pos % 2 == 1,
+            ArpDirection::AlternateDownFirst => pos % 2 == 0,
+            ArpDirection::AlternateUpFirst => pos % 2 == 1,
         }
+    }
+
+    /// Moves the pass to `pos` in the play order, as finishing the chords
+    /// before it would.
+    #[cfg(test)]
+    pub fn go_to_position(&mut self, pos: usize) {
+        self.play_pos = pos;
+        self.current_chord_index = self.play_order[pos];
+    }
+
+    /// The length of the play order: the chords of one pass.
+    #[cfg(test)]
+    pub fn positions(&self) -> usize {
+        self.play_order.len()
+    }
+
+    /// Over the changes, in Arpeggios: every chord of this pass up to the one
+    /// now due, in play order, with its steps - the drawing leads the hand
+    /// along them, so each phrase starts where the one before ended. Nothing
+    /// in the studies, which stand on a chord of their own.
+    pub fn changes_so_far(&self) -> Vec<(&Chord, Vec<Step>)> {
+        if self.app_mode != AppMode::Arpeggios || self.arp_exercise == ArpExercise::Study {
+            return Vec::new();
+        }
+        let played: Vec<&Chord> =
+            self.play_order.iter().take(self.play_pos + 1).filter_map(|&i| self.chords.get(i)).collect();
+        if self.arp_exercise == ArpExercise::HarrisLines {
+            let line = harris::line(played.iter().copied(), self.harris);
+            return played
+                .into_iter()
+                .zip(line)
+                .map(|(chord, steps)| (chord, steps.unwrap_or_else(|| self.changes_run(chord, false))))
+                .collect();
+        }
+        played
+            .into_iter()
+            .enumerate()
+            .map(|(pos, chord)| (chord, self.changes_run(chord, self.descending_at(pos))))
+            .collect()
     }
 
     /// The steps of the exercise over `chord`, read from the interval text -
@@ -915,8 +989,12 @@ impl MyApp {
     pub fn get_active_indices(&self, chord: &Chord) -> Vec<Step> {
         // Over the changes there is no written phrase to read: the arpeggio is
         // built for the chord and for where it falls in the progression.
-        if self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::OverChanges {
-            return self.changes_run(chord, self.changes_descending());
+        if self.app_mode == AppMode::Arpeggios {
+            match self.arp_exercise {
+                ArpExercise::OverChanges => return self.changes_run(chord, self.changes_descending()),
+                ArpExercise::HarrisLines => return self.harris_steps(chord),
+                ArpExercise::Study => {}
+            }
         }
         if let Some(level) = self.level() {
             if let Some(steps) = level.run_steps(&chord.quality, self.level_rotation) {
@@ -1005,16 +1083,25 @@ impl MyApp {
     /// The names a step's `degree` indexes: in a level of Intervals the
     /// chord's scale, everywhere else the chord's own tones.
     pub fn degree_names(&self, chord: &Chord) -> Vec<String> {
+        if let Some(ring) = self.on_a_harris_ring(chord) {
+            return harris::names(ring, &chord.quality);
+        }
         if self.level().is_some() { chord.quality.scale_names() } else { chord.quality.interval_names() }
     }
 
     /// Semitones above the root, in the order of `degree_names`.
     pub fn degree_intervals(&self, chord: &Chord) -> Vec<u8> {
+        if let Some(ring) = self.on_a_harris_ring(chord) {
+            return harris::semitones(ring);
+        }
         if self.level().is_some() { chord.quality.scale_intervals() } else { chord.quality.intervals() }
     }
 
     /// Pitch classes, in the order of `degree_names`.
     pub fn degree_targets(&self, chord: &Chord) -> Vec<usize> {
+        if let Some(ring) = self.on_a_harris_ring(chord) {
+            return harris::semitones(ring).iter().map(|&s| (chord.root as usize + s as usize) % 12).collect();
+        }
         if self.level().is_some() { chord.scale_targets() } else { chord.get_target_indices() }
     }
 
@@ -1527,7 +1614,7 @@ impl MyApp {
     pub fn reads_songs(&self) -> bool {
         match self.app_mode {
             AppMode::Chords | AppMode::Intervals => true,
-            AppMode::Arpeggios => self.arp_exercise == ArpExercise::OverChanges,
+            AppMode::Arpeggios => self.arp_exercise != ArpExercise::Study,
             AppMode::Formulas => self.formula_exercise == FormulaExercise::OverChanges,
             _ => false,
         }

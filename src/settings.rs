@@ -105,7 +105,7 @@ pub struct Settings {
     #[serde(default = "yes")]
     pub show_diagrams: bool,
     /// Arpeggios: 0 the studies in a key of their own, 1 over the changes of a
-    /// tune. Two exercises, not one setting of the same: a long study walked
+    /// tune, 2 Harris lines over the changes. Two exercises, not one setting of the same: a long study walked
     /// over a progression restarts mid-phrase at every chord.
     #[serde(default)]
     pub arp_exercise: usize,
@@ -113,6 +113,14 @@ pub struct Settings {
     /// from up.
     #[serde(default)]
     pub arp_direction: usize,
+    /// Harris lines: the figure (`harris::Figure`), where it starts
+    /// (`harris::Start`), and 0 eight notes a chord or 1 four.
+    #[serde(default)]
+    pub harris_figure: usize,
+    #[serde(default)]
+    pub harris_start: usize,
+    #[serde(default)]
+    pub harris_notes: usize,
     /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
     #[serde(default)]
     pub arp_quality: usize,
@@ -374,6 +382,9 @@ impl Default for Settings {
             show_diagrams: true,
             arp_exercise: 0,
             arp_direction: 0,
+            harris_figure: 0,
+            harris_start: 0,
+            harris_notes: 0,
             arp_quality: 0,
             previews: DEFAULT_PREVIEWS.to_vec(),
             preview: 1,

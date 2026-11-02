@@ -205,6 +205,17 @@ impl UiFrame {
         if app.app_mode == state::AppMode::Arpeggios {
             let quality = ui.get_arp_quality().max(0) as usize;
             app.arp_direction = (ui.get_arp_direction().max(0) as usize).into();
+            // A new figure or length changes the steps of the chord now due,
+            // so the marks start again with it.
+            let harris = crate::harris::Recipe {
+                figure: (ui.get_harris_figure().max(0) as usize).into(),
+                start: (ui.get_harris_start().max(0) as usize).into(),
+                notes: if ui.get_harris_notes() == 1 { 4 } else { 8 },
+            };
+            if app.harris != harris {
+                app.harris = harris;
+                app.reset_logic_state();
+            }
             if app.arp_quality != quality {
                 app.arp_quality = quality;
                 app.reload_library();
@@ -1047,7 +1058,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1061,7 +1072,8 @@ impl UiFrame {
             ui.get_voice_leading(),
             app.free_order(),
             app.scale_hand(chord),
-            jazz
+            jazz,
+            app.home_anchor
         );
         if signature == self.last_tab {
             return;
@@ -1073,8 +1085,11 @@ impl UiFrame {
         // box. A phrase gets the neck it is played on, or the tablature strip
         // where the setting asks for it.
         let is_grip = app.app_mode == AppMode::Intervals && (1..=4).contains(&steps.len());
+        let led = led_along_the_changes(app, jazz);
         let spots = if is_grip {
             self.place_grip(ui, app, chord, steps)
+        } else if let Some(spots) = led {
+            spots
         } else {
             // A line of Intervals - a chord scale - is taken where the grips
             // are: without a place to go to it sat at the nut every time.
@@ -1325,6 +1340,39 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Optio
     )
 }
 
+/// Arpeggios over the changes: each chord of the pass laid out from where the
+/// one before ended, from the first chord up to the one now due - and that
+/// last one is what is drawn. Built from the start every time, so a chord is
+/// drawn the same however it was reached. `None` where there is no line of
+/// chords to lead: the studies, and the other modes.
+fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
+    let named = |names: Vec<String>| if jazz { model::jazz_names(&names) } else { names };
+    // One continuous Harris line knows where it is: it is laid at its own
+    // pitches. Every other line is led from the note before.
+    let one_line = app.arp_exercise == ArpExercise::HarrisLines && app.harris.start == crate::harris::Start::Continuous;
+    let mut last = None;
+    let mut spots = None;
+    for (chord, steps) in app.changes_so_far() {
+        let intervals = app.degree_intervals(chord);
+        let pitch = steps.first().filter(|_| one_line).and_then(|first| {
+            let semi = *intervals.get(first.degree)? as i32;
+            Some(crate::harris::C3 + chord.root as i32 + semi + 12 * first.octave as i32)
+        });
+        let laid = tab::place_led(
+            chord.root as usize,
+            &intervals,
+            &steps,
+            &named(app.degree_names(chord)),
+            last,
+            pitch,
+            app.home_anchor,
+        );
+        last = tab::last_note(&laid).or(last);
+        spots = Some(laid);
+    }
+    spots
+}
+
 /// Every place inside the region where pitch class `pc` sounds.
 fn places_of(pc: usize, strings: &[usize], from: i32, to: i32) -> Vec<(usize, i32)> {
     strings
@@ -1432,4 +1480,48 @@ mod this_way_tests {
             }
         }
     }
+
+    /// Over the changes the hand is led: each chord starts close in pitch to
+    /// where the last one ended, and over a tune the line moves about the
+    /// neck instead of sitting at the nut. Printed for a person to read with
+    /// `--nocapture`; checked on the leaps and on how far up the neck it goes.
+    #[test]
+    fn the_changes_are_led_along_the_neck() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.set_random_mode(false);
+        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (2, 0, 3), (2, 2, 3), (2, 3, 0), (2, 0, 0), (2, 4, 3), (2, 5, 3)] {
+            a.arp_exercise = exercise.into();
+            a.reload_library();
+            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            for anchor in [1, 5, 9] {
+                a.home_anchor = anchor;
+                let (mut leaps, mut frets) = (Vec::new(), Vec::new());
+                let mut last: Option<(i32, i32)> = None;
+                for pos in 0..a.positions().min(16) {
+                    a.go_to_position(pos);
+                    let spots = led_along_the_changes(&a, false).expect("over the changes, a line");
+                    assert!(!spots.is_empty(), "nothing drawn at {pos}");
+                    let first = tab::TUNING[spots[0].string] + spots[0].fret;
+                    if let Some((pitch, _)) = last {
+                        leaps.push((first - pitch).abs());
+                    }
+                    frets.extend(spots.iter().map(|s| s.fret));
+                    last = tab::last_note(&spots);
+                }
+                let (lo, hi) = (*frets.iter().min().unwrap(), *frets.iter().max().unwrap());
+                println!("exercise {exercise} figure {figure} start {start} anchor {anchor}: frets {lo}-{hi}, leaps {leaps:?}");
+                // One Harris line: into the next chord by a step or a small
+                // leap, and an octave or so where it has run out of range. An
+                // arpeggio over two octaves from every root leaps by its
+                // nature, and is only printed.
+                if exercise == 2 && start == 3 && figure != 4 {
+                    let far = leaps.iter().filter(|&&l| l > 5).count();
+                    assert!(far * 4 <= leaps.len(), "too many leaps: {leaps:?}");
+                }
+                assert!(hi - lo >= 4, "the line stayed in one place: frets {lo}-{hi}");
+            }
+        }
+    }
+
 }

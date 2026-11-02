@@ -194,6 +194,64 @@ pub fn place_from(
     best.map(|(_, spots)| spots).unwrap_or_default()
 }
 
+/// A phrase over the changes, led from the one before it: it starts on the
+/// note nearest in PITCH to where the last phrase ended - the voice moves by
+/// step, not by leap - then needs the fewest shifts of the hand, and then
+/// starts nearest the fret the last one ended on. The first phrase of the tune
+/// has nothing before it and is taken near `anchor`, a fret the caller draws,
+/// so the line does not set out from the nut every time.
+///
+/// `last` is the last note of the phrase before: its pitch and its fret.
+/// `pitch`, where the caller knows it, is the MIDI pitch the phrase starts on
+/// - a line that keeps its own register through the tune - and then the
+/// phrase is laid there rather than nearest the last note.
+pub fn place_led(
+    root_pc: usize,
+    intervals: &[u8],
+    steps: &[Step],
+    names: &[String],
+    last: Option<(i32, i32)>,
+    pitch: Option<i32>,
+    anchor: i32,
+) -> Vec<Spot> {
+    let (wanted, last_fret) = match (pitch, last) {
+        (Some(pitch), last) => (pitch, last.map_or(anchor, |(_, fret)| fret)),
+        (None, Some((last_pitch, last_fret))) => (last_pitch, last_fret),
+        (None, None) => return place_from(root_pc, intervals, steps, names, Some(anchor), None),
+    };
+    let Some(first) = steps.first() else {
+        return Vec::new();
+    };
+    let Some(&first_semi) = intervals.get(first.degree) else {
+        return Vec::new();
+    };
+    let first_interval = first_semi as i32 + 12 * first.octave as i32;
+    let first_pc = (root_pc as i32 + first_interval).rem_euclid(12);
+    let mut best: Option<((i32, usize, i32, i32), Vec<Spot>)> = None;
+    for string in 0..6 {
+        for fret in 0..=12 {
+            if (TUNING[string] + fret).rem_euclid(12) != first_pc {
+                continue;
+            }
+            let Some((cost, spots)) = lay(TUNING[string] + fret - first_interval, fret, steps, intervals, names) else {
+                continue;
+            };
+            let start = &spots[0];
+            let leap = (TUNING[start.string] + start.fret - wanted).abs();
+            let key = (leap, cost.0, (start.fret - last_fret).abs(), cost.1);
+            if best.as_ref().is_none_or(|(b, _)| key < *b) {
+                best = Some((key, spots));
+            }
+        }
+    }
+    best.map(|(_, spots)| spots).unwrap_or_default()
+}
+
+/// The pitch and fret a phrase ends on, for the next one to be led from.
+pub fn last_note(spots: &[Spot]) -> Option<(i32, i32)> {
+    spots.last().map(|s| (TUNING[s.string] + s.fret, s.fret))
+}
+
 /// What a position costs the hand: how many times it has to move, how far in
 /// total, and how far up the neck it ends up. In that order - a shift is worth
 /// more than any number of frets, and between two positions that move the hand

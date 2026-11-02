@@ -519,6 +519,54 @@ shorter than the judge needs is gone before it is credited, and the line
 waits for it. The scale exercises of Intervals carry the same limit Scales
 has - about two notes a second.
 
+### Falling lines and Harris scales
+
+*`src/state/line_harness.rs`, `harris_scales_falling`*
+
+The Harris lines of Arpeggios run mostly down, an eight-note scale with a
+chromatic passing note in it: the major seventh between the flat seventh and
+the root, or the sharp fifth between the fifth and the sixth. Measured
+November 2026 on falling lines spliced the same way, judged in order. AtoA
+holds only the white keys, so the black ones are the note a semitone below
+read a semitone faster - an approximation, shorter and brighter than a
+fretted note. Four runs at each speed:
+
+  seconds a note   G bebop down   C sixth dim down   G mixolydian down
+  0.50             9/9 (4 of 4)   9/9 (4 of 4)       8/8 (4 of 4)
+  0.40 and less    1/9            1/9                1/8
+
+No step was credited before its note, the passing notes included, and the
+median credit came 0.36 to 0.41 s after the attack. The limit is the one the rising
+lines have: about two notes a second.
+
+AtoA holds some notes twice. The falling lines first took the later A3 and
+stalled on it in all three, 6/8 to 7/9; the first take, the one the rising
+lines use, goes through. The harness takes the first take of every note.
+
+The runs are not repeatable to the note. Four runs of the rising lines at
+0.50 s, on this change and on the commit before it alike: D dorian 4 to 8 of
+8, G mixolydian 4 to 8 of 8, the D m7 arpeggio 3 to 5 of 5 - against the
+single run of the table above. The same audio gives a different outcome
+from run to run; why is not known yet. The falling lines at 0.50 s came out
+whole every time.
+
+### Enclosures
+
+*`src/state/line_harness.rs`, `harris_enclosures`*
+
+The enclosure of the Harris lines comes down from the scale note above a
+tone on the beat to the chromatic note below it, which the chord's scale may
+not hold: B under C over C7, D# under E over C6 diminished. Measured on the
+whole app in Arpeggios, the line spliced at the pitches the app asks for,
+three runs:
+
+  seconds a note   C7 from the root   C6 from the third   Dm7 from the third
+  0.50             8/8 (3 of 3)       8/8 (3 of 3)        8/8 (3 of 3)
+  0.40             0/8                0/8                 2/8
+
+No step credited before its note. The chromatic note goes through like any
+other; the limit is the usual one.
+
 ### The ear holding a ring
 
 *`src/state/judge.rs`, `ear_holds_only_a_ring`*

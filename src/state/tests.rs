@@ -3232,3 +3232,53 @@ fn a_scale_from_e_to_e_starts_on_the_outer_string_it_can() {
         }
     }
 }
+
+/// Harris lines through a tune: every step of every chord is a note the judge
+/// can be asked for, the pitch classes are those of the line the module
+/// builds, and a continuous line goes on from the chord before.
+#[test]
+fn harris_lines_are_judged_against_their_own_rings() {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::HarrisLines;
+    a.set_random_mode(false);
+    a.reload_library();
+    assert!(a.chords.len() > 4, "no tune to play over");
+    for figure in 0..4 {
+        for start in 0..4 {
+            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            let expected = crate::harris::line(a.play_order.iter().map(|&i| &a.chords[i]), a.harris);
+            for pos in 0..a.play_order.len() {
+                a.play_pos = pos;
+                let chord = a.chords[a.play_order[pos]].clone();
+                let steps = a.get_active_indices(&chord);
+                let targets = a.degree_targets(&chord);
+                let names = a.degree_names(&chord);
+                assert_eq!(targets.len(), names.len(), "{chord:?}");
+                assert!(steps.iter().all(|s| s.degree < targets.len()), "{chord:?}: a step past the ring");
+                if let Some(line) = &expected[pos] {
+                    assert_eq!(&steps, line, "figure {figure} start {start} at {pos}");
+                }
+            }
+        }
+    }
+}
+
+/// Over a minor seventh the beats carry the dominant a fourth up: over Cm7
+/// the scale down from the root reads C Bb A G F E Eb D.
+#[test]
+fn a_harris_line_over_a_minor_seventh_thinks_in_its_dominant() {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::HarrisLines;
+    a.harris = crate::harris::Recipe::default();
+    let chord = Chord { root: NoteName::C, quality: ChordQuality::Minor7 };
+    a.chords = vec![chord.clone()];
+    a.play_order = vec![0];
+    a.play_pos = 0;
+    let targets = a.degree_targets(&chord);
+    let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
+    assert_eq!(pcs, vec![0, 10, 9, 7, 5, 4, 3, 2]);
+    let names: Vec<String> = a.get_active_indices(&chord).iter().map(|s| a.degree_names(&chord)[s.degree].clone()).collect();
+    assert_eq!(names, ["1", "b7", "6", "5", "4", "(3)", "b3", "2"]);
+}

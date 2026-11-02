@@ -75,6 +75,9 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
         });
     }
     ui.on_arp_direction_changed(saving(cfg, |s, idx: i32| s.arp_direction = idx.max(0) as usize));
+    ui.on_harris_figure_changed(saving(cfg, |s, idx: i32| s.harris_figure = idx.max(0) as usize));
+    ui.on_harris_start_changed(saving(cfg, |s, idx: i32| s.harris_start = idx.max(0) as usize));
+    ui.on_harris_notes_changed(saving(cfg, |s, idx: i32| s.harris_notes = idx.max(0) as usize));
     ui.on_arp_quality_changed(saving(cfg, |s, idx: i32| s.arp_quality = idx.max(0) as usize));
     ui.on_tab_frets_changed(saving(cfg, |s, on| s.tab_frets = on));
     ui.on_voice_leading_changed(saving(cfg, |s, on| s.voice_leading = on));

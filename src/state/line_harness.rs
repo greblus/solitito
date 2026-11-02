@@ -54,6 +54,78 @@ fn rising(notes: &[(f32, u8)], pcs: &[usize]) -> Vec<usize> {
     picked
 }
 
+/// The notes of a falling line through `pcs`: the first the lowest `pcs[0]`
+/// with room below it for the rest, each after it the nearest note below the
+/// one before with the class asked.
+fn falling(notes: &[(f32, u8, i8)], pcs: &[usize]) -> Vec<usize> {
+    let lowest = notes.iter().map(|n| n.1).min().unwrap();
+    let first = notes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.1 as usize % 12 == pcs[0] && n.1 >= lowest + 12)
+        .min_by_key(|(_, n)| n.1)
+        .map(|(i, _)| i)
+        .expect("AtoA has no such note");
+    let mut picked = vec![first];
+    for &pc in &pcs[1..] {
+        let ceiling = notes[*picked.last().unwrap()].1;
+        let next = notes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.1 < ceiling && n.1 as usize % 12 == pc)
+            // The first take of the note, as `rising` takes: AtoA holds some
+            // notes twice, and the later A3 is one the judge does not credit
+            // on its own - the line then stalls on the recording, not the step.
+            .max_by_key(|&(i, n)| (n.1, std::cmp::Reverse(i)))
+            .map(|(i, _)| i)
+            .expect("AtoA has no such note");
+        picked.push(next);
+    }
+    picked
+}
+
+/// AtoA holds only the white keys. The black ones are the note a semitone
+/// below played a semitone faster - `(attack, midi, semitones shifted)` - so
+/// a chromatic line can be spliced at all. An approximation: the attack and
+/// the body come out a little shorter and brighter than a fretted note.
+fn with_black_keys(notes: &[(f32, u8)]) -> Vec<(f32, u8, i8)> {
+    let mut all: Vec<(f32, u8, i8)> = notes.iter().map(|&(t, m)| (t, m, 0)).collect();
+    for &(t, m) in notes {
+        if !notes.iter().any(|n| n.1 == m + 1) && !all.iter().any(|n| n.1 == m + 1) {
+            all.push((t, m + 1, 1));
+        }
+    }
+    all
+}
+
+/// `splice` for notes that may be shifted: read faster by 2^(shift/12).
+fn splice_shifted(signal: &[f32], notes: &[(f32, u8, i8)], line: &[usize], length: f32, ring: f32) -> (Vec<f32>, Vec<f32>) {
+    let step = (length * SR) as usize;
+    let lead = (LEAD_IN * SR) as usize;
+    let mut out = vec![0.0f32; lead + step * line.len() + (2.0 * SR) as usize];
+    let mut onsets = Vec::new();
+    for (k, &i) in line.iter().enumerate() {
+        let (attack, _, shift) = notes[i];
+        let ratio = 2f32.powf(shift as f32 / 12.0);
+        let from = (attack - 0.05) * SR;
+        let span = ((length + ring) * SR) as usize;
+        let fade = (0.01 * SR) as usize;
+        let at = lead + k * step;
+        for j in 0..span {
+            let x = from + j as f32 * ratio;
+            let (i0, frac) = (x as usize, x.fract());
+            if i0 + 1 >= signal.len() {
+                break;
+            }
+            let sample = signal[i0] * (1.0 - frac) + signal[i0 + 1] * frac;
+            let gain = if j + fade > span { (span - j) as f32 / fade as f32 } else { 1.0 };
+            out[at + j] += sample * gain;
+        }
+        onsets.push((at as f32 / SR) + 0.05);
+    }
+    (out, onsets)
+}
+
 /// The line as audio: each note `length` long, from just before its attack,
 /// with `ring` more of it left under the next - a note on another string.
 /// Returns the audio and when each note starts.
@@ -78,7 +150,7 @@ fn splice(signal: &[f32], notes: &[(f32, u8)], line: &[usize], length: f32, ring
 
 /// When each step of the scale was credited, run through the app as Scales
 /// plays it.
-fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8]) -> Vec<Option<f32>> {
+fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8], down: bool) -> Vec<Option<f32>> {
     let mut a = app();
     a.set_mode(AppMode::Scales as i32);
     let def = ScaleDefinition {
@@ -91,10 +163,28 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8])
     a.scale_repeat_root = true;
     a.scale_descending = false;
     a.random_mode = false;
+    if down {
+        // One octave down from the top, as the line is spliced - not the
+        // whole neck from wherever the hand was drawn to stand.
+        a.set_scale_e_to_e(false);
+        a.scale_direction = ScaleDirection::Down;
+    }
     a.reset_logic_state();
     a.scale_descending = false;
     a.current_chord_index = 0;
+    if std::env::var("SOLITITO_LINE_DETAIL").is_ok() {
+        let chord = a.chords[0].clone();
+        let targets = a.degree_targets(&chord);
+        let pcs: Vec<usize> = a.ordered_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
+        println!("    the app asks for {pcs:?}");
+    }
+    credit_with(a, audio, root, names.len() + 1)
+}
 
+/// When each step of the exercise `a` is set to was credited, the audio run
+/// through the app as it runs. `root` is the chord's: the app moving to
+/// another one ends the run.
+fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec<Option<f32>> {
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
     let mut brain = crate::brain::ChordBrain::new(
         ["best_model_v2_take6_chords.onnx", "best_model_v2_take6_onset.onnx"]
@@ -105,7 +195,6 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8])
     let mut flux = crate::flux::Flux::default();
     let mut buffer = vec![0.0f32; FFT_SIZE];
     let mut next_model = 0.0f32;
-    let steps = names.len() + 1;
     let mut credited: Vec<Option<f32>> = vec![None; steps];
     let dt = HOP_LENGTH as f32 / SR;
 
@@ -209,13 +298,26 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8])
 /// One line at one speed: how many steps were credited, how many before their
 /// own note began, and the median delay of the rest.
 fn measure(name: &str, root: NoteName, names: &[&str], intervals: &[u8], length: f32, ring: f32) {
+    measure_way(name, root, names, intervals, length, ring, false);
+}
+
+fn measure_way(name: &str, root: NoteName, names: &[&str], intervals: &[u8], length: f32, ring: f32, down: bool) {
     let (signal, notes) = atoa_notes();
     let root_pc = root as usize;
     let mut pcs: Vec<usize> = intervals.iter().map(|&i| (root_pc + i as usize) % 12).collect();
     pcs.push(root_pc);
-    let line = rising(&notes, &pcs);
-    let (audio, onsets) = splice(&signal, &notes, &line, length, ring);
-    let credited = credit_times(&audio, root, names, intervals);
+    let (line, audio, onsets) = if down {
+        pcs.reverse();
+        let all = with_black_keys(&notes);
+        let line = falling(&all, &pcs);
+        let (audio, onsets) = splice_shifted(&signal, &all, &line, length, ring);
+        (line.iter().map(|&i| all[i].1).collect::<Vec<u8>>(), audio, onsets)
+    } else {
+        let line = rising(&notes, &pcs);
+        let (audio, onsets) = splice(&signal, &notes, &line, length, ring);
+        (line.iter().map(|&i| notes[i].1).collect::<Vec<u8>>(), audio, onsets)
+    };
+    let credited = credit_times(&audio, root, names, intervals, down);
     let mut late = Vec::new();
     let mut early = Vec::new();
     for (k, (&on, at)) in onsets.iter().zip(&credited).enumerate() {
@@ -228,8 +330,7 @@ fn measure(name: &str, root: NoteName, names: &[&str], intervals: &[u8], length:
     late.sort_by(f32::total_cmp);
     let median = late.get(late.len() / 2).map(|d| d * 1000.0).unwrap_or(f32::NAN);
     if std::env::var("SOLITITO_LINE_DETAIL").is_ok() {
-        let picked: Vec<u8> = line.iter().map(|&i| notes[i].1).collect();
-        println!("    midi {picked:?}");
+        println!("    midi {line:?}");
         for (k, (&on, at)) in onsets.iter().zip(&credited).enumerate() {
             println!("    step {k}: note at {on:.2}s, credited {}", at.map(|t| format!("{t:.2}s")).unwrap_or("-".into()));
         }
@@ -257,5 +358,88 @@ fn semitone_steps_in_rising_lines() {
             }
         }
         println!();
+    }
+}
+
+/// The eight-note scales of the Harris lines, walked down from the octave as
+/// the lines walk them: a semitone at the top of the dominant's (the major
+/// seventh passing to the flat one) and of the sixth diminished (the sharp
+/// fifth between the sixth and the fifth). Does the judge credit each step
+/// when it is played, and not off the note before still sounding?
+#[test]
+#[ignore = "diagnostic: needs AtoA.wav and both models"]
+fn harris_scales_falling() {
+    use NoteName::*;
+    let dominant = (["1", "2", "3", "4", "5", "6", "b7", "(7)"], [0u8, 2, 4, 5, 7, 9, 10, 11]);
+    let sixth = (["1", "2", "3", "4", "5", "(#5)", "6", "7"], [0u8, 2, 4, 5, 7, 8, 9, 11]);
+    let mixolydian = (["1", "2", "3", "4", "5", "6", "b7"], [0u8, 2, 4, 5, 7, 9, 10]);
+    for ring in [0.0, 0.3] {
+        for length in [0.5, 0.4, 0.3, 0.25] {
+            if std::env::var("SOLITITO_LINE_ONLY").is_ok_and(|only| only != format!("{length}/{ring}")) {
+                continue;
+            }
+            measure_way("G bebop down", G, &dominant.0, &dominant.1, length, ring, true);
+            measure_way("C sixth dim down", C, &sixth.0, &sixth.1, length, ring, true);
+            measure_way("G mixolydian down", G, &mixolydian.0, &mixolydian.1, length, ring, true);
+        }
+        println!();
+    }
+}
+
+/// A Harris line over one chord, played as the app asks for it: each step's
+/// pitch is the line's own (`harris::C3` and up). Returns the app, the MIDI
+/// notes and the names of the steps.
+fn harris_app(chord: Chord, recipe: crate::harris::Recipe) -> (MyApp, Vec<u8>, Vec<String>) {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::HarrisLines;
+    a.harris = recipe;
+    a.random_mode = false;
+    a.chords = vec![chord.clone()];
+    a.play_order = vec![0];
+    a.play_pos = 0;
+    a.current_chord_index = 0;
+    a.reset_logic_state();
+    let steps = a.ordered_active_indices(&chord);
+    let semis = a.degree_intervals(&chord);
+    let names = a.degree_names(&chord);
+    let midi = steps
+        .iter()
+        .map(|s| (crate::harris::C3 + chord.root as i32 + semis[s.degree] as i32 + 12 * s.octave as i32) as u8)
+        .collect();
+    (a, midi, steps.iter().map(|s| names[s.degree].clone()).collect())
+}
+
+/// The enclosures of the Harris lines: the scale note above a tone on the
+/// beat and the chromatic one below it, which the chord's scale may not hold
+/// - B under C over C7, D# under E over C6. Is each credited when played?
+#[test]
+#[ignore = "diagnostic: needs AtoA.wav and both models"]
+fn harris_enclosures() {
+    use crate::harris::{Figure, Recipe, Start};
+    let (signal, notes) = atoa_notes();
+    let all = with_black_keys(&notes);
+    let cases = [
+        ("C7 from the root", Chord { root: NoteName::C, quality: ChordQuality::Dominant7 }, Start::Root),
+        ("C6 from the third", Chord { root: NoteName::C, quality: ChordQuality::Major7 }, Start::Third),
+        ("Dm7 from the third", Chord { root: NoteName::D, quality: ChordQuality::Minor7 }, Start::Third),
+    ];
+    for length in [0.5, 0.4] {
+        for (name, chord, start) in &cases {
+            let recipe = Recipe { figure: Figure::Enclosure, start: *start, notes: 8 };
+            let (a, midi, names) = harris_app(chord.clone(), recipe);
+            // The first take of each note, as the other lines take it.
+            let line: Vec<usize> = midi
+                .iter()
+                .map(|&m| all.iter().position(|n| n.1 == m).unwrap_or_else(|| panic!("no MIDI {m} to splice")))
+                .collect();
+            let (audio, onsets) = splice_shifted(&signal, &all, &line, length, 0.0);
+            let credited = credit_with(a, &audio, chord.root, midi.len());
+            let early: Vec<usize> =
+                onsets.iter().zip(&credited).enumerate().filter(|(_, (on, at))| at.is_some_and(|t| t < **on)).map(|(k, _)| k).collect();
+            let got = credited.iter().filter(|c| c.is_some()).count();
+            let missed: Vec<&String> = names.iter().zip(&credited).filter(|(_, c)| c.is_none()).map(|(n, _)| n).collect();
+            println!("  {name:<20} {length:.2}s: {got}/{} credited, early {early:?}, missed {missed:?}  midi {midi:?}", midi.len());
+        }
     }
 }

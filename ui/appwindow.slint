@@ -754,6 +754,23 @@ export global Tr {
     in-out property <string> arp_down: "Descending";
     in-out property <string> arp_alt_down: "Alternating, from descending";
     in-out property <string> arp_alt_up: "Alternating, from ascending";
+    in-out property <string> arp_harris: "Harris lines";
+    in-out property <string> harris_hint: "Eighth notes, the chord tones on the beats. Over m7 the line thinks in the dominant a fourth up, over m7b5 in the dominant a major third down.";
+    in-out property <string> harris_figure: "Figure";
+    in-out property <string> harris_scale_down: "Scale down";
+    in-out property <string> harris_scale_up: "Scale up";
+    in-out property <string> harris_arp_scale: "Arpeggio, scale down";
+    in-out property <string> harris_from_third: "Dominant's third";
+    in-out property <string> harris_own_third: "Chord's third";
+    in-out property <string> harris_enclosure: "Enclosure";
+    in-out property <string> harris_start: "Start";
+    in-out property <string> harris_from_root: "From the root";
+    in-out property <string> harris_from_3: "From the third";
+    in-out property <string> harris_in_turn: "In turn";
+    in-out property <string> harris_continuous: "One line";
+    in-out property <string> harris_notes: "Notes per chord";
+    in-out property <string> harris_eight: "8 – a bar";
+    in-out property <string> harris_four: "4 – half a bar";
     in-out property <string> shapes_kind: "Shapes: ";
     in-out property <string> shapes_full: "full chords";
     in-out property <string> shapes_shell: "shell voicings";
@@ -972,6 +989,13 @@ export component AppWindow inherits Window {
     callback arp_direction_changed(int);
     in-out property <int> arp_quality: 0;
     callback arp_quality_changed(int);
+    /// Harris lines: the figure, the start, and eight notes a chord or four.
+    in-out property <int> harris_figure: 0;
+    callback harris_figure_changed(int);
+    in-out property <int> harris_start: 0;
+    callback harris_start_changed(int);
+    in-out property <int> harris_notes: 0;
+    callback harris_notes_changed(int);
     
     in property <[string]> library_items;
     in property <string> library_label: "Select Song:"; 
@@ -1237,7 +1261,7 @@ export component AppWindow inherits Window {
     /// A mode standing on the chords of a tune: Chords, Intervals, and
     /// Arpeggios over the changes, where a study has just the one chord.
     property <bool> shows_changes: root.current_mode == 0 || root.current_mode == 1
-        || (root.current_mode == 3 && root.arp_exercise == 1);
+        || (root.current_mode == 3 && root.arp_exercise != 0);
     /// Scales and a study of Arpeggios: a key and the degrees of the run to
     /// set. Over the changes both come from the tune.
     property <bool> takes_a_written_run: (root.current_mode == 2 || root.current_mode == 3)
@@ -1438,16 +1462,42 @@ export component AppWindow inherits Window {
                 padding-right: 12px;
                 spacing: 6px;
                 Dropdown {
-                    list-width: 220px;
-                    model: [Tr.arp_study, Tr.arp_changes];
+                    list-width: 260px;
+                    model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris];
                     current-index <=> root.arp_exercise;
                     selected(v) => { root.arp_exercise_changed(v); }
+                }
+                // The key of the study; the study itself is chosen from its
+                // title above the exercise, as a scale is.
+                if root.arp_exercise == 0 : Dropdown {
+                    list-width: 220px;
+                    model: root.secondary_items;
+                    current-index <=> root.current_secondary_index;
+                    selected => { root.secondary_item_selected(self.current-index); }
                 }
                 if root.arp_exercise == 0 : Dropdown {
                     list-width: 220px;
                     model: ["m7", "Maj7", "7", "m7b5", "dim7"];
                     current-index <=> root.arp_quality;
                     selected(v) => { root.arp_quality_changed(v); }
+                }
+                if root.arp_exercise == 2 : Dropdown {
+                    list-width: 260px;
+                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure];
+                    current-index <=> root.harris_figure;
+                    selected(v) => { root.harris_figure_changed(v); }
+                }
+                if root.arp_exercise == 2 : Dropdown {
+                    list-width: 260px;
+                    model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                    current-index <=> root.harris_start;
+                    selected(v) => { root.harris_start_changed(v); }
+                }
+                if root.arp_exercise == 2 : Dropdown {
+                    list-width: 220px;
+                    model: [Tr.harris_eight, Tr.harris_four];
+                    current-index <=> root.harris_notes;
+                    selected(v) => { root.harris_notes_changed(v); }
                 }
                 if root.arp_exercise == 1 : Dropdown {
                     list-width: 220px;
@@ -2764,10 +2814,11 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            // Arpeggios: which of the two exercises, and what it
+                            // Arpeggios: which of the three exercises, and what it
                             // needs. A study stands in a key of its own; over the
-                            // changes the chords come from the tune and the only
-                            // choice left is which way each arpeggio runs.
+                            // changes the chords come from the tune, and what is
+                            // left is which way each arpeggio runs, or which line
+                            // goes over each chord.
                             if root.current_mode == 3 : VerticalLayout {
                                 spacing: 12px;
                                 HorizontalLayout {
@@ -2779,7 +2830,7 @@ export component AppWindow inherits Window {
                                     }
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        model: [Tr.arp_study, Tr.arp_changes];
+                                        model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris];
                                         current-index <=> root.arp_exercise;
                                         selected(v) => { root.arp_exercise_changed(v); }
                                     }
@@ -2811,6 +2862,53 @@ export component AppWindow inherits Window {
                                         current-index <=> root.arp_direction;
                                         selected(v) => { root.arp_direction_changed(v); }
                                     }
+                                }
+                                if root.arp_exercise == 2 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.harris_figure; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure];
+                                        current-index <=> root.harris_figure;
+                                        selected(v) => { root.harris_figure_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 2 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.harris_start; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                                        current-index <=> root.harris_start;
+                                        selected(v) => { root.harris_start_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 2 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.harris_notes; color: #aaa;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.harris_eight, Tr.harris_four];
+                                        current-index <=> root.harris_notes;
+                                        selected(v) => { root.harris_notes_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 2 : Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.harris_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
                                 }
                             }
 

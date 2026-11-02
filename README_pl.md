@@ -71,10 +71,12 @@ akord, przechodzi do następnego.
 
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
-  generator budujący nowe arpeggio po każdym przejściu.
+  generator budujący nowe arpeggio po każdym przejściu. Na zmianach są też linie Harrisa:
+  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór. Wszystkie trzy
+  ćwiczenia, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
 
 <div align="center">
-<img width="560" alt="Arpeggio na zmianach, na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
+<img width="560" alt="Linie Harrisa na zmianach Autumn Leaves, tercja akordu w ciągłej linii, na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych
@@ -122,6 +124,7 @@ Reszta dokumentacji w `docs/`:
 | | |
 |---|---|
 | [**Ćwiczenie interwałów**](docs/intervals-practice_pl.md) | Pięćdziesiąt ćwiczeń grupa po grupie: co każde każe zagrać nad każdym rodzajem akordu, jak czytać listę i II–V–I do wypróbowania |
+| [**Ćwiczenie arpeggiów**](docs/arpeggios-practice_pl.md) | Studia, arpeggio na zmianach i linie Harrisa: skąd dodatkowy półton, figury i jedna linia przez cały utwór |
 | [**Ćwiczenie z formułami**](docs/formulas-practice_pl.md) | Trzy ćwiczenia z formułami krok po kroku: co grać, czego słuchać, co to za szyfry na ekranie |
 | [Wybór wejścia](docs/audio-input_pl.md) | Co znaczą nazwy urządzeń w Linuksie, gdzie trzymane są ustawienia i jakie są tryby diagnostyczne |
 | [Ustawienia](docs/settings_pl.md) | Wszystkie opcje z trzech zakładek oraz losowanie, pauza i pasek akordów w oknie głównym |

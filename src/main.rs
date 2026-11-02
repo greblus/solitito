@@ -12,6 +12,7 @@ mod flux;
 mod journal;
 mod formulas;
 mod fretboard;
+mod harris;
 mod i18n;
 mod interval_levels;
 mod latch;
@@ -173,6 +174,9 @@ struct SettingsSnapshot {
     tab_frets: bool,
     arp_exercise: i32,
     arp_direction: i32,
+    harris_figure: i32,
+    harris_start: i32,
+    harris_notes: i32,
     arp_quality: i32,
     scale_repeat_root: bool,
     scale_direction: i32,
@@ -230,6 +234,9 @@ impl SettingsSnapshot {
             tab_frets: ui.get_tab_frets(),
             arp_exercise: ui.get_arp_exercise(),
             arp_direction: ui.get_arp_direction(),
+            harris_figure: ui.get_harris_figure(),
+            harris_start: ui.get_harris_start(),
+            harris_notes: ui.get_harris_notes(),
             arp_quality: ui.get_arp_quality(),
             scale_repeat_root: ui.get_scale_repeat_root(),
             scale_direction: ui.get_scale_direction(),
@@ -487,6 +494,11 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
     // decides what the library IS - the studies or the tunes.
     app.arp_exercise = cfg.arp_exercise.into();
     app.arp_direction = cfg.arp_direction.into();
+    app.harris = harris::Recipe {
+        figure: cfg.harris_figure.into(),
+        start: cfg.harris_start.into(),
+        notes: if cfg.harris_notes == 1 { 4 } else { 8 },
+    };
     app.arp_quality = cfg.arp_quality;
     // Same for Formulas: whether the exercise is planted on a tune decides
     // whether the first combo holds one, and the tune below is picked from
@@ -532,6 +544,9 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_tab_frets(cfg.tab_frets);
     ui.set_arp_exercise(cfg.arp_exercise as i32);
     ui.set_arp_direction(cfg.arp_direction as i32);
+    ui.set_harris_figure(cfg.harris_figure as i32);
+    ui.set_harris_start(cfg.harris_start as i32);
+    ui.set_harris_notes(cfg.harris_notes as i32);
     ui.set_arp_quality(cfg.arp_quality as i32);
     ui.set_scale_repeat_root(cfg.scale_repeat_root);
     ui.set_scale_direction(state::ScaleDirection::from(cfg.scale_direction) as i32);
@@ -821,6 +836,23 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_arp_down(t.arp_down.into());
     g.set_arp_alt_down(t.arp_alt_down.into());
     g.set_arp_alt_up(t.arp_alt_up.into());
+    g.set_arp_harris(t.arp_harris.into());
+    g.set_harris_hint(t.harris_hint.into());
+    g.set_harris_figure(t.harris_figure.into());
+    g.set_harris_scale_down(t.harris_scale_down.into());
+    g.set_harris_scale_up(t.harris_scale_up.into());
+    g.set_harris_arp_scale(t.harris_arp_scale.into());
+    g.set_harris_from_third(t.harris_from_third.into());
+    g.set_harris_own_third(t.harris_own_third.into());
+    g.set_harris_enclosure(t.harris_enclosure.into());
+    g.set_harris_start(t.harris_start.into());
+    g.set_harris_from_root(t.harris_from_root.into());
+    g.set_harris_from_3(t.harris_from_3.into());
+    g.set_harris_in_turn(t.harris_in_turn.into());
+    g.set_harris_continuous(t.harris_continuous.into());
+    g.set_harris_notes(t.harris_notes.into());
+    g.set_harris_eight(t.harris_eight.into());
+    g.set_harris_four(t.harris_four.into());
     g.set_tab_frets(t.tab_frets.into());
     g.set_tab_frets_hint(t.tab_frets_hint.into());
     g.set_voice_leading(t.voice_leading.into());

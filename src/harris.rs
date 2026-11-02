@@ -1,0 +1,728 @@
+//! Lines over the changes in the manner Barry Harris taught them.
+//!
+//! The idea everything here rests on: an eight-note scale played in eighth
+//! notes from a chord tone on the beat keeps every chord tone on a beat,
+//! because chord tones and the notes between them alternate. A plain
+//! seven-note scale drifts off the beat after four notes; one chromatic
+//! passing note puts it back.
+//!
+//! Each chord therefore gets a ring of eight notes, written from its own root,
+//! in which every EVEN place is a tone on the beat:
+//!
+//! - a dominant seventh: the bebop dominant scale, the major seventh passing
+//!   between the flat seventh and the root;
+//! - a major seventh, a minor sixth and a minor-major seventh: the sixth
+//!   diminished scale - the sixth chord on the beats, the diminished chord
+//!   built on the seventh between them;
+//! - a minor seventh: thought of as the dominant a fourth up, its scale
+//!   played from the minor chord's root, so the major third passes;
+//! - a half-diminished seventh: thought of as the dominant a major third
+//!   below, the ninth chord it is the top of;
+//! - a diminished seventh: the diminished scale, eight notes of its own.
+//!
+//! A figure is a path through the ring, counted in its places: down the
+//! scale, up it, the arpeggio up and the scale down, the arpeggio from the
+//! third of the chord the line thinks in or from the chord's own, and a tone
+//! enclosed - the scale note above it and the chromatic one below. Places
+//! are plain integers - eight up is the same place an octave higher. A note
+//! the ring does not hold is a semitone above the root instead, and a step
+//! names it past the ring's eight - see `names`.
+
+use crate::model::{Chord, ChordQuality, Step};
+
+/// The eight notes over one chord, from its root up, and which chord the line
+/// thinks in.
+pub struct Ring {
+    /// Each note named from the chord's root. A chromatic passing note is in
+    /// brackets, as the passing note of the Intervals scales is.
+    pub names: [&'static str; 8],
+    /// Semitones above the chord's root, in the order of `names`.
+    pub semitones: [u8; 8],
+    /// The place of the root of the chord the line thinks in: the dominant a
+    /// fourth up over a minor seventh, a major third down over a
+    /// half-diminished one, the chord itself everywhere else.
+    pub thought_root: i32,
+}
+
+const DOMINANT: Ring = Ring {
+    names: ["1", "2", "3", "4", "5", "6", "b7", "(7)"],
+    semitones: [0, 2, 4, 5, 7, 9, 10, 11],
+    thought_root: 0,
+};
+const MAJOR_SIXTH_DIMINISHED: Ring = Ring {
+    names: ["1", "2", "3", "4", "5", "(#5)", "6", "7"],
+    semitones: [0, 2, 4, 5, 7, 8, 9, 11],
+    thought_root: 0,
+};
+const MINOR_SIXTH_DIMINISHED: Ring = Ring {
+    names: ["1", "2", "b3", "4", "5", "(#5)", "6", "7"],
+    semitones: [0, 2, 3, 5, 7, 8, 9, 11],
+    thought_root: 0,
+};
+/// G minor seventh played as C seventh: G A Bb B C D E F.
+const MINOR_AS_DOMINANT: Ring = Ring {
+    names: ["1", "2", "b3", "(3)", "4", "5", "6", "b7"],
+    semitones: [0, 2, 3, 4, 5, 7, 9, 10],
+    thought_root: 4,
+};
+/// A half-diminished played as F seventh: A Bb C D Eb E F G.
+const HALF_DIMINISHED_AS_DOMINANT: Ring = Ring {
+    names: ["1", "b2", "b3", "4", "b5", "(5)", "b6", "b7"],
+    semitones: [0, 1, 3, 5, 6, 7, 8, 10],
+    thought_root: 6,
+};
+const DIMINISHED: Ring = Ring {
+    names: ["1", "2", "b3", "4", "b5", "b6", "bb7", "7"],
+    semitones: [0, 2, 3, 5, 6, 8, 9, 11],
+    thought_root: 0,
+};
+
+/// The ring over a chord; none over a chord of a user's own scale.
+pub fn ring(quality: &ChordQuality) -> Option<&'static Ring> {
+    match quality {
+        ChordQuality::Dominant7 => Some(&DOMINANT),
+        ChordQuality::Major7 => Some(&MAJOR_SIXTH_DIMINISHED),
+        ChordQuality::Minor6 | ChordQuality::MinorMajor7 => Some(&MINOR_SIXTH_DIMINISHED),
+        ChordQuality::Minor7 => Some(&MINOR_AS_DOMINANT),
+        ChordQuality::HalfDiminished => Some(&HALF_DIMINISHED_AS_DOMINANT),
+        ChordQuality::Diminished => Some(&DIMINISHED),
+        ChordQuality::CustomScale(_) => None,
+    }
+}
+
+impl Ring {
+    /// Semitones above the chord's root of a place, octaves included.
+    fn pitch(&self, place: i32) -> i32 {
+        self.semitones[place.rem_euclid(8) as usize] as i32 + 12 * place.div_euclid(8)
+    }
+
+    /// The place of the next note of the scale above `place`, the passing
+    /// note skipped: the note an enclosure comes down from.
+    fn above(&self, place: i32) -> i32 {
+        let next = place + 1;
+        if self.names[next.rem_euclid(8) as usize].starts_with('(') { next + 1 } else { next }
+    }
+}
+
+/// The twelve semitones above the root by name, for the notes a figure takes
+/// from outside the ring - the chromatic note under an enclosed tone, the
+/// tones of the chord's own arpeggio. Spelled with sharps, as notes leading
+/// upwards are, except the chord's own tones - see `names`.
+const CHROMATIC: [&str; 12] = ["1", "#1", "2", "#2", "3", "4", "#4", "5", "#5", "6", "#6", "7"];
+
+/// What a step of a Harris line indexes: the ring's eight notes, then the
+/// twelve semitones of `CHROMATIC` - where one of them is a tone of the
+/// chord, named as the chord names it: over Dm7 the F of its own arpeggio is
+/// its `b3`, not a `#2`.
+pub fn names(ring: &Ring, quality: &ChordQuality) -> Vec<String> {
+    let mut chromatic: Vec<String> = CHROMATIC.iter().map(|n| n.to_string()).collect();
+    for (name, &semitone) in quality.interval_names().iter().zip(quality.intervals().iter()) {
+        chromatic[semitone as usize % 12] = name.clone();
+    }
+    ring.names.iter().map(|n| n.to_string()).chain(chromatic).collect()
+}
+
+/// Semitones above the root, in the order of `names`.
+pub fn semitones(ring: &Ring) -> Vec<u8> {
+    ring.semitones.iter().copied().chain(0..12).collect()
+}
+
+/// The path a figure takes. Saved as its index, 0 to 5.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum Figure {
+    /// Down the scale from a tone on the beat.
+    #[default]
+    ScaleDown,
+    /// Up the scale from a tone on the beat.
+    ScaleUp,
+    /// Up the arpeggio, the octave on the beat, and down the scale.
+    ArpeggioUpScaleDown,
+    /// Up the arpeggio from the third of the chord the line thinks in - its
+    /// third, fifth, seventh and ninth - and down the scale from the octave.
+    FromTheThird,
+    /// Up the arpeggio from the chord's OWN third - over Dm7 F A C E, the
+    /// Fmaj7 inside it - and down the scale.
+    FromTheChordsThird,
+    /// A tone on the beat enclosed - the scale note above it, the chromatic
+    /// note below - then up its arpeggio and down a note of the scale.
+    Enclosure,
+}
+
+impl From<usize> for Figure {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => Figure::ScaleUp,
+            2 => Figure::ArpeggioUpScaleDown,
+            3 => Figure::FromTheThird,
+            4 => Figure::FromTheChordsThird,
+            5 => Figure::Enclosure,
+            _ => Figure::ScaleDown,
+        }
+    }
+}
+
+/// Where the figure over each chord starts. Saved as its index, 0 to 3.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum Start {
+    /// The chord's root, every chord.
+    #[default]
+    Root,
+    /// The chord's third, every chord.
+    Third,
+    /// The tones on the beat in turn: root, third, then the other two.
+    InTurn,
+    /// One line through the whole tune: each chord starts on its tone on the
+    /// beat nearest the last note, the way the line was going.
+    Continuous,
+}
+
+impl From<usize> for Start {
+    fn from(index: usize) -> Self {
+        match index {
+            1 => Start::Third,
+            2 => Start::InTurn,
+            3 => Start::Continuous,
+            _ => Start::Root,
+        }
+    }
+}
+
+/// One note of a figure: a place in the ring, or a semitone above the
+/// chord's root that the ring may not hold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Note {
+    Place(i32),
+    Semitone(i32),
+}
+
+/// The chord a figure is played over: its ring, its own four tones, its root.
+struct Over<'a> {
+    ring: &'a Ring,
+    own: [i32; 4],
+    root: i32,
+}
+
+impl Over<'_> {
+    fn new(chord: &Chord) -> Option<Over<'_>> {
+        let ring = ring(&chord.quality)?;
+        let tones = chord.quality.intervals();
+        let own = [0, 1, 2, 3].map(|k| tones.get(k).copied().unwrap_or(0) as i32);
+        Some(Over { ring, own, root: chord.root as i32 })
+    }
+
+    /// The pitch of a note, in semitones from C in the octave the line counts
+    /// from - see `C3`.
+    fn pitch(&self, note: Note) -> i32 {
+        self.root
+            + match note {
+                Note::Place(p) => self.ring.pitch(p),
+                Note::Semitone(s) => s,
+            }
+    }
+
+    /// The highest tone on the beat below `semitones` above the root: where
+    /// the scale goes down from, so its tones on the beat stay on the beat.
+    fn place_below(&self, semitones: i32) -> i32 {
+        (-32..48).filter(|&p| p % 2 == 0 && self.ring.pitch(p) < semitones).max().unwrap_or(0)
+    }
+}
+
+impl Figure {
+    /// The figure from `start`, eight notes - a bar of eighth notes. `start`
+    /// is a place in the ring; for the chord's own third it is the octave.
+    fn notes(self, over: &Over, start: i32) -> [Note; 8] {
+        use Note::{Place, Semitone};
+        let s = start;
+        match self {
+            Figure::ScaleDown => [0, 1, 2, 3, 4, 5, 6, 7].map(|k| Place(s - k)),
+            Figure::ScaleUp => [0, 1, 2, 3, 4, 5, 6, 7].map(|k| Place(s + k)),
+            Figure::ArpeggioUpScaleDown => [0, 2, 4, 6, 8, 7, 6, 5].map(|k| Place(s + k)),
+            // The ninth is one place above the octave of the root; from it
+            // the octave of the root is the next tone on the beat.
+            Figure::FromTheThird => [0, 2, 4, 7, 6, 5, 4, 3].map(|k| Place(s + k)),
+            Figure::FromTheChordsThird => {
+                let [_, third, fifth, seventh] = over.own;
+                let octave = 12 * s;
+                let ninth = octave + 14;
+                let below = over.place_below(ninth);
+                [
+                    Semitone(octave + third),
+                    Semitone(octave + fifth),
+                    Semitone(octave + seventh),
+                    Semitone(ninth),
+                    Place(below),
+                    Place(below - 1),
+                    Place(below - 2),
+                    Place(below - 3),
+                ]
+            }
+            Figure::Enclosure => [
+                Place(over.ring.above(s)),
+                Semitone(over.ring.pitch(s) - 1),
+                Place(s),
+                Place(s + 2),
+                Place(s + 4),
+                Place(s + 6),
+                Place(s + 8),
+                Place(s + 7),
+            ],
+        }
+    }
+
+    /// The same path the other way, for a scale; the arpeggio figures have
+    /// no other way.
+    fn turned(self) -> Option<Figure> {
+        match self {
+            Figure::ScaleDown => Some(Figure::ScaleUp),
+            Figure::ScaleUp => Some(Figure::ScaleDown),
+            _ => None,
+        }
+    }
+
+    /// Whether the figure starts from a third and only its octave is chosen.
+    fn from_a_third(self) -> bool {
+        matches!(self, Figure::FromTheThird | Figure::FromTheChordsThird)
+    }
+}
+
+/// The settings a line is built from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Recipe {
+    pub figure: Figure,
+    pub start: Start,
+    /// Eight notes over a chord that lasts a bar, four over one of two beats.
+    pub notes: usize,
+}
+
+impl Default for Recipe {
+    fn default() -> Self {
+        Recipe { figure: Figure::ScaleDown, start: Start::Root, notes: 8 }
+    }
+}
+
+/// The lowest and highest a continuous line may go, in semitones from C3
+/// (MIDI 48): the low E string open, E2, to the high one at the twelfth fret,
+/// E5. A pitch of the line is `C3 + root + the note's semitones`, so the
+/// drawing can lay the line on the neck where it really is.
+const LOWEST: i32 = -8;
+const HIGHEST: i32 = 28;
+/// MIDI of the pitch the line counts from.
+pub const C3: i32 = 48;
+
+/// The steps over each chord of `chords`, in the order given - the order they
+/// are played in. A chord without a ring gets `None`, and the line resumes
+/// after it from where it would have been.
+pub fn line<'a>(chords: impl IntoIterator<Item = &'a Chord>, recipe: Recipe) -> Vec<Option<Vec<Step>>> {
+    let mut last: Option<i32> = None;
+    // The figure now being played: one line turns a scale round where it
+    // reaches the end of the range, so the scale up becomes the scale down.
+    let mut figure = recipe.figure;
+    chords
+        .into_iter()
+        .enumerate()
+        .map(|(at, chord)| {
+            let over = Over::new(chord)?;
+            let (start, now) = start_place(&over, recipe, figure, at, last);
+            figure = now;
+            let notes = now.notes(&over, start);
+            let notes = &notes[..recipe.notes.clamp(1, 8)];
+            last = notes.last().map(|&n| over.pitch(n));
+            Some(notes.iter().map(|&n| step(n)).collect())
+        })
+        .collect()
+}
+
+fn step(note: Note) -> Step {
+    match note {
+        Note::Place(p) => Step { degree: p.rem_euclid(8) as usize, octave: p.div_euclid(8) as i8 },
+        Note::Semitone(s) => Step { degree: 8 + s.rem_euclid(12) as usize, octave: s.div_euclid(12) as i8 },
+    }
+}
+
+/// Semitones above the chord's root of a step of a Harris line.
+#[cfg(test)]
+fn step_semitones(ring: &Ring, step: Step) -> i32 {
+    let octave = 12 * step.octave as i32;
+    match step.degree {
+        d if d < 8 => ring.semitones[d] as i32 + octave,
+        d => (d - 8) as i32 + octave,
+    }
+}
+
+/// Where the figure over a chord starts, and the figure itself - a
+/// continuous line may have turned it round.
+fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Option<i32>) -> (i32, Figure) {
+    // The arpeggio from a third starts on that third whatever the setting,
+    // and only its octave is chosen: for the dominant's third a place, for
+    // the chord's own the octave itself.
+    let third = over.ring.thought_root + 2;
+    let fixed = match recipe.start {
+        _ if figure == Figure::FromTheThird => third,
+        _ if figure == Figure::FromTheChordsThird => 0,
+        Start::Root | Start::Continuous => 0,
+        Start::Third => 2,
+        Start::InTurn => 2 * (at as i32 % 4),
+    };
+    if recipe.start != Start::Continuous {
+        return (fixed, figure);
+    }
+    let first = |f: Figure, s: &i32| over.pitch(f.notes(over, *s)[0]);
+    // Starts a few octaves round the last note whose figure lies within the
+    // range: tones on the beat, the dominant's third, or the octaves of the
+    // chord's own third.
+    //
+    // Never the last note again, in any octave, where there is a choice: the
+    // judge could take the old one still ringing for the new. A figure from a
+    // third has none - over a V going to its I, the dominant's sixth is the
+    // tonic's third - and avoids only the very same note.
+    let candidates = |f: Figure| -> Vec<i32> {
+        let starts: Vec<i32> = match f {
+            Figure::FromTheThird => (-24..24).filter(|p| (p - third).rem_euclid(8) == 0).collect(),
+            Figure::FromTheChordsThird => (-3..=3).collect(),
+            _ => (-24..24).filter(|p| p % 2 == 0).collect(),
+        };
+        starts
+            .into_iter()
+            .filter(|&s| fits(over, f, s))
+            .filter(|s| {
+                last.is_none_or(|last| {
+                    if f.from_a_third() { first(f, s) != last } else { (first(f, s) - last).rem_euclid(12) != 0 }
+                })
+            })
+            .collect()
+    };
+    // Where a line sets out: at the end of the range away from where the
+    // figure drifts - the top for the scale down, the bottom for the scale
+    // up and for the arpeggio and the enclosure, which climb a little with
+    // every chord - so it has the range to run through. A figure from a
+    // third barely moves and sets out in the middle.
+    let afresh = |f: Figure, c: &[i32]| -> Option<i32> {
+        match f {
+            Figure::ScaleDown => c.iter().max_by_key(|s| first(f, s)).copied(),
+            _ if f.from_a_third() => c.iter().min_by_key(|s| (first(f, s) - (LOWEST + HIGHEST) / 2).abs()).copied(),
+            _ => c.iter().min_by_key(|s| first(f, s)).copied(),
+        }
+    };
+    let here = candidates(figure);
+    let Some(last) = last else {
+        return (afresh(figure, &here).unwrap_or(fixed), figure);
+    };
+    // On the way the line was going, a step or two. A figure from a third has
+    // its tone fixed and takes the octave nearest.
+    let onward = |f: Figure, c: &[i32]| -> Option<i32> {
+        if f.from_a_third() {
+            return c.iter().min_by_key(|s| (first(f, s) - last).abs()).copied();
+        }
+        let next = match f {
+            Figure::ScaleUp => c.iter().filter(|s| first(f, s) > last).min_by_key(|s| first(f, s)),
+            _ => c.iter().filter(|s| first(f, s) < last).max_by_key(|s| first(f, s)),
+        };
+        next.filter(|s| (first(f, s) - last).abs() <= 4).copied()
+    };
+    if let Some(start) = onward(figure, &here) {
+        return (start, figure);
+    }
+    // The end of the range: a scale turns round and goes on by step; an
+    // arpeggio figure starts again from the far end.
+    if let Some(turned) = figure.turned() {
+        if let Some(start) = onward(turned, &candidates(turned)) {
+            return (start, turned);
+        }
+    }
+    (afresh(figure, &here).unwrap_or(fixed), figure)
+}
+
+/// Whether the whole figure from `start` lies within the range - all eight
+/// notes even where four are played, so the four are the first half of it.
+fn fits(over: &Over, figure: Figure, start: i32) -> bool {
+    figure.notes(over, start).iter().all(|&n| (LOWEST..=HIGHEST).contains(&over.pitch(n)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{NoteName, parse_chords_line_pub};
+
+    fn chords(line: &str) -> Vec<Chord> {
+        parse_chords_line_pub(line)
+    }
+
+    const QUALITIES: [ChordQuality; 7] = [
+        ChordQuality::Major7,
+        ChordQuality::Dominant7,
+        ChordQuality::Minor7,
+        ChordQuality::HalfDiminished,
+        ChordQuality::Diminished,
+        ChordQuality::Minor6,
+        ChordQuality::MinorMajor7,
+    ];
+    const FIGURES: [Figure; 6] = [
+        Figure::ScaleDown,
+        Figure::ScaleUp,
+        Figure::ArpeggioUpScaleDown,
+        Figure::FromTheThird,
+        Figure::FromTheChordsThird,
+        Figure::Enclosure,
+    ];
+
+    fn chord_on_c(quality: ChordQuality) -> Chord {
+        Chord { root: NoteName::C, quality }
+    }
+
+    /// The pitch classes of a line's steps over `chord`.
+    fn classes(chord: &Chord, steps: &[Step]) -> Vec<i32> {
+        let ring = ring(&chord.quality).unwrap();
+        steps.iter().map(|&s| (chord.root as i32 + step_semitones(ring, s)).rem_euclid(12)).collect()
+    }
+    const STARTS: [Start; 4] = [Start::Root, Start::Third, Start::InTurn, Start::Continuous];
+
+    /// The tones the line thinks of as the chord: the even places.
+    fn on_the_beat(ring: &Ring) -> Vec<u8> {
+        (0..4).map(|k| ring.semitones[2 * k]).collect()
+    }
+
+    /// The whole point: whatever the figure, the chord or where it starts,
+    /// every note on a beat - every other note - is a tone of the chord the
+    /// line thinks in.
+    #[test]
+    fn every_beat_falls_on_a_chord_tone() {
+        for quality in QUALITIES {
+            let chord = chord_on_c(quality.clone());
+            let over = Over::new(&chord).unwrap();
+            for figure in FIGURES {
+                let starts: Vec<i32> = match figure {
+                    Figure::FromTheThird => vec![over.ring.thought_root + 2],
+                    Figure::FromTheChordsThird => vec![0],
+                    _ => vec![0, 2, 4, 6],
+                };
+                for start in starts {
+                    let notes = figure.notes(&over, start);
+                    for k in (0..8).step_by(2) {
+                        // The enclosure comes down from the note above on
+                        // the first beat; the chord's own arpeggio has its
+                        // own tones on the first two.
+                        let lead_in = (figure == Figure::Enclosure && k == 0)
+                            || (figure == Figure::FromTheChordsThird && k < 4);
+                        if lead_in {
+                            continue;
+                        }
+                        let Note::Place(p) = notes[k] else {
+                            panic!("{quality:?} {figure:?} from {start}: note {k} outside the ring");
+                        };
+                        assert_eq!(p.rem_euclid(2), 0, "{quality:?} {figure:?} from {start}: note {k} off the beat");
+                    }
+                }
+            }
+        }
+    }
+
+    /// An enclosure: over C6 diminished the E is approached from the F above
+    /// and the D# below, then the arpeggio up from it - F D# E G A C E D.
+    #[test]
+    fn an_enclosure_comes_from_above_and_below() {
+        let chord = chord_on_c(ChordQuality::Major7);
+        let recipe = Recipe { figure: Figure::Enclosure, start: Start::Third, notes: 8 };
+        let steps = line(std::slice::from_ref(&chord), recipe)[0].clone().unwrap();
+        assert_eq!(classes(&chord, &steps), vec![5, 3, 4, 7, 9, 0, 4, 2]);
+        let ring = ring(&chord.quality).unwrap();
+        let names: Vec<String> = steps.iter().map(|s| names(ring, &chord.quality)[s.degree].clone()).collect();
+        assert_eq!(names, ["4", "#2", "3", "5", "6", "1", "3", "2"]);
+    }
+
+    /// The chord's own third: over Dm7 the Fmaj7 inside it, F A C E, then
+    /// down the scale the line thinks in, G7's - D C B A.
+    #[test]
+    fn the_chords_own_third_plays_the_arpeggio_inside_it() {
+        let chord = chords("Dm7")[0].clone();
+        let recipe = Recipe { figure: Figure::FromTheChordsThird, ..Recipe::default() };
+        let steps = line(std::slice::from_ref(&chord), recipe)[0].clone().unwrap();
+        assert_eq!(classes(&chord, &steps), vec![5, 9, 0, 4, 2, 0, 11, 9]);
+    }
+
+    /// The rings are what the module says they are: eight notes, rising
+    /// within the octave, the root first.
+    #[test]
+    fn each_ring_is_eight_notes_rising_from_the_root() {
+        for quality in QUALITIES {
+            let ring = ring(&quality).unwrap();
+            assert_eq!(ring.semitones[0], 0);
+            assert!(ring.semitones.windows(2).all(|w| w[0] < w[1]), "{quality:?}");
+            assert_eq!(ring.thought_root % 2, 0, "{quality:?}: the thought root off the beat");
+        }
+    }
+
+    /// The minor seventh thinks in the dominant a fourth up: over Gm7 the
+    /// beats are C7's tones. The half-diminished thinks in the dominant a
+    /// major third down: over Am7b5 the beats are F7's.
+    #[test]
+    fn minor_and_half_diminished_think_in_their_dominants() {
+        let pcs = |ring: &Ring, root: u8| -> Vec<u8> {
+            let mut v: Vec<u8> = on_the_beat(ring).iter().map(|s| (s + root) % 12).collect();
+            v.sort();
+            v
+        };
+        // G = 7: C E G Bb.
+        assert_eq!(pcs(ring(&ChordQuality::Minor7).unwrap(), 7), vec![0, 4, 7, 10]);
+        // A = 9: F A C Eb.
+        assert_eq!(pcs(ring(&ChordQuality::HalfDiminished).unwrap(), 9), vec![0, 3, 5, 9]);
+    }
+
+    /// Down from the root of C7: C B Bb A G F E D - Harris's first rule.
+    #[test]
+    fn the_scale_down_from_the_root_of_a_dominant() {
+        let line = line(&chords("C7"), Recipe::default());
+        let steps = line[0].as_ref().unwrap();
+        let names: Vec<&str> = steps.iter().map(|s| DOMINANT.names[s.degree]).collect();
+        assert_eq!(names, ["1", "(7)", "b7", "6", "5", "4", "3", "2"]);
+    }
+
+    /// The arpeggio from the third of the dominant: E G Bb D over C7, then
+    /// down from C. Over Gm7 the same notes, thought in C7.
+    #[test]
+    fn from_the_third_plays_the_dominants_third_up() {
+        let recipe = Recipe { figure: Figure::FromTheThird, ..Recipe::default() };
+        let pcs = |line: &str| -> Vec<i32> {
+            let chord = &chords(line)[0];
+            let ring = ring(&chord.quality).unwrap();
+            let steps = super::line(std::slice::from_ref(chord), recipe)[0].clone().unwrap();
+            steps
+                .iter()
+                .map(|&s| (chord.root as i32 + step_semitones(ring, s)).rem_euclid(12))
+                .collect()
+        };
+        // E G Bb D C B Bb A
+        assert_eq!(pcs("C7"), vec![4, 7, 10, 2, 0, 11, 10, 9]);
+        assert_eq!(pcs("Gm7"), vec![4, 7, 10, 2, 0, 11, 10, 9]);
+    }
+
+    /// One line through the tune: every chord after the first starts on a
+    /// tone on the beat a step or two from where the last one ended - or
+    /// that an octave away, where the line would leave the guitar's range -
+    /// and the line keeps to the range.
+    #[test]
+    fn a_continuous_line_moves_by_step_into_each_chord() {
+        let tune = chords("Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7");
+        for figure in FIGURES {
+            let recipe = Recipe { figure, start: Start::Continuous, notes: 8 };
+            let line = line(&tune, recipe);
+            let mut last: Option<i32> = None;
+            for (chord, steps) in tune.iter().zip(&line) {
+                let ring = ring(&chord.quality).unwrap();
+                let pitches: Vec<i32> = steps
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|&s| chord.root as i32 + step_semitones(ring, s))
+                    .collect();
+                assert!(pitches.iter().all(|p| (LOWEST..=HIGHEST).contains(p)), "{figure:?} out of range: {pitches:?}");
+                if let Some(last) = last {
+                    let leap = (pitches[0] - last).abs();
+                    let same = if figure.from_a_third() { leap == 0 } else { leap % 12 == 0 };
+                    assert!(!same, "{figure:?} into {chord:?}: the same note again");
+                    // The third has no choice of tone, only of octave.
+                    let (leap, most) = if figure.from_a_third() { (leap.min((leap - 12).abs()), 6) } else { (leap, 4) };
+                    // Or the line starts afresh from the far end of the range.
+                    let afresh = pitches.iter().min().unwrap() < &(LOWEST + 5)
+                        || pitches.iter().max().unwrap() > &(HIGHEST - 5);
+                    assert!(leap <= most || afresh, "{figure:?} into {chord:?}: {last} -> {}", pitches[0]);
+                }
+                last = pitches.last().copied();
+            }
+        }
+    }
+
+    /// Four notes over a chord of two beats: the first half of the figure.
+    #[test]
+    fn four_notes_are_the_first_half() {
+        for figure in FIGURES {
+            for start in STARTS {
+                let eight = line(&chords("C7 F7"), Recipe { figure, start, notes: 8 });
+                let four = line(&chords("C7"), Recipe { figure, start, notes: 4 });
+                assert_eq!(four[0].as_ref().unwrap()[..], eight[0].as_ref().unwrap()[..4]);
+            }
+        }
+    }
+
+    /// A chord of the user's own scale has no ring and no line.
+    #[test]
+    fn a_custom_chord_has_no_line() {
+        let custom = Chord {
+            root: NoteName::C,
+            quality: ChordQuality::CustomScale(crate::model::ScaleDefinition {
+                name: "x".into(),
+                intervals: vec![0, 3, 7],
+                names: vec!["1".into(), "b3".into(), "5".into()],
+            }),
+        };
+        assert!(line(&[custom], Recipe::default())[0].is_none());
+    }
+
+    /// The first chorus of Autumn Leaves in every figure, written out for a
+    /// person to read: `cargo test --release harris_print -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn harris_print() {
+        let tune = chords("Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7");
+        for figure in FIGURES {
+            for start in STARTS {
+                println!("\n{figure:?}, {start:?}");
+                for (chord, steps) in tune.iter().zip(line(&tune, Recipe { figure, start, notes: 8 })) {
+                    let ring = ring(&chord.quality).unwrap();
+                    let steps = steps.unwrap();
+                    let notes: Vec<String> = steps
+                        .iter()
+                        .map(|&s| format!("{:?}", NoteName::from_index((chord.root as i32 + step_semitones(ring, s)).rem_euclid(12) as usize)))
+                        .collect();
+                    let degrees: Vec<String> = steps.iter().map(|s| names(ring, &chord.quality)[s.degree].clone()).collect();
+                    println!("{:>8}  {:<32} {}", short(chord), notes.join(" "), degrees.join(" "));
+                }
+            }
+        }
+    }
+
+    fn short(chord: &Chord) -> String {
+        let q = match chord.quality {
+            ChordQuality::Major7 => "maj7",
+            ChordQuality::Dominant7 => "7",
+            ChordQuality::Minor7 => "m7",
+            ChordQuality::HalfDiminished => "m7b5",
+            ChordQuality::Diminished => "dim7",
+            ChordQuality::Minor6 => "m6",
+            ChordQuality::MinorMajor7 => "mMaj7",
+            ChordQuality::CustomScale(_) => "?",
+        };
+        format!("{:?}{q}", chord.root)
+    }
+}
+
+#[cfg(test)]
+mod examples {
+    use super::*;
+    use crate::model::parse_chords_line_pub;
+
+    /// The guide's examples as the program builds them, one line a chord:
+    /// `chord|figure|start|pitch classes|names`.
+    /// `cargo test --release harris_examples -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn harris_examples() {
+        let cases = [
+            ("C7", 0, 0), ("Cm7 F7 BbMaj7 EbMaj7", 0, 3), ("Am7b5 D7 Gm7", 0, 0),
+            ("F7", 2, 0), ("Cm7 F7 BbMaj7", 3, 0), ("Cm7 F7 BbMaj7 EbMaj7", 0, 2),
+            ("Cm7 F7 BbMaj7 EbMaj7", 1, 3), ("C7 Cm7 Am7b5 CMaj7 Cdim7", 0, 0),
+            ("Dm7 G7 CMaj7", 3, 0), ("Dm7 G7 CMaj7", 4, 0), ("CMaj7", 5, 1), ("Dm7 G7 CMaj7", 5, 3),
+        ];
+        for (tune, figure, start) in cases {
+            let chords = parse_chords_line_pub(tune);
+            let recipe = Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            for (chord, steps) in chords.iter().zip(line(&chords, recipe)) {
+                let ring = ring(&chord.quality).unwrap();
+                let steps = steps.unwrap();
+                let pcs: Vec<String> = steps.iter().map(|&s| (chord.root as i32 + step_semitones(ring, s)).rem_euclid(12).to_string()).collect();
+                let names: Vec<String> = steps.iter().map(|s| super::names(ring, &chord.quality)[s.degree].clone()).collect();
+                println!("EX|{tune}|{figure}|{start}|{:?}|{:?}|{}|{}", chord.root, chord.quality, pcs.join(" "), names.join(" "));
+            }
+        }
+    }
+}
+
