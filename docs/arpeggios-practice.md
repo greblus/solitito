@@ -140,9 +140,11 @@ eighth notes.
 | **Arpeggio, scale down** | the arpeggio up, the octave on a strong beat, then down the scale | `F A C E♭ F E   E♭ D`<br>`1 3 5 ♭7 1 (7) ♭7 6` |
 | **Dominant's third** | the arpeggio from the dominant's third: `3 5 7 9`, then down the scale | `A C E♭ G F E   E♭ D`<br>`6 1 ♭3 5 4 (3) ♭3 2` |
 | **Chord's third** | the arpeggio from the third of the chord itself: `3 5 7 9`, then down the scale | `F  A C  E D C  B A`<br>`♭3 5 ♭7 2 1 ♭7 6 5` |
-| **Enclosure** | the note above the target, the note a half step below it, the target on a strong beat, then the arpeggio | `F D♯ E G A C E D`<br>`4 ♯2 3 5 6 1 3 2` |
+| **Enclosure** | the note above the target, the note a half step below it, the target, the arpeggio to the seventh, a step down | `D B C E G B A`<br>`2 7 1 3 5 7 6` |
+| **Drop to the 3rd** | the root, the half step under the third an octave down, the third, the seventh, two steps down | `C D♯ E B A G`<br>`1 ♯2 3 7 6 5` |
+| **3rd into the root** | the third, the half step under the root, the note above it, the root | `E B D C`<br>`3 7 2 1` |
 
-The examples are over C7, Cm7, F7, Cm7, Dm7 and Cmaj7, in that order.
+The examples are over C7, Cm7, F7, Cm7, Dm7 and three times over Cmaj7, in that order.
 
 ### Two thirds
 
@@ -166,21 +168,44 @@ Over a II–V–I in C:
 Over G7 both play the same, because there the chord is the dominant. They differ over Dm7 and
 over Cmaj7.
 
-### Enclosure
+### Three phrases
 
-An **enclosure** is a figure in which two approach notes come before the target: first the scale
-note above it, then the note a half step below. The target lands on a strong beat. The note below
-is often outside the scale, and that is exactly why it pulls so hard towards the target. The app
-practises this one kind of enclosure; in improvising other shapes are used too. Over Cmaj7, into
-E:
+The figures above are paths through the scale. The last three are different: short phrases of the
+kind heard in bebop solos, turned into an exercise. Each starts on a chord tone, and each can be
+played over every chord. They are built from the chord's own tones and its plain scale, without the
+passing note.
 
-| | Cmaj7 |
-|---|---|
-| Enclosure | `F D♯ E G A C E D`<br>`4 ♯2 3 5 6 1 3 2` |
+**Enclosure.** Two approach notes come before the target: first the scale note above it, then the
+note a half step below. Then the arpeggio up to the seventh and one step down the scale. The note
+below the target is often outside the scale, and that is exactly why it pulls so hard towards it.
+The app practises this one kind of enclosure; in improvising other shapes are used too.
 
-F (`4`) is above the target, D♯ (`#2`) below it, and E (`3`) lands on the strong beat. Then the
-arpeggio goes up and one note of the scale comes down. The app credits the note outside the scale
-like any other.
+**Drop to the 3rd.** The root, then a drop of nearly an octave to the note a half step below the
+third, the third, a leap up to the seventh and two steps down the scale. That drop in the middle is
+what makes it sound like a phrase rather than a scale.
+
+**3rd into the root.** The third, then the root enclosed from both sides: the note a half step below
+it, the scale note above it, and the root itself. Four notes, and already they sound like the end of
+a phrase.
+
+Over a II–V–I in C, from the root:
+
+| phrase | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| Enclosure | `E C♯ D F  A C  B`<br>`2 7  1 ♭3 5 ♭7 6` | `A F♯ G B D F  E`<br>`2 7  1 3 5 ♭7 6` | `D B C E G B A`<br>`2 7 1 3 5 7 6` |
+| Drop to the 3rd | `D E F  C  B A`<br>`1 2 ♭3 ♭7 6 5` | `G A♯ B F  E D`<br>`1 ♯2 3 ♭7 6 5` | `C D♯ E B A G`<br>`1 ♯2 3 7 6 5` |
+| 3rd into the root | `F  C♯ E D`<br>`♭3 7  2 1` | `B F♯ A G`<br>`3 7  2 1` | `E B D C`<br>`3 7 2 1` |
+
+The **From the third** start builds the same phrase on the chord from its third: over Dm7 on Fmaj7,
+over G7 on Bm7♭5, over Cmaj7 on Em7. The chord tones stay, and the ninth comes in:
+
+| phrase from the third | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| Enclosure | `G E F  A C  E D`<br>`4 2 ♭3 5 ♭7 2 1` | `C A♯ B D F  A G`<br>`4 ♯2 3 5 ♭7 2 1` | `F D♯ E G B D C`<br>`4 ♯2 3 5 7 2 1` |
+| Drop to the 3rd | `F  G♯ A E D C`<br>`♭3 ♯4 5 2 1 ♭7` | `B C♯ D A G F`<br>`3 ♯4 5 2 1 ♭7` | `E F♯ G D C B`<br>`3 ♯4 5 2 1 7` |
+| 3rd into the root | `A E G F`<br>`5 2 4 ♭3` | `D A♯ C B`<br>`5 ♯2 4 3` | `G D♯ F E`<br>`5 ♯2 4 3` |
+
+The app credits a note outside the scale like any other.
 
 ### Start
 
@@ -194,7 +219,7 @@ like any other.
 | **One line** | one line through the whole tune, described below |
 
 **Dominant's third** and **Chord's third** always begin on a third. For them the start chooses only
-the octave. With **Enclosure** the start says which note is the target.
+the octave. With the three phrases the start says which chord tone the phrase is built from.
 
 This is **In turn** with the scale down, at the start of Autumn Leaves:
 
@@ -260,11 +285,12 @@ time. That is a hint, not a requirement.
 3. The same **From the third**, then **In turn**.
 4. **Chord's third** over a II–V–I, then **Dominant's third**. Listen to how they differ over the
    II and over the I.
-5. **Enclosure** from the root, then from the third. Listen to the note a half step below pulling
-   into the target.
+5. **3rd into the root**, **Drop to the 3rd** and **Enclosure**, from the root, then from the
+   third. Listen to the note a half step below pulling into the target. When a phrase sounds
+   good, play it on the pause your own way.
 6. **One line** with the scale down, then up. Think of the next chord before you get there, as in
    [playing without the chord strip](intervals-practice.md#playing-without-the-chord-strip).
-7. **Arpeggio, scale down** or **Enclosure** with one line, and last with four notes a chord.
+7. **Arpeggio, scale down** or one of the phrases with one line, and last with four notes a chord.
 
 ---
 

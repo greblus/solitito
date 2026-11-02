@@ -845,6 +845,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_harris_from_third(t.harris_from_third.into());
     g.set_harris_own_third(t.harris_own_third.into());
     g.set_harris_enclosure(t.harris_enclosure.into());
+    g.set_harris_drop(t.harris_drop.into());
+    g.set_harris_into_root(t.harris_into_root.into());
     g.set_harris_start(t.harris_start.into());
     g.set_harris_from_root(t.harris_from_root.into());
     g.set_harris_from_3(t.harris_from_3.into());

@@ -550,22 +550,24 @@ single run of the table above. The same audio gives a different outcome
 from run to run; why is not known yet. The falling lines at 0.50 s came out
 whole every time.
 
-### Enclosures
+### Enclosures and phrases
 
 *`src/state/line_harness.rs`, `harris_enclosures`*
 
-The enclosure of the Harris lines comes down from the scale note above a
-tone on the beat to the chromatic note below it, which the chord's scale may
-not hold: B under C over C7, D# under E over C6 diminished. Measured on the
-whole app in Arpeggios, the line spliced at the pitches the app asks for,
-three runs:
+Three phrases of the Harris lines carry a note a half step below a chord
+tone that the chord's scale may not hold: the enclosure (D B C E G B A over
+Cmaj7), the drop to the third (C D# E B A G, a leap of most of an octave
+down) and the third into the root (E B D C). Measured on the whole app in
+Arpeggios, each line spliced at the pitches the app asks for - an octave up
+where it drops below AtoA's lowest A - over C7 from the root, C6 diminished
+and Dm7 from the third, three runs:
 
-  seconds a note   C7 from the root   C6 from the third   Dm7 from the third
-  0.50             8/8 (3 of 3)       8/8 (3 of 3)        8/8 (3 of 3)
-  0.40             0/8                0/8                 2/8
+  seconds a note   enclosure   drop to the third   third into the root
+  0.50             7/7         6/6                 4/4      every case, 3 of 3
+  0.40             0           0                   0
 
-No step credited before its note. The chromatic note goes through like any
-other; the limit is the usual one.
+No step credited before its note. The chromatic notes and the leap go
+through like any other; the limit is the usual one.
 
 ### The ear holding a ring
 

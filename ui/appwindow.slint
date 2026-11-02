@@ -763,6 +763,8 @@ export global Tr {
     in-out property <string> harris_from_third: "Dominant's third";
     in-out property <string> harris_own_third: "Chord's third";
     in-out property <string> harris_enclosure: "Enclosure";
+    in-out property <string> harris_drop: "Drop to the 3rd";
+    in-out property <string> harris_into_root: "3rd into the root";
     in-out property <string> harris_start: "Start";
     in-out property <string> harris_from_root: "From the root";
     in-out property <string> harris_from_3: "From the third";
@@ -1483,7 +1485,7 @@ export component AppWindow inherits Window {
                 }
                 if root.arp_exercise == 2 : Dropdown {
                     list-width: 260px;
-                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure];
+                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
                     current-index <=> root.harris_figure;
                     selected(v) => { root.harris_figure_changed(v); }
                 }
@@ -2872,7 +2874,7 @@ export component AppWindow inherits Window {
                                     }
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure];
+                                        model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
                                         current-index <=> root.harris_figure;
                                         selected(v) => { root.harris_figure_changed(v); }
                                     }

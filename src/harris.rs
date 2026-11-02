@@ -95,13 +95,6 @@ impl Ring {
     fn pitch(&self, place: i32) -> i32 {
         self.semitones[place.rem_euclid(8) as usize] as i32 + 12 * place.div_euclid(8)
     }
-
-    /// The place of the next note of the scale above `place`, the passing
-    /// note skipped: the note an enclosure comes down from.
-    fn above(&self, place: i32) -> i32 {
-        let next = place + 1;
-        if self.names[next.rem_euclid(8) as usize].starts_with('(') { next + 1 } else { next }
-    }
 }
 
 /// The twelve semitones above the root by name, for the notes a figure takes
@@ -127,7 +120,7 @@ pub fn semitones(ring: &Ring) -> Vec<u8> {
     ring.semitones.iter().copied().chain(0..12).collect()
 }
 
-/// The path a figure takes. Saved as its index, 0 to 5.
+/// The path a figure takes. Saved as its index, 0 to 7.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum Figure {
     /// Down the scale from a tone on the beat.
@@ -143,9 +136,17 @@ pub enum Figure {
     /// Up the arpeggio from the chord's OWN third - over Dm7 F A C E, the
     /// Fmaj7 inside it - and down the scale.
     FromTheChordsThird,
-    /// A tone on the beat enclosed - the scale note above it, the chromatic
-    /// note below - then up its arpeggio and down a note of the scale.
+    /// A chord tone enclosed - the scale note above it, the note a half step
+    /// below - then up its arpeggio to the seventh and a step down the scale:
+    /// over Cmaj7 D B C E G B A.
     Enclosure,
+    /// From a chord tone down to the half step under the next third an octave
+    /// lower, into that third, up to the seventh and two steps down the
+    /// scale: over Cmaj7 C D# E B A G.
+    DropToTheThird,
+    /// From the third into the root, enclosed - the half step below it, the
+    /// scale note above: over Cmaj7 E B D C.
+    ThirdIntoTheRoot,
 }
 
 impl From<usize> for Figure {
@@ -156,6 +157,8 @@ impl From<usize> for Figure {
             3 => Figure::FromTheThird,
             4 => Figure::FromTheChordsThird,
             5 => Figure::Enclosure,
+            6 => Figure::DropToTheThird,
+            7 => Figure::ThirdIntoTheRoot,
             _ => Figure::ScaleDown,
         }
     }
@@ -220,6 +223,30 @@ impl Over<'_> {
             }
     }
 
+    /// A tone of the chord stacked in thirds from the root: 0 the root, 1 the
+    /// third, 2 the fifth, 3 the seventh, then the ninth, eleventh and
+    /// thirteenth, and on again two octaves up.
+    fn tone(&self, k: i32) -> i32 {
+        let stack = [self.own[0], self.own[1], self.own[2], self.own[3], 14, 17, 21];
+        stack[k.rem_euclid(7) as usize] + 24 * k.div_euclid(7)
+    }
+
+    /// Whether `semitones` above the root is in the chord's scale: the ring
+    /// without its passing note.
+    fn in_scale(&self, semitones: i32) -> bool {
+        let pc = semitones.rem_euclid(12);
+        self.ring.semitones.iter().zip(self.ring.names).any(|(&s, n)| s as i32 == pc && !n.starts_with('('))
+    }
+
+    /// The next note of the scale above, and below, `semitones`.
+    fn scale_above(&self, semitones: i32) -> i32 {
+        (semitones + 1..semitones + 13).find(|&s| self.in_scale(s)).unwrap_or(semitones + 2)
+    }
+
+    fn scale_below(&self, semitones: i32) -> i32 {
+        (semitones - 12..semitones).rev().find(|&s| self.in_scale(s)).unwrap_or(semitones - 2)
+    }
+
     /// The highest tone on the beat below `semitones` above the root: where
     /// the scale goes down from, so its tones on the beat stay on the beat.
     fn place_below(&self, semitones: i32) -> i32 {
@@ -228,24 +255,31 @@ impl Over<'_> {
 }
 
 impl Figure {
-    /// The figure from `start`, eight notes - a bar of eighth notes. `start`
-    /// is a place in the ring; for the chord's own third it is the octave.
-    fn notes(self, over: &Over, start: i32) -> [Note; 8] {
+    /// The figure from `start`. The scale figures are eight notes - a bar of
+    /// eighth notes - and `start` is a place in the ring; the arpeggio from
+    /// the chord's own third takes it as the octave. The phrases - the
+    /// enclosure, the drop, the third into the root - are shorter, built on
+    /// the chord's own tones and its plain scale, and `start` is a chord tone
+    /// with its octave: 0 to 3 the root to the seventh, 4 up an octave.
+    fn notes(self, over: &Over, start: i32) -> Vec<Note> {
         use Note::{Place, Semitone};
         let s = start;
+        // A chord tone `k` tones above the one the phrase starts from.
+        let (k, octave) = (s.rem_euclid(4), 12 * s.div_euclid(4));
+        let tone = |up: i32| over.tone(k + up) + octave;
         match self {
-            Figure::ScaleDown => [0, 1, 2, 3, 4, 5, 6, 7].map(|k| Place(s - k)),
-            Figure::ScaleUp => [0, 1, 2, 3, 4, 5, 6, 7].map(|k| Place(s + k)),
-            Figure::ArpeggioUpScaleDown => [0, 2, 4, 6, 8, 7, 6, 5].map(|k| Place(s + k)),
+            Figure::ScaleDown => (0..8).map(|i| Place(s - i)).collect(),
+            Figure::ScaleUp => (0..8).map(|i| Place(s + i)).collect(),
+            Figure::ArpeggioUpScaleDown => [0, 2, 4, 6, 8, 7, 6, 5].map(|i| Place(s + i)).to_vec(),
             // The ninth is one place above the octave of the root; from it
             // the octave of the root is the next tone on the beat.
-            Figure::FromTheThird => [0, 2, 4, 7, 6, 5, 4, 3].map(|k| Place(s + k)),
+            Figure::FromTheThird => [0, 2, 4, 7, 6, 5, 4, 3].map(|i| Place(s + i)).to_vec(),
             Figure::FromTheChordsThird => {
                 let [_, third, fifth, seventh] = over.own;
                 let octave = 12 * s;
                 let ninth = octave + 14;
                 let below = over.place_below(ninth);
-                [
+                vec![
                     Semitone(octave + third),
                     Semitone(octave + fifth),
                     Semitone(octave + seventh),
@@ -256,16 +290,23 @@ impl Figure {
                     Place(below - 3),
                 ]
             }
-            Figure::Enclosure => [
-                Place(over.ring.above(s)),
-                Semitone(over.ring.pitch(s) - 1),
-                Place(s),
-                Place(s + 2),
-                Place(s + 4),
-                Place(s + 6),
-                Place(s + 8),
-                Place(s + 7),
-            ],
+            Figure::Enclosure => {
+                let target = tone(0);
+                let seventh = tone(3);
+                [over.scale_above(target), target - 1, target, tone(1), tone(2), seventh, over.scale_below(seventh)]
+                    .map(Semitone)
+                    .to_vec()
+            }
+            Figure::DropToTheThird => {
+                let third = tone(1) - 12;
+                let seventh = tone(3) - 12;
+                let sixth = over.scale_below(seventh);
+                [tone(0), third - 1, third, seventh, sixth, over.scale_below(sixth)].map(Semitone).to_vec()
+            }
+            Figure::ThirdIntoTheRoot => {
+                let target = tone(0);
+                [tone(1), target - 1, over.scale_above(target), target].map(Semitone).to_vec()
+            }
         }
     }
 
@@ -282,6 +323,12 @@ impl Figure {
     /// Whether the figure starts from a third and only its octave is chosen.
     fn from_a_third(self) -> bool {
         matches!(self, Figure::FromTheThird | Figure::FromTheChordsThird)
+    }
+
+    /// Whether the figure is a phrase on the chord's own tones, its start a
+    /// chord tone and an octave - see `notes`.
+    fn is_phrase(self) -> bool {
+        matches!(self, Figure::Enclosure | Figure::DropToTheThird | Figure::ThirdIntoTheRoot)
     }
 }
 
@@ -325,7 +372,7 @@ pub fn line<'a>(chords: impl IntoIterator<Item = &'a Chord>, recipe: Recipe) -> 
             let (start, now) = start_place(&over, recipe, figure, at, last);
             figure = now;
             let notes = now.notes(&over, start);
-            let notes = &notes[..recipe.notes.clamp(1, 8)];
+            let notes = &notes[..recipe.notes.clamp(1, notes.len())];
             last = notes.last().map(|&n| over.pitch(n));
             Some(notes.iter().map(|&n| step(n)).collect())
         })
@@ -356,12 +403,15 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
     // and only its octave is chosen: for the dominant's third a place, for
     // the chord's own the octave itself.
     let third = over.ring.thought_root + 2;
+    // A phrase counts its start in chord tones, a scale figure in places of
+    // the ring, where the chord tones are every other one.
+    let tone = if figure.is_phrase() { 1 } else { 2 };
     let fixed = match recipe.start {
         _ if figure == Figure::FromTheThird => third,
         _ if figure == Figure::FromTheChordsThird => 0,
         Start::Root | Start::Continuous => 0,
-        Start::Third => 2,
-        Start::InTurn => 2 * (at as i32 % 4),
+        Start::Third => tone,
+        Start::InTurn => tone * (at as i32 % 4),
     };
     if recipe.start != Start::Continuous {
         return (fixed, figure);
@@ -379,6 +429,7 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
         let starts: Vec<i32> = match f {
             Figure::FromTheThird => (-24..24).filter(|p| (p - third).rem_euclid(8) == 0).collect(),
             Figure::FromTheChordsThird => (-3..=3).collect(),
+            _ if f.is_phrase() => (-12..12).collect(),
             _ => (-24..24).filter(|p| p % 2 == 0).collect(),
         };
         starts
@@ -399,7 +450,7 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
     let afresh = |f: Figure, c: &[i32]| -> Option<i32> {
         match f {
             Figure::ScaleDown => c.iter().max_by_key(|s| first(f, s)).copied(),
-            _ if f.from_a_third() => c.iter().min_by_key(|s| (first(f, s) - (LOWEST + HIGHEST) / 2).abs()).copied(),
+            _ if f.from_a_third() || f.is_phrase() => c.iter().min_by_key(|s| (first(f, s) - (LOWEST + HIGHEST) / 2).abs()).copied(),
             _ => c.iter().min_by_key(|s| first(f, s)).copied(),
         }
     };
@@ -409,8 +460,9 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
     };
     // On the way the line was going, a step or two. A figure from a third has
     // its tone fixed and takes the octave nearest.
+    // A phrase starts on the chord tone nearest, whichever way.
     let onward = |f: Figure, c: &[i32]| -> Option<i32> {
-        if f.from_a_third() {
+        if f.from_a_third() || f.is_phrase() {
             return c.iter().min_by_key(|s| (first(f, s) - last).abs()).copied();
         }
         let next = match f {
@@ -432,8 +484,8 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
     (afresh(figure, &here).unwrap_or(fixed), figure)
 }
 
-/// Whether the whole figure from `start` lies within the range - all eight
-/// notes even where four are played, so the four are the first half of it.
+/// Whether the whole figure from `start` lies within the range - every note
+/// even where four are played, so the four are the first half of it.
 fn fits(over: &Over, figure: Figure, start: i32) -> bool {
     figure.notes(over, start).iter().all(|&n| (LOWEST..=HIGHEST).contains(&over.pitch(n)))
 }
@@ -456,13 +508,15 @@ mod tests {
         ChordQuality::Minor6,
         ChordQuality::MinorMajor7,
     ];
-    const FIGURES: [Figure; 6] = [
+    const FIGURES: [Figure; 8] = [
         Figure::ScaleDown,
         Figure::ScaleUp,
         Figure::ArpeggioUpScaleDown,
         Figure::FromTheThird,
         Figure::FromTheChordsThird,
         Figure::Enclosure,
+        Figure::DropToTheThird,
+        Figure::ThirdIntoTheRoot,
     ];
 
     fn chord_on_c(quality: ChordQuality) -> Chord {
@@ -489,7 +543,9 @@ mod tests {
         for quality in QUALITIES {
             let chord = chord_on_c(quality.clone());
             let over = Over::new(&chord).unwrap();
-            for figure in FIGURES {
+            // The phrases are counted in chord tones, not beats: see their
+            // own tests.
+            for figure in FIGURES.into_iter().filter(|f| !f.is_phrase()) {
                 let starts: Vec<i32> = match figure {
                     Figure::FromTheThird => vec![over.ring.thought_root + 2],
                     Figure::FromTheChordsThird => vec![0],
@@ -498,11 +554,9 @@ mod tests {
                 for start in starts {
                     let notes = figure.notes(&over, start);
                     for k in (0..8).step_by(2) {
-                        // The enclosure comes down from the note above on
-                        // the first beat; the chord's own arpeggio has its
-                        // own tones on the first two.
-                        let lead_in = (figure == Figure::Enclosure && k == 0)
-                            || (figure == Figure::FromTheChordsThird && k < 4);
+                        // The chord's own arpeggio has its own tones on the
+                        // first two beats.
+                        let lead_in = figure == Figure::FromTheChordsThird && k < 4;
                         if lead_in {
                             continue;
                         }
@@ -516,17 +570,62 @@ mod tests {
         }
     }
 
-    /// An enclosure: over C6 diminished the E is approached from the F above
-    /// and the D# below, then the arpeggio up from it - F D# E G A C E D.
+    /// The phrases, note for note as the examples they come from are
+    /// written: the pitch classes over each chord, from the root and from
+    /// the third.
+    fn phrase(figure: Figure, chord: &str, start: Start) -> Vec<i32> {
+        let chord = chords(chord)[0].clone();
+        let steps = line(std::slice::from_ref(&chord), Recipe { figure, start, notes: 8 })[0].clone().unwrap();
+        classes(&chord, &steps)
+    }
+
+    const C: i32 = 0;
+    const CS: i32 = 1;
+    const D: i32 = 2;
+    const DS: i32 = 3;
+    const E: i32 = 4;
+    const F: i32 = 5;
+    const FS: i32 = 6;
+    const G: i32 = 7;
+    const GS: i32 = 8;
+    const A: i32 = 9;
+    const AS: i32 = 10;
+    const B: i32 = 11;
+
     #[test]
-    fn an_enclosure_comes_from_above_and_below() {
+    fn an_enclosure_then_the_arpeggio_and_a_step_down() {
+        assert_eq!(phrase(Figure::Enclosure, "CMaj7", Start::Root), [D, B, C, E, G, B, A]);
+        assert_eq!(phrase(Figure::Enclosure, "Dm7", Start::Root), [E, CS, D, F, A, C, B]);
+        assert_eq!(phrase(Figure::Enclosure, "G7", Start::Root), [A, FS, G, B, D, F, E]);
+        // From the third: over Dm7 the Fmaj7 inside it.
+        assert_eq!(phrase(Figure::Enclosure, "Dm7", Start::Third), [G, E, F, A, C, E, D]);
         let chord = chord_on_c(ChordQuality::Major7);
-        let recipe = Recipe { figure: Figure::Enclosure, start: Start::Third, notes: 8 };
-        let steps = line(std::slice::from_ref(&chord), recipe)[0].clone().unwrap();
-        assert_eq!(classes(&chord, &steps), vec![5, 3, 4, 7, 9, 0, 4, 2]);
+        let steps = line(std::slice::from_ref(&chord), Recipe { figure: Figure::Enclosure, ..Recipe::default() })[0].clone().unwrap();
         let ring = ring(&chord.quality).unwrap();
         let names: Vec<String> = steps.iter().map(|s| names(ring, &chord.quality)[s.degree].clone()).collect();
-        assert_eq!(names, ["4", "#2", "3", "5", "6", "1", "3", "2"]);
+        assert_eq!(names, ["2", "7", "1", "3", "5", "7", "6"]);
+    }
+
+    #[test]
+    fn a_drop_to_the_third_with_its_leading_note() {
+        assert_eq!(phrase(Figure::DropToTheThird, "CMaj7", Start::Root), [C, DS, E, B, A, G]);
+        assert_eq!(phrase(Figure::DropToTheThird, "Dm7", Start::Root), [D, E, F, C, B, A]);
+        assert_eq!(phrase(Figure::DropToTheThird, "G7", Start::Root), [G, AS, B, F, E, D]);
+        assert_eq!(phrase(Figure::DropToTheThird, "FMaj7", Start::Root), [F, GS, A, E, D, C]);
+        // The third really drops: an octave below the root.
+        let chord = chords("CMaj7")[0].clone();
+        let steps = line(std::slice::from_ref(&chord), Recipe { figure: Figure::DropToTheThird, ..Recipe::default() })[0].clone().unwrap();
+        let ring = ring(&chord.quality).unwrap();
+        assert!(step_semitones(ring, steps[2]) < step_semitones(ring, steps[0]) - 6);
+    }
+
+    #[test]
+    fn the_third_into_the_root() {
+        assert_eq!(phrase(Figure::ThirdIntoTheRoot, "CMaj7", Start::Root), [E, B, D, C]);
+        assert_eq!(phrase(Figure::ThirdIntoTheRoot, "Dm7", Start::Root), [F, CS, E, D]);
+        assert_eq!(phrase(Figure::ThirdIntoTheRoot, "G7", Start::Root), [B, FS, A, G]);
+        // From the third: over Dm7 the Fmaj7 version, into F.
+        assert_eq!(phrase(Figure::ThirdIntoTheRoot, "Dm7", Start::Third), [A, E, G, F]);
     }
 
     /// The chord's own third: over Dm7 the Fmaj7 inside it, F A C E, then
@@ -618,9 +717,10 @@ mod tests {
                 if let Some(last) = last {
                     let leap = (pitches[0] - last).abs();
                     let same = if figure.from_a_third() { leap == 0 } else { leap % 12 == 0 };
+                    let nearest = figure.from_a_third() || figure.is_phrase();
                     assert!(!same, "{figure:?} into {chord:?}: the same note again");
                     // The third has no choice of tone, only of octave.
-                    let (leap, most) = if figure.from_a_third() { (leap.min((leap - 12).abs()), 6) } else { (leap, 4) };
+                    let (leap, most) = if nearest { (leap.min((leap - 12).abs()), 6) } else { (leap, 4) };
                     // Or the line starts afresh from the far end of the range.
                     let afresh = pitches.iter().min().unwrap() < &(LOWEST + 5)
                         || pitches.iter().max().unwrap() > &(HIGHEST - 5);
@@ -710,7 +810,8 @@ mod examples {
             ("C7", 0, 0), ("Cm7 F7 BbMaj7 EbMaj7", 0, 3), ("Am7b5 D7 Gm7", 0, 0),
             ("F7", 2, 0), ("Cm7 F7 BbMaj7", 3, 0), ("Cm7 F7 BbMaj7 EbMaj7", 0, 2),
             ("Cm7 F7 BbMaj7 EbMaj7", 1, 3), ("C7 Cm7 Am7b5 CMaj7 Cdim7", 0, 0),
-            ("Dm7 G7 CMaj7", 3, 0), ("Dm7 G7 CMaj7", 4, 0), ("CMaj7", 5, 1), ("Dm7 G7 CMaj7", 5, 3),
+            ("Dm7 G7 CMaj7", 3, 0), ("Dm7 G7 CMaj7", 4, 0), ("Dm7 G7 CMaj7", 5, 0), ("Dm7 G7 CMaj7", 6, 0),
+            ("Dm7 G7 CMaj7", 7, 0), ("Dm7 G7 CMaj7", 5, 1), ("Dm7 G7 CMaj7", 6, 1), ("Dm7 G7 CMaj7", 7, 1),
         ];
         for (tune, figure, start) in cases {
             let chords = parse_chords_line_pub(tune);

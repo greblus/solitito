@@ -3244,7 +3244,7 @@ fn harris_lines_are_judged_against_their_own_rings() {
     a.set_random_mode(false);
     a.reload_library();
     assert!(a.chords.len() > 4, "no tune to play over");
-    for figure in 0..4 {
+    for figure in 0..8 {
         for start in 0..4 {
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
             let expected = crate::harris::line(a.play_order.iter().map(|&i| &a.chords[i]), a.harris);

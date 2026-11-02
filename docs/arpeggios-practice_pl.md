@@ -139,9 +139,11 @@ takt ósemek.
 | **Arpeggio i skala** | arpeggio w górę, oktawa na mocną część, potem skala w dół | `F A C E♭ F E   E♭ D`<br>`1 3 5 ♭7 1 (7) ♭7 6` |
 | **Tercja dominanty** | arpeggio od tercji dominanty: `3 5 7 9`, potem skala w dół | `A C E♭ G F E   E♭ D`<br>`6 1 ♭3 5 4 (3) ♭3 2` |
 | **Tercja akordu** | arpeggio od tercji samego akordu: `3 5 7 9`, potem skala w dół | `F  A C  E D C  B A`<br>`♭3 5 ♭7 2 1 ♭7 6 5` |
-| **Otoczenie** | dźwięk nad celem, dźwięk o półton pod nim, cel na mocną część, potem arpeggio | `F D♯ E G A C E D`<br>`4 ♯2 3 5 6 1 3 2` |
+| **Otoczenie** | dźwięk nad celem, dźwięk o półton pod nim, cel, arpeggio do septymy, krok w dół | `D B C E G B A`<br>`2 7 1 3 5 7 6` |
+| **Uskok do tercji** | pryma, półton pod tercją oktawę niżej, tercja, septyma, dwa kroki w dół | `C D♯ E B A G`<br>`1 ♯2 3 7 6 5` |
+| **Tercja do prymy** | tercja, półton pod prymą, dźwięk nad prymą, pryma | `E B D C`<br>`3 7 2 1` |
 
-Przykłady są kolejno nad C7, Cm7, F7, Cm7, Dm7 i Cmaj7.
+Przykłady są kolejno nad C7, Cm7, F7, Cm7, Dm7 i trzy razy nad Cmaj7.
 
 ### Dwie tercje
 
@@ -164,19 +166,43 @@ Na II–V–I w C:
 
 Nad G7 obie wersje grają to samo, bo tu akord jest dominantą. Różnią się nad Dm7 i nad Cmaj7.
 
-### Otoczenie
+### Trzy frazy
 
-**Otoczenie** to figura, w której cel poprzedzają dwa dźwięki podejściowe: najpierw dźwięk ze skali
-powyżej celu, potem dźwięk o półton niżej. Cel trafia na mocną część taktu. Dźwięk pod nim często
-nie należy do skali i właśnie dlatego tak mocno ciągnie do celu. Program ćwiczy tę jedną wersję
-otoczenia; w improwizacji stosuje się też inne układy. Nad Cmaj7, do E:
+Figury opisane wyżej to drogi przez skalę. Trzy ostatnie są inne: to krótkie frazy, takie, jakie
+słychać w solówkach bebopowych, zamienione w ćwiczenie. Każda zaczyna się od dźwięku akordu i
+każdą da się zagrać nad każdym akordem. Budują się z dźwięków samego akordu i jego zwykłej skali,
+bez dźwięku przejściowego.
 
-| | Cmaj7 |
-|---|---|
-| Otoczenie | `F D♯ E G A C E D`<br>`4 ♯2 3 5 6 1 3 2` |
+**Otoczenie.** Cel poprzedzają dwa dźwięki podejściowe: najpierw dźwięk ze skali powyżej celu,
+potem dźwięk o półton niżej. Potem arpeggio w górę do septymy i jeden krok skali w dół. Dźwięk pod
+celem często nie należy do skali i właśnie dlatego tak mocno ciągnie do celu. Program ćwiczy tę
+jedną wersję otoczenia; w improwizacji stosuje się też inne układy.
 
-F (`4`) jest nad celem, D♯ (`#2`) pod nim, a E (`3`) wypada na mocną część. Potem idzie arpeggio w
-górę i jeden dźwięk skali w dół. Program zalicza dźwięk spoza skali tak samo jak każdy inny.
+**Uskok do tercji.** Pryma, potem skok w dół o prawie oktawę na dźwięk o półton pod tercją, tercja,
+skok w górę do septymy i dwa kroki skali w dół. Ten uskok w środku sprawia, że to brzmi jak fraza,
+a nie jak skala.
+
+**Tercja do prymy.** Tercja, potem pryma otoczona z dwóch stron: dźwięk o półton pod nią, dźwięk
+skali nad nią i sama pryma. Cztery dźwięki, a już brzmią jak zakończenie frazy.
+
+Na II–V–I w C, od prymy:
+
+| fraza | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| Otoczenie | `E C♯ D F  A C  B`<br>`2 7  1 ♭3 5 ♭7 6` | `A F♯ G B D F  E`<br>`2 7  1 3 5 ♭7 6` | `D B C E G B A`<br>`2 7 1 3 5 7 6` |
+| Uskok do tercji | `D E F  C  B A`<br>`1 2 ♭3 ♭7 6 5` | `G A♯ B F  E D`<br>`1 ♯2 3 ♭7 6 5` | `C D♯ E B A G`<br>`1 ♯2 3 7 6 5` |
+| Tercja do prymy | `F  C♯ E D`<br>`♭3 7  2 1` | `B F♯ A G`<br>`3 7  2 1` | `E B D C`<br>`3 7 2 1` |
+
+Start **Od tercji** buduje tę samą frazę na akordzie od tercji: nad Dm7 na Fmaj7, nad G7 na Bm7♭5,
+nad Cmaj7 na Em7. Dźwięki akordu zostają, a dochodzi nona:
+
+| fraza od tercji | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| Otoczenie | `G E F  A C  E D`<br>`4 2 ♭3 5 ♭7 2 1` | `C A♯ B D F  A G`<br>`4 ♯2 3 5 ♭7 2 1` | `F D♯ E G B D C`<br>`4 ♯2 3 5 7 2 1` |
+| Uskok do tercji | `F  G♯ A E D C`<br>`♭3 ♯4 5 2 1 ♭7` | `B C♯ D A G F`<br>`3 ♯4 5 2 1 ♭7` | `E F♯ G D C B`<br>`3 ♯4 5 2 1 7` |
+| Tercja do prymy | `A E G F`<br>`5 2 4 ♭3` | `D A♯ C B`<br>`5 ♯2 4 3` | `G D♯ F E`<br>`5 ♯2 4 3` |
+
+Program zalicza dźwięk spoza skali tak samo jak każdy inny.
 
 ### Start
 
@@ -190,7 +216,7 @@ górę i jeden dźwięk skali w dół. Program zalicza dźwięk spoza skali tak 
 | **Ciągła linia** | jedna linia przez cały utwór, opisana niżej |
 
 Figury **Tercja dominanty** i **Tercja akordu** zawsze zaczynają się od tercji. Start wybiera dla
-nich tylko oktawę. Przy **Otoczeniu** start mówi, który dźwięk jest celem.
+nich tylko oktawę. Przy trzech frazach start mówi, od którego dźwięku akordu buduje się fraza.
 
 Tak wygląda **Po kolei** w skali w dół, na początku Autumn Leaves:
 
@@ -256,10 +282,11 @@ w tym czasie. To wskazówka, nie wymaganie.
 3. To samo **Od tercji**, potem **Po kolei**.
 4. **Tercja akordu** nad II–V–I, potem **Tercja dominanty**. Posłuchaj, czym różnią się nad II
    i nad I.
-5. **Otoczenie** od prymy, potem od tercji. Słuchaj, jak dźwięk o półton niżej ciągnie do celu.
+5. **Tercja do prymy**, **Uskok do tercji** i **Otoczenie**, od prymy, potem od tercji. Słuchaj,
+   jak dźwięk o półton niżej ciągnie do celu. Gdy fraza zabrzmi, zagraj ją na pauzie po swojemu.
 6. **Ciągła linia** w skali w dół, potem w górę. Pomyśl o następnym akordzie, zanim do niego
    dojdziesz, jak przy [grze bez paska akordów](intervals-practice_pl.md#gra-bez-paska-akordów).
-7. **Arpeggio i skala** albo **Otoczenie** z ciągłą linią, na koniec z czterema dźwiękami na akord.
+7. **Arpeggio i skala** albo jedna z fraz z ciągłą linią, na koniec z czterema dźwiękami na akord.
 
 ---
 

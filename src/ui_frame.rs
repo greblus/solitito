@@ -1490,7 +1490,7 @@ mod this_way_tests {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
         a.set_random_mode(false);
-        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (2, 0, 3), (2, 2, 3), (2, 3, 0), (2, 0, 0), (2, 4, 3), (2, 5, 3)] {
+        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (2, 0, 3), (2, 2, 3), (2, 3, 0), (2, 0, 0), (2, 4, 3), (2, 5, 3), (2, 6, 3), (2, 7, 3)] {
             a.arp_exercise = exercise.into();
             a.reload_library();
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
@@ -1515,7 +1515,7 @@ mod this_way_tests {
                 // leap, and an octave or so where it has run out of range. An
                 // arpeggio over two octaves from every root leaps by its
                 // nature, and is only printed.
-                if exercise == 2 && start == 3 && figure != 4 {
+                if exercise == 2 && start == 3 && figure < 4 {
                     let far = leaps.iter().filter(|&&l| l > 5).count();
                     assert!(far * 4 <= leaps.len(), "too many leaps: {leaps:?}");
                 }

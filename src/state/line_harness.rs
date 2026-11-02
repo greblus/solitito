@@ -410,9 +410,10 @@ fn harris_app(chord: Chord, recipe: crate::harris::Recipe) -> (MyApp, Vec<u8>, V
     (a, midi, steps.iter().map(|s| names[s.degree].clone()).collect())
 }
 
-/// The enclosures of the Harris lines: the scale note above a tone on the
-/// beat and the chromatic one below it, which the chord's scale may not hold
-/// - B under C over C7, D# under E over C6. Is each credited when played?
+/// The phrases of the Harris lines - the enclosure, the drop to the third,
+/// the third into the root - with the half step below a chord tone that the
+/// chord's scale may not hold, and the drop's leap of most of an octave. Is
+/// each note credited when played?
 #[test]
 #[ignore = "diagnostic: needs AtoA.wav and both models"]
 fn harris_enclosures() {
@@ -424,10 +425,19 @@ fn harris_enclosures() {
         ("C6 from the third", Chord { root: NoteName::C, quality: ChordQuality::Major7 }, Start::Third),
         ("Dm7 from the third", Chord { root: NoteName::D, quality: ChordQuality::Minor7 }, Start::Third),
     ];
+    let figures = [("enclosure", Figure::Enclosure), ("drop", Figure::DropToTheThird), ("into the root", Figure::ThirdIntoTheRoot)];
     for length in [0.5, 0.4] {
-        for (name, chord, start) in &cases {
-            let recipe = Recipe { figure: Figure::Enclosure, start: *start, notes: 8 };
+        for ((name, chord, start), (kind, figure)) in cases.iter().flat_map(|c| figures.iter().map(move |f| (c, f))) {
+            let name = format!("{kind}, {name}");
+            let recipe = Recipe { figure: *figure, start: *start, notes: 8 };
             let (a, midi, names) = harris_app(chord.clone(), recipe);
+            // AtoA starts at A2: a phrase that drops below it is played an
+            // octave up, the same notes.
+            let midi: Vec<u8> = if midi.iter().all(|&m| all.iter().any(|n| n.1 == m)) {
+                midi
+            } else {
+                midi.iter().map(|m| m + 12).collect()
+            };
             // The first take of each note, as the other lines take it.
             let line: Vec<usize> = midi
                 .iter()
@@ -439,7 +449,7 @@ fn harris_enclosures() {
                 onsets.iter().zip(&credited).enumerate().filter(|(_, (on, at))| at.is_some_and(|t| t < **on)).map(|(k, _)| k).collect();
             let got = credited.iter().filter(|c| c.is_some()).count();
             let missed: Vec<&String> = names.iter().zip(&credited).filter(|(_, c)| c.is_none()).map(|(n, _)| n).collect();
-            println!("  {name:<20} {length:.2}s: {got}/{} credited, early {early:?}, missed {missed:?}  midi {midi:?}", midi.len());
+            println!("  {name:<34} {length:.2}s: {got}/{} credited, early {early:?}, missed {missed:?}  midi {midi:?}", midi.len());
         }
     }
 }
