@@ -211,9 +211,11 @@ impl UiFrame {
                 figure: (ui.get_harris_figure().max(0) as usize).into(),
                 start: (ui.get_harris_start().max(0) as usize).into(),
                 notes: if ui.get_harris_notes() == 1 { 4 } else { 8 },
+                ..crate::harris::Recipe::default()
             };
-            if app.harris != harris {
+            if app.harris != harris || app.arp_position != ui.get_arp_position() {
                 app.harris = harris;
+                app.arp_position = ui.get_arp_position();
                 app.reset_logic_state();
             }
             if app.arp_quality != quality {
@@ -1347,9 +1349,27 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Optio
 /// chords to lead: the studies, and the other modes.
 fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
     let named = |names: Vec<String>| if jazz { model::jazz_names(&names) } else { names };
-    // One continuous Harris line knows where it is: it is laid at its own
-    // pitches. Every other line is led from the note before.
-    let one_line = app.arp_exercise == ArpExercise::HarrisLines && app.harris.start == crate::harris::Start::Continuous;
+    let recipe = app.line_recipe()?;
+    // Kept in one position, the hand stands at one fret for the pass and
+    // every note is laid under it, at the pitch the line asks for.
+    if let Some(fret) = recipe.position {
+        let hand = tab::hand_from(fret);
+        let (chord, steps) = app.changes_so_far().pop()?;
+        // The line counts its octaves from C3, the hand from the root above
+        // the low E: the same pitches, an octave's difference in the count.
+        let shift = ((crate::harris::C3 + chord.root as i32 - tab::root_above_low_e(chord.root as usize)) / 12) as i8;
+        let steps: Vec<model::Step> = steps.iter().map(|s| model::Step { octave: s.octave + shift, ..*s }).collect();
+        return Some(tab::place_in_hand(
+            chord.root as usize,
+            &app.degree_intervals(chord),
+            &steps,
+            &named(app.degree_names(chord)),
+            hand,
+        ));
+    }
+    // One continuous line knows where it is: it is laid at its own pitches.
+    // Every other line is led from the note before.
+    let one_line = recipe.start == crate::harris::Start::Continuous;
     let mut last = None;
     let mut spots = None;
     for (chord, steps) in app.changes_so_far() {
@@ -1493,7 +1513,7 @@ mod this_way_tests {
         for (exercise, figure, start) in [(1usize, 0usize, 0usize), (2, 0, 3), (2, 2, 3), (2, 3, 0), (2, 0, 0), (2, 4, 3), (2, 5, 3), (2, 6, 3), (2, 7, 3)] {
             a.arp_exercise = exercise.into();
             a.reload_library();
-            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
             for anchor in [1, 5, 9] {
                 a.home_anchor = anchor;
                 let (mut leaps, mut frets) = (Vec::new(), Vec::new());
@@ -1520,6 +1540,34 @@ mod this_way_tests {
                     assert!(far * 4 <= leaps.len(), "too many leaps: {leaps:?}");
                 }
                 assert!(hi - lo >= 4, "the line stayed in one place: frets {lo}-{hi}");
+            }
+        }
+    }
+
+
+    /// Kept in one position, every chord of the pass is drawn under the same
+    /// hand and none of its notes is left out: the line fits the position.
+    #[test]
+    fn one_position_holds_every_note_of_the_pass() {
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.set_random_mode(false);
+        a.arp_position = true;
+        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (1, 0, 3), (2, 0, 3), (2, 2, 0), (2, 3, 3), (2, 4, 1), (2, 5, 3), (2, 6, 0), (2, 7, 2)] {
+            a.arp_exercise = exercise.into();
+            a.reload_library();
+            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
+            for fret in [1, 5, 9] {
+                a.home_anchor = fret;
+                let (lo, hi) = tab::hand_from(fret);
+                for pos in 0..a.positions().min(16) {
+                    a.go_to_position(pos);
+                    let chord = a.chords[a.current_chord_index].clone();
+                    let steps = a.get_active_indices(&chord);
+                    let spots = led_along_the_changes(&a, false).expect("a line");
+                    assert_eq!(spots.len(), steps.len(), "exercise {exercise} figure {figure} start {start} fret {fret} at {pos}: a note out of reach");
+                    assert!(spots.iter().all(|s| (lo..=hi).contains(&s.fret)), "outside the hand at fret {fret}");
+                }
             }
         }
     }

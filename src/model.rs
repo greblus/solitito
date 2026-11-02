@@ -374,7 +374,9 @@ pub struct Song {
 /// as it is played in its source - `a_book_study_is_written_out_as_it_is_played`
 /// checks every one against the phrase read out of the file it came from. The
 /// plain up and down runs are not studies; they are the simplest thing to hand
-/// a beginner, and the changes exercise builds its own.
+/// a beginner, and the changes exercise builds its own. The groups of four
+/// break the arpeggio up four notes at a time, each group a chord tone
+/// further on, up and then down.
 pub const ARPEGGIOS_PATTERNS_DEF: &str = r#"
 Minor (Two Octaves and a Third)
 1 3 5 7 1' 3' 5' 7' 1'' 3'' 1'' 7' 5' 3' 1' 7 5 3 1
@@ -402,6 +404,12 @@ Two Octaves Down
 
 Two Octaves Down from the Root
 1 7, 5, 3, 1, 7,, 5,, 3,,
+
+Groups of Four Up
+1 3 5 7 3 5 7 1' 5 7 1' 3' 7 1' 3' 5' 1' 3' 5' 7'
+
+Groups of Four Down
+7' 5' 3' 1' 5' 3' 1' 7 3' 1' 7 5 1' 7 5 3 7 5 3 1
 "#;
 
 const BUILTIN_SCALES_DEF: &str = r#"

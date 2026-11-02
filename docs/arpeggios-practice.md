@@ -18,6 +18,60 @@ number under it, so the numbers soon feel familiar.
 
 You choose the exercise in the quick options of Arpeggios or in Settings, on the Practice tab.
 
+## The set of exercises
+
+The exercises fall into four groups: from the shape of an arpeggio on the neck, through the chords
+of a tune, to lines and phrases. Each group builds on the one before. You do not have to finish one
+to start the next: ten minutes of an earlier group is a good warm-up for the next. The settings in
+bold are in the quick options of Arpeggios.
+
+### Group 1. The shape
+
+One chord in one key (**Study in a key**). You learn where the chord's notes lie on the neck.
+
+1. **Two Octaves Up**, then **Two Octaves Down from the Root**. Play slowly and visualise every
+   note on the neck.
+2. **Groups of Four Up**, then **Down**. The same arpeggio cut into groups of four notes, each from
+   the next chord tone: `1 3 5 7`, `3 5 7 1`, `5 7 1 3`… That is how Ted Greene practised, so the
+   shape is not just one run from the bottom to the top.
+3. **Triplets**, then the minor, major and dominant studies over their chords.
+4. Turn **Random order** on: a new key after every pass.
+
+### Group 2. Chord by chord
+
+The chords of a tune, each on its own (**Over the changes**). You learn to find a chord where your
+hand is.
+
+1. From the root, 8 notes, ascending: two octaves of every chord.
+2. 4 notes: one octave. Over quick changes, that is how arpeggios are really played.
+3. **From the third**, then **In turn**: the chords in turn from `1`, `3`, `5` and `7`. You no
+   longer go back to the root every time.
+4. Direction **alternating**: up over one chord, down over the next.
+
+### Group 3. One line
+
+1. Over the changes, **One line**, 4 notes. Every chord starts on its note nearest the one the
+   chord before ended on, so the line flows through the whole tune.
+2. **In one position**: the whole pass of the tune under one hand. After the pass the app moves you
+   to another place on the neck. That is how Ted Greene taught playing through changes: the same
+   tune in one position after another, until you see it without the paper.
+3. Think of the next chord before you get there, as in
+   [playing without the chord strip](intervals-practice.md#playing-without-the-chord-strip).
+
+### Group 4. The language
+
+Harris lines: scales with a passing note, the thirds and short phrases.
+
+1. **Scale down** from the root, then as one line. The chord tones land on the strong beats.
+2. **Chord's third**, then **Dominant's third** over a II–V–I. Listen to how they differ over the
+   II and over the I.
+3. **3rd into the root**, **Drop to the 3rd** and **Enclosure**, from the root and from the third.
+4. The same figures **in one position** and as **one line**.
+5. When a phrase sounds good, press pause and keep playing it your own way: from another note, in
+   another rhythm, with another ending.
+
+Each exercise is described in more detail below.
+
 ## Study in a key
 
 A **study** is a written phrase, usually across two octaves, played over one chord. You pick the
@@ -34,6 +88,8 @@ study from the title above the exercise, and the key and the kind of chord in th
 | Two Octaves Up | 8 | two octaves up |
 | Two Octaves Down | 8 | two octaves down, from the seventh |
 | Two Octaves Down from the Root | 8 | two octaves down, from the root |
+| Groups of Four Up | 20 | groups of four notes, each from the next chord tone |
+| Groups of Four Down | 20 | the same from the top down |
 | Generator | – | a new phrase after every pass |
 
 The first three studies set their chord too: Minor is played over m7, Major over maj7 and
@@ -44,20 +100,46 @@ the notes stays, because a study played in another order would not be that study
 
 ## Over the changes
 
-The chords come from a tune, and the app builds an arpeggio for each of them: the chord's notes
-across two octaves. **Direction** decides whether it goes up, down, or alternately: up over one
-chord, down over the next. Over C7:
+The chords come from a tune, and the app builds an arpeggio for each of them from the chord's own
+notes. **Direction** decides whether it goes up, down, or alternately: up over one chord, down over
+the next. Over C7:
 
 | direction | C7 |
 |---|---|
 | ascending | `C E G B♭ C E G B♭`<br>`1 3 5 ♭7 1 3 5 ♭7` |
 | descending | `C B♭ G E C B♭ G E`<br>`1 ♭7 5 3 1 ♭7 5 3` |
 
-Every chord is drawn close to where on the neck the one before ended. The first chord stands
-somewhere else every time.
+**Notes per chord**: 8 is two octaves, 4 is one. Two octaves teach the shape well, but through the
+changes, especially where a chord lasts half a bar, one is what is usually played.
 
-It is a good exercise for finding every chord on the neck. It has one drawback, though: every chord
-starts on its root, so the line jumps at every change. The next exercise is about that.
+**Start** works as in the Harris lines: from the root, from the third, in turn (the chords in turn
+from `1`, `3`, `5` and `7`) or one line, from the chord tone nearest the note the chord before ended
+on. Over a II–V–I in C, 4 notes, up:
+
+| start | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| From the root | `D F  A C`<br>`1 ♭3 5 ♭7` | `G B D F`<br>`1 3 5 ♭7` | `C E G B`<br>`1 3 5 7` |
+| From the third | `F  A C  D`<br>`♭3 5 ♭7 1` | `B D F  G`<br>`3 5 ♭7 1` | `E G B C`<br>`3 5 7 1` |
+| In turn | `D F  A C`<br>`1 ♭3 5 ♭7` | `B D F  G`<br>`3 5 ♭7 1` | `G B C E`<br>`5 7 1 3` |
+| One line | `F  A C  D`<br>`♭3 5 ♭7 1` | `B D F  G`<br>`3 5 ♭7 1` | `E G B C`<br>`3 5 7 1` |
+
+From the root the line leaps at every change. As one line it moves into the next chord by a small
+step: here through the thirds, `♭3`, `3`, `3`, as voice leading does.
+
+Every chord is drawn close to where on the neck the one before ended. The first chord stands
+somewhere else every time, and in one position the whole tune stands in one place, as described
+below.
+
+## In one position
+
+Over the changes and in the Harris lines you can turn on **In one position**. Then the whole pass of
+the tune is played under one hand: five frets, all the strings. The app fits every figure inside
+them. Where the arpeggio from the chosen note does not fit, it starts on the nearest chord tone it
+fits from. After every pass of the tune the app moves the position to another place on the neck.
+
+That is how Ted Greene taught playing through changes: the same tune in one position after another,
+until you see each one without the paper. In a position what counts is not how many octaves an
+arpeggio has, but what is under the hand: the chord's notes within a few frets.
 
 ## Harris lines
 
@@ -276,21 +358,6 @@ sometimes stopped on a note. At 0.4 s the lines stop. The details are in
 
 If you want to play a line to a metronome, eighth notes at about 60 beats a minute fit in that
 time. That is a hint, not a requirement.
-
-## Where to start
-
-1. **Over the changes**, ascending, in a tune you know. Find every chord on the neck.
-2. **Harris lines**, **Scale down**, **From the root**. Listen to the chord tones landing on the
-   strong beats, and visualise them on the neck.
-3. The same **From the third**, then **In turn**.
-4. **Chord's third** over a II–V–I, then **Dominant's third**. Listen to how they differ over the
-   II and over the I.
-5. **3rd into the root**, **Drop to the 3rd** and **Enclosure**, from the root, then from the
-   third. Listen to the note a half step below pulling into the target. When a phrase sounds
-   good, play it on the pause your own way.
-6. **One line** with the scale down, then up. Think of the next chord before you get there, as in
-   [playing without the chord strip](intervals-practice.md#playing-without-the-chord-strip).
-7. **Arpeggio, scale down** or one of the phrases with one line, and last with four notes a chord.
 
 ---
 

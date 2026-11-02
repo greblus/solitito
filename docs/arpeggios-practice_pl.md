@@ -18,6 +18,62 @@ tabelach stoi jego numer, żeby numery szybko stały się znajome.
 
 Ćwiczenie wybierasz w szybkich opcjach Arpeggiów albo w Ustawieniach, w zakładce Ćwiczenia.
 
+## Zestaw ćwiczeń
+
+Ćwiczenia dzielą się na cztery grupy: od kształtu arpeggia na gryfie, przez akordy utworu, do
+linii i fraz. Każda grupa korzysta z poprzedniej. Nie trzeba kończyć jednej, żeby zacząć
+następną: dziesięć minut wcześniejszej grupy to dobra rozgrzewka przed kolejną. Ustawienia w nawiasach
+wybierasz w szybkich opcjach Arpeggiów.
+
+### Grupa 1. Kształt
+
+Jeden akord w jednej tonacji (**Studium w tonacji**). Uczysz się, gdzie na gryfie leżą dźwięki
+akordu.
+
+1. **Dwie oktawy w górę**, potem **Dwie oktawy w dół od prymy**. Graj powoli i wizualizuj każdy
+   dźwięk na gryfie.
+2. **Grupy po cztery w górę**, potem **w dół**. To samo arpeggio pocięte na grupy po cztery
+   dźwięki, każda od kolejnego dźwięku akordu: `1 3 5 7`, `3 5 7 1`, `5 7 1 3`… Tak ćwiczył Ted
+   Greene, żeby kształt nie był tylko jednym przebiegiem z dołu do góry.
+3. **Triolowe**, potem studia molowe, durowe i dominantowe nad ich akordami.
+4. Włącz **Losową kolejność**: po każdym przejściu nowa tonacja.
+
+### Grupa 2. Akord po akordzie
+
+Akordy z utworu, każdy osobno (**Ogrywanie zmian**). Uczysz się znajdować akord tam, gdzie jest
+ręka.
+
+1. Od prymy, 8 dźwięków, wznoszące: dwie oktawy każdego akordu.
+2. 4 dźwięki: jedna oktawa. Przy szybkich zmianach tak gra się arpeggia naprawdę.
+3. **Od tercji**, potem **Po kolei**: kolejne akordy od `1`, `3`, `5` i `7`. Już nie wracasz za
+   każdym razem do prymy.
+4. Kierunek **naprzemiennie**: raz w górę, raz w dół.
+
+### Grupa 3. Jedna linia
+
+1. Ogrywanie zmian, **Ciągła linia**, 4 dźwięki. Każdy akord zaczyna się od swojego dźwięku
+   najbliższego temu, na którym skończył poprzedni, więc linia płynie przez cały utwór.
+2. **W jednej pozycji**: całe przejście utworu pod jedną ręką. Po przejściu program przenosi cię
+   w inne miejsce gryfu. Tak Ted Greene uczył grania przez zmiany: ten sam utwór w kolejnych
+   pozycjach, aż zobaczysz go bez kartki.
+3. Myśl o następnym akordzie, zanim do niego dojdziesz, jak przy
+   [grze bez paska akordów](intervals-practice_pl.md#gra-bez-paska-akordów).
+
+### Grupa 4. Język
+
+Linie Harrisa: skale z dźwiękiem przejściowym, tercje i krótkie frazy.
+
+1. **Skala w dół** od prymy, potem w ciągłej linii. Dźwięki akordu trafiają na mocne części
+   taktu.
+2. **Tercja akordu**, potem **Tercja dominanty** nad II–V–I. Posłuchaj, czym różnią się nad II i
+   nad I.
+3. **Tercja do prymy**, **Uskok do tercji** i **Otoczenie**, od prymy i od tercji.
+4. Te same figury **w jednej pozycji** i w **ciągłej linii**.
+5. Gdy fraza zabrzmi, naciśnij pauzę i graj ją dalej po swojemu: od innego dźwięku, w innym
+   rytmie, z innym zakończeniem.
+
+Każde ćwiczenie jest opisane dokładniej poniżej.
+
 ## Studium w tonacji
 
 **Studium** to zapisana fraza, zwykle przez dwie oktawy, grana na jednym akordzie. Studium
@@ -34,6 +90,8 @@ wybierasz z tytułu nad ćwiczeniem, a tonację i rodzaj akordu w szybkich opcja
 | Dwie oktawy w górę | 8 | dwie oktawy w górę |
 | Dwie oktawy w dół | 8 | dwie oktawy w dół, od septymy |
 | Dwie oktawy w dół od prymy | 8 | dwie oktawy w dół, od prymy |
+| Grupy po cztery w górę | 20 | grupy po cztery dźwięki, każda od kolejnego dźwięku akordu |
+| Grupy po cztery w dół | 20 | to samo z góry na dół |
 | Generator | – | nowa fraza po każdym przejściu |
 
 Trzy pierwsze studia ustawiają też swój akord: molowe gra się nad m7, durowe nad maj7, a
@@ -44,20 +102,47 @@ Kolejność dźwięków zostaje, bo studium zagrane w innej kolejności nie był
 
 ## Ogrywanie zmian
 
-Akordy pochodzą z utworu, a program buduje arpeggio dla każdego z nich: dźwięki akordu przez
-dwie oktawy. **Kierunek** decyduje, czy arpeggio idzie w górę, w dół, czy naprzemiennie: raz w
-górę, raz w dół. Nad C7:
+Akordy pochodzą z utworu, a program buduje arpeggio dla każdego z nich z dźwięków samego akordu.
+**Kierunek** decyduje, czy arpeggio idzie w górę, w dół, czy naprzemiennie: raz w górę, raz w dół.
+Nad C7:
 
 | kierunek | C7 |
 |---|---|
 | wznoszące | `C E G B♭ C E G B♭`<br>`1 3 5 ♭7 1 3 5 ♭7` |
 | opadające | `C B♭ G E C B♭ G E`<br>`1 ♭7 5 3 1 ♭7 5 3` |
 
-Każdy akord jest rysowany blisko miejsca na gryfie, w którym skończył się poprzedni. Pierwszy
-akord stoi za każdym razem gdzie indziej.
+**Dźwięków na akord**: 8 to dwie oktawy, 4 jedna. Dwie oktawy dobrze uczą kształtu, ale przez
+zmiany, zwłaszcza gdy akord trwa pół taktu, gra się zwykle jedną.
 
-To dobre ćwiczenie na znalezienie każdego akordu na gryfie. Ma jednak wadę: każdy akord zaczyna
-się od prymy, więc linia skacze przy każdej zmianie. Tego dotyczy następne ćwiczenie.
+**Start** działa jak w liniach Harrisa: od prymy, od tercji, po kolei (kolejne akordy od `1`, `3`,
+`5` i `7`) albo ciągła linia, czyli od dźwięku akordu najbliższego temu, na którym skończył
+poprzedni. Na II–V–I w C, po 4 dźwięki, w górę:
+
+| start | Dm7 | G7 | Cmaj7 |
+|---|---|---|---|
+| Od prymy | `D F  A C`<br>`1 ♭3 5 ♭7` | `G B D F`<br>`1 3 5 ♭7` | `C E G B`<br>`1 3 5 7` |
+| Od tercji | `F  A C  D`<br>`♭3 5 ♭7 1` | `B D F  G`<br>`3 5 ♭7 1` | `E G B C`<br>`3 5 7 1` |
+| Po kolei | `D F  A C`<br>`1 ♭3 5 ♭7` | `B D F  G`<br>`3 5 ♭7 1` | `G B C E`<br>`5 7 1 3` |
+| Ciągła linia | `F  A C  D`<br>`♭3 5 ♭7 1` | `B D F  G`<br>`3 5 ♭7 1` | `E G B C`<br>`3 5 7 1` |
+
+Od prymy linia skacze przy każdej zmianie. W ciągłej linii przechodzi do następnego akordu małym
+krokiem: tu przez tercje, `♭3`, `3`, `3`, jak w prowadzeniu głosów.
+
+Każdy akord jest rysowany blisko miejsca na gryfie, w którym skończył się poprzedni. Pierwszy akord
+stoi za każdym razem gdzie indziej, a w jednej pozycji cały utwór stoi w jednym miejscu, opisanym
+niżej.
+
+## W jednej pozycji
+
+Przy ogrywaniu zmian i liniach Harrisa możesz włączyć **W jednej pozycji**. Wtedy całe przejście
+utworu gra się pod jedną ręką: w pięciu progach, na wszystkich strunach. Program dopasowuje każdą
+figurę tak, żeby się w nich zmieściła. Gdy arpeggio od wybranego dźwięku się nie mieści, zaczyna się
+od najbliższego dźwięku akordu, od którego się mieści. Po każdym przejściu utworu program przenosi
+pozycję w inne miejsce gryfu.
+
+Tak uczył grania przez zmiany Ted Greene: ten sam utwór w kolejnych pozycjach, aż każdą z nich
+zobaczysz bez kartki. W pozycji nie liczy się, ile oktaw ma arpeggio, tylko to, co jest pod ręką:
+dźwięki akordu w kilku progach.
 
 ## Linie Harrisa
 
@@ -273,20 +358,6 @@ Przy 0,4 s linie stają. Szczegóły są w [pomiarach sędziego](judge-measureme
 
 Jeśli chcesz zagrać linię z metronomem, ósemki w tempie około 60 uderzeń na minutę mieszczą się
 w tym czasie. To wskazówka, nie wymaganie.
-
-## Od czego zacząć
-
-1. **Ogrywanie zmian**, wznoszące, w utworze, który znasz. Znajdź każdy akord na gryfie.
-2. **Linie Harrisa**, **Skala w dół**, **Od prymy**. Słuchaj, jak dźwięki akordu trafiają na
-   mocne części, i wizualizuj je na gryfie.
-3. To samo **Od tercji**, potem **Po kolei**.
-4. **Tercja akordu** nad II–V–I, potem **Tercja dominanty**. Posłuchaj, czym różnią się nad II
-   i nad I.
-5. **Tercja do prymy**, **Uskok do tercji** i **Otoczenie**, od prymy, potem od tercji. Słuchaj,
-   jak dźwięk o półton niżej ciągnie do celu. Gdy fraza zabrzmi, zagraj ją na pauzie po swojemu.
-6. **Ciągła linia** w skali w dół, potem w górę. Pomyśl o następnym akordzie, zanim do niego
-   dojdziesz, jak przy [grze bez paska akordów](intervals-practice_pl.md#gra-bez-paska-akordów).
-7. **Arpeggio i skala** albo jedna z fraz z ciągłą linią, na koniec z czterema dźwiękami na akord.
 
 ---
 

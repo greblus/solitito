@@ -429,7 +429,7 @@ fn harris_enclosures() {
     for length in [0.5, 0.4] {
         for ((name, chord, start), (kind, figure)) in cases.iter().flat_map(|c| figures.iter().map(move |f| (c, f))) {
             let name = format!("{kind}, {name}");
-            let recipe = Recipe { figure: *figure, start: *start, notes: 8 };
+            let recipe = Recipe { figure: *figure, start: *start, notes: 8, ..Default::default() };
             let (a, midi, names) = harris_app(chord.clone(), recipe);
             // AtoA starts at A2: a phrase that drops below it is played an
             // octave up, the same notes.

@@ -2620,6 +2620,12 @@ fn a_study_plays_the_phrase_it_names() {
     }
 }
 
+/// Semitones above the chord's root of each step the app asks for.
+fn semitones_asked(a: &MyApp, chord: &Chord) -> Vec<i32> {
+    let semis = a.degree_intervals(chord);
+    a.get_active_indices(chord).iter().map(|s| semis[s.degree] as i32 + 12 * s.octave as i32).collect()
+}
+
 /// Over the changes the phrase is built, and the descending one is the
 /// shape the studies use: from the root DOWNWARDS through the chord's own
 /// tones, not the ascending phrase read backwards.
@@ -2629,24 +2635,21 @@ fn the_changes_run_matches_the_studies() {
     a.set_mode(AppMode::Arpeggios as i32);
     a.arp_exercise = ArpExercise::OverChanges;
     let chord = Chord { root: NoteName::D, quality: ChordQuality::Dominant7 };
+    a.chords = vec![chord.clone()];
+    a.play_order = vec![0];
+    a.play_pos = 0;
 
     a.arp_direction = ArpDirection::Up;
-    let up: Vec<(usize, i8)> =
-        a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
-    assert_eq!(
-        up,
-        vec![(0, 0), (1, 0), (2, 0), (3, 0), (0, 1), (1, 1), (2, 1), (3, 1)],
-        "1 3 5 7 1' 3' 5' 7'"
-    );
+    assert_eq!(semitones_asked(&a, &chord), vec![0, 4, 7, 10, 12, 16, 19, 22], "1 3 5 7 1' 3' 5' 7'");
 
     a.arp_direction = ArpDirection::Down;
-    let down: Vec<(usize, i8)> =
-        a.get_active_indices(&chord).iter().map(|s| (s.degree, s.octave)).collect();
-    assert_eq!(
-        down,
-        vec![(0, 0), (3, -1), (2, -1), (1, -1), (0, -1), (3, -2), (2, -2), (1, -2)],
-        "1 7, 5, 3, 1, 7,, 5,, 3,,"
-    );
+    assert_eq!(semitones_asked(&a, &chord), vec![0, -2, -5, -8, -12, -14, -17, -20], "1 7, 5, 3, 1, 7,, 5,, 3,,");
+
+    // Four notes: one octave. From the third: 3 5 7 1'.
+    a.harris.notes = 4;
+    a.arp_direction = ArpDirection::Up;
+    a.harris.start = crate::harris::Start::Third;
+    assert_eq!(semitones_asked(&a, &chord), vec![4, 7, 10, 12]);
 }
 
 /// Alternating: one chord one way, the next the other, from whichever side
@@ -2657,18 +2660,21 @@ fn alternating_turns_the_run_round_at_every_chord() {
     a.set_mode(AppMode::Arpeggios as i32);
     a.arp_exercise = ArpExercise::OverChanges;
     a.set_random_mode(false);
-    let chord = a.chords[a.current_chord_index].clone();
-    let is_down = |a: &MyApp, c: &Chord| a.get_active_indices(c)[1].octave < 0;
+    a.reload_library();
+    let is_down = |a: &mut MyApp, pos: usize| {
+        a.go_to_position(pos);
+        let chord = a.chords[a.current_chord_index].clone();
+        let asked = semitones_asked(a, &chord);
+        asked[1] < asked[0]
+    };
 
     a.arp_direction = ArpDirection::AlternateDownFirst;                    // from the descending one
-    assert!(is_down(&a, &chord), "the first chord did not start downwards");
-    a.play_pos = 1;
-    assert!(!is_down(&a, &chord), "the second chord did not turn round");
+    assert!(is_down(&mut a, 0), "the first chord did not start downwards");
+    assert!(!is_down(&mut a, 1), "the second chord did not turn round");
 
     a.arp_direction = ArpDirection::AlternateUpFirst;                    // and the other way about
-    assert!(is_down(&a, &chord), "starting up, the second chord runs down");
-    a.play_pos = 0;
-    assert!(!is_down(&a, &chord), "the first chord did not start upwards");
+    assert!(!is_down(&mut a, 0), "the first chord did not start upwards");
+    assert!(is_down(&mut a, 1), "starting up, the second chord runs down");
 }
 
 /// Every token of every arpeggio pattern is a chord tone the mode can ask
@@ -3246,7 +3252,7 @@ fn harris_lines_are_judged_against_their_own_rings() {
     assert!(a.chords.len() > 4, "no tune to play over");
     for figure in 0..8 {
         for start in 0..4 {
-            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
             let expected = crate::harris::line(a.play_order.iter().map(|&i| &a.chords[i]), a.harris);
             for pos in 0..a.play_order.len() {
                 a.play_pos = pos;

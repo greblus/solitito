@@ -121,6 +121,10 @@ pub struct Settings {
     pub harris_start: usize,
     #[serde(default)]
     pub harris_notes: usize,
+    /// Over the changes: the whole pass in one position, another for every
+    /// pass. The start and the notes per chord above serve both exercises.
+    #[serde(default)]
+    pub arp_position: bool,
     /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
     #[serde(default)]
     pub arp_quality: usize,
@@ -385,6 +389,7 @@ impl Default for Settings {
             harris_figure: 0,
             harris_start: 0,
             harris_notes: 0,
+            arp_position: false,
             arp_quality: 0,
             previews: DEFAULT_PREVIEWS.to_vec(),
             preview: 1,

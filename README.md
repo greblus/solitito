@@ -71,8 +71,8 @@ chord, the app moves on to the next one.
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
   builds a fresh one after every pass. Over the changes there are also Harris lines: eighth
-  notes with the chord tones on the strong beats, through the whole tune. All three exercises,
-  with examples, are in [practising arpeggios](docs/arpeggios-practice.md).
+  notes with the chord tones on the strong beats, through the whole tune. A set of exercises in four
+  groups, from the shape of an arpeggio to phrases, with examples, is in [practising arpeggios](docs/arpeggios-practice.md).
 
 <div align="center">
 <img width="560" alt="Harris lines over Autumn Leaves, the chord's third in one line, on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />

@@ -765,6 +765,9 @@ export global Tr {
     in-out property <string> harris_enclosure: "Enclosure";
     in-out property <string> harris_drop: "Drop to the 3rd";
     in-out property <string> harris_into_root: "3rd into the root";
+    in-out property <string> arp_position: "In one position";
+    in-out property <string> chip_position: "One position";
+    in-out property <string> arp_position_hint: "";
     in-out property <string> harris_start: "Start";
     in-out property <string> harris_from_root: "From the root";
     in-out property <string> harris_from_3: "From the third";
@@ -998,6 +1001,9 @@ export component AppWindow inherits Window {
     callback harris_start_changed(int);
     in-out property <int> harris_notes: 0;
     callback harris_notes_changed(int);
+    /// Over the changes: the whole pass in one position.
+    in-out property <bool> arp_position: false;
+    callback arp_position_changed(bool);
     
     in property <[string]> library_items;
     in property <string> library_label: "Select Song:"; 
@@ -1483,30 +1489,32 @@ export component AppWindow inherits Window {
                     current-index <=> root.arp_quality;
                     selected(v) => { root.arp_quality_changed(v); }
                 }
-                if root.arp_exercise == 2 : Dropdown {
-                    list-width: 260px;
-                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
-                    current-index <=> root.harris_figure;
-                    selected(v) => { root.harris_figure_changed(v); }
-                }
-                if root.arp_exercise == 2 : Dropdown {
-                    list-width: 260px;
-                    model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
-                    current-index <=> root.harris_start;
-                    selected(v) => { root.harris_start_changed(v); }
-                }
-                if root.arp_exercise == 2 : Dropdown {
-                    list-width: 220px;
-                    model: [Tr.harris_eight, Tr.harris_four];
-                    current-index <=> root.harris_notes;
-                    selected(v) => { root.harris_notes_changed(v); }
-                }
                 if root.arp_exercise == 1 : Dropdown {
                     list-width: 220px;
                     model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
                     current-index <=> root.arp_direction;
                     selected(v) => { root.arp_direction_changed(v); }
                 }
+                if root.arp_exercise == 2 : Dropdown {
+                    list-width: 260px;
+                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                    current-index <=> root.harris_figure;
+                    selected(v) => { root.harris_figure_changed(v); }
+                }
+                if root.arp_exercise != 0 : Dropdown {
+                    list-width: 260px;
+                    model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                    current-index <=> root.harris_start;
+                    selected(v) => { root.harris_start_changed(v); }
+                }
+                if root.arp_exercise != 0 : Dropdown {
+                    list-width: 220px;
+                    model: [Tr.harris_eight, Tr.harris_four];
+                    current-index <=> root.harris_notes;
+                    selected(v) => { root.harris_notes_changed(v); }
+                }
+                if root.arp_exercise != 0 : SideToggle { text: Tr.chip_position; on: root.arp_position;
+                    toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
             }
             NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                 expandable: root.current_mode == 5 && !root.show_settings;
@@ -2879,7 +2887,7 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_figure_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise == 2 : HorizontalLayout {
+                                if root.arp_exercise != 0 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
@@ -2893,7 +2901,7 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_start_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise == 2 : HorizontalLayout {
+                                if root.arp_exercise != 0 : HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
@@ -2905,6 +2913,23 @@ export component AppWindow inherits Window {
                                         model: [Tr.harris_eight, Tr.harris_four];
                                         current-index <=> root.harris_notes;
                                         selected(v) => { root.harris_notes_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise != 0 : VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 15px;
+                                        CheckBox {
+                                            checked <=> root.arp_position;
+                                            toggled => { root.arp_position_changed(self.checked); }
+                                        }
+                                        Text { text: Tr.arp_position; color: #aaa; vertical-alignment: center; }
+                                    }
+                                    Text {
+                                        width: root.panel_w - 30px;
+                                        text: Tr.arp_position_hint;
+                                        font-size: 12px; color: #777; wrap: word-wrap;
                                     }
                                 }
                                 if root.arp_exercise == 2 : Text {

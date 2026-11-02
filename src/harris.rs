@@ -120,7 +120,8 @@ pub fn semitones(ring: &Ring) -> Vec<u8> {
     ring.semitones.iter().copied().chain(0..12).collect()
 }
 
-/// The path a figure takes. Saved as its index, 0 to 7.
+/// The path a figure takes. Saved as its index, 0 to 7; the plain arpeggios
+/// are the arpeggio over the changes, not a Harris figure, and not saved.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum Figure {
     /// Down the scale from a tone on the beat.
@@ -147,6 +148,11 @@ pub enum Figure {
     /// From the third into the root, enclosed - the half step below it, the
     /// scale note above: over Cmaj7 E B D C.
     ThirdIntoTheRoot,
+    /// The chord's own four tones up from a chord tone, two octaves - the
+    /// arpeggio over the changes.
+    ArpeggioUp,
+    /// The same down.
+    ArpeggioDown,
 }
 
 impl From<usize> for Figure {
@@ -159,6 +165,8 @@ impl From<usize> for Figure {
             5 => Figure::Enclosure,
             6 => Figure::DropToTheThird,
             7 => Figure::ThirdIntoTheRoot,
+            8 => Figure::ArpeggioUp,
+            9 => Figure::ArpeggioDown,
             _ => Figure::ScaleDown,
         }
     }
@@ -307,6 +315,16 @@ impl Figure {
                 let target = tone(0);
                 [tone(1), target - 1, over.scale_above(target), target].map(Semitone).to_vec()
             }
+            // The four tones round and round, an octave up every time round.
+            Figure::ArpeggioUp | Figure::ArpeggioDown => {
+                let way = if self == Figure::ArpeggioUp { 1 } else { -1 };
+                (0..8)
+                    .map(|i| {
+                        let at = k + way * i;
+                        Semitone(over.own[at.rem_euclid(4) as usize] + 12 * at.div_euclid(4) + octave)
+                    })
+                    .collect()
+            }
         }
     }
 
@@ -316,6 +334,8 @@ impl Figure {
         match self {
             Figure::ScaleDown => Some(Figure::ScaleUp),
             Figure::ScaleUp => Some(Figure::ScaleDown),
+            Figure::ArpeggioUp => Some(Figure::ArpeggioDown),
+            Figure::ArpeggioDown => Some(Figure::ArpeggioUp),
             _ => None,
         }
     }
@@ -328,7 +348,21 @@ impl Figure {
     /// Whether the figure is a phrase on the chord's own tones, its start a
     /// chord tone and an octave - see `notes`.
     fn is_phrase(self) -> bool {
-        matches!(self, Figure::Enclosure | Figure::DropToTheThird | Figure::ThirdIntoTheRoot)
+        matches!(
+            self,
+            Figure::Enclosure | Figure::DropToTheThird | Figure::ThirdIntoTheRoot | Figure::ArpeggioUp | Figure::ArpeggioDown
+        )
+    }
+
+    /// How far apart two starts of the figure are that play the same notes an
+    /// octave apart: eight places of the ring, four chord tones, or one
+    /// octave for the arpeggio from the chord's own third.
+    fn octave(self) -> i32 {
+        match self {
+            Figure::FromTheChordsThird => 1,
+            _ if self.is_phrase() => 4,
+            _ => 8,
+        }
     }
 }
 
@@ -339,11 +373,33 @@ pub struct Recipe {
     pub start: Start,
     /// Eight notes over a chord that lasts a bar, four over one of two beats.
     pub notes: usize,
+    /// Up over one chord, down over the next: the arpeggio over the changes
+    /// taken alternately.
+    pub alternate: bool,
+    /// The fret a hand stands at for the whole pass, where the line is kept
+    /// in one position: every note within the frets `tab::hand_from` gives,
+    /// on any string.
+    pub position: Option<i32>,
 }
 
 impl Default for Recipe {
     fn default() -> Self {
-        Recipe { figure: Figure::ScaleDown, start: Start::Root, notes: 8 }
+        Recipe { figure: Figure::ScaleDown, start: Start::Root, notes: 8, alternate: false, position: None }
+    }
+}
+
+impl Recipe {
+    /// The lowest and highest the line may go, in semitones from C3: the
+    /// guitar's three octaves, or what one position reaches - from the low E
+    /// at its lowest fret to the high E at its highest.
+    fn range(&self) -> (i32, i32) {
+        match self.position {
+            Some(fret) => {
+                let (lo, hi) = crate::tab::hand_from(fret);
+                (crate::tab::TUNING[0] + lo - C3, crate::tab::TUNING[5] + hi - C3)
+            }
+            None => (LOWEST, HIGHEST),
+        }
     }
 }
 
@@ -369,6 +425,10 @@ pub fn line<'a>(chords: impl IntoIterator<Item = &'a Chord>, recipe: Recipe) -> 
         .enumerate()
         .map(|(at, chord)| {
             let over = Over::new(chord)?;
+            // Alternately, every other chord the other way round.
+            if recipe.alternate {
+                figure = if at % 2 == 1 { recipe.figure.turned().unwrap_or(recipe.figure) } else { recipe.figure };
+            }
             let (start, now) = start_place(&over, recipe, figure, at, last);
             figure = now;
             let notes = now.notes(&over, start);
@@ -413,8 +473,29 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
         Start::Third => tone,
         Start::InTurn => tone * (at as i32 % 4),
     };
+    let (lowest, highest) = recipe.range();
     if recipe.start != Start::Continuous {
-        return (fixed, figure);
+        // Kept in one position, the start moves by octaves until the figure
+        // lies within it - as near its middle as it will go.
+        if recipe.position.is_none() {
+            return (fixed, figure);
+        }
+        let middle = (lowest + highest) / 2;
+        let first = |s: i32| over.pitch(figure.notes(over, s)[0]);
+        let wanted = first(fixed);
+        // Where no octave of it fits - two octaves of a chord from a root
+        // high in the position - the start nearest it that does.
+        let start = (-4..=4)
+            .map(|n| fixed + n * figure.octave())
+            .filter(|&s| fits(over, figure, s, (lowest, highest)))
+            .min_by_key(|&s| (first(s) - middle).abs())
+            .or_else(|| {
+                (-32..32)
+                    .filter(|&s| fits(over, figure, s, (lowest, highest)))
+                    .min_by_key(|&s| (first(s) - wanted).abs())
+            })
+            .unwrap_or(fixed);
+        return (start, figure);
     }
     let first = |f: Figure, s: &i32| over.pitch(f.notes(over, *s)[0]);
     // Starts a few octaves round the last note whose figure lies within the
@@ -434,7 +515,7 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
         };
         starts
             .into_iter()
-            .filter(|&s| fits(over, f, s))
+            .filter(|&s| fits(over, f, s, (lowest, highest)))
             .filter(|s| {
                 last.is_none_or(|last| {
                     if f.from_a_third() { first(f, s) != last } else { (first(f, s) - last).rem_euclid(12) != 0 }
@@ -449,12 +530,19 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
     // third barely moves and sets out in the middle.
     let afresh = |f: Figure, c: &[i32]| -> Option<i32> {
         match f {
-            Figure::ScaleDown => c.iter().max_by_key(|s| first(f, s)).copied(),
-            _ if f.from_a_third() || f.is_phrase() => c.iter().min_by_key(|s| (first(f, s) - (LOWEST + HIGHEST) / 2).abs()).copied(),
-            _ => c.iter().min_by_key(|s| first(f, s)).copied(),
+            Figure::ScaleDown | Figure::ArpeggioDown => c.iter().max_by_key(|s| first(f, s)).copied(),
+            Figure::ScaleUp | Figure::ArpeggioUp | Figure::ArpeggioUpScaleDown => {
+                c.iter().min_by_key(|s| first(f, s)).copied()
+            }
+            _ => c.iter().min_by_key(|s| (first(f, s) - (lowest + highest) / 2).abs()).copied(),
         }
     };
-    let here = candidates(figure);
+    let mut here = candidates(figure);
+    // A narrow range - one position - may hold no octave of a third the
+    // figure is tied to: then any start that fits, so no note falls outside.
+    if here.is_empty() {
+        here = (-32..32).filter(|&s| fits(over, figure, s, (lowest, highest))).collect();
+    }
     let Some(last) = last else {
         return (afresh(figure, &here).unwrap_or(fixed), figure);
     };
@@ -486,8 +574,8 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
 
 /// Whether the whole figure from `start` lies within the range - every note
 /// even where four are played, so the four are the first half of it.
-fn fits(over: &Over, figure: Figure, start: i32) -> bool {
-    figure.notes(over, start).iter().all(|&n| (LOWEST..=HIGHEST).contains(&over.pitch(n)))
+fn fits(over: &Over, figure: Figure, start: i32, (lowest, highest): (i32, i32)) -> bool {
+    figure.notes(over, start).iter().all(|&n| (lowest..=highest).contains(&over.pitch(n)))
 }
 
 #[cfg(test)]
@@ -575,7 +663,7 @@ mod tests {
     /// the third.
     fn phrase(figure: Figure, chord: &str, start: Start) -> Vec<i32> {
         let chord = chords(chord)[0].clone();
-        let steps = line(std::slice::from_ref(&chord), Recipe { figure, start, notes: 8 })[0].clone().unwrap();
+        let steps = line(std::slice::from_ref(&chord), Recipe { figure, start, notes: 8, ..Default::default() })[0].clone().unwrap();
         classes(&chord, &steps)
     }
 
@@ -702,7 +790,7 @@ mod tests {
     fn a_continuous_line_moves_by_step_into_each_chord() {
         let tune = chords("Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7 Cm7 F7 BbMaj7 EbMaj7 Am7b5 D7 Gm7 Gm7");
         for figure in FIGURES {
-            let recipe = Recipe { figure, start: Start::Continuous, notes: 8 };
+            let recipe = Recipe { figure, start: Start::Continuous, notes: 8, ..Default::default() };
             let line = line(&tune, recipe);
             let mut last: Option<i32> = None;
             for (chord, steps) in tune.iter().zip(&line) {
@@ -736,8 +824,8 @@ mod tests {
     fn four_notes_are_the_first_half() {
         for figure in FIGURES {
             for start in STARTS {
-                let eight = line(&chords("C7 F7"), Recipe { figure, start, notes: 8 });
-                let four = line(&chords("C7"), Recipe { figure, start, notes: 4 });
+                let eight = line(&chords("C7 F7"), Recipe { figure, start, notes: 8, ..Default::default() });
+                let four = line(&chords("C7"), Recipe { figure, start, notes: 4, ..Default::default() });
                 assert_eq!(four[0].as_ref().unwrap()[..], eight[0].as_ref().unwrap()[..4]);
             }
         }
@@ -766,7 +854,7 @@ mod tests {
         for figure in FIGURES {
             for start in STARTS {
                 println!("\n{figure:?}, {start:?}");
-                for (chord, steps) in tune.iter().zip(line(&tune, Recipe { figure, start, notes: 8 })) {
+                for (chord, steps) in tune.iter().zip(line(&tune, Recipe { figure, start, notes: 8, ..Default::default() })) {
                     let ring = ring(&chord.quality).unwrap();
                     let steps = steps.unwrap();
                     let notes: Vec<String> = steps
@@ -813,9 +901,14 @@ mod examples {
             ("Dm7 G7 CMaj7", 3, 0), ("Dm7 G7 CMaj7", 4, 0), ("Dm7 G7 CMaj7", 5, 0), ("Dm7 G7 CMaj7", 6, 0),
             ("Dm7 G7 CMaj7", 7, 0), ("Dm7 G7 CMaj7", 5, 1), ("Dm7 G7 CMaj7", 6, 1), ("Dm7 G7 CMaj7", 7, 1),
         ];
-        for (tune, figure, start) in cases {
+        // The arpeggio over the changes, a chord at a time: four notes. Its
+        // figure is printed as 800 or 900 plus the notes, to tell it apart.
+        let fours = [("Dm7 G7 CMaj7", 8, 0), ("Dm7 G7 CMaj7", 8, 1), ("Dm7 G7 CMaj7", 8, 2), ("Dm7 G7 CMaj7", 8, 3)];
+        let cases = cases.iter().map(|&(t, f, s)| (t, f, s, 8)).chain(fours.iter().map(|&(t, f, s)| (t, f, s, 4)));
+        for (tune, figure, start, notes) in cases {
             let chords = parse_chords_line_pub(tune);
-            let recipe = Recipe { figure: figure.into(), start: start.into(), notes: 8 };
+            let recipe = Recipe { figure: figure.into(), start: start.into(), notes, ..Default::default() };
+            let figure = if figure >= 8 { figure * 100 + notes } else { figure };
             for (chord, steps) in chords.iter().zip(line(&chords, recipe)) {
                 let ring = ring(&chord.quality).unwrap();
                 let steps = steps.unwrap();

@@ -177,6 +177,7 @@ struct SettingsSnapshot {
     harris_figure: i32,
     harris_start: i32,
     harris_notes: i32,
+    arp_position: bool,
     arp_quality: i32,
     scale_repeat_root: bool,
     scale_direction: i32,
@@ -237,6 +238,7 @@ impl SettingsSnapshot {
             harris_figure: ui.get_harris_figure(),
             harris_start: ui.get_harris_start(),
             harris_notes: ui.get_harris_notes(),
+            arp_position: ui.get_arp_position(),
             arp_quality: ui.get_arp_quality(),
             scale_repeat_root: ui.get_scale_repeat_root(),
             scale_direction: ui.get_scale_direction(),
@@ -498,7 +500,9 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
         figure: cfg.harris_figure.into(),
         start: cfg.harris_start.into(),
         notes: if cfg.harris_notes == 1 { 4 } else { 8 },
+        ..harris::Recipe::default()
     };
+    app.arp_position = cfg.arp_position;
     app.arp_quality = cfg.arp_quality;
     // Same for Formulas: whether the exercise is planted on a tune decides
     // whether the first combo holds one, and the tune below is picked from
@@ -547,6 +551,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_harris_figure(cfg.harris_figure as i32);
     ui.set_harris_start(cfg.harris_start as i32);
     ui.set_harris_notes(cfg.harris_notes as i32);
+    ui.set_arp_position(cfg.arp_position);
     ui.set_arp_quality(cfg.arp_quality as i32);
     ui.set_scale_repeat_root(cfg.scale_repeat_root);
     ui.set_scale_direction(state::ScaleDirection::from(cfg.scale_direction) as i32);
@@ -847,6 +852,9 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_harris_enclosure(t.harris_enclosure.into());
     g.set_harris_drop(t.harris_drop.into());
     g.set_harris_into_root(t.harris_into_root.into());
+    g.set_arp_position(t.arp_position.into());
+    g.set_arp_position_hint(t.arp_position_hint.into());
+    g.set_chip_position(t.chip_position.into());
     g.set_harris_start(t.harris_start.into());
     g.set_harris_from_root(t.harris_from_root.into());
     g.set_harris_from_3(t.harris_from_3.into());

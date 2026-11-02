@@ -72,8 +72,8 @@ akord, przechodzi do następnego.
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
   generator budujący nowe arpeggio po każdym przejściu. Na zmianach są też linie Harrisa:
-  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór. Wszystkie trzy
-  ćwiczenia, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
+  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór. Zestaw ćwiczeń w czterech
+  grupach, od kształtu arpeggia do fraz, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
 
 <div align="center">
 <img width="560" alt="Linie Harrisa na zmianach Autumn Leaves, tercja akordu w ciągłej linii, na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
