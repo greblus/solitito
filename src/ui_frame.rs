@@ -1054,6 +1054,13 @@ impl UiFrame {
     /// trainer, which draws its own region, and not in Chords, which has its
     /// shapes.
     fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool) {
+        let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
+        let part = greene_part(app, chord, steps, jazz, t);
+        let caption = match &part {
+            Some((_, caption)) => caption.clone(),
+            None => step_caption(app, chord, steps, jazz, t).unwrap_or_default(),
+        };
+        set_if_changed(ui.get_step_caption().to_string(), caption, |c| ui.set_step_caption(c.into()));
         let drawable = matches!(
             app.app_mode,
             AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios
@@ -1109,11 +1116,20 @@ impl UiFrame {
             place_phrase(app, chord, steps, anchor, jazz)
         };
         self.last_voicing = if is_grip { spots.clone() } else { Vec::new() };
-        let done = &this_way_only(app, chord, steps, &app.collected_notes);
+        let done = this_way_only(app, chord, steps, &app.collected_notes);
         let frets = ui.get_tab_frets();
         // No ring under free order: nothing is "due", and a ring would say the
         // opposite - for a grip, and for a scale let out of its order.
         let due = app.note_due().unwrap_or(spots.len());
+        // Greene's exercise draws only the part being played: its notes come
+        // round again, and drawn all at once they were green before their turn.
+        let (spots, done, due) = match part {
+            Some((range, _)) if range.end <= spots.len() && range.end <= done.len() => {
+                (spots[range.clone()].to_vec(), done[range.clone()].to_vec(), due.saturating_sub(range.start))
+            }
+            _ => (spots, done, due),
+        };
+        let done = &done;
         let (svg, aspect) = if Preview::from(ui.get_preview()) == Preview::Tab {
             (tab::svg(&spots, done, due, frets), tab::aspect(spots.len()))
         } else {
@@ -1398,6 +1414,121 @@ fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
         spots = Some(laid);
     }
     spots
+}
+
+/// Ted Greene's exercise: the part of the figure the step due belongs to - a
+/// group of four, or one way through the position - and what to play in it.
+fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t: &i18n::Strings) -> Option<(std::ops::Range<usize>, String)> {
+    use crate::harris::PositionFigure;
+    let recipe = app.greene_recipe()?;
+    if steps.is_empty() {
+        return None;
+    }
+    let semis = app.degree_intervals(chord);
+    let pitch = |s: &model::Step| semis.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32;
+    let due = app.note_due().unwrap_or(0).min(steps.len() - 1);
+    let range = match recipe.figure {
+        PositionFigure::Sweep => {
+            // From turn to turn: where the way changes, a new part begins.
+            let turns: Vec<usize> = (1..steps.len().saturating_sub(1))
+                .filter(|&i| (pitch(&steps[i]) - pitch(&steps[i - 1])).signum() != (pitch(&steps[i + 1]) - pitch(&steps[i])).signum())
+                .map(|i| i + 1)
+                .collect();
+            let start = turns.iter().rev().find(|&&b| b <= due).copied().unwrap_or(0);
+            let end = turns.iter().find(|&&b| b > due).copied().unwrap_or(steps.len());
+            start..end
+        }
+        _ => {
+            let start = due / 4 * 4;
+            start..(start + 4).min(steps.len())
+        }
+    };
+    let part = &steps[range.clone()];
+    let up = pitch(&part[part.len() - 1]) >= pitch(&part[0]);
+    let way = if up { t.greene_up } else { t.greene_down };
+    let names = app.degree_names(chord);
+    let names = if jazz { model::jazz_names(&names) } else { names };
+    let notes: Vec<String> = part.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let caption = match recipe.figure {
+        // The whole way is too long to list: where it starts and ends.
+        PositionFigure::Sweep => t
+            .greene_sweep_part
+            .replace("{way}", way)
+            .replace("{from}", notes.first().map_or("", String::as_str))
+            .replace("{to}", notes.last().map_or("", String::as_str)),
+        _ => format!(
+            "{}: {}",
+            t.greene_group_part
+                .replace("{k}", &(range.start / 4 + 1).to_string())
+                .replace("{n}", &steps.len().div_ceil(4).to_string())
+                .replace("{way}", way),
+            notes.join(" ")
+        ),
+    };
+    Some((range, caption))
+}
+
+/// What to play now, above the drawing, in Intervals, Scales and Arpeggios: the
+/// notes and the way they go; a long run by where it starts and ends.
+fn step_caption(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t: &i18n::Strings) -> Option<String> {
+    if steps.is_empty() || !matches!(app.app_mode, AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios) {
+        return None;
+    }
+    let semis = app.degree_intervals(chord);
+    let pitches: Vec<i32> = steps.iter().map(|s| semis.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32).collect();
+    let names = app.degree_names(chord);
+    let names = if jazz { model::jazz_names(&names) } else { names };
+    let notes: Vec<String> = steps.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let list = notes.join(" ");
+    let (first, last) = (notes.first()?.clone(), notes.last()?.clone());
+    if app.free_order() {
+        return Some(t.caption_any_order.replace("{notes}", &list));
+    }
+    let way = way_of(&pitches, t);
+    if let Some(recipe) = app.line_recipe() {
+        if app.arp_exercise == state::ArpExercise::HarrisLines {
+            let figures = [
+                t.harris_scale_down, t.harris_scale_up, t.harris_arp_scale, t.harris_from_third,
+                t.harris_own_third, t.harris_enclosure, t.harris_drop, t.harris_into_root,
+            ];
+            let figure = figures.get(app.harris.figure as usize).copied().unwrap_or("");
+            return Some(format!("{figure}: {list}"));
+        }
+        let octaves = if recipe.notes == 4 { t.one_octave } else { t.two_octaves };
+        let template = if recipe.start == crate::harris::Start::Continuous { t.caption_one_line } else { t.caption_changes };
+        return Some(
+            template.replace("{from}", &first).replace("{way}", &way).replace("{octaves}", octaves).replace("{notes}", &list),
+        );
+    }
+    let template = if notes.len() > 8 { t.caption_long } else { t.caption_line };
+    Some(capitalised(
+        &template
+            .replace("{way}", &way)
+            .replace("{from}", &first)
+            .replace("{to}", &last)
+            .replace("{n}", &notes.len().to_string())
+            .replace("{notes}", &list),
+    ))
+}
+
+/// Which way a run goes: up, down, or there and back.
+fn way_of(pitches: &[i32], t: &i18n::Strings) -> String {
+    let start_up = pitches.windows(2).map(|w| w[1] - w[0]).find(|d| *d != 0).unwrap_or(1) > 0;
+    let turns = pitches
+        .windows(3)
+        .filter(|w| (w[1] - w[0]).signum() * (w[2] - w[1]).signum() < 0)
+        .count();
+    match (start_up, turns) {
+        (true, 0) => t.greene_up.to_string(),
+        (false, 0) => t.greene_down.to_string(),
+        (true, _) => t.up_and_back.to_string(),
+        (false, _) => t.down_and_back.to_string(),
+    }
+}
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or(String::new(), |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// Every place inside the region where pitch class `pc` sounds.

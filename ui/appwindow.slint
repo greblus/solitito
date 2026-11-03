@@ -980,6 +980,8 @@ export component AppWindow inherits Window {
     /// The arpeggio drawn as tablature - see the `tab` module. Empty in every
     /// other mode.
     in property <image> tab_image;
+    /// What to play now, above the drawing: Ted Greene's exercise.
+    in property <string> step_caption;
     /// Its width against its height, so the box it is drawn in has the shape of
     /// the drawing and the picture scales with the window instead of sitting in
     /// a fixed 150px band.
@@ -2402,6 +2404,12 @@ export component AppWindow inherits Window {
             // a third of the height - six strings and a row of labels need the
             // room, and a fixed band left the drawing in a corner of a
             // maximised window.
+            if root.step_caption != "" && root.current_mode >= 1 && root.current_mode <= 3 : Text {
+                text: root.step_caption;
+                font-size: 18px;
+                color: #C9CEDA;
+                horizontal-alignment: center;
+            }
             if root.draws_on_neck && root.tab_image.width > 0
                 && root.current_mode >= 1 && root.current_mode <= 4 : HorizontalLayout {
                 alignment: center;

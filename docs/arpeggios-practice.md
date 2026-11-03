@@ -169,6 +169,10 @@ Over Cmaj7 in the 7th position:
 | Condensed arpeggio | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
 | Groups of 4 up | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
 
+The neck shows only what you are playing now: one group, or one way through the position, and above
+it the app says what it is, for example "Group 3 of 7, down: 5 3 1 ♭7". A group played turns green
+and gives way to the next.
+
 **Notes per chord:** 8, 4 or **The whole position**. With the whole position every chord plays the
 whole figure: right through the position and back, or every group. That is how one chord is
 practised. With 8 and 4 notes the line goes through the changes: every chord starts on its note

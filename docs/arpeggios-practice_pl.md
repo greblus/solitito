@@ -172,6 +172,10 @@ Nad Cmaj7 w 7. pozycji:
 | Arpeggio ściśnięte | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
 | Grupy po 4 w górę | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
 
+Gryf pokazuje tylko to, co grasz teraz: jedną grupę albo jeden przebieg przez pozycję, a nad nim
+program pisze, co to jest, na przykład „Grupa 3 z 7, w dół: 5 3 1 ♭7”. Zagrana grupa się
+zazielenia i ustępuje następnej.
+
 **Dźwięków na akord:** 8, 4 albo **Cała pozycja**. Przy całej pozycji każdy akord gra całą figurę,
 czyli przez całą pozycję i z powrotem albo wszystkie grupy. Tak ćwiczy się jeden akord. Przy 8 i 4
 dźwiękach linia idzie przez zmiany: każdy akord zaczyna się od swojego dźwięku najbliższego temu, na

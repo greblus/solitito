@@ -28,7 +28,7 @@ const DEGREE: [&str; 12] = [
 /// A degree as the exercise writes it, in the diagrams' typography: `b3` and
 /// `#2` are the same pitch and NOT the same degree, and a scale that spells the
 /// altered second as `#2` has to read `#2` on the neck as well.
-fn spell(name: &str) -> String {
+pub fn spell(name: &str) -> String {
     name.trim_end_matches(['\'', ','])
         .replace('b', "♭")
         .replace('#', "♯")
