@@ -74,6 +74,7 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Ruch tonacji** | Skale, przy wyłączonym losowaniu: po każdym przebiegu tonacja zostaje, przesuwa się o półton w górę lub w dół albo idzie kołem kwintowym lub kwartowym |
 | **Zapis jazzowy** | Skale, skale akordowe w Interwałach i Formuły: to, co leży między składnikami akordu, nazywane jest napięciem nad nim — `b9` zamiast `b2`, `11` zamiast `4`, `13` zamiast `6` — więc frygijska dominantowa to `1 b9 3 4 5 b13 b7`. Zwykła `4` nad tercją wielką zostaje `4`: leży półton nad tercją, więc się przez nią przechodzi, a nie zatrzymuje. Nic nie jest liczone ponad oktawę: pryma na górze to znów `1`, a wysokość widać na gryfie. Domyślnie wyłączony; listy ćwiczeń zawsze mają zwykłe stopnie |
 | **Pasek akordów** (szybka opcja, Akordy i Interwały) | Akordy, Interwały i Arpeggia po zmianach: akordy utworu na górze okna, bieżący i te wokół niego. Domyślnie włączony. Pomaga oswoić się z progresją; gdy ją znasz, wyłącz go i miej kolejne akordy w głowie — zobacz [Ćwiczenie interwałów](intervals-practice_pl.md#gra-bez-paska-akordów) |
+| **Opisy** (szybka opcja, Interwały, Skale i Arpeggia) | Linia nad ćwiczeniem mówiąca, co zagrać teraz: w którą stronę, od którego dźwięku do którego, a w ćwiczeniu Ted Greene — która grupa. Domyślnie włączone |
 | **Stopnie na pasku akordów** | Akordy, Interwały i Arpeggia po zmianach: każdy akord na pasku pokazuje też swój stopień w utworze — `ii V I`. Wielka litera nad tercją wielką, mała nad małą. Sama cyfra: alteracje i rodzaj septymy są w nazwie akordu nad nią, więc w g-moll `F7` to `VII`. Stopnie liczone są od toniki utworu, więc w każdej tonacji są takie same |
 | **Prowadzenie głosów** | Interwały, przy włączonym losowaniu: każdy akord zaczyna się od składnika najbliższego ostatnio zagranemu dźwiękowi, nigdy od tego samego, więc wylosowane ćwiczenie dalej czyta się jak linia |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |
@@ -114,9 +115,9 @@ sięgać w trakcie grania:
 | tryb | szybkie opcje |
 |---|---|
 | Akordy | tonacja utworu, **Pełne chwyty**, **Shelle**, **Trzymaj jakość**, **Krótkie uderzenia**, **Pasek akordów** |
-| Interwały | ćwiczenie, **Pojedynczo**, **Po kolei**, **Tylko uderzone**, **Pasek akordów** |
-| Skale | tonacja, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem** |
-| Arpeggia | ćwiczenie; w studium tonacja i akord, przy ogrywaniu zmian kierunek, w liniach Harrisa figura, w obu tych ćwiczeniach start, liczba dźwięków na akord i **W jednej pozycji**, a w ćwiczeniu Ted Greene figura, liczba dźwięków na akord i **Z napięciami** |
+| Interwały | ćwiczenie, **Pojedynczo**, **Po kolei**, **Tylko uderzone**, **Pasek akordów**, **Opisy** |
+| Skale | tonacja, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem**, **Opisy** |
+| Arpeggia | ćwiczenie; w studium tonacja i akord, przy ogrywaniu zmian kierunek, w liniach Harrisa figura, w obu tych ćwiczeniach start, liczba dźwięków na akord, **W jednej pozycji** i **Kontekst akordu**, a w ćwiczeniu Ted Greene figura, liczba dźwięków na akord, **Kontekst akordu** i **Z napięciami**; zawsze **Opisy** |
 | Formuły | ćwiczenie, liczba dźwięków w formule, **Pojedynczo**, **Po kolei** |
 | Gryf | **Podpowiedź**: gryf do 15. progu z każdym miejscem szukanego dźwięku, przy każdym dźwięku; wyłączona, pokazuje ją jednorazowo kliknięcie w dźwięk |
 

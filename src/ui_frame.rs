@@ -1075,7 +1075,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1090,7 +1090,8 @@ impl UiFrame {
             app.free_order(),
             app.scale_hand(chord),
             jazz,
-            app.home_anchor
+            app.home_anchor,
+            ui.get_chord_context()
         );
         if signature == self.last_tab {
             return;
@@ -1121,19 +1122,24 @@ impl UiFrame {
         // No ring under free order: nothing is "due", and a ring would say the
         // opposite - for a grip, and for a scale let out of its order.
         let due = app.note_due().unwrap_or(spots.len());
-        // Greene's exercise draws only the part being played: its notes come
-        // round again, and drawn all at once they were green before their turn.
-        let (spots, done, due) = match part {
+        // Greene's exercise colours only the part being played: its notes come
+        // round again, and coloured all at once they were green before their
+        // turn. On the neck the rest of the position stays, grey.
+        let context = if ui.get_chord_context() { chord_context(app, chord, &spots) } else { Vec::new() };
+        let (spots, done, due, rest) = match part {
             Some((range, _)) if range.end <= spots.len() && range.end <= done.len() => {
-                (spots[range.clone()].to_vec(), done[range.clone()].to_vec(), due.saturating_sub(range.start))
+                let part = spots[range.clone()].to_vec();
+                let rest = spots.into_iter().chain(context).collect();
+                (part, done[range.clone()].to_vec(), due.saturating_sub(range.start), rest)
             }
-            _ => (spots, done, due),
+            _ => (spots, done, due, context),
         };
         let done = &done;
         let (svg, aspect) = if Preview::from(ui.get_preview()) == Preview::Tab {
             (tab::svg(&spots, done, due, frets), tab::aspect(spots.len()))
         } else {
-            (tab::neck(&spots, done, due, frets), tab::neck_aspect(&spots))
+            let all: Vec<tab::Spot> = spots.iter().chain(&rest).cloned().collect();
+            (tab::neck_with_rest(&spots, done, due, frets, &rest), tab::neck_aspect(&all))
         };
         ui.set_tab_aspect(aspect);
         ui.set_tab_image(svg_icon(&svg));
@@ -1429,14 +1435,9 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
     let due = app.note_due().unwrap_or(0).min(steps.len() - 1);
     let range = match recipe.figure {
         PositionFigure::Sweep => {
-            // From turn to turn: where the way changes, a new part begins.
-            let turns: Vec<usize> = (1..steps.len().saturating_sub(1))
-                .filter(|&i| (pitch(&steps[i]) - pitch(&steps[i - 1])).signum() != (pitch(&steps[i + 1]) - pitch(&steps[i])).signum())
-                .map(|i| i + 1)
-                .collect();
-            let start = turns.iter().rev().find(|&&b| b <= due).copied().unwrap_or(0);
-            let end = turns.iter().find(|&&b| b > due).copied().unwrap_or(steps.len());
-            start..end
+            let pitches: Vec<i32> = steps.iter().map(pitch).collect();
+            let parts = sweep_parts(&pitches);
+            parts.iter().find(|r| r.contains(&due)).cloned().unwrap_or(0..steps.len())
         }
         _ => {
             let start = due / 4 * 4;
@@ -1444,8 +1445,8 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
         }
     };
     let part = &steps[range.clone()];
-    let up = pitch(&part[part.len() - 1]) >= pitch(&part[0]);
-    let way = if up { t.greene_up } else { t.greene_down };
+    let part_pitches: Vec<i32> = part.iter().map(pitch).collect();
+    let way = way_of(&part_pitches, t);
     let names = app.degree_names(chord);
     let names = if jazz { model::jazz_names(&names) } else { names };
     let notes: Vec<String> = part.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
@@ -1453,7 +1454,7 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
         // The whole way is too long to list: where it starts and ends.
         PositionFigure::Sweep => t
             .greene_sweep_part
-            .replace("{way}", way)
+            .replace("{way}", &way)
             .replace("{from}", notes.first().map_or("", String::as_str))
             .replace("{to}", notes.last().map_or("", String::as_str)),
         _ => format!(
@@ -1461,11 +1462,73 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
             t.greene_group_part
                 .replace("{k}", &(range.start / 4 + 1).to_string())
                 .replace("{n}", &steps.len().div_ceil(4).to_string())
-                .replace("{way}", way),
+                .replace("{way}", &way),
             notes.join(" ")
         ),
     };
     Some((range, caption))
+}
+
+/// The chord's notes around the line, drawn grey: in Greene's exercise those of
+/// the position, tensions included where they are played; over the changes and
+/// in Harris lines under the held hand, or where the line lies.
+fn chord_context(app: &MyApp, chord: &Chord, spots: &[tab::Spot]) -> Vec<tab::Spot> {
+    let root = chord.root as usize;
+    if let Some(recipe) = app.greene_recipe() {
+        let classes: Vec<u8> = crate::harris::tones_in_position(chord, recipe.fret, recipe.tensions)
+            .iter()
+            .map(|s| s.rem_euclid(12) as u8)
+            .collect();
+        return tab::chord_in_hand(root, &classes, tab::hand_from(recipe.fret));
+    }
+    if app.line_recipe().is_none() {
+        return Vec::new();
+    }
+    let hand = match app.held_position() {
+        Some(fret) => Some(tab::hand_from(fret)),
+        None => frets_around(spots),
+    };
+    hand.map(|hand| tab::chord_in_hand(root, &chord.quality.intervals(), hand)).unwrap_or_default()
+}
+
+/// The frets a line covers, widened to a hand's five where it covers fewer.
+fn frets_around(spots: &[tab::Spot]) -> Option<(i32, i32)> {
+    let lowest = spots.iter().map(|s| s.fret).min()?;
+    let highest = spots.iter().map(|s| s.fret).max()?;
+    let missing = (4 - (highest - lowest)).max(0);
+    let lo = (lowest - missing / 2).max(0);
+    Some((lo, highest.max(lo + 4)))
+}
+
+/// A part of Greene's sweep shorter than this joins the next one, or the one
+/// before it at the end of the line.
+const SHORTEST_SWEEP_PART: usize = 4;
+
+/// The parts of Greene's sweep: from turn to turn, where the way changes. A
+/// line picked up where the last chord ended may reach the end of the position
+/// in a note or two; that tail is joined to the part after it.
+fn sweep_parts(pitches: &[i32]) -> Vec<std::ops::Range<usize>> {
+    let mut bounds: Vec<usize> = vec![0];
+    bounds.extend(
+        (1..pitches.len().saturating_sub(1))
+            .filter(|&i| (pitches[i] - pitches[i - 1]).signum() != (pitches[i + 1] - pitches[i]).signum())
+            .map(|i| i + 1),
+    );
+    bounds.push(pitches.len());
+    let mut parts: Vec<std::ops::Range<usize>> = bounds.windows(2).map(|b| b[0]..b[1]).collect();
+    let mut i = 0;
+    while parts.len() > 1 && i < parts.len() {
+        if parts[i].len() >= SHORTEST_SWEEP_PART {
+            i += 1;
+        } else if i + 1 < parts.len() {
+            parts[i + 1].start = parts[i].start;
+            parts.remove(i);
+        } else {
+            parts[i - 1].end = parts[i].end;
+            parts.remove(i);
+        }
+    }
+    parts
 }
 
 /// What to play now, above the drawing, in Intervals, Scales and Arpeggios: the
@@ -1711,4 +1774,33 @@ mod this_way_tests {
         }
     }
 
+
+    /// A sweep that reaches the end of the position in one note joins that
+    /// tail to the way back; a tail at the end joins the part before it.
+    #[test]
+    fn a_short_tail_of_the_sweep_joins_the_next_part() {
+        // Down two notes, up the position, down again.
+        let line = [7, 5, 7, 10, 12, 15, 17, 15, 12, 10, 7];
+        assert_eq!(super::sweep_parts(&line), vec![0..7, 7..11]);
+        // Up the position, down, and one note up at the end.
+        let line = [0, 3, 7, 10, 12, 10, 7, 3, 0, 3];
+        assert_eq!(super::sweep_parts(&line), vec![0..5, 5..10]);
+        // Four tones in the position: up and back is one part.
+        let line = [0, 3, 7, 10, 7, 3, 0];
+        assert_eq!(super::sweep_parts(&line), vec![0..7]);
+    }
+
+    /// A line of three frets is widened to five around it; a wider one is
+    /// left as it is; at the nut the frets start at 0.
+    #[test]
+    fn the_frets_around_a_line_are_at_least_a_hand() {
+        let at = |frets: &[i32]| {
+            let spots: Vec<tab::Spot> = frets.iter().map(|&fret| tab::Spot { string: 0, fret, interval: 0, name: None }).collect();
+            super::frets_around(&spots)
+        };
+        assert_eq!(at(&[5, 7]), Some((4, 8)));
+        assert_eq!(at(&[3, 9]), Some((3, 9)));
+        assert_eq!(at(&[0, 1]), Some((0, 4)));
+        assert_eq!(at(&[]), None);
+    }
 }

@@ -135,6 +135,10 @@ Every chord is drawn close to where on the neck the one before ended. The first 
 somewhere else every time, and in one position the whole tune stands in one place, as described
 below.
 
+Over the changes, in the Harris lines and in Ted Greene's exercises **Chord context** draws the chord's notes around the line
+in grey: under the hand in one position, otherwise where the line lies. The root and the rest of
+the arpeggio stay in sight even where the figure does not play them. On by default.
+
 ## In one position
 
 Over the changes and in the Harris lines you can turn on **In one position**. Then the whole pass of
@@ -169,9 +173,11 @@ Over Cmaj7 in the 7th position:
 | Condensed arpeggio | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
 | Groups of 4 up | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
 
-The neck shows only what you are playing now: one group, or one way through the position, and above
-it the app says what it is, for example "Group 3 of 7, down: 5 3 1 ♭7". A group played turns green
-and gives way to the next.
+The neck shows the whole position, but only what you are playing now is in colour: one group, or
+one way through the position; the rest of the figure is grey, and with **Chord context** on, the
+rest of the position too, so with 8 or 4 notes a chord you still see the whole position. Above it the app says what it is,
+for example "Group 3 of 7, down: 5 3 1 ♭7". A group played turns green and gives way to the next.
+**Captions** in the quick options hides that line.
 
 **Notes per chord:** 8, 4 or **The whole position**. With the whole position every chord plays the
 whole figure: right through the position and back, or every group. That is how one chord is

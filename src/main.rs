@@ -200,6 +200,8 @@ struct SettingsSnapshot {
     jazz_notation: bool,
     chord_degrees: bool,
     chord_strip: bool,
+    step_captions: bool,
+    chord_context: bool,
     formula_exercise: i32,
     formula_placement: i32,
     formula_notes: i32,
@@ -264,6 +266,8 @@ impl SettingsSnapshot {
             jazz_notation: ui.get_jazz_notation(),
             chord_degrees: ui.get_chord_degrees(),
             chord_strip: ui.get_chord_strip(),
+            step_captions: ui.get_step_captions(),
+            chord_context: ui.get_chord_context(),
             formula_exercise: ui.get_formula_exercise(),
             formula_placement: ui.get_formula_placement(),
             formula_notes: ui.get_formula_notes(),
@@ -610,6 +614,8 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_jazz_notation(cfg.jazz_notation);
     ui.set_chord_degrees(cfg.chord_degrees);
     ui.set_chord_strip(cfg.chord_strip);
+    ui.set_step_captions(cfg.step_captions);
+    ui.set_chord_context(cfg.chord_context);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -990,6 +996,10 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chord_degrees(t.chord_degrees.into());
     g.set_chord_strip(t.chord_strip.into());
     g.set_chord_strip_hint(t.chord_strip_hint.into());
+    g.set_step_captions(t.step_captions.into());
+    g.set_step_captions_hint(t.step_captions_hint.into());
+    g.set_chord_context(t.chord_context.into());
+    g.set_chord_context_hint(t.chord_context_hint.into());
     g.set_chord_tones(t.chord_tones.into());
     g.set_fav_hint(t.fav_hint.into());
     g.set_fav_add(t.fav_add.into());

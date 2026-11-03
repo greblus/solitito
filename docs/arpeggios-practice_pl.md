@@ -137,13 +137,17 @@ Każdy akord jest rysowany blisko miejsca na gryfie, w którym skończył się p
 stoi za każdym razem gdzie indziej, a w jednej pozycji cały utwór stoi w jednym miejscu, opisanym
 niżej.
 
+Przy ogrywaniu zmian, w liniach Harrisa i w ćwiczeniach Teda Greene'a **Kontekst akordu** rysuje na szaro dźwięki akordu wokół
+linii: pod ręką w jednej pozycji, a bez niej tam, gdzie linia leży. Pryma i reszta arpeggia są
+widoczne także tam, gdzie figura ich nie gra. Domyślnie włączony.
+
 ## W jednej pozycji
 
 Przy ogrywaniu zmian i liniach Harrisa możesz włączyć **W jednej pozycji**. Wtedy całe przejście
 utworu gra się pod jedną ręką: w pięciu progach, na wszystkich strunach. Program dopasowuje każdą
 figurę tak, żeby się w nich zmieściła. Gdy arpeggio od wybranego dźwięku się nie mieści, zaczyna się
 od najbliższego dźwięku akordu, od którego się mieści. Po każdym przejściu utworu program przenosi
-pozycję w inne miejsce gryfu.
+pozycję w inne miejsce gryfu. 
 
 Tak uczył grania przez zmiany Ted Greene: ten sam utwór w kolejnych pozycjach, aż każdą z nich
 zobaczysz bez kartki. W pozycji nie liczy się, ile oktaw ma arpeggio, tylko to, co jest pod ręką:
@@ -172,9 +176,11 @@ Nad Cmaj7 w 7. pozycji:
 | Arpeggio ściśnięte | `B C E G B C E G B C B G E C B G E C B`<br>`7 1 3 5 7 1 3 5 7 1 7 5 3 1 7 5 3 1 7` |
 | Grupy po 4 w górę | `B C E G C E G B E G B C G B C E B C E G C E G B E G B C`<br>`7 1 3 5 1 3 5 7 3 5 7 1 5 7 1 3 7 1 3 5 1 3 5 7 3 5 7 1` |
 
-Gryf pokazuje tylko to, co grasz teraz: jedną grupę albo jeden przebieg przez pozycję, a nad nim
-program pisze, co to jest, na przykład „Grupa 3 z 7, w dół: 5 3 1 ♭7”. Zagrana grupa się
-zazielenia i ustępuje następnej.
+Gryf pokazuje całą pozycję, ale w kolorze tylko to, co grasz teraz: jedną grupę albo jeden
+przebieg przez pozycję; reszta figury jest szara, a przy włączonym **Kontekście akordu** także
+reszta pozycji, więc przy 8 albo 4 dźwiękach na akord nadal widzisz całą pozycję. Nad gryfem program pisze, co to jest, na
+przykład „Grupa 3 z 7, w dół: 5 3 1 ♭7”. Zagrana grupa się zazielenia i ustępuje następnej.
+**Opisy** w szybkich opcjach chowają tę linię.
 
 **Dźwięków na akord:** 8, 4 albo **Cała pozycja**. Przy całej pozycji każdy akord gra całą figurę,
 czyli przez całą pozycję i z powrotem albo wszystkie grupy. Tak ćwiczy się jeden akord. Przy 8 i 4

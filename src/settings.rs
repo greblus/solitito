@@ -100,6 +100,14 @@ pub struct Settings {
     /// the next chords are then kept in the head, which is the exercise.
     #[serde(default = "yes")]
     pub chord_strip: bool,
+    /// The line above the exercise saying what to play now (Intervals, Scales,
+    /// Arpeggios).
+    #[serde(default = "yes")]
+    pub step_captions: bool,
+    /// Over the changes and in Harris lines: the chord's notes around the line,
+    /// grey.
+    #[serde(default = "yes")]
+    pub chord_context: bool,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -386,6 +394,8 @@ impl Default for Settings {
             jazz_notation: false,
             chord_degrees: true,
             chord_strip: true,
+            step_captions: true,
+            chord_context: true,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,

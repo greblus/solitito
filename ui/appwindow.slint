@@ -836,6 +836,10 @@ export global Tr {
     in-out property <string> chord_degrees: "Degrees in the chord strip";
     in-out property <string> chord_strip: "Chord strip";
     in-out property <string> chord_strip_hint: "";
+    in-out property <string> step_captions: "Captions";
+    in-out property <string> step_captions_hint: "";
+    in-out property <string> chord_context: "Chord context";
+    in-out property <string> chord_context_hint: "";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
@@ -1170,6 +1174,10 @@ export component AppWindow inherits Window {
     callback chord_degrees_changed(bool);
     in-out property <bool> chord_strip: true;
     callback chord_strip_changed(bool);
+    in-out property <bool> step_captions: true;
+    callback step_captions_changed(bool);
+    in-out property <bool> chord_context: true;
+    callback chord_context_changed(bool);
     in-out property <int> formula_placement: 0;
     callback formula_placement_changed(int);
     /// The next chord of the tune under the formula, over the changes.
@@ -1458,6 +1466,8 @@ export component AppWindow inherits Window {
                     toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
                 SideToggle { text: Tr.chord_strip; on: root.chord_strip;
                     toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
+                SideToggle { text: Tr.step_captions; on: root.step_captions;
+                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
             }
             NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
                 expandable: root.current_mode == 2 && !root.show_settings;
@@ -1490,6 +1500,8 @@ export component AppWindow inherits Window {
                     toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
                 SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
                     toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
+                SideToggle { text: Tr.step_captions; on: root.step_captions;
+                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
             }
             NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
                 expandable: root.current_mode == 3 && !root.show_settings;
@@ -1562,8 +1574,12 @@ export component AppWindow inherits Window {
                 }
                 if root.arp_exercise == 1 || root.arp_exercise == 2 : SideToggle { text: Tr.chip_position; on: root.arp_position;
                     toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
+                if root.arp_exercise >= 1 : SideToggle { text: Tr.chord_context; hint: Tr.chord_context_hint; on: root.chord_context;
+                    toggled => { root.chord_context = !root.chord_context; root.chord_context_changed(root.chord_context); } }
                 if root.arp_exercise == 3 : SideToggle { text: Tr.greene_tensions; on: root.greene_tensions;
                     toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
+                SideToggle { text: Tr.step_captions; on: root.step_captions;
+                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
             }
             NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                 expandable: root.current_mode == 5 && !root.show_settings;
@@ -2404,7 +2420,7 @@ export component AppWindow inherits Window {
             // a third of the height - six strings and a row of labels need the
             // room, and a fixed band left the drawing in a corner of a
             // maximised window.
-            if root.step_caption != "" && root.current_mode >= 1 && root.current_mode <= 3 : Text {
+            if root.step_captions && root.step_caption != "" && root.current_mode >= 1 && root.current_mode <= 3 : Text {
                 text: root.step_caption;
                 font-size: 18px;
                 color: #C9CEDA;
@@ -3236,6 +3252,27 @@ export component AppWindow inherits Window {
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.chord_strip_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            if root.current_mode >= 1 && root.current_mode <= 3 : VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 15px;
+                                    CheckBox {
+                                        checked <=> root.step_captions;
+                                        toggled => { root.step_captions_changed(self.checked); }
+                                    }
+                                    Text {
+                                        text: Tr.step_captions;
+                                        color: #aaa; vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.step_captions_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
                             }

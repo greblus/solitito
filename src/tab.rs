@@ -108,15 +108,35 @@ pub fn place_in_hand(
         .filter_map(|step| {
             let interval = *intervals.get(step.degree)? as i32 + 12 * step.octave as i32;
             let pitch = root + interval;
-            let string = (0..6)
-                .filter(|&s| (lo..=hi).contains(&(pitch - TUNING[s])))
-                .min_by_key(|&s| pitch - TUNING[s])?;
+            let string = string_in_hand(pitch, (lo, hi))?;
             Some(Spot {
                 string,
                 fret: pitch - TUNING[string],
                 interval,
                 name: names.get(step.degree).map(|n| spell(n)),
             })
+        })
+        .collect()
+}
+
+/// The string `place_in_hand` takes `pitch` on: the one where it lies at the
+/// lowest fret between `lo` and `hi`.
+fn string_in_hand(pitch: i32, (lo, hi): (i32, i32)) -> Option<usize> {
+    (0..6)
+        .filter(|&s| (lo..=hi).contains(&(pitch - TUNING[s])))
+        .min_by_key(|&s| pitch - TUNING[s])
+}
+
+/// Every note of a chord under a hand between frets `lo` and `hi`, on the
+/// strings `place_in_hand` would take them. `intervals` are above the root.
+pub fn chord_in_hand(root_pc: usize, intervals: &[u8], (lo, hi): (i32, i32)) -> Vec<Spot> {
+    let root = root_above_low_e(root_pc);
+    let classes: Vec<i32> = intervals.iter().map(|&i| i as i32 % 12).collect();
+    (TUNING[0] + lo..=TUNING[5] + hi)
+        .filter(|pitch| classes.contains(&(pitch - root).rem_euclid(12)))
+        .filter_map(|pitch| {
+            let string = string_in_hand(pitch, (lo, hi))?;
+            Some(Spot { string, fret: pitch - TUNING[string], interval: pitch - root, name: None })
         })
         .collect()
 }
@@ -573,6 +593,9 @@ const RED: &str = "rgba(208, 2, 27, 1)";
 const GREEN: &str = "rgba(24, 148, 58, 1)";
 /// A string that is on the guitar but not in the question.
 const DIM: &str = "rgba(74, 144, 226, 0.55)";
+/// A note of the position outside the part being played.
+const GHOST: &str = "#3A4150";
+const GHOST_LABEL: &str = "#8D95A8";
 const FONT: &str = "Arial, &quot;Helvetica Neue&quot;, Helvetica, sans-serif";
 
 /// The font the app bundles for ♭, ♯ and ♮ (`assets/Accidentals.ttf`,
@@ -635,6 +658,10 @@ fn dot(x: f32, y: f32, fill: &str, label: &str) -> String {
 /// The white writing inside a dot, smaller where it is longer: a tension
 /// written the jazz way, `♭13`, did not fit in at the size a `3` is.
 fn dot_label(x: f32, y: f32, label: &str) -> String {
+    coloured_label(x, y, label, "#ffffff")
+}
+
+fn coloured_label(x: f32, y: f32, label: &str, colour: &str) -> String {
     let size = match label.chars().count() {
         0..=2 => 24,
         3 => 19,
@@ -642,7 +669,7 @@ fn dot_label(x: f32, y: f32, label: &str) -> String {
     };
     format!(
         "<text x=\"{x}\" y=\"{y}\" font-family=\"{FONT}\" font-size=\"{size}\" \
-         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"#ffffff\">{}</text>",
+         text-anchor=\"middle\" dominant-baseline=\"central\" fill=\"{colour}\">{}</text>",
         with_accidentals_font(label)
     )
 }
@@ -828,16 +855,33 @@ fn neck_columns(spots: &[Spot]) -> (i32, i32) {
 /// picture is the size of a hand however long the phrase is, and what moves is
 /// the ring, not the page.
 pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> String {
-    let (base, columns) = neck_columns(spots);
+    neck_with_rest(spots, done, current, frets, &[])
+}
+
+/// `neck`, with `rest` drawn grey under it: the notes of the exercise that are
+/// not in the part being played. A place in `spots` is not drawn again grey.
+pub fn neck_with_rest(spots: &[Spot], done: &[bool], current: usize, frets: bool, rest: &[Spot]) -> String {
+    let all: Vec<Spot> = spots.iter().chain(rest).cloned().collect();
+    let (base, columns) = neck_columns(&all);
     let (w, h) = box_size(columns);
     let mut out = open_svg(w, h);
     // An open string's note stands before the nut, where its name would.
     for string in (0..6).rev() {
-        let open = spots.iter().any(|s| s.string == string && s.fret == 0);
+        let open = all.iter().any(|s| s.string == string && s.fret == 0);
         out += &region_string(string, columns, true, !open);
     }
     out += &fret_lines(columns);
     out += &inlays(base, columns);
+    let mut greyed: Vec<(usize, i32)> = Vec::new();
+    for spot in rest {
+        let place = (spot.string, spot.fret);
+        let active = spots.iter().any(|s| (s.string, s.fret) == place);
+        if active || greyed.contains(&place) {
+            continue;
+        }
+        greyed.push(place);
+        out += &ghost_dot(spot, base, columns, frets);
+    }
     // One dot per PLACE, not per step: a phrase comes back to the same finger
     // over and over, and six dots on top of each other are one dot with a
     // muddy edge. The step due now decides what the place looks like.
@@ -877,6 +921,20 @@ pub fn neck(spots: &[Spot], done: &[bool], current: usize, frets: bool) -> Strin
     }
     out.push_str("</svg>");
     out
+}
+
+/// A grey note of `neck_with_rest`; an open string is a grey ring before the nut.
+fn ghost_dot(spot: &Spot, base: i32, columns: i32, frets: bool) -> String {
+    let open = spot.fret == 0;
+    let x = if open { GRIP_LEFT - DOT_R - 7.0 } else { fret_x(spot.fret, base, columns) };
+    let y = string_y(spot.string);
+    let label = if frets && !open { spot.fret.to_string() } else { spot.label() };
+    let (fill, stroke_width) = if open { ("none", 5) } else { (GHOST, 0) };
+    format!(
+        "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
+         stroke=\"{GHOST}\" stroke-width=\"{stroke_width}\"></circle>{}",
+        coloured_label(x, y, &label, GHOST_LABEL)
+    )
 }
 
 /// The first fret drawn for a region, and how many columns the box has.
@@ -1478,5 +1536,29 @@ mod open_string_tests {
         let circles = svg.matches("<circle").count();
         assert!(circles >= 3, "a dot is missing: {circles} circles");
         assert!(svg.contains(&format!("cx=\"{}\"", GRIP_LEFT - DOT_R - 7.0)), "the open string is not before the nut: {xs:?}");
+    }
+
+    /// The rest of a position is grey, and a place in the part played is not
+    /// drawn grey under it.
+    #[test]
+    fn the_rest_of_the_position_is_grey_under_the_part() {
+        let part = vec![spot(0, 3, 0, "1"), spot(0, 5, 2, "2")];
+        let rest = vec![spot(0, 3, 0, "1"), spot(1, 2, 7, "5"), spot(1, 5, 10, "♭7")];
+        let svg = neck_with_rest(&part, &[false, false], 0, false, &rest);
+        assert_eq!(svg.matches(&format!("fill=\"{GHOST}\"")).count(), 2, "{svg}");
+        let dots = |fill: &str| svg.matches(&format!("fill=\"{fill}\" stroke-width=\"0\"")).count();
+        assert_eq!((dots(RED), dots(BLUE)), (1, 1), "{svg}");
+    }
+
+    /// C m7 under a hand at frets 1-4: its four notes, each place once, and
+    /// every C on the string `place_in_hand` would take it.
+    #[test]
+    fn a_chord_under_the_hand_is_every_note_of_it_there() {
+        let spots = chord_in_hand(0, &[0, 3, 7, 10], (1, 4));
+        assert!(spots.iter().all(|s| (1..=4).contains(&s.fret)), "{spots:?}");
+        let labels: std::collections::BTreeSet<String> = spots.iter().map(Spot::label).collect();
+        assert_eq!(labels, ["1", "5", "♭3", "♭7"].iter().map(|l| l.to_string()).collect());
+        let roots: Vec<(usize, i32)> = spots.iter().filter(|s| s.is_root()).map(|s| (s.string, s.fret)).collect();
+        assert_eq!(roots, vec![(1, 3), (4, 1)]);
     }
 }
