@@ -132,6 +132,10 @@ pub struct Settings {
     pub greene_figure: usize,
     #[serde(default)]
     pub greene_tensions: bool,
+    /// Software rendering instead of OpenGL; set automatically when the window
+    /// fails to open (`renderer`). Read at start.
+    #[serde(default)]
+    pub software_renderer: bool,
     /// The studies: which chord to read them over, indexing `ARP_QUALITIES`.
     #[serde(default)]
     pub arp_quality: usize,
@@ -399,6 +403,7 @@ impl Default for Settings {
             arp_position: false,
             greene_figure: 0,
             greene_tensions: false,
+            software_renderer: false,
             arp_quality: 0,
             previews: DEFAULT_PREVIEWS.to_vec(),
             preview: 1,

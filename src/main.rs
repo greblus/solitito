@@ -13,6 +13,7 @@ mod journal;
 mod formulas;
 mod fretboard;
 mod harris;
+mod renderer;
 mod i18n;
 mod interval_levels;
 mod latch;
@@ -180,6 +181,7 @@ struct SettingsSnapshot {
     arp_position: bool,
     greene_figure: i32,
     greene_tensions: bool,
+    software_renderer: bool,
     arp_quality: i32,
     scale_repeat_root: bool,
     scale_direction: i32,
@@ -243,6 +245,7 @@ impl SettingsSnapshot {
             arp_position: ui.get_arp_position(),
             greene_figure: ui.get_greene_figure(),
             greene_tensions: ui.get_greene_tensions(),
+            software_renderer: ui.get_software_renderer(),
             arp_quality: ui.get_arp_quality(),
             scale_repeat_root: ui.get_scale_repeat_root(),
             scale_direction: ui.get_scale_direction(),
@@ -347,7 +350,11 @@ fn main() -> Result<(), slint::PlatformError> {
     println!("🌍 UI language: {:?}", lang);
     let my_app = Arc::new(Mutex::new(restore_app(&cfg, analysis_state.clone())));
 
-    let ui = AppWindow::new()?;
+    renderer::select(cfg.software_renderer);
+    let ui = match AppWindow::new() {
+        Ok(ui) => ui,
+        Err(e) => return start_in_software(&cfg, e),
+    };
     show_settings(&ui, &my_app.lock().unwrap(), &cfg, lang);
     ui.window().set_position(PhysicalPosition::new(450, 10));
 
@@ -382,7 +389,31 @@ fn main() -> Result<(), slint::PlatformError> {
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || frame.run());
 
     controls::connect(&ui, &shared);
-    ui.run()
+    // An OpenGL failure ends `run` with an error or a panic.
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ui.run()))
+        .unwrap_or_else(|_| Err("the window panicked".into()));
+    match ran {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Release the audio input before the restarted app opens it.
+            shared.audio_in.borrow_mut().take();
+            let cfg = shared.cfg.borrow().clone();
+            start_in_software(&cfg, e)
+        }
+    }
+}
+
+/// Saves `software_renderer` and restarts, unless software was already used
+/// or `SLINT_BACKEND` is set; then returns the error.
+fn start_in_software(cfg: &Settings, error: slint::PlatformError) -> Result<(), slint::PlatformError> {
+    if !renderer::worth_retrying(cfg.software_renderer) {
+        return Err(error);
+    }
+    eprintln!("The window would not open ({error}); starting again, drawn in software.");
+    let mut cfg = cfg.clone();
+    cfg.software_renderer = true;
+    cfg.save();
+    renderer::start_again()
 }
 
 /// Keeps the screen on while the app runs: a trainer is watched, not typed at.
@@ -564,6 +595,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_arp_position(cfg.arp_position);
     ui.set_greene_figure(cfg.greene_figure as i32);
     ui.set_greene_tensions(cfg.greene_tensions);
+    ui.set_software_renderer(cfg.software_renderer);
     ui.set_arp_quality(cfg.arp_quality as i32);
     ui.set_scale_repeat_root(cfg.scale_repeat_root);
     ui.set_scale_direction(state::ScaleDirection::from(cfg.scale_direction) as i32);
@@ -876,6 +908,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_greene_tensions(t.greene_tensions.into());
     g.set_greene_tensions_hint(t.greene_tensions_hint.into());
     g.set_greene_hint(t.greene_hint.into());
+    g.set_software_renderer(t.software_renderer.into());
+    g.set_software_renderer_hint(t.software_renderer_hint.into());
     g.set_harris_start(t.harris_start.into());
     g.set_harris_from_root(t.harris_from_root.into());
     g.set_harris_from_3(t.harris_from_3.into());

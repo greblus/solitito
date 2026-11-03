@@ -81,6 +81,7 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_arp_position_changed(saving(cfg, |s, on: bool| s.arp_position = on));
     ui.on_greene_figure_changed(saving(cfg, |s, idx: i32| s.greene_figure = idx.max(0) as usize));
     ui.on_greene_tensions_changed(saving(cfg, |s, on: bool| s.greene_tensions = on));
+    ui.on_software_renderer_changed(saving(cfg, |s, on: bool| s.software_renderer = on));
     ui.on_arp_quality_changed(saving(cfg, |s, idx: i32| s.arp_quality = idx.max(0) as usize));
     ui.on_tab_frets_changed(saving(cfg, |s, on| s.tab_frets = on));
     ui.on_voice_leading_changed(saving(cfg, |s, on| s.voice_leading = on));
