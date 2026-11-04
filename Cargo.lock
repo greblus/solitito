@@ -5162,6 +5162,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "winresource",
  "zune-core",
 ]
 

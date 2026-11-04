@@ -29,3 +29,7 @@ chrono = "0.4"
 
 [build-dependencies]
 slint-build = "1.18.1"
+
+# The icon of solitito.exe in Explorer and on shortcuts.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
