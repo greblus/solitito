@@ -466,7 +466,7 @@ Pentatonic Minor 6
 1 b3 4 5 6
 
 Blues Scale
-1 b3 4 #4 5 b7
+1 b3 4 b5 5 b7
 
 Major Blues Scale
 1 2 b3 3 5 6
@@ -1057,7 +1057,7 @@ mod jazz_names_tests {
     /// in the second octave only; the chord's tones never count octaves.
     #[test]
     fn a_run_names_tensions_above_the_octave_only() {
-        let names: Vec<String> = "1 b3 4 #4 5 b7".split_whitespace().map(str::to_string).collect();
+        let names: Vec<String> = "1 b3 4 b5 5 b7".split_whitespace().map(str::to_string).collect();
         let major_third = super::has_major_third(&names);
         let run: Vec<String> = [0, 1, 2, 3, 4, 5]
             .iter()
@@ -1066,7 +1066,7 @@ mod jazz_names_tests {
             .chain([(0, 2)])
             .map(|(d, octave)| super::jazz_name_above_octave(&names[d], octave, major_third))
             .collect();
-        assert_eq!(run.join(" "), "1 b3 4 #4 5 b7 1 b3 11 #11 5 b7 1");
+        assert_eq!(run.join(" "), "1 b3 4 b5 5 b7 1 b3 11 b5 5 b7 1");
     }
 
     #[test]
