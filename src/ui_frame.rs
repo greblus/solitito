@@ -975,8 +975,8 @@ impl UiFrame {
             if step.degree < all_names.len() {
                 // The octave marker is display only - the model has no
                 // octave, so 1 and 1' are checked identically.
-                let name = shown_step(app, &shown_names[step.degree], step.octave, jazz);
-                ui_names.push(SharedString::from(name));
+                let name = shown_step(app, &all_names[step.degree], &shown_names[step.degree], step.octave, jazz);
+                ui_names.push(SharedString::from(tab::spell(&name)));
                 let (r, g, b) = app.note_color(step_idx);
                 ui_colors.push(Color::from_rgb_u8(r, g, b));
             }
@@ -1011,7 +1011,7 @@ impl UiFrame {
         // Intervals draws the steps as tiles, with the note each degree
         // falls on in this chord. Pushed only when something changed:
         // a new model every frame would rebuild every tile.
-        if app.app_mode == AppMode::Intervals
+        if matches!(app.app_mode, AppMode::Intervals | AppMode::Scales)
             && Preview::from(ui.get_preview()) == Preview::Tiles
         {
             let key = formulas::parse_key(chord.root.to_string());
@@ -1036,12 +1036,13 @@ impl UiFrame {
                         NoteState::Done => 4,
                     };
                     IntervalTile {
-                        degree: shown_step(app, &shown_names[step.degree], step.octave, jazz).into(),
-                        note: note.into(),
+                        degree: tab::spell(&shown_step(app, &all_names[step.degree], &shown_names[step.degree], step.octave, jazz)).into(),
+                        note: tab::spell(&note).into(),
                         state,
                     }
                 })
                 .collect();
+            let tiles = tiles_page(app, tiles);
             if tiles != self.last_tiles {
                 ui.set_interval_tiles(ModelRc::from(Rc::new(VecModel::from(tiles.clone()))));
                 self.last_tiles = tiles;
@@ -1305,14 +1306,31 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
         .collect()
 }
 
+/// Tiles in a page at a time in Scales, as the line of names pages: a run from
+/// E to e is fifteen notes, too narrow drawn at once.
+const TILES_PER_PAGE: usize = 8;
+
+/// The page of tiles the step due is on; all of them in Intervals.
+fn tiles_page(app: &MyApp, tiles: Vec<IntervalTile>) -> Vec<IntervalTile> {
+    if app.app_mode != AppMode::Scales || tiles.len() <= TILES_PER_PAGE {
+        return tiles;
+    }
+    let step = app.current_note_step.min(tiles.len() - 1);
+    let start = step / TILES_PER_PAGE * TILES_PER_PAGE;
+    tiles.into_iter().skip(start).take(TILES_PER_PAGE).collect()
+}
+
 /// A step's degree as the screen writes it. In Intervals the plain degree, as
 /// the list of exercises has it - the octave is where the hand takes the note;
 /// in the phrases of Scales and Arpeggios, where the run through the octave is
-/// the exercise, the compound number above it. A jazz name is already the
-/// whole answer: it counts nothing past the octave.
-fn shown_step(app: &MyApp, name: &str, octave: i8, jazz: bool) -> String {
-    if jazz {
+/// the exercise, the compound number above it. A jazz name counts nothing past
+/// the octave; in Scales it is used above the octave only, so a 4 in the first
+/// octave stays 4.
+fn shown_step(app: &MyApp, name: &str, jazz_name: &str, octave: i8, jazz: bool) -> String {
+    if jazz && app.app_mode == AppMode::Scales && octave < 1 {
         name.to_string()
+    } else if jazz {
+        jazz_name.to_string()
     } else if app.app_mode == AppMode::Intervals {
         crate::interval_levels::plain_degree(name)
     } else {
@@ -1347,6 +1365,13 @@ fn this_way_only(app: &MyApp, chord: &Chord, steps: &[model::Step], done: &[bool
 /// over and over is not the exercise. An arpeggio study keeps the position its
 /// source is written in.
 fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Option<i32>, jazz: bool) -> Vec<tab::Spot> {
+    if jazz && app.app_mode == AppMode::Scales {
+        let major_third = model::has_major_third(&app.degree_names(chord));
+        return place_phrase(app, chord, steps, anchor, false)
+            .into_iter()
+            .map(|spot| jazz_above_octave(spot, major_third))
+            .collect();
+    }
     let named = |names: Vec<String>| if jazz { model::jazz_names(&names) } else { names };
     // From E to e the hand stands where the pass drew it, and does not move.
     if let Some((hand, _)) = app.scale_hand(chord) {
@@ -1370,6 +1395,14 @@ fn place_phrase(app: &MyApp, chord: &Chord, steps: &[model::Step], anchor: Optio
         anchor,
         from,
     )
+}
+
+/// A note of a scale on the neck renamed the jazz way where it lies above the
+/// octave of the root.
+fn jazz_above_octave(spot: tab::Spot, major_third: bool) -> tab::Spot {
+    let octave = spot.interval.div_euclid(12) as i8;
+    let name = spot.label();
+    tab::Spot { name: Some(model::jazz_name_above_octave(&name, octave, major_third)), ..spot }
 }
 
 /// Arpeggios over the changes: each chord of the pass laid out from where the
@@ -1539,9 +1572,14 @@ fn step_caption(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t
     }
     let semis = app.degree_intervals(chord);
     let pitches: Vec<i32> = steps.iter().map(|s| semis.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32).collect();
-    let names = app.degree_names(chord);
-    let names = if jazz { model::jazz_names(&names) } else { names };
-    let notes: Vec<String> = steps.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let plain = app.degree_names(chord);
+    let names = if jazz { model::jazz_names(&plain) } else { plain.clone() };
+    let major_third = model::has_major_third(&plain);
+    let name_of = |s: &model::Step| match plain.get(s.degree) {
+        Some(name) if jazz && app.app_mode == AppMode::Scales => Some(model::jazz_name_above_octave(name, s.octave, major_third)),
+        _ => names.get(s.degree).cloned(),
+    };
+    let notes: Vec<String> = steps.iter().filter_map(name_of).map(|n| tab::spell(&n)).collect();
     let list = notes.join(" ");
     let (first, last) = (notes.first()?.clone(), notes.last()?.clone());
     if app.free_order() {
@@ -1802,5 +1840,14 @@ mod this_way_tests {
         assert_eq!(at(&[3, 9]), Some((3, 9)));
         assert_eq!(at(&[0, 1]), Some((0, 4)));
         assert_eq!(at(&[]), None);
+    }
+
+    /// Jazz names in Scales: on the neck a 4 below the octave of the root is
+    /// 4, and above it 11.
+    #[test]
+    fn a_scale_on_the_neck_names_tensions_above_the_octave_only() {
+        let spot = |interval: i32| tab::Spot { string: 0, fret: 0, interval, name: Some("4".into()) };
+        let label = |interval| super::jazz_above_octave(spot(interval), false).label();
+        assert_eq!((label(5), label(17), label(-7)), ("4".to_string(), "11".to_string(), "4".to_string()));
     }
 }

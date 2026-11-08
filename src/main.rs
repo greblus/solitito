@@ -687,10 +687,21 @@ fn open_saved_input(ui: &AppWindow, shared: &controls::Shared, cfg: &Settings, l
 /// How the window opens: as it was left - on full screen, or at the size it
 /// had - and on a first launch, maximised, so it has the screen's proportions
 /// rather than the narrow ones of the layout's minimum.
+#[derive(Debug, PartialEq)]
 enum Opening {
     FullScreen,
     Size(u32, u32),
     Maximised,
+}
+
+impl Opening {
+    fn from_settings(cfg: &Settings) -> Self {
+        match (cfg.fullscreen, cfg.window_maximised, cfg.window_w, cfg.window_h) {
+            (true, _, _, _) => Opening::FullScreen,
+            (false, false, Some(w), Some(h)) => Opening::Size(w, h),
+            _ => Opening::Maximised,
+        }
+    }
 }
 
 /// Restoring the window has to wait for the event loop. The window does not
@@ -701,11 +712,7 @@ enum Opening {
 /// The timer has to be held for as long as the window lives, or it is dropped
 /// and never fires. The closure only gets a weak handle, so it can stop itself.
 fn restore_window(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
-    let opening = match (cfg.fullscreen, cfg.window_w, cfg.window_h) {
-        (true, _, _) => Opening::FullScreen,
-        (false, Some(w), Some(h)) => Opening::Size(w, h),
-        _ => Opening::Maximised,
-    };
+    let opening = Opening::from_settings(cfg);
     let restore = Rc::new(Timer::default());
     let uw = ui.as_weak();
     let timer = Rc::downgrade(&restore);
@@ -859,10 +866,6 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_gate_mark(t.gate_mark.into());
     g.set_show_input_meter(t.show_input_meter.into());
     g.set_show_heard(t.show_heard.into());
-    g.set_tile_done(t.tile_done.into());
-    g.set_tile_now(t.tile_now.into());
-    g.set_tile_next(t.tile_next.into());
-    g.set_tile_open(t.tile_open.into());
     g.set_chip_in_order(t.chip_in_order.into());
     g.set_chip_single(t.chip_single.into());
     g.set_chip_struck(t.chip_struck.into());
@@ -1000,6 +1003,11 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_step_captions_hint(t.step_captions_hint.into());
     g.set_chord_context(t.chord_context.into());
     g.set_chord_context_hint(t.chord_context_hint.into());
+    g.set_reset_window(t.reset_window.into());
+    g.set_reset_window_hint(t.reset_window_hint.into());
+    g.set_reset_settings(t.reset_settings.into());
+    g.set_reset_settings_confirm(t.reset_settings_confirm.into());
+    g.set_reset_settings_hint(t.reset_settings_hint.into());
     g.set_chord_tones(t.chord_tones.into());
     g.set_fav_hint(t.fav_hint.into());
     g.set_fav_add(t.fav_add.into());
@@ -1055,3 +1063,22 @@ fn print_debug(p: &brain::Prediction) {
 
     println!("{:<10} | {} | {}", p.chord, quals.trim_end(), iv.trim_end());
 }
+
+#[cfg(test)]
+mod opening_tests {
+    use super::{Opening, Settings};
+
+    /// Closed maximised, the window opens maximised though a size of its own
+    /// is saved; that size is where it goes when it is no longer maximised.
+    #[test]
+    fn the_window_opens_as_it_was_left() {
+        let sized = Settings { window_w: Some(1200), window_h: Some(800), ..Settings::default() };
+        assert_eq!(Opening::from_settings(&sized), Opening::Size(1200, 800));
+        let maximised = Settings { window_maximised: true, ..sized.clone() };
+        assert_eq!(Opening::from_settings(&maximised), Opening::Maximised);
+        let full = Settings { fullscreen: true, ..maximised };
+        assert_eq!(Opening::from_settings(&full), Opening::FullScreen);
+        assert_eq!(Opening::from_settings(&Settings::default()), Opening::Maximised, "first start");
+    }
+}
+

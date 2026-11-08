@@ -87,8 +87,24 @@ pub fn shown_degree(name: &str, octave: i8) -> String {
 /// plain 4 over a major third stays 4: a semitone above the third, it is the
 /// note to pass over there, not a tension to hold.
 pub fn jazz_names(names: &[String]) -> Vec<String> {
-    let major_third = names.iter().any(|n| n == "3");
+    let major_third = has_major_third(names);
     names.iter().map(|n| jazz_degree(n, major_third)).collect()
+}
+
+/// A degree of a run through a scale named the jazz way only above the
+/// octave: a 4 in the first octave is 4 and in the second 11. `major_third` is
+/// whether the scale has a 3, as `jazz_names` takes it.
+pub fn jazz_name_above_octave(name: &str, octave: i8, major_third: bool) -> String {
+    if octave >= 1 {
+        jazz_degree(name, major_third)
+    } else {
+        name.to_string()
+    }
+}
+
+/// Whether the degrees have a major third, as `jazz_names` takes it.
+pub fn has_major_third(names: &[String]) -> bool {
+    names.iter().any(|n| n == "3")
 }
 
 fn jazz_degree(name: &str, major_third: bool) -> String {
@@ -1025,6 +1041,22 @@ mod jazz_names_tests {
     #[test]
     fn nothing_is_counted_past_the_octave() {
         assert_eq!(jazz("8 9 10 11 b13"), "1 9 3 11 b13");
+    }
+
+    /// A run of the blues scale over two octaves: 2, 4 and 6 become tensions
+    /// in the second octave only; the chord's tones never count octaves.
+    #[test]
+    fn a_run_names_tensions_above_the_octave_only() {
+        let names: Vec<String> = "1 b3 4 #4 5 b7".split_whitespace().map(str::to_string).collect();
+        let major_third = super::has_major_third(&names);
+        let run: Vec<String> = [0, 1, 2, 3, 4, 5]
+            .iter()
+            .map(|&d| (d, 0))
+            .chain([0, 1, 2, 3, 4, 5].iter().map(|&d| (d, 1)))
+            .chain([(0, 2)])
+            .map(|(d, octave)| super::jazz_name_above_octave(&names[d], octave, major_third))
+            .collect();
+        assert_eq!(run.join(" "), "1 b3 4 #4 5 b7 1 b3 11 #11 5 b7 1");
     }
 
     #[test]

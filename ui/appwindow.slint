@@ -6,15 +6,15 @@ import "../src/assets/Accidentals.ttf";
 component NoteBar inherits Rectangle {
     in property <string> label;
     in property <brush> bar_color;
-    width: 60px;
-    height: 65px;
+    width: 82px;
+    height: 76px;
     background: transparent;
 
     VerticalLayout {
         alignment: center;
         Text {
             text: root.label;
-            font-size: 32px;
+            font-size: 48px;
             color: root.bar_color;
             horizontal-alignment: center;
         }
@@ -43,8 +43,8 @@ export struct IntervalTile {
     state: int,
 }
 
-/// A degree of the chord as a tile: the function large, the note under it,
-/// and a badge saying where it stands.
+/// A degree as a tile: the function large, the note under it. Where it stands
+/// is in its colours: the one due is lit, the ones played are green.
 component IntervalCard inherits Rectangle {
     in property <IntervalTile> tile;
     property <bool> done: root.tile.state == 4;
@@ -74,25 +74,6 @@ component IntervalCard inherits Rectangle {
             font-size: 16px;
             horizontal-alignment: center;
             color: #C9CEDA;
-        }
-        HorizontalLayout {
-            alignment: center;
-            Rectangle {
-                height: 20px;
-                border-radius: 10px;
-                background: root.done ? #1E3A2C : (root.now ? #2F6FE0 : #1C212C);
-                HorizontalLayout {
-                    padding-left: 9px;
-                    padding-right: 9px;
-                    Text {
-                        text: root.done ? Tr.tile_done : root.now ? Tr.tile_now
-                            : root.open ? Tr.tile_open : Tr.tile_next;
-                        font-size: 11px;
-                        vertical-alignment: center;
-                        color: root.done ? #6EE7A0 : (root.now ? #FFFFFF : #8A92A3);
-                    }
-                }
-            }
         }
     }
 }
@@ -703,10 +684,6 @@ export global Tr {
     in-out property <string> gate_mark: "yellow line = silence threshold";
     in-out property <string> show_input_meter: "Input meter in the side bar";
     in-out property <string> show_heard: "The Hearing bar under the exercise";
-    in-out property <string> tile_done: "done";
-    in-out property <string> tile_now: "now";
-    in-out property <string> tile_next: "later";
-    in-out property <string> tile_open: "play";
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
     in-out property <string> chip_struck: "Struck only";
@@ -749,10 +726,10 @@ export global Tr {
     in-out property <string> lead_line_hint: "";
     in-out property <string> preview: "View";
     in-out property <string> preview_hint: "";
-    in-out property <string> preview_names: "Line of intervals";
+    in-out property <string> preview_names: "Line of interval functions";
     in-out property <string> preview_tab: "Tablature";
     in-out property <string> preview_neck: "On the neck";
-    in-out property <string> preview_functions: "Interval functions";
+    in-out property <string> preview_functions: "Line of interval functions";
     in-out property <string> preview_tiles: "Interval tiles";
     in-out property <string> preview_functions_neck: "Interval functions on the neck";
     in-out property <string> tab_frets: "Fret numbers instead of degrees";
@@ -790,6 +767,11 @@ export global Tr {
     in-out property <string> greene_hint: "After Ted Greene: every chord tone under one hand, in one position; every pass of the tune in another.";
     in-out property <string> software_renderer: "Software rendering";
     in-out property <string> software_renderer_hint: "";
+    in-out property <string> reset_window: "Reset window size";
+    in-out property <string> reset_window_hint: "";
+    in-out property <string> reset_settings: "Restore default settings";
+    in-out property <string> reset_settings_confirm: "Click again to restore";
+    in-out property <string> reset_settings_hint: "";
     in-out property <string> arp_position_hint: "";
     in-out property <string> harris_start: "Start";
     in-out property <string> harris_from_root: "From the root";
@@ -1042,6 +1024,10 @@ export component AppWindow inherits Window {
     /// Software rendering, see `renderer`. Read at start.
     in-out property <bool> software_renderer: false;
     callback software_renderer_changed(bool);
+    callback reset_window();
+    callback reset_settings();
+    // The first click on the reset of every setting only asks.
+    property <bool> reset_settings_asked: false;
     
     in property <[string]> library_items;
     in property <string> library_label: "Select Song:"; 
@@ -2342,9 +2328,9 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // INTERVALS drawn as tiles: the chord's degrees, the note each is
-            // on, and where it stands. One of the views the settings offer.
-            if root.current_mode == 1 && root.preview == 3 : Rectangle {
+            // Intervals and Scales drawn as tiles: the degrees, the note each
+            // is on, and where it stands. One of the views the settings offer.
+            if (root.current_mode == 1 || root.current_mode == 2) && root.preview == 3 : Rectangle {
                 height: 124px;
                 // Four tiles at full size, more of them narrower, so a long
                 // pattern does not run off the edge - measured against the
@@ -2380,18 +2366,19 @@ export component AppWindow inherits Window {
             // two say the same thing, and the drawing says the octaves better.
             if root.current_mode != 0 && root.current_mode != 4 && root.current_mode != 5
                 && root.preview == 0 : Rectangle {
-                height: 65px;
+                height: 76px;
                 clip: true;
 
-                property <length> step_w: 70px;   // NoteBar 60px + spacing 10px
-                property <int> per_page: 6;       // 6 x 70px = 420px, fits the window
+                property <length> step_w: 90px;   // NoteBar 82px + spacing 8px
+                // As many as the width takes.
+                property <int> per_page: max(1, floor(self.width / self.step_w));
                 property <length> content_w: root.interval_names.length * self.step_w;
                 // Page, not continuous scroll: the notes stay put while they are
                 // being played and the strip turns over once every six.
                 property <int> page: floor(root.interval_step / self.per_page);
 
                 HorizontalLayout {
-                    spacing: 10px;
+                    spacing: 8px;
                     width: parent.content_w;
                     // Anything up to one page sits centred; longer patterns page.
                     x: parent.content_w <= parent.width
@@ -3148,7 +3135,14 @@ export component AppWindow inherits Window {
                                             root.preview_changed(root.preview);
                                         }
                                     }
-                                    if root.current_mode != 1 : Dropdown {
+                                    // Scales has the tiles as a fourth entry.
+                                    if root.current_mode == 2 : Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
+                                        current-index <=> root.preview;
+                                        selected(v) => { root.preview_changed(v); }
+                                    }
+                                    if root.current_mode != 1 && root.current_mode != 2 : Dropdown {
                                         width: root.ctrl_w;
                                         model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
                                         current-index <=> root.preview;
@@ -3665,6 +3659,44 @@ export component AppWindow inherits Window {
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.software_renderer_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Button {
+                                        text: Tr.reset_window;
+                                        clicked => { root.reset_window(); }
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.reset_window_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Button {
+                                        text: root.reset_settings_asked ? Tr.reset_settings_confirm : Tr.reset_settings;
+                                        clicked => {
+                                            if root.reset_settings_asked {
+                                                root.reset_settings();
+                                            } else {
+                                                root.reset_settings_asked = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.reset_settings_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
                                 }
                             }

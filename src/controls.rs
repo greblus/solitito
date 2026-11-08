@@ -14,7 +14,7 @@ use crate::audio::{AudioAnalysis, InputInfo};
 use crate::i18n::{self, Lang};
 use crate::settings::{self, Settings};
 use crate::state::{AppMode, ArpExercise, MyApp};
-use crate::{formulas, model, AppWindow};
+use crate::{formulas, model, renderer, AppWindow};
 use crate::devices::{channel_choices, open_input, rescan_devices};
 use crate::{apply_language, fit_ui_to_window, library_lists, mode_labels};
 
@@ -120,7 +120,16 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     // The size the window had maximised. A first launch opens maximised, and
     // has no size of its own to go back to - see `own_size_after_maximise`.
     let maximised_size: Rc<Cell<Option<(u32, u32)>>> = Rc::new(Cell::new(None));
-    let first_launch = cfg.borrow().window_w.is_none();
+    // Opening maximised: the size before the maximise takes is the one the
+    // window was created at, not one anybody chose.
+    let opens_maximised = {
+        let cfg = cfg.borrow();
+        cfg.window_w.is_none() || cfg.window_maximised
+    };
+    let saved_size = {
+        let cfg = cfg.borrow();
+        cfg.window_w.zip(cfg.window_h)
+    };
     {
         let uw = ui.as_weak();
         let own = last_own_size.clone();
@@ -138,15 +147,15 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
                 return;
             }
             if own.get().is_none() {
+                // Out of a maximise the window had at start: the size saved
+                // before it, or three quarters of the screen.
                 if let Some(screen) = maximised.get() {
-                    let (w, h) = own_size_after_maximise(screen);
+                    let (w, h) = saved_size.unwrap_or_else(|| own_size_after_maximise(screen));
                     window.set_size(PhysicalSize::new(w, h));
                     own.set(Some((w, h)));
                     return;
                 }
-                // Before the start-up maximise has taken: the size the window
-                // was created at, not one anybody chose.
-                if first_launch {
+                if opens_maximised {
                     return;
                 }
             }
@@ -181,6 +190,37 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
         });
     }
 
+    {
+        let uw = ui.as_weak();
+        let cfg = cfg.clone();
+        let own = last_own_size.clone();
+        let maximised = maximised_size.clone();
+        ui.on_reset_window(move || {
+            let Some(ui) = uw.upgrade() else { return };
+            {
+                let mut cfg = cfg.borrow_mut();
+                cfg.window_w = None;
+                cfg.window_h = None;
+                cfg.window_maximised = false;
+                cfg.fullscreen = false;
+                cfg.save();
+            }
+            own.set(None);
+            maximised.set(None);
+            ui.window().set_fullscreen(false);
+            ui.window().set_maximized(true);
+        });
+    }
+    {
+        let cfg = cfg.clone();
+        ui.on_reset_settings(move || {
+            let software = cfg.borrow().software_renderer;
+            let defaults = Settings { software_renderer: software, ..Settings::default() };
+            defaults.save();
+            renderer::restart();
+        });
+    }
+
     // On close rather than on every resize: dragging an edge produces a stream
     // of sizes, and only the last one is the answer.
     let uw = ui.as_weak();
@@ -202,6 +242,7 @@ fn connect_window(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
                 cfg.window_w = Some(w);
                 cfg.window_h = Some(h);
             }
+            cfg.window_maximised = window.is_maximized() && !window.is_fullscreen();
             let dev = cfg.audio_device.clone();
             cfg.set_gate(dev.as_deref(), ui.get_gate_db());
             cfg.save();

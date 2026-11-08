@@ -293,6 +293,10 @@ pub struct Settings {
     /// Whether the app was on full screen (F11) when it was closed.
     #[serde(default)]
     pub fullscreen: bool,
+    /// Whether the window was maximised when it was closed. `window_w` and
+    /// `window_h` keep the size it had before, to go back to.
+    #[serde(default)]
+    pub window_maximised: bool,
 }
 
 /// Anything outside this is a mistake, not a window: a saved size of 0 would
@@ -329,7 +333,7 @@ pub enum Preview {
     Tab,
     /// The neck: every note where the finger goes.
     Neck,
-    /// The chord's degrees as tiles. Intervals only.
+    /// The degrees as tiles. Intervals and Scales only.
     Tiles,
 }
 
@@ -352,6 +356,11 @@ impl From<i32> for Preview {
 }
 
 pub const PREVIEW_TILES: usize = Preview::Tiles as usize;
+
+/// Intervals and Scales, the modes that offer the tiles.
+fn has_tiles(mode: usize) -> bool {
+    matches!(mode, 1 | 2)
+}
 
 /// How each mode shows its exercise when nothing has been saved for it.
 /// Tablature where the exercise is a line of notes, the neck where it is a
@@ -443,6 +452,7 @@ impl Default for Settings {
             favourites: Vec::new(),
             window_w: None,
             window_h: None,
+            window_maximised: false,
             fullscreen: false,
         }
     }
@@ -582,8 +592,7 @@ impl Settings {
     /// changed, so the caller can skip writing the file.
     pub fn set_preview_for(&mut self, mode: i32, view: usize) -> bool {
         let i = mode.max(0) as usize;
-        // The tiles are drawn in Intervals alone.
-        let tiles_here = view == PREVIEW_TILES && i == 1;
+        let tiles_here = view == PREVIEW_TILES && has_tiles(i);
         if i >= MODE_NAMES.len() || (view > 2 && !tiles_here) {
             return false;
         }
@@ -608,7 +617,7 @@ impl Settings {
         }
         self.previews.truncate(MODE_NAMES.len());
         for (i, v) in self.previews.iter_mut().enumerate() {
-            let tiles_here = *v == PREVIEW_TILES && i == 1;
+            let tiles_here = *v == PREVIEW_TILES && has_tiles(i);
             if *v > 2 && !tiles_here {
                 *v = DEFAULT_PREVIEWS[i];
             }
@@ -664,11 +673,12 @@ mod tests {
         assert!(!s.set_preview_for(2, 0), "setting the same view changes nothing");
         assert!(!s.set_preview_for(9, 1), "a mode this build has no entry for");
         assert!(!s.set_preview_for(2, 7), "not one of the three views");
-        assert!(!s.set_preview_for(2, PREVIEW_TILES), "tiles outside Intervals");
+        assert!(!s.set_preview_for(3, PREVIEW_TILES), "tiles outside Intervals and Scales");
         assert!(s.set_preview_for(1, PREVIEW_TILES), "tiles in Intervals");
         assert_eq!(s.preview_for(1), PREVIEW_TILES);
         assert!(s.set_preview_for(1, DEFAULT_PREVIEWS[1]), "and back");
-        assert_eq!(s.preview_for(2), 0, "and neither refusal moved it");
+        assert_eq!(s.preview_for(3), 2, "and neither refusal moved it");
+        assert!(s.set_preview_for(2, PREVIEW_TILES), "tiles in Scales");
     }
 
     /// A file written before the split carries one view for the whole app.
@@ -698,12 +708,13 @@ mod tests {
 
     /// The tiles survive a reload in Intervals, and only there.
     #[test]
-    fn tiles_are_kept_in_intervals_alone() {
+    fn tiles_are_kept_in_intervals_and_scales_alone() {
         let mut s: Settings = serde_json::from_str(r#"{"startup_mode":0,"previews":[3,3,3,3,3,3]}"#)
             .expect("reads");
         s.fill_previews();
         let mut want = DEFAULT_PREVIEWS.to_vec();
         want[1] = PREVIEW_TILES;
+        want[2] = PREVIEW_TILES;
         assert_eq!(s.previews, want);
     }
 

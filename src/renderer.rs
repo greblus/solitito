@@ -33,6 +33,16 @@ pub fn worth_retrying(software: bool) -> bool {
     !software && !chosen_by_hand()
 }
 
+/// Starts the program anew with the same arguments and leaves this one, the
+/// settings file already written.
+pub fn restart() -> ! {
+    let started = env::current_exe().and_then(|exe| Command::new(exe).args(env::args_os().skip(1)).spawn());
+    if let Err(e) = started {
+        eprintln!("Could not start again: {e}");
+    }
+    std::process::exit(0)
+}
+
 /// Runs the program again with the same arguments and exits with its code.
 pub fn start_again() -> ! {
     let code = env::current_exe()
