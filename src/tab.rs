@@ -34,6 +34,26 @@ pub fn spell(name: &str) -> String {
         .replace('#', "♯")
 }
 
+/// A name with degrees in it, `Bebop Dominant b9 b13`, with only the
+/// accidentals of the degrees as signs: a `b` or `#` starting a word and
+/// followed by a digit.
+pub fn spell_degrees_in(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let starts_word = i == 0 || matches!(chars[i - 1], ' ' | '(' | '/' | ',');
+            let before_digit = chars.get(i + 1).is_some_and(char::is_ascii_digit);
+            match c {
+                'b' if starts_word && before_digit => '♭',
+                '#' if starts_word && before_digit => '♯',
+                other => other,
+            }
+        })
+        .collect()
+}
+
 /// One note of the phrase, placed on the neck.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spot {
@@ -1560,5 +1580,13 @@ mod open_string_tests {
         assert_eq!(labels, ["1", "5", "♭3", "♭7"].iter().map(|l| l.to_string()).collect());
         let roots: Vec<(usize, i32)> = spots.iter().filter(|s| s.is_root()).map(|s| (s.string, s.fret)).collect();
         assert_eq!(roots, vec![(1, 3), (4, 1)]);
+    }
+
+    /// Only the accidentals of degrees become signs; a `b` inside a word stays.
+    #[test]
+    fn a_name_keeps_its_letters() {
+        assert_eq!(spell_degrees_in("Bebopowa dominantowa b9 b13"), "Bebopowa dominantowa ♭9 ♭13");
+        assert_eq!(spell_degrees_in("Lydian #11 (b7)"), "Lydian ♯11 (♭7)");
+        assert_eq!(spell_degrees_in("Dorian b2"), "Dorian ♭2");
     }
 }

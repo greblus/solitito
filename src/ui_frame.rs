@@ -497,7 +497,7 @@ impl UiFrame {
         let funcs = formulas::functions_of(app.formula_mask);
         let names: Vec<SharedString> = funcs
             .iter()
-            .map(|&f| SharedString::from(formulas::FUNCS[f]))
+            .map(|&f| SharedString::from(tab::spell(formulas::FUNCS[f])))
             .collect();
         ui.set_formula_functions(ModelRc::from(Rc::new(VecModel::from(names))));
         // Paused here means "your turn": the whole set lit, nothing judged,
@@ -534,13 +534,13 @@ impl UiFrame {
         set_if_changed(ui.get_formula_verdict(), shown.verdict.into(), |v| {
             ui.set_formula_verdict(v)
         });
-        let against: Vec<SharedString> = shown.against.into_iter().map(SharedString::from).collect();
+        let against: Vec<SharedString> = shown.against.iter().map(|f| SharedString::from(tab::spell(f))).collect();
         ui.set_formula_against(ModelRc::from(Rc::new(VecModel::from(against))));
         ui.set_formula_is_chord_tone(ModelRc::from(Rc::new(VecModel::from(shown.own))));
     }
 
     fn show_formula_key(&self, ui: &AppWindow, app: &MyApp) {
-        set_if_changed(ui.get_formula_key(), app.formula_key_name.clone().into(), |v| {
+        set_if_changed(ui.get_formula_key(), tab::spell(&app.formula_key_name).into(), |v| {
             ui.set_formula_key(v)
         });
 
@@ -551,8 +551,8 @@ impl UiFrame {
             .flatten()
             .map(|key| formulas::note_names(app.formula_mask, &key))
             .unwrap_or_default()
-            .into_iter()
-            .map(SharedString::from)
+            .iter()
+            .map(|name| SharedString::from(tab::spell(name)))
             .collect();
         ui.set_formula_note_names(ModelRc::from(Rc::new(VecModel::from(notes))));
     }
@@ -613,16 +613,16 @@ impl UiFrame {
             // Counted from the chord under the formula when there is one,
             // so this row agrees with the two above it.
             let names: Vec<SharedString> = match app.formula_exercise {
-                FormulaExercise::InKey => fits.iter().map(|f| SharedString::from(f.name())).collect(),
+                FormulaExercise::InKey => fits.iter().map(|f| SharedString::from(tab::spell(&f.name()))).collect(),
                 FormulaExercise::OverChord | FormulaExercise::OverChanges => fits
                     .iter()
-                    .map(|f| SharedString::from(f.name_from(app.formula_degree)))
+                    .map(|f| SharedString::from(tab::spell(&f.name_from(app.formula_degree))))
                     .collect(),
             };
             // The same chords in letters, under the degrees - the note names
             // under the functions, one row down.
             let spelled: Vec<SharedString> = match formulas::parse_key(&app.formula_key_name) {
-                Some(k) => fits.iter().map(|f| SharedString::from(f.named_in(&k))).collect(),
+                Some(k) => fits.iter().map(|f| SharedString::from(tab::spell(&f.named_in(&k)))).collect(),
                 None => vec![],
             };
             ui.set_formula_chord_names(ModelRc::from(Rc::new(VecModel::from(spelled))));
@@ -656,14 +656,14 @@ impl UiFrame {
                 let degs: Vec<SharedString> = sc
                     .intervals
                     .iter()
-                    .map(|&semi| SharedString::from(formulas::FUNCS[semi as usize % 12]))
+                    .map(|&semi| SharedString::from(tab::spell(formulas::FUNCS[semi as usize % 12])))
                     .collect();
                 let flags: Vec<bool> = sc
                     .intervals
                     .iter()
                     .map(|&semi| app.formula_mask & (1 << (semi as usize % 12)) != 0)
                     .collect();
-                (i18n::scale_name(lang_now, &sc.name).to_string(), degs, flags)
+                (tab::spell_degrees_in(i18n::scale_name(lang_now, &sc.name)), degs, flags)
             }
             None => (String::new(), vec![], vec![]),
         };
@@ -744,11 +744,9 @@ impl UiFrame {
 
     fn show_chord_name(ui: &AppWindow, app: &MyApp, chord: &Chord) {
         if app.app_mode == AppMode::Scales {
-             ui.set_chord_name(chord.root.to_string().into());
+             ui.set_chord_name(tab::spell(chord.root.to_string()).into());
         } else {
-             let q_str = chord.quality.to_string();
-             let quality_display = if q_str.is_empty() { "Maj" } else { q_str.as_str() };
-             ui.set_chord_name(format!("{} {}", chord.root.to_string(), quality_display).into());
+             ui.set_chord_name(model::shown_chord_name(&chord.root, &chord.quality, " ").into());
         }
     }
 
@@ -856,7 +854,7 @@ impl UiFrame {
         let marked = i18n::strings(Lang::from_setting(ui.get_language_idx())).key_original;
         let keys: Vec<String> = (0..12)
             .map(|pc| {
-                let name = NoteName::from_index(pc).to_string().to_string();
+                let name = tab::spell(NoteName::from_index(pc).to_string());
                 if pc == tonic { format!("{name}{marked}") } else { name }
             })
             .collect();
@@ -917,9 +915,9 @@ impl UiFrame {
         // them - in pitch order, not by loudness: ranked by level they
         // traded places every frame.
         let heard_name = if app.app_mode == AppMode::Chords {
-            if self.last_ai_name == "..." { String::new() } else { self.last_ai_name.clone() }
+            if self.last_ai_name == "..." { String::new() } else { tab::spell(&self.last_ai_name) }
         } else {
-            app.heard.steady_note().map(|pc| NoteName::from_index(pc).to_string().to_string()).unwrap_or_default()
+            app.heard.steady_note().map(|pc| tab::spell(NoteName::from_index(pc).to_string())).unwrap_or_default()
         };
         let tones = chord.get_target_indices();
         let mut sounding: Vec<(usize, f32)> = app
@@ -935,7 +933,7 @@ impl UiFrame {
         sounding.sort_by_key(|&(pc, _)| pc);
         let notes: Vec<(String, bool)> = sounding
             .iter()
-            .map(|&(pc, _)| (NoteName::from_index(pc).to_string().to_string(), tones.contains(&pc)))
+            .map(|&(pc, _)| (tab::spell(NoteName::from_index(pc).to_string()), tones.contains(&pc)))
             .collect();
         // At most four times a second: the model answers twenty-five times
         // and a note on the edge of the threshold blinked in and out.
@@ -1262,9 +1260,9 @@ fn placement_over(app: &MyApp, chord: &Chord, t: &i18n::Strings, jazz_names: boo
         None => "",
     };
     Placement {
-        chord: format!("{}{}", chord.root.to_string(), chord.quality.to_string()),
-        degree: formulas::ROMAN[app.formula_degree].to_string(),
-        label: format!("{}{}", t.against_chord, chord.root.to_string()),
+        chord: model::shown_chord_name(&chord.root, &chord.quality, ""),
+        degree: tab::spell(formulas::ROMAN[app.formula_degree]),
+        label: format!("{}{}", t.against_chord, tab::spell(&chord.root.to_string())),
         against: functions_over(app, chord, jazz_names),
         own: formulas::chord_tones_in(app.formula_mask, root, pcs, app.formula_degree),
         verdict: format!(

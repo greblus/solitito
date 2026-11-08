@@ -1980,7 +1980,7 @@ impl MyApp {
     pub fn chord_label(&self, index: usize) -> String {
         self.chords
             .get(index)
-            .map(|c| format!("{} {}", c.root.to_string(), c.quality.to_string()))
+            .map(|c| crate::model::shown_chord_name(&c.root, &c.quality, " "))
             .unwrap_or_default()
     }
 

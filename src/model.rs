@@ -207,6 +207,16 @@ pub enum ChordQuality {
     CustomScale(ScaleDefinition),
 }
 
+/// A chord's name as the screen writes it, `B♭ m7♭5`: the accidentals as
+/// signs. `to_string` keeps `b` and `#`, which the code compares.
+pub fn shown_chord_name(root: &NoteName, quality: &ChordQuality, separator: &str) -> String {
+    let quality = match quality {
+        ChordQuality::CustomScale(def) => crate::tab::spell_degrees_in(&def.name),
+        other => crate::tab::spell(&other.to_string()),
+    };
+    format!("{}{separator}{quality}", crate::tab::spell(root.to_string()))
+}
+
 impl ChordQuality {
     pub fn to_string(&self) -> String {
         match self {
