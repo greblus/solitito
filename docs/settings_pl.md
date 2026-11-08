@@ -125,7 +125,9 @@ sięgać w trakcie grania:
 
 W Skalach **Losowo** losuje kierunek na każdy przebieg, nigdy trzy razy w tę samą stronę;
 przy wyłączonym **Po kolei** dźwięki można grać w dowolnej kolejności. **Od E do e** to skala
-pod jedną ręką, od niskiej struny E do wysokiej e. Ręka stoi na progu, na którym stopień
+pod jedną ręką, od niskiej struny E do wysokiej e. To miejsce na gryfie, więc działa i jest do
+wyboru tylko tam, gdzie skala jest rysowana na strunach — na podstrunnicy albo jako tabulatura;
+w linii funkcji interwałowych i w kafelkach to Ty wybierasz, gdzie grać, a skala idzie od **Początku**. Ręka stoi na progu, na którym stopień
 wybrany w **Początku** leży na którejś strunie, w pierwszych dwunastu — przy każdym przebiegu
 na innym — i obejmuje próg niżej i trzy wyżej, a od pustej struny progi 0–4; nie przesuwa się.
 W górę przebieg zaczyna się od tego stopnia najniżej, jak ręka go ma — na niskiej E, jeśli tam

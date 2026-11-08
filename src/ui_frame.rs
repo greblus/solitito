@@ -255,7 +255,8 @@ impl UiFrame {
             (ui.get_key_move().max(0) as usize).into(),
             ui.get_scale_in_order(),
         );
-        app.set_scale_e_to_e(ui.get_scale_e_to_e());
+        // From E to e is a place on the neck: only where the run is drawn there.
+        app.set_scale_e_to_e(ui.get_scale_e_to_e() && Preview::from(ui.get_preview()).draws_on_neck());
     }
 
     /// The two formula text fields, saved as they are typed. They are read

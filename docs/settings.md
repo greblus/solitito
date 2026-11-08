@@ -118,7 +118,9 @@ reaching for while playing:
 
 In Scales, **Random** draws the direction for every pass, never three the same way; with
 **In order** off the notes may be played in any order. **From E to e** plays the scale under
-one hand, from the low E string to the high e. The hand stands at a fret where the degree
+one hand, from the low E string to the high e. It is a place on the neck, so it works and is
+offered only where the scale is drawn on the strings, on the neck or as tablature; in the line of
+interval functions and in the tiles you choose where to play, and the scale runs from **Start on**. The hand stands at a fret where the degree
 **Start on** names lies on some string, in the first twelve — another fret every pass —
 covering a fret below it and three above, or frets 0 to 4 from an open string; it does not
 move. Up, the run starts on that degree as low as the hand has it — on the low E where it lies

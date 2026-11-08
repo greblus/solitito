@@ -1481,7 +1481,9 @@ export component AppWindow inherits Window {
                     toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
                 SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
                     toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
+                // Only where the run is drawn on the strings: in the line and the
+                // tiles the player chooses where to play.
+                if root.preview == 1 || root.preview == 2 : SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
                     toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
                 SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
                     toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
