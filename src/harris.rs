@@ -695,7 +695,7 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
         // Kept in one position, the start moves by octaves until the figure
         // lies within it - as near its middle as it will go.
         if recipe.position.is_none() {
-            return (fixed, figure);
+            return (nearest_octave(over, figure, fixed, (lowest, highest), last), figure);
         }
         let middle = (lowest + highest) / 2;
         let first = |s: i32| over.pitch(figure.notes(over, s)[0]);
@@ -780,13 +780,31 @@ fn start_place(over: &Over, recipe: Recipe, figure: Figure, at: usize, last: Opt
         return (start, figure);
     }
     // The end of the range: a scale turns round and goes on by step; an
-    // arpeggio figure starts again from the far end.
+    // arpeggio figure starts again from the far end. The arpeggio up and the
+    // scale down climbs about a fifth a chord: started an octave back it
+    // leapt 11-13 every third chord, from the nearest start that fits a
+    // seventh every chord, from the far end 28 every sixth.
     if let Some(turned) = figure.turned() {
         if let Some(start) = onward(turned, &candidates(turned)) {
             return (start, turned);
         }
     }
     (afresh(figure, &here).unwrap_or(fixed), figure)
+}
+
+/// The octave of `fixed` whose figure lies within the range, its first note
+/// nearest the last note played, and not that very note where another
+/// octave fits; the first chord in the middle of the range. Without it every
+/// chord started in the octave its root names from C3, and the lines leapt
+/// up to two octaves between chords and ran past the twelfth fret.
+fn nearest_octave(over: &Over, figure: Figure, fixed: i32, range: (i32, i32), last: Option<i32>) -> i32 {
+    let first = |s: i32| over.pitch(figure.notes(over, s)[0]);
+    let target = last.unwrap_or((range.0 + range.1) / 2);
+    let fitting: Vec<i32> =
+        (-4..=4).map(|n| fixed + n * figure.octave()).filter(|&s| fits(over, figure, s, range)).collect();
+    let fresh: Vec<i32> = fitting.iter().copied().filter(|&s| Some(first(s)) != last).collect();
+    let pool = if fresh.is_empty() { &fitting } else { &fresh };
+    pool.iter().copied().min_by_key(|&s| (first(s) - target).abs()).unwrap_or(fixed)
 }
 
 /// Whether the whole figure from `start` lies within the range - every note

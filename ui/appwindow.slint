@@ -1447,229 +1447,264 @@ export component AppWindow inherits Window {
                 Image { width: 56px; height: 56px; source: @image-url("../src/assets/app-icon-small.png"); }
                 Text { text: "Solitito"; font-size: 20px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
             }
+            // The modes and their quick options, scrolled with the wheel where
+            // the options run into the cards below.
+            modes_box := Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
+                preferred-height: 0px;
+                property <length> overflow: max(0px, modes.preferred-height - self.height);
+                property <length> scrolled: 0px;
+                // Wider than the bar and clipped only at the top and bottom: the
+                // hints of the dropdowns stand to the right of the bar.
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: modes_box.width + 600px;
+                    height: modes_box.height;
+                    clip: true;
+                    // Its height given: with the width alone it got no wheel.
+                    TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: modes_box.width;
+                        height: modes_box.height;
+                        scroll-event(e) => {
+                            modes_box.scrolled = max(0px, min(modes_box.overflow,
+                                min(modes_box.scrolled, modes_box.overflow) - e.delta-y));
+                            accept
+                        }
+                    }
+                    modes := VerticalLayout {
+                        x: 0px;
+                        y: -min(modes_box.scrolled, modes_box.overflow);
+                        width: modes_box.width;
+                        height: self.preferred-height;
+                        spacing: 4px;
 
-            NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
-                expandable: root.current_mode == 4 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
-            if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                SideToggle { text: Tr.chip_hint; on: root.fret_hint;
-                    toggled => { root.fret_hint = !root.fret_hint; root.fret_hint_changed(root.fret_hint); } }
-            }
-            NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
-                expandable: root.current_mode == 0 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
-            if root.current_mode == 0 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                // The key the tune is played in: the whole progression moves.
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    padding-bottom: 4px;
-                    Dropdown {
-                        list-width: 220px;
-                        model: root.song_keys;
-                        current-index <=> root.song_key;
-                        selected => { root.song_key_selected(self.current-index); }
-                    }
-                }
-                SideToggle { text: Tr.quick_full; on: root.show_full_shapes;
-                    toggled => { root.show_full_shapes = !root.show_full_shapes;
-                        root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
-                SideToggle { text: Tr.quick_shells; on: root.show_shell_shapes;
-                    toggled => { root.show_shell_shapes = !root.show_shell_shapes;
-                        root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
-                SideToggle { text: Tr.chip_lock; on: root.lock_quality;
-                    toggled => { root.lock_quality = !root.lock_quality; } }
-                SideToggle { text: Tr.chip_attack; on: root.short_verdict;
-                    toggled => { root.short_verdict = !root.short_verdict; root.short_verdict_changed(root.short_verdict); } }
-                SideToggle { text: Tr.chord_strip; on: root.chord_strip;
-                    toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
-            }
-            NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
-                expandable: root.current_mode == 1 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
-            if root.current_mode == 1 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                // The exercise, the setting most often changed while playing.
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    padding-bottom: 4px;
-                    Dropdown {
-                        list-width: 430px;
-                        model: root.interval_levels;
-                        current-index <=> root.interval_level;
-                        selected => { root.interval_level_changed(self.current-index); }
-                    }
-                }
-                SideToggle { text: Tr.chip_single; on: root.single_notes;
-                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
-                SideToggle { text: Tr.chip_in_order; on: root.interval_in_order;
-                    toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
-                SideToggle { text: Tr.chip_struck; on: root.require_onset;
-                    toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
-                SideToggle { text: Tr.chord_strip; on: root.chord_strip;
-                    toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
-                SideToggle { text: Tr.step_captions; on: root.step_captions;
-                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
-            }
-            NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
-                expandable: root.current_mode == 2 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
-            // Which way the scale runs: one of three, so each switch sets it.
-            if root.current_mode == 2 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                // The key: the scale itself is chosen from its title above it.
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    padding-bottom: 4px;
-                    Dropdown {
-                        list-width: 220px;
-                        model: root.secondary_items;
-                        current-index <=> root.current_secondary_index;
-                        selected => { root.secondary_item_selected(self.current-index); }
-                    }
-                }
-                SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
-                    toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
-                    toggled => { root.scale_direction = 1; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_drawn; hint: Tr.chip_drawn_hint; on: root.scale_direction == 2;
-                    toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
-                SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
-                    toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
-                // Only where the run is drawn on the strings: in the line and the
-                // tiles the player chooses where to play.
-                if root.preview == 1 || root.preview == 2 : SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
-                    toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
-                SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
-                    toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
-                SideToggle { text: Tr.step_captions; on: root.step_captions;
-                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
-            }
-            NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
-                expandable: root.current_mode == 3 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
-            // Which exercise, and what it needs: the chord a study stands on, or
-            // which way each arpeggio runs over the changes. The study or tune
-            // itself is chosen from the title above the exercise.
-            if root.current_mode == 3 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                padding-left: 12px;
-                padding-right: 12px;
-                spacing: 6px;
-                Dropdown {
-                    list-width: 260px;
-                    model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
-                    current-index <=> root.arp_exercise;
-                    selected(v) => { root.arp_exercise_changed(v); }
-                }
-                // The key of the study; the study itself is chosen from its
-                // title above the exercise, as a scale is.
-                if root.arp_exercise == 0 : Dropdown {
-                    list-width: 220px;
-                    model: root.secondary_items;
-                    current-index <=> root.current_secondary_index;
-                    selected => { root.secondary_item_selected(self.current-index); }
-                }
-                if root.arp_exercise == 0 : Dropdown {
-                    list-width: 220px;
-                    model: ["m7", "Maj7", "7", "m7b5", "dim7"];
-                    current-index <=> root.arp_quality;
-                    selected(v) => { root.arp_quality_changed(v); }
-                }
-                if root.arp_exercise == 1 : Dropdown {
-                    list-width: 220px;
-                    model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
-                    current-index <=> root.arp_direction;
-                    selected(v) => { root.arp_direction_changed(v); }
-                }
-                if root.arp_exercise == 2 : Dropdown {
-                    list-width: 260px;
-                    model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
-                    current-index <=> root.harris_figure;
-                    selected(v) => { root.harris_figure_changed(v); }
-                }
-                if root.arp_exercise == 3 : Dropdown {
-                    list-width: 260px;
-                    model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
-                    current-index <=> root.greene_figure;
-                    selected(v) => { root.greene_figure_changed(v); }
-                }
-                if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
-                    list-width: 260px;
-                    model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
-                    current-index <=> root.harris_start;
-                    selected(v) => { root.harris_start_changed(v); }
-                }
-                if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
-                    list-width: 220px;
-                    model: [Tr.harris_eight, Tr.harris_four];
-                    current-index <=> root.harris_notes;
-                    selected(v) => { root.harris_notes_changed(v); }
-                }
-                // The whole position is a third length, Greene's alone.
-                if root.arp_exercise == 3 : Dropdown {
-                    list-width: 220px;
-                    model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
-                    current-index <=> root.harris_notes;
-                    selected(v) => { root.harris_notes_changed(v); }
-                }
-                if root.arp_exercise == 1 || root.arp_exercise == 2 : SideToggle { text: Tr.chip_position; on: root.arp_position;
-                    toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
-                if root.arp_exercise >= 1 : SideToggle { text: Tr.chord_context; hint: Tr.chord_context_hint; on: root.chord_context;
-                    toggled => { root.chord_context = !root.chord_context; root.chord_context_changed(root.chord_context); } }
-                if root.arp_exercise == 3 : SideToggle { text: Tr.greene_tensions; on: root.greene_tensions;
-                    toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
-                SideToggle { text: Tr.step_captions; on: root.step_captions;
-                    toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
-            }
-            NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
-                expandable: root.current_mode == 5 && !root.show_settings;
-                expanded: root.quick_open;
-                path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
-            if root.current_mode == 5 && root.quick_open && !root.show_settings : VerticalLayout {
-                padding-bottom: 4px;
-                // The exercise, and how many tones a formula has - named in
-                // the list, where a bare digit would say nothing.
-                VerticalLayout {
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    padding-bottom: 4px;
-                    spacing: 6px;
-                    Dropdown {
-                        list-width: 220px;
-                        model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
-                        current-index <=> root.formula_exercise;
-                        selected(v) => { root.formula_exercise_changed(v); }
-                    }
-                    Dropdown {
-                        list-width: 220px;
-                        model: [Tr.formula_notes + "1", Tr.formula_notes + "2", Tr.formula_notes + "3",
-                                Tr.formula_notes + "4", Tr.formula_notes + "5", Tr.formula_notes + "6",
-                                Tr.formula_notes + "7", Tr.formula_notes + "8", Tr.formula_notes + "9",
-                                Tr.formula_notes + "10", Tr.formula_notes + "11", Tr.formula_notes + "12"];
-                        current-index: root.formula_notes - 1;
-                        selected(v) => {
-                            root.formula_notes = v + 1;
-                            root.formula_notes_changed(v + 1);
+                        NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
+                            expandable: root.current_mode == 4 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
+                        if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            SideToggle { text: Tr.chip_hint; on: root.fret_hint;
+                                toggled => { root.fret_hint = !root.fret_hint; root.fret_hint_changed(root.fret_hint); } }
+                        }
+                        NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
+                            expandable: root.current_mode == 0 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
+                        if root.current_mode == 0 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            // The key the tune is played in: the whole progression moves.
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                Dropdown {
+                                    list-width: 220px;
+                                    model: root.song_keys;
+                                    current-index <=> root.song_key;
+                                    selected => { root.song_key_selected(self.current-index); }
+                                }
+                            }
+                            SideToggle { text: Tr.quick_full; on: root.show_full_shapes;
+                                toggled => { root.show_full_shapes = !root.show_full_shapes;
+                                    root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
+                            SideToggle { text: Tr.quick_shells; on: root.show_shell_shapes;
+                                toggled => { root.show_shell_shapes = !root.show_shell_shapes;
+                                    root.shapes_choice_changed(root.show_full_shapes, root.show_shell_shapes); } }
+                            SideToggle { text: Tr.chip_lock; on: root.lock_quality;
+                                toggled => { root.lock_quality = !root.lock_quality; } }
+                            SideToggle { text: Tr.chip_attack; on: root.short_verdict;
+                                toggled => { root.short_verdict = !root.short_verdict; root.short_verdict_changed(root.short_verdict); } }
+                            SideToggle { text: Tr.chord_strip; on: root.chord_strip;
+                                toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
+                        }
+                        NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
+                            expandable: root.current_mode == 1 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
+                        if root.current_mode == 1 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            // The exercise, the setting most often changed while playing.
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                Dropdown {
+                                    list-width: 430px;
+                                    model: root.interval_levels;
+                                    current-index <=> root.interval_level;
+                                    selected => { root.interval_level_changed(self.current-index); }
+                                }
+                            }
+                            SideToggle { text: Tr.chip_single; on: root.single_notes;
+                                toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
+                            SideToggle { text: Tr.chip_in_order; on: root.interval_in_order;
+                                toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
+                            SideToggle { text: Tr.chip_struck; on: root.require_onset;
+                                toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
+                            SideToggle { text: Tr.chord_strip; on: root.chord_strip;
+                                toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
+                            SideToggle { text: Tr.step_captions; on: root.step_captions;
+                                toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                        }
+                        NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
+                            expandable: root.current_mode == 2 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
+                        // Which way the scale runs: one of three, so each switch sets it.
+                        if root.current_mode == 2 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            // The key: the scale itself is chosen from its title above it.
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                Dropdown {
+                                    list-width: 220px;
+                                    model: root.secondary_items;
+                                    current-index <=> root.current_secondary_index;
+                                    selected => { root.secondary_item_selected(self.current-index); }
+                                }
+                            }
+                            SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
+                                toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
+                                toggled => { root.scale_direction = 1; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.chip_drawn; hint: Tr.chip_drawn_hint; on: root.scale_direction == 2;
+                                toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
+                                toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
+                            // Only where the run is drawn on the strings: in the line and the
+                            // tiles the player chooses where to play.
+                            if root.preview == 1 || root.preview == 2 : SideToggle { text: Tr.chip_e_to_e; on: root.scale_e_to_e;
+                                toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
+                                toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.step_captions; on: root.step_captions;
+                                toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                        }
+                        NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
+                            expandable: root.current_mode == 3 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
+                        // Which exercise, and what it needs: the chord a study stands on, or
+                        // which way each arpeggio runs over the changes. The study or tune
+                        // itself is chosen from the title above the exercise.
+                        if root.current_mode == 3 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 6px;
+                            Dropdown {
+                                list-width: 260px;
+                                model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
+                                current-index <=> root.arp_exercise;
+                                selected(v) => { root.arp_exercise_changed(v); }
+                            }
+                            // The key of the study; the study itself is chosen from its
+                            // title above the exercise, as a scale is.
+                            if root.arp_exercise == 0 : Dropdown {
+                                list-width: 220px;
+                                model: root.secondary_items;
+                                current-index <=> root.current_secondary_index;
+                                selected => { root.secondary_item_selected(self.current-index); }
+                            }
+                            if root.arp_exercise == 0 : Dropdown {
+                                list-width: 220px;
+                                model: ["m7", "Maj7", "7", "m7b5", "dim7"];
+                                current-index <=> root.arp_quality;
+                                selected(v) => { root.arp_quality_changed(v); }
+                            }
+                            if root.arp_exercise == 1 : Dropdown {
+                                list-width: 220px;
+                                model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
+                                current-index <=> root.arp_direction;
+                                selected(v) => { root.arp_direction_changed(v); }
+                            }
+                            if root.arp_exercise == 2 : Dropdown {
+                                list-width: 260px;
+                                model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                                current-index <=> root.harris_figure;
+                                selected(v) => { root.harris_figure_changed(v); }
+                            }
+                            if root.arp_exercise == 3 : Dropdown {
+                                list-width: 260px;
+                                model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
+                                current-index <=> root.greene_figure;
+                                selected(v) => { root.greene_figure_changed(v); }
+                            }
+                            if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                                list-width: 260px;
+                                model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                                current-index <=> root.harris_start;
+                                selected(v) => { root.harris_start_changed(v); }
+                            }
+                            if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                                list-width: 220px;
+                                model: [Tr.harris_eight, Tr.harris_four];
+                                current-index <=> root.harris_notes;
+                                selected(v) => { root.harris_notes_changed(v); }
+                            }
+                            // The whole position is a third length, Greene's alone.
+                            if root.arp_exercise == 3 : Dropdown {
+                                list-width: 220px;
+                                model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
+                                current-index <=> root.harris_notes;
+                                selected(v) => { root.harris_notes_changed(v); }
+                            }
+                            if root.arp_exercise == 1 || root.arp_exercise == 2 : SideToggle { text: Tr.chip_position; on: root.arp_position;
+                                toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
+                            if root.arp_exercise >= 1 : SideToggle { text: Tr.chord_context; hint: Tr.chord_context_hint; on: root.chord_context;
+                                toggled => { root.chord_context = !root.chord_context; root.chord_context_changed(root.chord_context); } }
+                            if root.arp_exercise == 3 : SideToggle { text: Tr.greene_tensions; on: root.greene_tensions;
+                                toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
+                            SideToggle { text: Tr.step_captions; on: root.step_captions;
+                                toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                        }
+                        NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
+                            expandable: root.current_mode == 5 && !root.show_settings;
+                            expanded: root.quick_open;
+                            path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
+                        if root.current_mode == 5 && root.quick_open && !root.show_settings : VerticalLayout {
+                            padding-bottom: 4px;
+                            // The exercise, and how many tones a formula has - named in
+                            // the list, where a bare digit would say nothing.
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+                                Dropdown {
+                                    list-width: 220px;
+                                    model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
+                                    current-index <=> root.formula_exercise;
+                                    selected(v) => { root.formula_exercise_changed(v); }
+                                }
+                                Dropdown {
+                                    list-width: 220px;
+                                    model: [Tr.formula_notes + "1", Tr.formula_notes + "2", Tr.formula_notes + "3",
+                                            Tr.formula_notes + "4", Tr.formula_notes + "5", Tr.formula_notes + "6",
+                                            Tr.formula_notes + "7", Tr.formula_notes + "8", Tr.formula_notes + "9",
+                                            Tr.formula_notes + "10", Tr.formula_notes + "11", Tr.formula_notes + "12"];
+                                    current-index: root.formula_notes - 1;
+                                    selected(v) => {
+                                        root.formula_notes = v + 1;
+                                        root.formula_notes_changed(v + 1);
+                                    }
+                                }
+                            }
+                            SideToggle { text: Tr.chip_single; on: root.single_notes;
+                                toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
+                            SideToggle { text: Tr.chip_in_order; on: root.in_order;
+                                toggled => { root.in_order = !root.in_order; root.in_order_changed(root.in_order); } }
                         }
                     }
                 }
-                SideToggle { text: Tr.chip_single; on: root.single_notes;
-                    toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
-                SideToggle { text: Tr.chip_in_order; on: root.in_order;
-                    toggled => { root.in_order = !root.in_order; root.in_order_changed(root.in_order); } }
             }
-
-            Rectangle { }
 
             // TUNER: the nearest note and how far off it the string is.
             if root.show_tuner : Rectangle {

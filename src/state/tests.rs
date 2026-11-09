@@ -2644,8 +2644,13 @@ fn the_changes_run_matches_the_studies() {
     a.arp_direction = ArpDirection::Up;
     assert_eq!(semitones_asked(&a, &chord), vec![0, 4, 7, 10, 12, 16, 19, 22], "1 3 5 7 1' 3' 5' 7'");
 
+    // From D3 two octaves down runs below the low E: the line starts an
+    // octave up, the shape counted from its first note.
     a.arp_direction = ArpDirection::Down;
-    assert_eq!(semitones_asked(&a, &chord), vec![0, -2, -5, -8, -12, -14, -17, -20], "1 7, 5, 3, 1, 7,, 5,, 3,,");
+    let asked = semitones_asked(&a, &chord);
+    let shape: Vec<i32> = asked.iter().map(|s| s - asked[0]).collect();
+    assert_eq!(shape, vec![0, -2, -5, -8, -12, -14, -17, -20], "1 7, 5, 3, 1, 7,, 5,, 3,,");
+    assert_eq!(asked[0] % 12, 0, "from the root");
 
     // Four notes: one octave. From the third: 3 5 7 1'.
     a.harris.notes = 4;
