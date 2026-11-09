@@ -846,7 +846,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
             any_scale_tone: t.level_any_scale_tone,
         })
         .into_iter()
-        .map(Into::into)
+        .map(|label| crate::tab::spell_degrees_in(&label).into())
         .collect();
     ui.set_interval_levels(ModelRc::from(Rc::new(VecModel::from(levels))));
     ui.set_interval_level(level);

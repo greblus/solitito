@@ -35,16 +35,22 @@ pub fn spell(name: &str) -> String {
 }
 
 /// A name with degrees in it, `Bebop Dominant b9 b13`, with only the
-/// accidentals of the degrees as signs: a `b` or `#` starting a word and
-/// followed by a digit.
+/// accidentals of the degrees as signs: the `b`s or `#`s starting a word and
+/// followed by a digit, a double flat `bb7` as two.
 pub fn spell_degrees_in(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
+    let is_sign = |c: char| c == 'b' || c == '#';
     chars
         .iter()
         .enumerate()
         .map(|(i, &c)| {
-            let starts_word = i == 0 || matches!(chars[i - 1], ' ' | '(' | '/' | ',');
-            let before_digit = chars.get(i + 1).is_some_and(char::is_ascii_digit);
+            if !is_sign(c) {
+                return c;
+            }
+            let first = (0..=i).rev().take_while(|&k| chars[k] == c).last().unwrap_or(i);
+            let starts_word = first == 0 || matches!(chars[first - 1], ' ' | '(' | '/' | ',');
+            let after = (i..chars.len()).find(|&k| chars[k] != c).unwrap_or(chars.len());
+            let before_digit = chars.get(after).is_some_and(char::is_ascii_digit);
             match c {
                 'b' if starts_word && before_digit => '♭',
                 '#' if starts_word && before_digit => '♯',
@@ -1588,5 +1594,7 @@ mod open_string_tests {
         assert_eq!(spell_degrees_in("Bebopowa dominantowa b9 b13"), "Bebopowa dominantowa ♭9 ♭13");
         assert_eq!(spell_degrees_in("Lydian #11 (b7)"), "Lydian ♯11 (♭7)");
         assert_eq!(spell_degrees_in("Dorian b2"), "Dorian ♭2");
+        assert_eq!(spell_degrees_in("°: b5 b6 bb7 2"), "°: ♭5 ♭6 ♭♭7 2");
+        assert_eq!(spell_degrees_in("Bbb7 bb"), "Bbb7 bb");
     }
 }
