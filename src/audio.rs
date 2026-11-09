@@ -106,6 +106,11 @@ pub struct AudioAnalysis {
     /// is enough for one bad reading to carry a vote. This is what says whether
     /// there is anything new to look at.
     pub frames_seen: u64,
+    /// Whether the tuner is on screen; it is measured only then.
+    pub tuner_on: bool,
+    /// The tuner's reading, `tuner::frequency` of the window's end. `None`
+    /// below the gate and where nothing periodic sounds.
+    pub tuner_hz: Option<f32>,
 }
 
 impl AudioAnalysis {
@@ -995,6 +1000,28 @@ impl Listener {
         } else {
             self.go_quiet();
         }
+        self.tune(window, level > gate);
+    }
+
+    /// The tuner's reading, every other hop and only while it is shown: YIN on
+    /// 2048 samples costs about as much as the rest of a hop.
+    fn tune(&mut self, window: &[f32], open: bool) {
+        let wanted = match self.shared.lock() {
+            Ok(st) => st.tuner_on && st.hops % 2 == 0,
+            Err(_) => false,
+        };
+        if !wanted {
+            return;
+        }
+        // Measured without the lock held: the UI reads the same struct.
+        let reading = if open {
+            crate::tuner::frequency(&window[window.len() - crate::tuner::SAMPLES..], TARGET_SR as f32)
+        } else {
+            None
+        };
+        if let Ok(mut st) = self.shared.lock() {
+            st.tuner_hz = reading;
+        }
     }
 
     /// Fast attack, slow release: the meter should show the strum peak, not
@@ -1130,6 +1157,10 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                 .iter()
                 .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
             if let Ok(mut state) = shared_state.lock() {
+                if state.tuner_on && state.hops % 2 == 0 {
+                    let end = &chunk[FFT_SIZE - crate::tuner::SAMPLES..];
+                    state.tuner_hz = crate::tuner::frequency(end, spec.sample_rate as f32);
+                }
                 state.voices = sounding;
                 state.cqt_pitch = heard.map(|n| n % 12);
                 state.cqt_semitone = heard;
@@ -1288,6 +1319,8 @@ mod fill_tests {
             cqt_semitone: None,
             gate_open: false,
             frames_seen: 0,
+            tuner_on: false,
+            tuner_hz: None,
         }
     }
 

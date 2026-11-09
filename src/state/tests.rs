@@ -747,6 +747,8 @@ pub(crate) fn app() -> MyApp {
         cqt_pitch: None,
         gate_open: false,
         frames_seen: 0,
+        tuner_on: false,
+        tuner_hz: None,
     }));
     let mut a = MyApp::new(analysis);
     a.chords = vec![

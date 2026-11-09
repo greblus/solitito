@@ -286,7 +286,10 @@ component NavItem inherits Rectangle {
     /// click on it then folds them in or out, and the arrow says which.
     in property <bool> expandable;
     in property <bool> expanded;
+    /// The arrow folds on its own and the rest of the row does something else.
+    in property <bool> fold_apart;
     callback clicked;
+    callback fold_clicked;
 
     height: 40px;
     border-radius: 10px;
@@ -329,9 +332,16 @@ component NavItem inherits Rectangle {
             horizontal-stretch: 1;
         }
         // Points the way a click would go: down to unfold, up to fold.
-        if root.expandable : VerticalLayout {
+        if root.expandable && !root.fold_apart : VerticalLayout {
             alignment: center;
             FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
+        }
+        if root.expandable && root.fold_apart : Rectangle {
+            width: 28px;
+            border-radius: 6px;
+            background: fold_touch.has-hover ? #2A3142 : transparent;
+            FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
+            fold_touch := TouchArea { clicked => { root.fold_clicked(); } }
         }
         if root.marked : VerticalLayout {
             alignment: center;
@@ -352,6 +362,27 @@ component NavItem inherits Rectangle {
 /// The input level against the silence threshold, on the gate slider's
 /// scale (-72 to 0 dB): blue above the threshold, grey below it, and the
 /// threshold itself a yellow line.
+/// How far the note is from the nearest one, -50 to +50 cents: a marker on a
+/// track with the middle marked, green within 5 cents.
+component TunerMeter inherits Rectangle {
+    in property <int> cents;
+    in property <bool> live;
+    border-radius: 4px;
+    background: #2A3142;
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        width: 2px;
+        background: #6B7385;
+    }
+    if root.live : Rectangle {
+        width: 6px;
+        border-radius: 3px;
+        x: (root.cents + 50) / 100 * (parent.width - self.width);
+        background: abs(root.cents) <= 5 ? #6EE7A0 : #F2B233;
+        animate x { duration: 80ms; }
+    }
+}
+
 component LevelMeter inherits Rectangle {
     in property <float> level_db;
     in property <float> gate_db;
@@ -821,6 +852,8 @@ export global Tr {
     in-out property <string> step_captions_hint: "";
     in-out property <string> chord_context: "Chord context";
     in-out property <string> chord_context_hint: "";
+    in-out property <string> show_tuner: "Show tuner";
+    in-out property <string> tuner_card: "Tuner";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
@@ -1163,6 +1196,15 @@ export component AppWindow inherits Window {
     callback step_captions_changed(bool);
     in-out property <bool> chord_context: true;
     callback chord_context_changed(bool);
+    in-out property <bool> show_tuner: false;
+    callback show_tuner_changed(bool);
+    // The tuner's reading: the nearest note, how many cents off it, and
+    // whether a note is sounding at all.
+    in property <string> tuner_note;
+    in property <int> tuner_cents;
+    in property <bool> tuner_live;
+    // The quick options under Settings, unfolded by the arrow.
+    property <bool> settings_quick_open: false;
     in-out property <int> formula_placement: 0;
     callback formula_placement_changed(int);
     /// The next chord of the tune under the formula, over the changes.
@@ -1608,6 +1650,37 @@ export component AppWindow inherits Window {
 
             Rectangle { }
 
+            // TUNER: the nearest note and how far off it the string is.
+            if root.show_tuner : Rectangle {
+                height: 84px;
+                background: #1C212C;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: #262D3B;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text { text: Tr.tuner_card; font-size: 12px; color: #A9B0C0; }
+                        Text {
+                            text: !root.tuner_live ? "" : (root.tuner_cents > 0 ? "+" : "") + root.tuner_cents + " ¢";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: abs(root.tuner_cents) <= 5 ? #6EE7A0 : #F2B233;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    Text {
+                        text: root.tuner_live ? root.tuner_note : "–";
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: root.tuner_live && abs(root.tuner_cents) <= 5 ? #6EE7A0 : #E8EAF0;
+                    }
+                    TunerMeter { height: 8px; cents: root.tuner_cents; live: root.tuner_live; }
+                }
+            }
+            if root.show_tuner : Rectangle { height: 12px; }
+
             // INPUT CARD: is the guitar heard, and where the silence threshold
             // sits against it. Always in sight, because a gate set too high
             // looked like the app not crediting what was played. A click opens
@@ -1689,6 +1762,10 @@ export component AppWindow inherits Window {
                 image: root.icon_gear;
                 selected: root.show_settings;
                 marked: root.settings_touched;
+                expandable: true;
+                expanded: root.settings_quick_open;
+                fold_apart: true;
+                fold_clicked => { root.settings_quick_open = !root.settings_quick_open; }
                 clicked => {
                     // The settings open on Practice, always: it is the tab of
                     // the mode you are in, and landing on whichever tab was
@@ -1698,6 +1775,8 @@ export component AppWindow inherits Window {
                     root.show_settings = !root.show_settings;
                 }
             }
+            if root.settings_quick_open : SideToggle { text: Tr.show_tuner; on: root.show_tuner;
+                toggled => { root.show_tuner = !root.show_tuner; root.show_tuner_changed(root.show_tuner); } }
         }
     }
 

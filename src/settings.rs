@@ -108,6 +108,9 @@ pub struct Settings {
     /// grey.
     #[serde(default = "yes")]
     pub chord_context: bool,
+    /// The tuner card in the side bar, from the quick option under Settings.
+    #[serde(default)]
+    pub show_tuner: bool,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -405,6 +408,7 @@ impl Default for Settings {
             chord_strip: true,
             step_captions: true,
             chord_context: true,
+            show_tuner: false,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,

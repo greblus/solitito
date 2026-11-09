@@ -99,6 +99,11 @@ pub struct UiFrame {
     last_level_db: f32,
     last_level_push: Instant,
     last_tiles: Vec<IntervalTile>,
+    /// The tuner's last readings, for their median: one reading alone jumps
+    /// an octave now and then on a string's attack.
+    tuner_readings: Vec<f32>,
+    tuner_heard_at: Instant,
+    tuner_pushed_at: Instant,
 }
 
 impl UiFrame {
@@ -129,6 +134,9 @@ impl UiFrame {
             last_level_db: f32::NEG_INFINITY,
             last_level_push: now,
             last_tiles: Vec::new(),
+            tuner_readings: Vec::new(),
+            tuner_heard_at: now,
+            tuner_pushed_at: now,
         }
     }
 
@@ -140,6 +148,7 @@ impl UiFrame {
 
         let in_level = app.analysis_state.lock().unwrap().input_level;
         self.show_input_level(&ui, in_level);
+        self.show_tuner(&ui, &app);
 
         self.read_practice_options(&ui, &mut app);
         self.save_formula_fields(&ui);
@@ -162,6 +171,45 @@ impl UiFrame {
             self.show_song_step(&ui, &app);
         }
         self.drop_drawing_of_other_modes(&ui, &app);
+    }
+
+    /// The tuner card: the median of the last readings, the note nearest to it
+    /// and how many cents off. At most 15 times a second.
+    fn show_tuner(&mut self, ui: &AppWindow, app: &MyApp) {
+        const KEPT: usize = 5;
+        let on = ui.get_show_tuner();
+        let reading = {
+            let mut st = app.analysis_state.lock().unwrap();
+            st.tuner_on = on;
+            st.tuner_hz.take()
+        };
+        if !on {
+            return;
+        }
+        if let Some(hz) = reading {
+            self.tuner_readings.push(hz);
+            if self.tuner_readings.len() > KEPT {
+                self.tuner_readings.remove(0);
+            }
+            self.tuner_heard_at = Instant::now();
+        } else if self.tuner_heard_at.elapsed() > Duration::from_millis(600) {
+            self.tuner_readings.clear();
+        }
+        if self.tuner_pushed_at.elapsed() < Duration::from_millis(66) {
+            return;
+        }
+        self.tuner_pushed_at = Instant::now();
+        let mut sorted = self.tuner_readings.clone();
+        sorted.sort_by(f32::total_cmp);
+        let Some(&median) = sorted.get(sorted.len() / 2) else {
+            set_if_changed(ui.get_tuner_live(), false, |v| ui.set_tuner_live(v));
+            return;
+        };
+        let (class, octave, cents) = crate::tuner::nearest_note(median);
+        let note = format!("{}{octave}", tab::spell(NoteName::from_index(class).to_string()));
+        set_if_changed(ui.get_tuner_note().to_string(), note, |v| ui.set_tuner_note(v.into()));
+        set_if_changed(ui.get_tuner_cents(), cents.round() as i32, |v| ui.set_tuner_cents(v));
+        set_if_changed(ui.get_tuner_live(), true, |v| ui.set_tuner_live(v));
     }
 
     fn show_input_level(&mut self, ui: &AppWindow, in_level: f32) {

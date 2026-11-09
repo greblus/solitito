@@ -22,6 +22,7 @@ mod settings;
 mod state;
 mod strike;
 mod tab;
+mod tuner;
 mod ui_frame;
 mod voices;
 
@@ -202,6 +203,7 @@ struct SettingsSnapshot {
     chord_strip: bool,
     step_captions: bool,
     chord_context: bool,
+    show_tuner: bool,
     formula_exercise: i32,
     formula_placement: i32,
     formula_notes: i32,
@@ -268,6 +270,7 @@ impl SettingsSnapshot {
             chord_strip: ui.get_chord_strip(),
             step_captions: ui.get_step_captions(),
             chord_context: ui.get_chord_context(),
+            show_tuner: ui.get_show_tuner(),
             formula_exercise: ui.get_formula_exercise(),
             formula_placement: ui.get_formula_placement(),
             formula_notes: ui.get_formula_notes(),
@@ -459,6 +462,8 @@ fn new_analysis_state() -> Arc<Mutex<AudioAnalysis>> {
         cqt_semitone: None,
         gate_open: false,
         frames_seen: 0,
+        tuner_on: false,
+        tuner_hz: None,
     }))
 }
 
@@ -615,6 +620,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_chord_strip(cfg.chord_strip);
     ui.set_step_captions(cfg.step_captions);
     ui.set_chord_context(cfg.chord_context);
+    ui.set_show_tuner(cfg.show_tuner);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -1002,6 +1008,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_step_captions_hint(t.step_captions_hint.into());
     g.set_chord_context(t.chord_context.into());
     g.set_chord_context_hint(t.chord_context_hint.into());
+    g.set_show_tuner(t.show_tuner.into());
+    g.set_tuner_card(t.tuner_card.into());
     g.set_reset_window(t.reset_window.into());
     g.set_reset_window_hint(t.reset_window_hint.into());
     g.set_reset_settings(t.reset_settings.into());
