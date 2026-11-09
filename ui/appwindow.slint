@@ -273,6 +273,40 @@ component SideToggle inherits Rectangle {
     }
 }
 
+/// A side-bar button with an icon alone, as tall as an entry beside it: lit
+/// while what it switches is on, its name in the bubble on hover.
+component IconButton inherits Rectangle {
+    in property <string> path;
+    in property <string> hint;
+    in property <bool> on;
+    callback clicked;
+
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: root.on ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    animate background { duration: 120ms; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        commands: root.path;
+        stroke: root.on ? #FFFFFF : #A9B0C0;
+        stroke-width: 1.6px;
+        fill: transparent;
+    }
+    OverflowHint {
+        x: root.width + 8px;
+        y: 8px;
+        text: root.hint;
+        shown: touch.has-hover;
+    }
+}
+
 /// One entry of the side navigation: an icon and a label, the whole row
 /// clickable. The icon is either a stroke path in a 20x20 box or an image.
 component NavItem inherits Rectangle {
@@ -286,10 +320,7 @@ component NavItem inherits Rectangle {
     /// click on it then folds them in or out, and the arrow says which.
     in property <bool> expandable;
     in property <bool> expanded;
-    /// The arrow folds on its own and the rest of the row does something else.
-    in property <bool> fold_apart;
     callback clicked;
-    callback fold_clicked;
 
     height: 40px;
     border-radius: 10px;
@@ -332,16 +363,9 @@ component NavItem inherits Rectangle {
             horizontal-stretch: 1;
         }
         // Points the way a click would go: down to unfold, up to fold.
-        if root.expandable && !root.fold_apart : VerticalLayout {
+        if root.expandable : VerticalLayout {
             alignment: center;
             FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
-        }
-        if root.expandable && root.fold_apart : Rectangle {
-            width: 28px;
-            border-radius: 6px;
-            background: fold_touch.has-hover ? #2A3142 : transparent;
-            FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
-            fold_touch := TouchArea { clicked => { root.fold_clicked(); } }
         }
         if root.marked : VerticalLayout {
             alignment: center;
@@ -852,7 +876,6 @@ export global Tr {
     in-out property <string> step_captions_hint: "";
     in-out property <string> chord_context: "Chord context";
     in-out property <string> chord_context_hint: "";
-    in-out property <string> show_tuner: "Show tuner";
     in-out property <string> tuner_card: "Tuner";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
@@ -1203,8 +1226,6 @@ export component AppWindow inherits Window {
     in property <string> tuner_note;
     in property <int> tuner_cents;
     in property <bool> tuner_live;
-    // The quick options under Settings, unfolded by the arrow.
-    property <bool> settings_quick_open: false;
     in-out property <int> formula_placement: 0;
     callback formula_placement_changed(int);
     /// The next chord of the tune under the formula, over the changes.
@@ -1757,26 +1778,29 @@ export component AppWindow inherits Window {
                 selected: root.random_enabled;
                 clicked => { root.random_enabled = !root.random_enabled; }
             }
-            NavItem {
-                text: Tr.nav_settings;
-                image: root.icon_gear;
-                selected: root.show_settings;
-                marked: root.settings_touched;
-                expandable: true;
-                expanded: root.settings_quick_open;
-                fold_apart: true;
-                fold_clicked => { root.settings_quick_open = !root.settings_quick_open; }
-                clicked => {
-                    // The settings open on Practice, always: it is the tab of
-                    // the mode you are in, and landing on whichever tab was
-                    // left open last time meant hunting for the setting you
-                    // came for. Audio and the rest are one click away.
-                    if (!root.show_settings) { root.settings_tab = 2; }
-                    root.show_settings = !root.show_settings;
+            // Settings, and the tuner beside it without a gap.
+            HorizontalLayout {
+                NavItem {
+                    text: Tr.nav_settings;
+                    image: root.icon_gear;
+                    selected: root.show_settings;
+                    marked: root.settings_touched;
+                    clicked => {
+                        // The settings open on Practice, always: it is the tab of
+                        // the mode you are in, and landing on whichever tab was
+                        // left open last time meant hunting for the setting you
+                        // came for. Audio and the rest are one click away.
+                        if (!root.show_settings) { root.settings_tab = 2; }
+                        root.show_settings = !root.show_settings;
+                    }
+                }
+                IconButton {
+                    path: "M 7 2 L 7 9 Q 7 12.5 10 12.5 Q 13 12.5 13 9 L 13 2 M 10 12.5 L 10 18";
+                    hint: Tr.tuner_card;
+                    on: root.show_tuner;
+                    clicked => { root.show_tuner = !root.show_tuner; root.show_tuner_changed(root.show_tuner); }
                 }
             }
-            if root.settings_quick_open : SideToggle { text: Tr.show_tuner; on: root.show_tuner;
-                toggled => { root.show_tuner = !root.show_tuner; root.show_tuner_changed(root.show_tuner); } }
         }
     }
 

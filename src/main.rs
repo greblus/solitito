@@ -1008,7 +1008,6 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_step_captions_hint(t.step_captions_hint.into());
     g.set_chord_context(t.chord_context.into());
     g.set_chord_context_hint(t.chord_context_hint.into());
-    g.set_show_tuner(t.show_tuner.into());
     g.set_tuner_card(t.tuner_card.into());
     g.set_reset_window(t.reset_window.into());
     g.set_reset_window_hint(t.reset_window_hint.into());
