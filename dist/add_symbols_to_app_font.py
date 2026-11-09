@@ -6,7 +6,7 @@ they came from whatever the system had - another font on Windows, and in bold
 text a bold flat beside a regular digit:
 - "↻" (U+21BB), from Noto Sans Math: a random inversion in the list of
   Intervals exercises;
-- "♭" (U+266D) and "♯" (U+266F), from Noto Sans Symbols: the degrees,
+- "♭" (U+266D) and "♯" (U+266F), from Noto Sans Symbols Medium: the degrees,
   enlarged by SCALE, at the size of a caption too small to read beside the
   digit.
 
@@ -23,8 +23,8 @@ FONTS = Path(sys.argv[1] if len(sys.argv) > 1 else "/usr/share/fonts/noto")
 TARGET = Path(__file__).resolve().parent.parent / "src/assets/AppFont.ttf"
 SIGNS = {
     0x21BB: ("NotoSansMath-Regular.ttf", 1.0),
-    0x266D: ("NotoSansSymbols-Regular.ttf", 1.25),
-    0x266F: ("NotoSansSymbols-Regular.ttf", 1.25),
+    0x266D: ("NotoSansSymbols-Medium.ttf", 1.4),
+    0x266F: ("NotoSansSymbols-Medium.ttf", 1.4),
 }
 
 

@@ -39,7 +39,7 @@ use i18n::Lang;
 use settings::Settings;
 use state::{MyApp, AppMode, ArpExercise};
 
-use slint::{Timer, TimerMode, Model, ModelRc, VecModel, SharedString, PhysicalPosition, PhysicalSize};
+use slint::{Timer, TimerMode, Model, ModelRc, VecModel, SharedString, PhysicalSize};
 
 slint::include_modules!();
 
@@ -360,7 +360,6 @@ fn main() -> Result<(), slint::PlatformError> {
         Err(e) => return start_in_software(&cfg, e),
     };
     show_settings(&ui, &my_app.lock().unwrap(), &cfg, lang);
-    ui.window().set_position(PhysicalPosition::new(450, 10));
 
     let shared = controls::Shared {
         app: my_app.clone(),
