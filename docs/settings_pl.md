@@ -15,6 +15,10 @@ w szybkich opcjach każdego trybu, w pasku bocznym — zob. [okno główne](#okn
 <img width="300" alt="Ustawienia, zakładka Program" src="screenshots/pl/solitito_settings4.png" />
 </div>
 
+<div align="center">
+<img width="620" alt="Sześć schematów kolorów" src="screenshots/pl/solitito_schemes.png" />
+</div>
+
 **Ćwiczenia** zawierają wyłącznie to, co ma sens dla trybu widocznego na ekranie — utwór nie ma
 nic do powiedzenia w Formułach, formuła nic w Akordach — więc w każdym trybie jest to inna
 zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej wcale:
@@ -80,8 +84,10 @@ zakładka, a trener gryfu, który nie ma własnych ustawień, nie pokazuje jej w
 | **Prowadzenie głosów** | Interwały, przy włączonym losowaniu: każdy akord zaczyna się od składnika najbliższego ostatnio zagranemu dźwiękowi, nigdy od tego samego, więc wylosowane ćwiczenie dalej czyta się jak linia |
 | **Pokazuj schematy akordów** | Miniatury diagramów pod nazwą akordu w trybie Akordy |
 | **Schematy** | Dwa pola: pełne akordy i shell voicings — tercja i septyma nad prymą. Zaznaczone oba rysują oba, żadne nie rysuje nic. Powyżej czterech schematów rysowane są w dwóch rzędach. `m7b5` nie ma własnego shella: jego shell to co do dźwięku shell `m7`, bo różni je wyłącznie kwinta, więc to właśnie jest rysowane, z podpisem *substytut: shell m7*. Gdy na ekranie są same shelle, ten chwyt jest tym, o który program prosi, więc jego zagranie przechodzi na zielono; gdy rysowane są też pełne schematy, odczyt `m7` oznacza pominiętą obniżoną kwintę i zostaje żółty. Akord zmniejszony septymowy nie ma czego pominąć — cztery dźwięki co małą tercję, bez pary tercja-septyma, którą można by zachować — więc zostaje przy pełnych chwytach, z podpisem mówiącym, czym one też są: `7b9` bez prymy, o pół tonu poniżej każdego swojego dźwięku |
-| **Tryb startowy** | W jakim trybie program się otwiera |
+| **Tryb początkowy** | W jakim trybie program się otwiera |
 | **Język** | Auto (z ustawień systemu), polski, angielski. Stosowany natychmiast, bez restartu |
+| **Kolory** | Sześć schematów kolorów: Grafit — ciemny, w którym program był projektowany — Jasny, Sepia, Noc, Las i Wysoki kontrast. Stosowany od razu; razem z nim zmieniają się rysunki gryfu, schematy akordów i ikona programu (sama ikona pliku `.exe` na Windows zostaje bez zmian) |
+| **Rozmiar tekstu** | Główny tekst sześciu części okna, w px: pasek boczny, pasek akordów, nazwa utworu, nazwa akordu, kafelki — funkcje na nich i w linii funkcji interwałowych — oraz opisy, które wyznaczają też rozmiar nazw dźwięków na kafelkach. Przy każdej − i +, pole do wpisania rozmiaru i **Domyślny**; reszta tekstu danej części rośnie proporcjonalnie, a pasek boczny poszerza się razem z tekstem. **Rozmiary domyślne** przywraca wszystkie części |
 | **Renderowanie programowe** | Okno rysuje procesor zamiast karty graficznej (renderer software Slinta zamiast OpenGL). Włącza się samo, gdy okno nie otworzy się z OpenGL — na przykład na starej zintegrowanej grafice Intel HD — a program uruchamia się wtedy jeszcze raz. Działa po ponownym uruchomieniu. Ustawiona zmienna `SLINT_BACKEND` ma pierwszeństwo |
 | **Resetuj rozmiar okna** | Zapomina zapisany rozmiar i maksymalizuje okno, jak przy pierwszym uruchomieniu. Poza tym okno otwiera się tak, jak zostało zamknięte: zmaksymalizowane, na pełnym ekranie albo we własnym rozmiarze, do którego wraca po odmaksymalizowaniu |
 | **Przywróć ustawienia domyślne** | Wszystkie ustawienia wracają do domyślnych, a program uruchamia się od nowa. Najpierw prosi o drugie kliknięcie. Renderowanie programowe zostaje: zależy od komputera, a nie od upodobań |
@@ -118,9 +124,9 @@ sięgać w trakcie grania:
 | tryb | szybkie opcje |
 |---|---|
 | Akordy | tonacja utworu, **Pełne chwyty**, **Shelle**, **Trzymaj jakość**, **Krótkie uderzenia**, **Pasek akordów** |
-| Interwały | ćwiczenie, **Pojedynczo**, **Po kolei**, **Tylko uderzone**, **Pasek akordów**, **Opisy** |
-| Skale | tonacja, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem**, **Opisy** |
-| Arpeggia | ćwiczenie; w studium tonacja i akord, przy ogrywaniu zmian kierunek, w liniach Harrisa figura, w obu tych ćwiczeniach start, liczba dźwięków na akord, **W jednej pozycji** i **Kontekst akordu**, a w ćwiczeniu Ted Greene figura, liczba dźwięków na akord, **Kontekst akordu** i **Z napięciami**; zawsze **Opisy** |
+| Interwały | ćwiczenie, widok, **Pojedynczo**, **Po kolei**, **Tylko uderzone**, **Pasek akordów**, **Opisy** |
+| Skale | tonacja, widok, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem**, **Opisy** |
+| Arpeggia | ćwiczenie, widok; w studium tonacja i akord, przy ogrywaniu zmian kierunek, w liniach Harrisa figura, w obu tych ćwiczeniach start, liczba dźwięków na akord, **W jednej pozycji** i **Kontekst akordu**, a w ćwiczeniu Ted Greene figura, liczba dźwięków na akord, **Kontekst akordu** i **Z napięciami**; zawsze **Opisy** |
 | Formuły | ćwiczenie, liczba dźwięków w formule, **Pojedynczo**, **Po kolei** |
 | Gryf | **Podpowiedź**: gryf do 15. progu z każdym miejscem szukanego dźwięku, przy każdym dźwięku; wyłączona, pokazuje ją jednorazowo kliknięcie w dźwięk |
 

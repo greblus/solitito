@@ -15,6 +15,10 @@ is set in the quick options of each mode, in the side bar — see [the main wind
 <img width="300" alt="Settings, App tab" src="screenshots/en/solitito_settings4.png" />
 </div>
 
+<div align="center">
+<img width="620" alt="The six colour schemes" src="screenshots/en/solitito_schemes.png" />
+</div>
+
 **Practice** holds only what belongs to the mode on screen — a song has nothing to say in
 Formulas, a formula nothing in Chords — so it is a different tab in each of them, and the
 fretboard trainer, which has no settings of its own, does not show it at all:
@@ -82,6 +86,8 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Shapes** | Two boxes: the full grips and shell voicings — third and seventh over the root. Both ticked draws both, neither draws none. Past four shapes they are drawn in two rows. A `m7b5` has no shell of its own: its shell is the `m7` shell note for note, since the fifth is the only place the two differ, so that is what is drawn, captioned *substitute: the m7 shell*. With shells the only shapes on screen that grip is the one being asked for, so playing it passes green; with the full shapes drawn too, a `m7` reading means the flat fifth was missed and it stays yellow. A diminished seventh has nothing to leave out — its four notes are all a minor third apart, with no third-and-seventh pair to keep — so it keeps its full grips, captioned with what they also are: a `7b9` without its root, from a semitone below any of its notes |
 | **Startup mode** | Which mode the app opens in |
 | **Language** | Auto (from the system locale), Polski, English. Applied immediately, no restart |
+| **Colours** | Six colour schemes: Graphite — the dark one the app was designed in — Light, Sepia, Night, Forest and High contrast. Applied at once; the drawings on the neck, the chord shapes and the app's icon change with it (the icon of the Windows `.exe` itself stays as it is) |
+| **Text size** | The main text of six parts of the window, in px: the side bar, the chord strip, the tune's name, the chord's name, the tiles — the degrees on them and in the line of interval functions — and the captions, which also size the names of the notes on the tiles. Each with − and +, a field to type the size into, and **Default**; the rest of a part's text follows in proportion, and the side bar widens with its text. **Designed sizes** puts every part back |
 | **Software rendering** | The window is drawn by the processor instead of the graphics card (Slint's software renderer instead of OpenGL). It turns itself on when the window will not open with OpenGL — on an old integrated Intel HD, for example — and the app then starts again. Takes effect after a restart. `SLINT_BACKEND`, when set, takes precedence |
 | **Reset window size** | Forgets the saved size and maximises the window, as on the first start. The window otherwise opens as it was closed: maximised, on full screen, or at its own size, which it goes back to when it is no longer maximised |
 | **Restore default settings** | Every setting back to its default, and the app starts again. Asks for a second click first. Software rendering is kept: it depends on the computer, not on taste |
@@ -111,9 +117,9 @@ reaching for while playing:
 | mode | quick options |
 |---|---|
 | Chords | the key of the song, **Full chords**, **Shell voicings**, **Hold the quality**, **Short strums**, **Chord strip** |
-| Intervals | the exercise, **Single notes**, **In order**, **Struck only**, **Chord strip**, **Captions** |
-| Scales | the key, **Up**, **Down**, **Random**, **In order**, **From E to e**, **There and back**, **Captions** |
-| Arpeggios | the exercise; in a study the key and the chord, over the changes the direction, in Harris lines the figure, in both of these the start, the notes per chord, **In one position** and **Chord context**, and in Ted Greene the figure, the notes per chord, **Chord context** and **With tensions**; always **Captions** |
+| Intervals | the exercise, the view, **Single notes**, **In order**, **Struck only**, **Chord strip**, **Captions** |
+| Scales | the key, the view, **Up**, **Down**, **Random**, **In order**, **From E to e**, **There and back**, **Captions** |
+| Arpeggios | the exercise, the view; in a study the key and the chord, over the changes the direction, in Harris lines the figure, in both of these the start, the notes per chord, **In one position** and **Chord context**, and in Ted Greene the figure, the notes per chord, **Chord context** and **With tensions**; always **Captions** |
 | Formulas | the exercise, the notes in a formula, **Single notes**, **In order** |
 | Fretboard | **Hint**: the neck to the fifteenth fret with the note asked for at every place, shown with every note; off, a click on the note shows it once |
 
