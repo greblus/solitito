@@ -125,6 +125,7 @@ The rest of the documentation is in `docs/`:
 | | |
 |---|---|
 | [**Practising intervals**](docs/intervals-practice.md) | The fifty exercises group by group, with what each one asks over every kind of chord, how to read the list, and a II–V–I to try them on |
+| [**Analysing and learning progressions**](docs/progressions.md) | What the degrees and functions in the chord strip mean — `♭VII`, `V7 → B♭`, `subV7` — on Autumn Leaves, and the rules the app finds them by |
 | [**Practising arpeggios**](docs/arpeggios-practice.md) | A set of exercises in four groups: the studies, the arpeggio over the changes, Ted Greene's exercises in one position and Harris lines |
 | [**Practising with formulas**](docs/formulas-practice.md) | Step by step through the three formula exercises: what to play, what to listen for, and what each row on the screen is telling you |
 | [Choosing an input](docs/audio-input.md) | What the device names mean on Linux, where settings are stored, the diagnostic modes, and recording a session with what the app made of it |
