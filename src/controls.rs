@@ -37,6 +37,41 @@ pub fn connect(ui: &AppWindow, shared: &Shared) {
     connect_favourites(ui, shared);
     connect_language(ui, shared);
     connect_navigation(ui, shared);
+    connect_text_sizes(ui, &shared.cfg);
+}
+
+/// The text sizes of the App settings: a slider moved resizes its part at
+/// once and is saved; the button puts every part back to its designed size.
+fn connect_text_sizes(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
+    {
+        let uw = ui.as_weak();
+        let cfg = Rc::clone(cfg);
+        ui.on_text_size_changed(move |part, px| {
+            let Some(ui) = uw.upgrade() else { return };
+            let Ok(part) = usize::try_from(part) else { return };
+            if part >= settings::TEXT_PARTS {
+                return;
+            }
+            let (lowest, highest) = settings::text_px_range(part);
+            let px = (px.max(0) as u16).clamp(lowest, highest);
+            let mut cfg = cfg.borrow_mut();
+            if cfg.text_px[part] == px {
+                return;
+            }
+            cfg.text_px[part] = px;
+            cfg.save();
+            crate::show_text_sizes(&ui, &cfg.text_px);
+        });
+    }
+    let uw = ui.as_weak();
+    let cfg = Rc::clone(cfg);
+    ui.on_text_sizes_reset(move || {
+        let Some(ui) = uw.upgrade() else { return };
+        let mut cfg = cfg.borrow_mut();
+        cfg.text_px = settings::DESIGNED_TEXT_PX;
+        cfg.save();
+        crate::show_text_sizes(&ui, &cfg.text_px);
+    });
 }
 
 /// A callback that writes one setting and saves the file.

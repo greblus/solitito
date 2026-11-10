@@ -3,18 +3,37 @@ import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollVi
 import "../src/assets/AppFont.ttf"; 
 import "../src/assets/Accidentals.ttf";
 
+/// The size of one part's main text, and how far its slider goes.
+export struct TextSize {
+    px: int,
+    designed: int,
+    min: int,
+    max: int,
+}
+
+/// How large the text of each part of the window is, 1 the designed size:
+/// set from the App settings.
+export global TextScale {
+    in-out property <float> sidebar: 1;
+    in-out property <float> strip: 1;
+    in-out property <float> song: 1;
+    in-out property <float> chord: 1;
+    in-out property <float> tiles: 1;
+    in-out property <float> captions: 1;
+}
+
 component NoteBar inherits Rectangle {
     in property <string> label;
     in property <brush> bar_color;
-    width: 82px;
-    height: 76px;
+    width: 82px * TextScale.tiles;
+    height: 76px * TextScale.tiles;
     background: transparent;
 
     VerticalLayout {
         alignment: center;
         Text {
             text: root.label;
-            font-size: 48px;
+            font-size: 48px * TextScale.tiles;
             color: root.bar_color;
             horizontal-alignment: center;
         }
@@ -62,7 +81,7 @@ component IntervalCard inherits Rectangle {
         spacing: 6px;
         Text {
             text: root.tile.degree;
-            font-size: 40px;
+            font-size: 40px * TextScale.tiles;
             horizontal-alignment: center;
             color: root.done ? #6EE7A0
                 : root.tile.state == 3 ? #D4F27A
@@ -70,7 +89,7 @@ component IntervalCard inherits Rectangle {
         }
         Text {
             text: root.tile.note;
-            font-size: 16px;
+            font-size: 16px * TextScale.captions;
             horizontal-alignment: center;
             color: #C9CEDA;
         }
@@ -122,7 +141,7 @@ component ProgressChip inherits Rectangle {
         padding-right: 8px;
         Text {
             text: root.chip.name;
-            font-size: 17px;
+            font-size: 17px * TextScale.strip;
             font-weight: root.chip.current ? 700 : 500;
             color: root.chip.current ? #FFFFFF : root.chip.fg;
             horizontal-alignment: center;
@@ -131,7 +150,7 @@ component ProgressChip inherits Rectangle {
         }
         if root.show_degree : Text {
             text: root.chip.degree;
-            font-size: 15px;
+            font-size: 15px * TextScale.strip;
             color: root.chip.current ? #DCE7FF : #8A92A3;
             horizontal-alignment: center;
             overflow: elide;
@@ -225,7 +244,7 @@ component SideToggle inherits Rectangle {
     in property <string> hint;
     callback toggled();
 
-    height: 32px;
+    height: 32px * TextScale.sidebar;
     border-radius: 8px;
     background: touch.has-hover ? #1C212C : transparent;
     touch := TouchArea { clicked => { root.toggled(); } }
@@ -237,7 +256,7 @@ component SideToggle inherits Rectangle {
         spacing: 8px;
         label := Text {
             text: root.text;
-            font-size: 13px;
+            font-size: 13px * TextScale.sidebar;
             color: root.on ? #E8EAF0 : #A9B0C0;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -281,8 +300,9 @@ component IconButton inherits Rectangle {
     in property <bool> on;
     callback clicked;
 
-    width: 40px;
-    height: 40px;
+    // As tall as the NavItem beside it.
+    width: 40px * TextScale.sidebar;
+    height: 40px * TextScale.sidebar;
     border-radius: 10px;
     background: root.on ? #243049 : (touch.has-hover ? #1C212C : transparent);
     animate background { duration: 120ms; }
@@ -322,7 +342,7 @@ component NavItem inherits Rectangle {
     in property <bool> expanded;
     callback clicked;
 
-    height: 40px;
+    height: 40px * TextScale.sidebar;
     border-radius: 10px;
     background: root.selected ? #243049 : (touch.has-hover ? #1C212C : transparent);
     animate background { duration: 120ms; }
@@ -355,7 +375,7 @@ component NavItem inherits Rectangle {
         }
         label := Text {
             text: root.text;
-            font-size: 14px;
+            font-size: 14px * TextScale.sidebar;
             color: root.selected ? #FFFFFF : #A9B0C0;
             font-weight: root.selected ? 600 : 400;
             vertical-alignment: center;
@@ -533,8 +553,11 @@ component Dropdown inherits Rectangle {
     /// The open list at least this wide, from the box's left edge rightwards:
     /// for a box in the narrow side bar, whose entries would not fit it.
     in property <length> list-width: 0px;
+    /// The text of a box that is not a title: `TextScale.sidebar` in the
+    /// side bar.
+    in property <float> text-scale: 1;
 
-    property <length> row-h: root.title-look ? 32px : 28px;
+    property <length> row-h: root.title-look ? 32px : 28px * root.text-scale;
     // As many rows as fit between where the list opens and the foot of the
     // window, within bounds: never fewer than before, never a wall of them.
     property <length> room: WindowSpace.height - self.absolute-position.y
@@ -545,7 +568,7 @@ component Dropdown inherits Rectangle {
     property <bool> overflows: root.model.length > root.max-rows;
     property <length> pad: 4px;
 
-    height: root.title-look ? root.title-size * 1.5 : 34px;
+    height: root.title-look ? root.title-size * 1.5 : 34px * root.text-scale;
     horizontal-stretch: 1;
     border-radius: root.title-look ? 10px : 8px;
     border-width: root.title-look ? 0px : 1px;
@@ -566,7 +589,7 @@ component Dropdown inherits Rectangle {
                 : root.current-index >= 0 && root.current-index < root.model.length
                     ? root.model[root.current-index] : "";
             color: root.title-look ? #C9CEDA : (root.enabled ? #E8EAF0 : #6B7385);
-            font-size: root.title-look ? root.title-size : 13px;
+            font-size: root.title-look ? root.title-size : 13px * root.text-scale;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -629,7 +652,7 @@ component Dropdown inherits Rectangle {
                                 padding-right: root.deletable ? root.row-h : 8px;
                                 Text {
                                     text: value;
-                                    font-size: root.title-look ? 15px : 13px;
+                                    font-size: root.title-look ? 15px : 13px * root.text-scale;
                                     color: index == root.current-index ? white : #C9CEDA;
                                     vertical-alignment: center;
                                     overflow: elide;
@@ -877,6 +900,11 @@ export global Tr {
     in-out property <string> chord_context: "Chord context";
     in-out property <string> chord_context_hint: "";
     in-out property <string> tuner_card: "Tuner";
+    in-out property <string> text_sizes: "Text size";
+    in-out property <[string]> text_parts: ["Side bar", "Chord strip", "Tune name", "Chord name", "Tiles", "Captions"];
+    in-out property <string> text_sizes_reset: "Designed sizes";
+    in-out property <string> text_sizes_hint: "";
+    in-out property <string> text_size_default: "Default";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
     in-out property <string> fav_add: "Keep this formula";
@@ -917,11 +945,11 @@ export component AppWindow inherits Window {
     out property <length> design_h: 800px;
     /// The side navigation on the left, and the practice column that takes
     /// the rest. The column keeps the width the whole app had before.
-    property <length> sidebar_w: 210px;
+    property <length> sidebar_w: 210px * max(1, TextScale.sidebar);
     property <length> content_w: 550px;
     /// One height for the strip above the practice column and the cards
     /// below it, so the two frame the column evenly.
-    property <length> bar_h: 48px;
+    property <length> bar_h: 48px * max(1, TextScale.strip);
 
     // preferred-*, not width/height: a fixed width and height makes the window
     // non-resizable. The size of a first launch, before there is one saved:
@@ -1081,6 +1109,11 @@ export component AppWindow inherits Window {
     callback software_renderer_changed(bool);
     callback reset_window();
     callback reset_settings();
+    /// App settings: the size of each part's main text, in the order of
+    /// `Tr.text_parts`.
+    in property <[TextSize]> text_sizes;
+    callback text_size_changed(int, int);
+    callback text_sizes_reset();
     // The first click on the reset of every setting only asks.
     property <bool> reset_settings_asked: false;
     
@@ -1445,7 +1478,7 @@ export component AppWindow inherits Window {
                 // A copy made small beforehand: the renderer shrinking the 256px icon
                 // without smoothing left it speckled.
                 Image { width: 56px; height: 56px; source: @image-url("../src/assets/app-icon-small.png"); }
-                Text { text: "Solitito"; font-size: 20px; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
+                Text { text: "Solitito"; font-size: 20px * TextScale.sidebar; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
             }
             // The modes and their quick options, scrolled with the wheel where
             // the options run into the cards below.
@@ -1503,6 +1536,7 @@ export component AppWindow inherits Window {
                                 padding-right: 12px;
                                 padding-bottom: 4px;
                                 Dropdown {
+                                    text-scale: TextScale.sidebar;
                                     list-width: 220px;
                                     model: root.song_keys;
                                     current-index <=> root.song_key;
@@ -1534,10 +1568,27 @@ export component AppWindow inherits Window {
                                 padding-right: 12px;
                                 padding-bottom: 4px;
                                 Dropdown {
+                                    text-scale: TextScale.sidebar;
                                     list-width: 430px;
                                     model: root.interval_levels;
                                     current-index <=> root.interval_level;
                                     selected => { root.interval_level_changed(self.current-index); }
+                                }
+                            }
+                            // The view, as in the settings: entries 0, 2 and 3 of the setting.
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.preview_functions, Tr.preview_functions_neck, Tr.preview_tiles];
+                                    current-index: root.preview == 0 ? 0 : (root.preview == 3 ? 2 : 1);
+                                    selected(v) => {
+                                        root.preview = v == 0 ? 0 : (v == 1 ? 2 : 3);
+                                        root.preview_changed(root.preview);
+                                    }
                                 }
                             }
                             SideToggle { text: Tr.chip_single; on: root.single_notes;
@@ -1564,10 +1615,24 @@ export component AppWindow inherits Window {
                                 padding-right: 12px;
                                 padding-bottom: 4px;
                                 Dropdown {
+                                    text-scale: TextScale.sidebar;
                                     list-width: 220px;
                                     model: root.secondary_items;
                                     current-index <=> root.current_secondary_index;
                                     selected => { root.secondary_item_selected(self.current-index); }
+                                }
+                            }
+                            // The view, as in the settings: the tiles as a fourth entry.
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
+                                    current-index <=> root.preview;
+                                    selected(v) => { root.preview_changed(v); }
                                 }
                             }
                             SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
@@ -1600,50 +1665,66 @@ export component AppWindow inherits Window {
                             padding-right: 12px;
                             spacing: 6px;
                             Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 260px;
                                 model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
                                 current-index <=> root.arp_exercise;
                                 selected(v) => { root.arp_exercise_changed(v); }
                             }
+                            // The view, as in the settings.
+                            Dropdown {
+                                text-scale: TextScale.sidebar;
+                                list-width: 260px;
+                                model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
+                                current-index <=> root.preview;
+                                selected(v) => { root.preview_changed(v); }
+                            }
                             // The key of the study; the study itself is chosen from its
                             // title above the exercise, as a scale is.
                             if root.arp_exercise == 0 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: root.secondary_items;
                                 current-index <=> root.current_secondary_index;
                                 selected => { root.secondary_item_selected(self.current-index); }
                             }
                             if root.arp_exercise == 0 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: ["m7", "Maj7", "7", "m7b5", "dim7"];
                                 current-index <=> root.arp_quality;
                                 selected(v) => { root.arp_quality_changed(v); }
                             }
                             if root.arp_exercise == 1 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
                                 current-index <=> root.arp_direction;
                                 selected(v) => { root.arp_direction_changed(v); }
                             }
                             if root.arp_exercise == 2 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 260px;
                                 model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
                                 current-index <=> root.harris_figure;
                                 selected(v) => { root.harris_figure_changed(v); }
                             }
                             if root.arp_exercise == 3 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 260px;
                                 model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
                                 current-index <=> root.greene_figure;
                                 selected(v) => { root.greene_figure_changed(v); }
                             }
                             if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 260px;
                                 model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
                                 current-index <=> root.harris_start;
                                 selected(v) => { root.harris_start_changed(v); }
                             }
                             if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: [Tr.harris_eight, Tr.harris_four];
                                 current-index <=> root.harris_notes;
@@ -1651,6 +1732,7 @@ export component AppWindow inherits Window {
                             }
                             // The whole position is a third length, Greene's alone.
                             if root.arp_exercise == 3 : Dropdown {
+                                text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
                                 current-index <=> root.harris_notes;
@@ -1679,12 +1761,14 @@ export component AppWindow inherits Window {
                                 padding-bottom: 4px;
                                 spacing: 6px;
                                 Dropdown {
+                                    text-scale: TextScale.sidebar;
                                     list-width: 220px;
                                     model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
                                     current-index <=> root.formula_exercise;
                                     selected(v) => { root.formula_exercise_changed(v); }
                                 }
                                 Dropdown {
+                                    text-scale: TextScale.sidebar;
                                     list-width: 220px;
                                     model: [Tr.formula_notes + "1", Tr.formula_notes + "2", Tr.formula_notes + "3",
                                             Tr.formula_notes + "4", Tr.formula_notes + "5", Tr.formula_notes + "6",
@@ -1708,7 +1792,7 @@ export component AppWindow inherits Window {
 
             // TUNER: the nearest note and how far off it the string is.
             if root.show_tuner : Rectangle {
-                height: 84px;
+                height: 84px * TextScale.sidebar;
                 background: #1C212C;
                 border-radius: 12px;
                 border-width: 1px;
@@ -1717,10 +1801,10 @@ export component AppWindow inherits Window {
                     padding: 12px;
                     spacing: 8px;
                     HorizontalLayout {
-                        Text { text: Tr.tuner_card; font-size: 12px; color: #A9B0C0; }
+                        Text { text: Tr.tuner_card; font-size: 12px * TextScale.sidebar; color: #A9B0C0; }
                         Text {
                             text: !root.tuner_live ? "" : (root.tuner_cents > 0 ? "+" : "") + root.tuner_cents + " ¢";
-                            font-size: 12px;
+                            font-size: 12px * TextScale.sidebar;
                             font-weight: 600;
                             color: abs(root.tuner_cents) <= 5 ? #6EE7A0 : #F2B233;
                             horizontal-alignment: right;
@@ -1728,7 +1812,7 @@ export component AppWindow inherits Window {
                     }
                     Text {
                         text: root.tuner_live ? root.tuner_note : "–";
-                        font-size: 18px;
+                        font-size: 18px * TextScale.sidebar;
                         font-weight: 600;
                         color: root.tuner_live && abs(root.tuner_cents) <= 5 ? #6EE7A0 : #E8EAF0;
                     }
@@ -1742,7 +1826,7 @@ export component AppWindow inherits Window {
             // looked like the app not crediting what was played. A click opens
             // the audio settings, where the threshold is moved.
             if root.show_input_meter : Rectangle {
-                height: 104px;
+                height: 104px * TextScale.sidebar;
                 background: input_touch.has-hover ? #222836 : #1C212C;
                 border-radius: 12px;
                 border-width: 1px;
@@ -1762,7 +1846,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: Tr.input_card
                                 + (root.audio_channel_count > 1 ? " · " + root.audio_channels[root.audio_channel_index] : "");
-                            font-size: 12px;
+                            font-size: 12px * TextScale.sidebar;
                             color: #A9B0C0;
                             overflow: elide;
                         }
@@ -1781,7 +1865,7 @@ export component AppWindow inherits Window {
                             }
                             Text {
                                 text: root.input_level_db > root.gate_db ? Tr.input_hearing : Tr.input_silent;
-                                font-size: 12px;
+                                font-size: 12px * TextScale.sidebar;
                                 font-weight: 600;
                                 color: root.input_level_db > root.gate_db ? #6EE7A0 : #6B7385;
                                 horizontal-alignment: right;
@@ -1790,13 +1874,13 @@ export component AppWindow inherits Window {
                     }
                     Text {
                         text: root.audio_devices[root.audio_device_index];
-                        font-size: 13px;
+                        font-size: 13px * TextScale.sidebar;
                         font-weight: 600;
                         color: #E8EAF0;
                         overflow: elide;
                     }
                     LevelMeter { height: 8px; level_db: root.input_level_db; gate_db: root.gate_db; }
-                    Text { text: Tr.gate_mark; font-size: 11px; color: #8A92A3; overflow: elide; }
+                    Text { text: Tr.gate_mark; font-size: 11px * TextScale.sidebar; color: #8A92A3; overflow: elide; }
                 }
             }
             // Air between the card and the entries below it.
@@ -1873,7 +1957,7 @@ export component AppWindow inherits Window {
             // hand over the column, free to be wider than it.
             HorizontalLayout {
                 property <length> chip_w:
-                    min(96px, ((root.width - root.sidebar_w) * 92 / 100 - 2 * 15px - 6 * 6px) / 7);
+                    min(96px * max(1, TextScale.strip), ((root.width - root.sidebar_w) * 92 / 100 - 2 * 15px - 6 * 6px) / 7);
                 spacing: 6px;
                 width: root.progress.length * self.chip_w + (root.progress.length - 1) * self.spacing;
                 height: parent.height;
@@ -1916,6 +2000,7 @@ export component AppWindow inherits Window {
                 if root.current_mode != 4 : Dropdown {
                     horizontal-stretch: 0;
                     title-look: true;
+                    title-size: 26px * TextScale.song;
                     title-text: root.song_title;
                     model: root.library_items;
                     current-index <=> root.current_item_index;
@@ -1923,7 +2008,7 @@ export component AppWindow inherits Window {
                 }
                 if root.current_mode == 4 : Text {
                     text: root.song_title;
-                    font-size: 26px;
+                    font-size: 26px * TextScale.song;
                     color: #aaa;
                     horizontal-alignment: center;
                     wrap: word-wrap;
@@ -1933,7 +2018,7 @@ export component AppWindow inherits Window {
             // The fretboard trainer's tile carries the note itself.
             if root.current_mode != 5 && !root.note_tile : Text {
                 text: root.chord_name;
-                font-size: 60px; 
+                font-size: 60px * TextScale.chord;
                 font-weight: 400; 
                 color: root.chord_text_color; 
                 horizontal-alignment: center;
@@ -2039,7 +2124,7 @@ export component AppWindow inherits Window {
                             // own reading stays the big line of the card.
                             if root.formula_against.length > i : Text {
                                 text: root.formula_against[i];
-                                font-size: max(11px, func_row.fsize * 0.38);
+                                font-size: max(11px, func_row.fsize * 0.38) * TextScale.captions;
                                 font-weight: root.formula_is_chord_tone[i] ? 700 : 400;
                                 color: root.formula_is_chord_tone[i] ? #6aa9ff : #6B7385;
                                 horizontal-alignment: center;
@@ -2060,7 +2145,7 @@ export component AppWindow inherits Window {
                                 // need to clear their neighbours, so this follows
                                 // the card down - to a floor, below which the
                                 // names stop being readable at all.
-                                font-size: max(11px, func_row.fsize * 0.38);
+                                font-size: max(11px, func_row.fsize * 0.38) * TextScale.captions;
                                 color: #C9CEDA;
                                 horizontal-alignment: center;
                             }
@@ -2362,11 +2447,11 @@ export component AppWindow inherits Window {
             // the fifth out - and the string to start from. The two lines and
             // their gaps were 80 units of empty band under the shapes.
             if root.current_mode == 0 : Text {
-                height: 26px;
+                height: 26px * TextScale.captions;
                 text: root.shapes_note == "" ? root.start_hint
                     : root.start_hint == "" ? root.shapes_note
                     : root.shapes_note + "  ·  " + root.start_hint;
-                font-size: root.start_hint == "" ? 14px : 20px;
+                font-size: (root.start_hint == "" ? 14px : 20px) * TextScale.captions;
                 color: #888;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -2376,7 +2461,7 @@ export component AppWindow inherits Window {
                 // In the fretboard trainer this line IS the exercise - it says
                 // where to play. Elsewhere it is a side suggestion, so it stays
                 // quiet. Same size as the interval labels the other modes show.
-                font-size: root.current_mode == 4 ? 32px : 20px;
+                font-size: root.current_mode == 4 ? 32px * TextScale.tiles : 20px * TextScale.captions;
                 color: root.current_mode == 4 ? #bbb : #888;
                 horizontal-alignment: center;
             }
@@ -2392,8 +2477,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     Rectangle {
-                        width: max(130px, tile_note.preferred-width + 60px);
-                        height: 120px;
+                        width: max(130px * TextScale.tiles, tile_note.preferred-width + 60px);
+                        height: 120px * TextScale.tiles;
                         border-radius: 16px;
                         background: root.fret_done ? #17271F : #161A22;
                         border-width: 1px;
@@ -2401,7 +2486,7 @@ export component AppWindow inherits Window {
                         animate background, border-color { duration: 150ms; }
                         tile_note := Text {
                             text: root.chord_name;
-                            font-size: 60px;
+                            font-size: 60px * TextScale.captions;
                             font-weight: 400;
                             horizontal-alignment: center;
                             vertical-alignment: center;
@@ -2422,8 +2507,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     Rectangle {
-                        height: 52px;
-                        border-radius: 26px;
+                        height: 52px * TextScale.tiles;
+                        border-radius: 26px * TextScale.tiles;
                         background: #161A22;
                         border-width: 1px;
                         border-color: #222835;
@@ -2432,7 +2517,7 @@ export component AppWindow inherits Window {
                             padding-right: 24px;
                             Text {
                                 text: root.start_hint;
-                                font-size: 32px;
+                                font-size: 32px * TextScale.tiles;
                                 color: #C9CEDA;
                                 vertical-alignment: center;
                             }
@@ -2470,14 +2555,14 @@ export component AppWindow inherits Window {
             // Intervals and Scales drawn as tiles: the degrees, the note each
             // is on, and where it stands. One of the views the settings offer.
             if (root.current_mode == 1 || root.current_mode == 2) && root.preview == 3 : Rectangle {
-                height: 124px;
+                height: 124px * TextScale.tiles;
                 // Four tiles at full size, more of them narrower, so a long
                 // pattern does not run off the edge - measured against the
                 // room beside the side bar, not the column: there a chord
                 // scale's nine tiles came out some 50px wide. The row is
                 // centred by hand over the column, free to be wider than it.
                 HorizontalLayout {
-                    property <length> tile_w: min(112px,
+                    property <length> tile_w: min(112px * TextScale.tiles,
                         ((root.width - root.sidebar_w) * 92 / 100 - 30px
                             - (root.interval_tiles.length - 1) * 12px)
                         / max(1, root.interval_tiles.length));
@@ -2488,7 +2573,7 @@ export component AppWindow inherits Window {
                     x: (parent.width - self.width) / 2;
                     for t in root.interval_tiles : IntervalCard {
                         width: parent.tile_w;
-                        height: 124px;
+                        height: 124px * TextScale.tiles;
                         tile: t;
                     }
                 }
@@ -2505,10 +2590,10 @@ export component AppWindow inherits Window {
             // two say the same thing, and the drawing says the octaves better.
             if root.current_mode != 0 && root.current_mode != 4 && root.current_mode != 5
                 && root.preview == 0 : Rectangle {
-                height: 76px;
+                height: 76px * TextScale.tiles;
                 clip: true;
 
-                property <length> step_w: 90px;   // NoteBar 82px + spacing 8px
+                property <length> step_w: 82px * TextScale.tiles + 8px;   // NoteBar + spacing 8px
                 // As many as the width takes.
                 property <int> per_page: max(1, floor(self.width / self.step_w));
                 property <length> content_w: root.interval_names.length * self.step_w;
@@ -2548,7 +2633,7 @@ export component AppWindow inherits Window {
             // maximised window.
             if root.step_captions && root.step_caption != "" && root.current_mode >= 1 && root.current_mode <= 3 : Text {
                 text: root.step_caption;
-                font-size: 18px;
+                font-size: 18px * TextScale.captions;
                 color: #C9CEDA;
                 horizontal-alignment: center;
             }
@@ -3799,6 +3884,74 @@ export component AppWindow inherits Window {
                                     width: root.panel_w - 30px;
                                     text: Tr.software_renderer_hint;
                                     font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text { text: Tr.text_sizes; color: #aaa; }
+                                Text {
+                                    width: root.panel_w - 30px;
+                                    text: Tr.text_sizes_hint;
+                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                }
+                                for size[part] in root.text_sizes : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    // The field written into is no longer bound to the
+                                    // size: it is set anew whenever the size changes.
+                                    property <int> px: size.px;
+                                    changed px => { field.text = self.px; }
+                                    Text {
+                                        text: Tr.text_parts[part]; color: #aaa;
+                                        vertical-alignment: center; width: 140px;
+                                    }
+                                    Button {
+                                        text: "−";
+                                        enabled: size.px > size.min;
+                                        clicked => {
+                                            root.text_size_changed(part, size.px - 1);
+                                        }
+                                    }
+                                    // A number in range takes effect as it is typed;
+                                    // Enter brings one outside it to the nearest end.
+                                    field := LineEdit {
+                                        width: 70px;
+                                        text: size.px;
+                                        input-type: number;
+                                        horizontal-alignment: center;
+                                        edited(typed) => {
+                                            if typed.is-float() && typed.to-float() >= size.min && typed.to-float() <= size.max {
+                                                root.text_size_changed(part, round(typed.to-float()));
+                                            }
+                                        }
+                                        accepted(typed) => {
+                                            if typed.is-float() {
+                                                root.text_size_changed(part, round(typed.to-float()));
+                                            }
+                                            self.text = size.px;
+                                        }
+                                    }
+                                    Button {
+                                        text: "+";
+                                        enabled: size.px < size.max;
+                                        clicked => {
+                                            root.text_size_changed(part, size.px + 1);
+                                        }
+                                    }
+                                    Text { text: "px"; color: #aaa; vertical-alignment: center; }
+                                    Button {
+                                        text: Tr.text_size_default;
+                                        enabled: size.px != size.designed;
+                                        clicked => { root.text_size_changed(part, size.designed); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Button {
+                                        text: Tr.text_sizes_reset;
+                                        clicked => { root.text_sizes_reset(); }
+                                    }
                                 }
                             }
 

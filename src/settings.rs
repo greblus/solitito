@@ -111,6 +111,10 @@ pub struct Settings {
     /// The tuner card in the side bar, from the quick option under Settings.
     #[serde(default)]
     pub show_tuner: bool,
+    /// The size of the main text of each part of the window, in px, in the
+    /// order of `TEXT_PARTS`; the rest of a part's text follows in proportion.
+    #[serde(default = "designed_text_px")]
+    pub text_px: [u16; TEXT_PARTS],
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -380,6 +384,26 @@ fn first_interval_level() -> usize {
     crate::interval_levels::DEFAULT
 }
 
+/// The parts of the window whose text is sized on its own: the side bar, the
+/// chord strip, the tune's name, the chord's name, the tiles, the captions.
+pub const TEXT_PARTS: usize = 6;
+
+/// The size each part's main text was designed at: a mode in the side bar,
+/// a chord in the strip, the tune's name, the chord's name, a degree on a
+/// tile, a caption.
+pub const DESIGNED_TEXT_PX: [u16; TEXT_PARTS] = [14, 17, 26, 60, 40, 18];
+
+fn designed_text_px() -> [u16; TEXT_PARTS] {
+    DESIGNED_TEXT_PX
+}
+
+/// The sizes a part's main text may be set to: from 70% of the designed size
+/// to twice it, at least 9px.
+pub fn text_px_range(part: usize) -> (u16, u16) {
+    let designed = DESIGNED_TEXT_PX[part];
+    ((designed * 7 / 10).max(9), designed * 2)
+}
+
 fn yes() -> bool {
     true
 }
@@ -409,6 +433,7 @@ impl Default for Settings {
             step_captions: true,
             chord_context: true,
             show_tuner: false,
+            text_px: designed_text_px(),
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,
@@ -751,6 +776,22 @@ mod tests {
         // And a file written before it existed must still load, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.short_verdict);
+    }
+
+    /// A file from before the text sizes opens at the designed sizes; a size
+    /// set survives saving; every range holds its designed size.
+    #[test]
+    fn text_sizes_load_save_and_hold_the_designed_size() {
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":0}"#).unwrap();
+        assert_eq!(old.text_px, DESIGNED_TEXT_PX);
+        let mut s = Settings::default();
+        s.text_px[3] = 84;
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.text_px[3], 84);
+        for part in 0..TEXT_PARTS {
+            let (lowest, highest) = text_px_range(part);
+            assert!((lowest..=highest).contains(&DESIGNED_TEXT_PX[part]), "part {part}");
+        }
     }
 
     #[test]

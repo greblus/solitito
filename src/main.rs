@@ -621,6 +621,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_step_captions(cfg.step_captions);
     ui.set_chord_context(cfg.chord_context);
     ui.set_show_tuner(cfg.show_tuner);
+    show_text_sizes(&ui, &cfg.text_px);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -806,6 +807,39 @@ fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedStrin
         AppMode::Arpeggios => (songs(), vec![]),
         _ => (songs(), vec![]),
     }
+}
+
+/// Each part's text at its size: the slider rows of the App settings, and the
+/// scale `TextScale` multiplies the part's designed sizes by.
+fn show_text_sizes(ui: &AppWindow, px: &[u16; settings::TEXT_PARTS]) {
+    let rows: Vec<TextSize> = (0..settings::TEXT_PARTS)
+        .map(|part| {
+            let (min, max) = settings::text_px_range(part);
+            let designed = settings::DESIGNED_TEXT_PX[part] as i32;
+            TextSize { px: px[part] as i32, designed, min: min as i32, max: max as i32 }
+        })
+        .collect();
+    // Row by row into the model already shown: a new model rebuilds the
+    // rows, and the slider being dragged with them.
+    let shown = ui.get_text_sizes();
+    match shown.as_any().downcast_ref::<VecModel<TextSize>>() {
+        Some(model) if model.row_count() == rows.len() => {
+            for (at, row) in rows.into_iter().enumerate() {
+                if model.row_data(at).as_ref() != Some(&row) {
+                    model.set_row_data(at, row);
+                }
+            }
+        }
+        _ => ui.set_text_sizes(ModelRc::from(Rc::new(VecModel::from(rows)))),
+    }
+    let scale = |part: usize| px[part] as f32 / settings::DESIGNED_TEXT_PX[part] as f32;
+    let g = ui.global::<TextScale>();
+    g.set_sidebar(scale(0));
+    g.set_strip(scale(1));
+    g.set_song(scale(2));
+    g.set_chord(scale(3));
+    g.set_tiles(scale(4));
+    g.set_captions(scale(5));
 }
 
 /// Fills the UI `Tr` global with the chosen language's strings.
@@ -1009,6 +1043,12 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chord_context(t.chord_context.into());
     g.set_chord_context_hint(t.chord_context_hint.into());
     g.set_tuner_card(t.tuner_card.into());
+    g.set_text_sizes(t.text_sizes.into());
+    let parts: Vec<slint::SharedString> = t.text_parts.iter().map(|&p| p.into()).collect();
+    g.set_text_parts(ModelRc::from(Rc::new(VecModel::from(parts))));
+    g.set_text_sizes_reset(t.text_sizes_reset.into());
+    g.set_text_size_default(t.text_size_default.into());
+    g.set_text_sizes_hint(t.text_sizes_hint.into());
     g.set_reset_window(t.reset_window.into());
     g.set_reset_window_hint(t.reset_window_hint.into());
     g.set_reset_settings(t.reset_settings.into());
