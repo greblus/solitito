@@ -28,9 +28,9 @@ fn intervals_credit_audio_without_an_inference_result() {
         let pc = chord.get_target_indices()[steps[k].degree];
         interval_audio(&mut a, Some(pc), 12);
         assert!(a.collected_notes[k], "audio was waiting for the model");
-        assert_eq!(a.note_color(k), (50, 255, 50), "text hid a credit");
+        assert_eq!(a.note_state(k), NoteState::Done, "text hid a credit");
         if !ordered {
-            assert_ne!(a.note_color(0), (50, 255, 50), "text invented a credit");
+            assert_ne!(a.note_state(0), NoteState::Done, "text invented a credit");
         }
     }
 }
@@ -105,7 +105,7 @@ fn intervals_keep_the_last_mark_when_model_results_are_arriving() {
     assert_eq!(a.current_chord_index, index, "last credit vanished before drawing");
     assert!(a.collected_notes.iter().all(|&done| done));
     for step in 0..a.collected_notes.len() {
-        assert_eq!(a.note_color(step), (50, 255, 50));
+        assert_eq!(a.note_state(step), NoteState::Done);
     }
 }
 

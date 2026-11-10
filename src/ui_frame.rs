@@ -18,8 +18,9 @@ use crate::latch::ChordLatch;
 use crate::model::{self, Chord, ChordQuality, NoteName};
 use crate::settings::{Preview, Settings};
 use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
+use crate::theme::{self, Scheme};
 use crate::{diagrams, formulas, tab};
-use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Tr};
+use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Theme, Tr};
 use crate::audio::{db_to_lin, lin_to_db};
 use crate::devices::rescan_devices;
 use crate::{set_if_changed, svg_icon, MIN_FILL_CHORD};
@@ -726,16 +727,14 @@ impl UiFrame {
     fn show_fretboard(&mut self, ui: &AppWindow, app: &MyApp) {
         // Minimal by design: the note, and under it where to play it.
         let name = match app.fret_target {
-            Some(pc) => model::NoteName::from_index(pc).to_string().to_string(),
+            Some(pc) => tab::spell(model::NoteName::from_index(pc).to_string()),
             None => "...".to_string(),
         };
         set_if_changed(ui.get_chord_name(), name.clone().into(), |v| ui.set_chord_name(v));
         set_if_changed(ui.get_start_hint(), app.region.describe().into(), |v| ui.set_start_hint(v));
         self.show_fretboard_hint(ui, app);
-        ui.set_chord_text_color(slint::Brush::SolidColor(match app.match_status {
-            MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
-            _ => Color::from_rgb_u8(255, 255, 255),
-        }));
+        let status = if app.match_status == MatchStatus::Exact { MatchStatus::Exact } else { MatchStatus::None };
+        ui.set_chord_text_color(slint::Brush::SolidColor(theme::verdict_colour(status, look_of(ui))));
         set_if_changed(ui.get_fret_done(), app.match_status == MatchStatus::Exact, |v| ui.set_fret_done(v));
         ui.set_interval_names(ModelRc::from(Rc::new(VecModel::from(Vec::<SharedString>::new()))));
     }
@@ -758,9 +757,9 @@ impl UiFrame {
         let strings: Vec<usize> = app.region.strings.strings().to_vec();
         let (from, to) = tab::HINT_FRETS;
         let marks = places_of(pc, &[0, 1, 2, 3, 4, 5], from, to);
-        let label = model::NoteName::from_index(pc).to_string().to_string();
+        let label = tab::spell(model::NoteName::from_index(pc).to_string());
         ui.set_note_hint_aspect(tab::region_aspect(from, to));
-        ui.set_note_hint_image(svg_icon(&tab::neck_hint(&strings, &marks, &label)));
+        ui.set_note_hint_image(svg_icon(&theme::drawing(&tab::neck_hint(&strings, &marks, &label), look_of(ui))));
         ui.set_note_hint_note(pc as i32);
     }
 
@@ -838,11 +837,13 @@ impl UiFrame {
             None => 0,
         };
         let one_row = count <= 3;
+        let look = look_of(ui);
         let q_key = format!(
-            "{}/{:?}/{}",
+            "{}/{:?}/{}/{:?}",
             chord.quality.to_string(),
             shapes,
-            one_row
+            one_row,
+            look
         );
         if q_key != self.last_diagram_key {
             self.last_diagram_key = q_key;
@@ -850,7 +851,7 @@ impl UiFrame {
                 Some(kind) => diagrams::for_quality(&chord.quality, kind)
                     .iter()
                     .filter_map(|d| {
-                        slint::Image::load_from_svg_data(d.on_card().as_bytes())
+                        slint::Image::load_from_svg_data(theme::drawing(&d.on_card(), look).as_bytes())
                             .ok()
                             .map(|img| (d.label, img))
                     })
@@ -887,13 +888,7 @@ impl UiFrame {
             AppMode::Chords => app.match_status,
             _ => MatchStatus::None,
         };
-        let colour = match status {
-            MatchStatus::Exact => Color::from_rgb_u8(50, 255, 50),
-            MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
-            MatchStatus::Flicker => Color::from_rgb_u8(255, 50, 50),
-            MatchStatus::None => Color::from_rgb_u8(255, 255, 255),
-        };
-        ui.set_chord_text_color(slint::Brush::SolidColor(colour));
+        ui.set_chord_text_color(slint::Brush::SolidColor(theme::verdict_colour(status, look_of(ui))));
     }
 
     /// Chords: the keys the tune may be played in, its own marked.
@@ -915,6 +910,7 @@ impl UiFrame {
     }
 
     fn show_progress(&mut self, ui: &AppWindow, app: &MyApp) {
+        let look = look_of(ui);
         let next_idx = app.next_chord_index();
         set_if_changed(ui.get_next_chord(), app.chord_label(next_idx).into(), |v| ui.set_next_chord(v));
         // The progression strip. A chord behind the current one is written
@@ -930,12 +926,7 @@ impl UiFrame {
                     d if d < 0 => app.pass_result(d),
                     _ => MatchStatus::None,
                 };
-                let fg = match result {
-                    MatchStatus::Exact => Color::from_rgb_u8(110, 231, 160),
-                    MatchStatus::Partial => Color::from_rgb_u8(255, 220, 50),
-                    MatchStatus::Flicker => Color::from_rgb_u8(255, 90, 90),
-                    MatchStatus::None => Color::from_rgb_u8(138, 146, 163),
-                };
+                let fg = theme::chip_colour(result, look);
                 (app.chord_label(i), app.chord_degree(i), d, result != MatchStatus::None, fg)
             })
             .collect();
@@ -1024,8 +1015,7 @@ impl UiFrame {
                 // octave, so 1 and 1' are checked identically.
                 let name = shown_step(app, &all_names[step.degree], &shown_names[step.degree], step.octave, jazz);
                 ui_names.push(SharedString::from(tab::spell(&name)));
-                let (r, g, b) = app.note_color(step_idx);
-                ui_colors.push(Color::from_rgb_u8(r, g, b));
+                ui_colors.push(theme::note_colour(app.note_state(step_idx), look_of(ui)));
             }
         }
         // Order matters: the duration binding reads interval_jump when x
@@ -1123,7 +1113,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1139,7 +1129,8 @@ impl UiFrame {
             app.scale_hand(chord),
             jazz,
             app.home_anchor,
-            ui.get_chord_context()
+            ui.get_chord_context(),
+            look_of(ui)
         );
         if signature == self.last_tab {
             return;
@@ -1190,7 +1181,7 @@ impl UiFrame {
             (tab::neck_with_rest(&spots, done, due, frets, &rest), tab::neck_aspect(&all))
         };
         ui.set_tab_aspect(aspect);
-        ui.set_tab_image(svg_icon(&svg));
+        ui.set_tab_image(svg_icon(&theme::drawing(&svg, look_of(ui))));
     }
 
     /// A grip, with the voices led from the grip before - unless the option is
@@ -1241,6 +1232,11 @@ impl UiFrame {
             self.clear_drawing(ui);
         }
     }
+}
+
+/// The colour scheme the window is in, from the App settings.
+fn look_of(ui: &AppWindow) -> Scheme {
+    Scheme::from_index(ui.global::<Theme>().get_scheme().max(0) as usize)
 }
 
 /// The model's chord over the last answers: the name with the most summed

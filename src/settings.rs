@@ -115,6 +115,9 @@ pub struct Settings {
     /// order of `TEXT_PARTS`; the rest of a part's text follows in proportion.
     #[serde(default = "designed_text_px")]
     pub text_px: [u16; TEXT_PARTS],
+    /// The colour scheme, in the order of `theme::SCHEMES`.
+    #[serde(default)]
+    pub scheme: usize,
     /// Draw the shape thumbnails under the chord name in Chords mode. Was a
     /// UI property alone and reset to on at every launch.
     #[serde(default = "yes")]
@@ -434,6 +437,7 @@ impl Default for Settings {
             chord_context: true,
             show_tuner: false,
             text_px: designed_text_px(),
+            scheme: 0,
             scale_repeat_root: false,
             scale_direction: 0,
             scale_from: 0,

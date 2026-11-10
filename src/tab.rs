@@ -620,8 +620,14 @@ const GREEN: &str = "rgba(24, 148, 58, 1)";
 /// A string that is on the guitar but not in the question.
 const DIM: &str = "rgba(74, 144, 226, 0.55)";
 /// A note of the position outside the part being played.
-const GHOST: &str = "#3A4150";
-const GHOST_LABEL: &str = "#8D95A8";
+pub const GHOST: &str = "#3A4150";
+pub const GHOST_LABEL: &str = "#8D95A8";
+/// The inlays on the neck.
+pub const INLAY: &str = "rgba(200, 205, 215, 0.22)";
+/// The label of an open string: white as on a dot, but its own value, since
+/// the open string's circle is empty and on the light card the label has to
+/// turn dark while the labels on the dots stay white.
+pub const OPEN_LABEL: &str = "#FFFFFE";
 const FONT: &str = "Arial, &quot;Helvetica Neue&quot;, Helvetica, sans-serif";
 
 /// The font the app bundles for ♭, ♯ and ♮ (`assets/Accidentals.ttf`,
@@ -721,7 +727,6 @@ fn fret_number(base: i32) -> String {
 /// 12th, a string further out each way. Under the notes, so they never hide
 /// one.
 fn inlays(base: i32, columns: i32) -> String {
-    const INLAY: &str = "rgba(200, 205, 215, 0.22)";
     let between = |low: usize| (string_y(low) + string_y(low + 1)) / 2.0;
     let dot = |fret: i32, y: f32| {
         let x = GRIP_LEFT + FRET_GAP * ((fret - base) as f32 + 0.5);
@@ -853,10 +858,10 @@ fn grip_dot(spot: &Spot, base: i32, colour: &str, is_due: bool, frets: bool) -> 
     let label = if frets && !open { spot.fret.to_string() } else { spot.label() };
     let (fill, stroke_width) = if open { ("none", 5) } else { (colour, 0) };
     let due_ring = if is_due { ring(x, y, DOT_R + 7.0, 5) } else { String::new() };
+    let label = if open { coloured_label(x, y, &label, OPEN_LABEL) } else { dot_label(x, y, &label) };
     format!(
         "{due_ring}<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"{fill}\" \
-         stroke=\"{colour}\" stroke-width=\"{stroke_width}\"></circle>{}",
-        dot_label(x, y, &label)
+         stroke=\"{colour}\" stroke-width=\"{stroke_width}\"></circle>{label}"
     )
 }
 
@@ -1051,7 +1056,7 @@ fn open_dot(y: f32, colour: &str, label: &str) -> String {
     format!(
         "<circle r=\"{DOT_R}\" cx=\"{x}\" cy=\"{y}\" fill=\"none\" stroke=\"{colour}\" \
          stroke-width=\"5\"></circle>{}",
-        dot_label(x, y, label)
+        coloured_label(x, y, label, OPEN_LABEL)
     )
 }
 

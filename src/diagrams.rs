@@ -32,14 +32,9 @@ pub struct Diagram {
 
 impl Diagram {
     /// The drawing on the UI's card instead of the black it was generated on.
-    /// The generator's half-black credit line goes with the background, so it
-    /// stays as invisible as it was on black.
     pub fn on_card(&self) -> String {
         let card = format!("fill=\"{CARD}\"");
-        let svg = self
-            .svg
-            .replace("fill=\"rgba(0, 0, 0, 1)\"", &card)
-            .replace("fill=\"rgba(0, 0, 0, 0.5)\"", &card);
+        let svg = self.svg.replace("fill=\"rgba(0, 0, 0, 1)\"", &card);
         crate::tab::with_accidentals_font(&svg)
     }
 }

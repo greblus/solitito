@@ -1626,15 +1626,6 @@ impl MyApp {
         }
     }
 
-    pub fn note_color(&self, step: usize) -> (u8, u8, u8) {
-        match self.note_state(step) {
-            NoteState::Done => (50, 255, 50),
-            NoteState::Answering => (200, 255, 50),
-            NoteState::Open | NoteState::Due => (180, 180, 180),
-            NoteState::Waiting => (60, 60, 60),
-        }
-    }
-
     /// Whether the first combo holds tunes in the mode running now: the chords
     /// of a standard, the intervals inside them, an arpeggio over each chord,
     /// or a formula planted on each. The other exercises stand on their own and

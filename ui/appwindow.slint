@@ -1,7 +1,64 @@
-import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, LineEdit } from "std-widgets.slint";
+import { Button, Slider, CheckBox, VerticalBox, HorizontalBox, GridBox, ScrollView, LineEdit, Palette } from "std-widgets.slint";
 
 import "../src/assets/AppFont.ttf"; 
 import "../src/assets/Accidentals.ttf";
+
+/// The colours of the window, one per role, in each scheme of the App
+/// settings: written by dist/color_schemes.py.
+export global Theme {
+    /// 0 graphite, 1 light, 2 sepia, 3 night, 4 forest, 5 high contrast.
+    in-out property <int> scheme: 0;
+    out property <color> window: Theme.scheme == 0 ? #11141A : Theme.scheme == 1 ? #EEF0F4 : Theme.scheme == 2 ? #EFE6D6 : Theme.scheme == 3 ? #0A1022 : Theme.scheme == 4 ? #0C1512 : #000000;
+    out property <color> panel: Theme.scheme == 0 ? #161A22 : Theme.scheme == 1 ? #FFFFFF : Theme.scheme == 2 ? #FBF6EC : Theme.scheme == 3 ? #0F1830 : Theme.scheme == 4 ? #111D19 : #0A0A0A;
+    out property <color> raised: Theme.scheme == 0 ? #1C212C : Theme.scheme == 1 ? #E8EBF1 : Theme.scheme == 2 ? #E8DDC8 : Theme.scheme == 3 ? #15203D : Theme.scheme == 4 ? #172621 : #161616;
+    out property <color> chip: Theme.scheme == 0 ? #1C212C : Theme.scheme == 1 ? #FFFFFF : Theme.scheme == 2 ? #FBF6EC : Theme.scheme == 3 ? #15203D : Theme.scheme == 4 ? #172621 : #161616;
+    out property <color> raised-hover: Theme.scheme == 0 ? #222836 : Theme.scheme == 1 ? #DDE2EA : Theme.scheme == 2 ? #DED2BE : Theme.scheme == 3 ? #222C48 : Theme.scheme == 4 ? #23322D : #242424;
+    out property <color> raised-hover-2: Theme.scheme == 0 ? #232836 : Theme.scheme == 1 ? #DDE2EA : Theme.scheme == 2 ? #DED2BE : Theme.scheme == 3 ? #222C48 : Theme.scheme == 4 ? #23322D : #242424;
+    out property <color> line: Theme.scheme == 0 ? #222835 : Theme.scheme == 1 ? #D5DAE3 : Theme.scheme == 2 ? #ECE6DC : Theme.scheme == 3 ? #202940 : Theme.scheme == 4 ? #222E2A : #353535;
+    out property <color> line-strong: Theme.scheme == 0 ? #262D3B : Theme.scheme == 1 ? #C9CFDA : Theme.scheme == 2 ? #E6E0D6 : Theme.scheme == 3 ? #272F46 : Theme.scheme == 4 ? #283430 : #454545;
+    out property <color> field-line: Theme.scheme == 0 ? #2D3444 : Theme.scheme == 1 ? #BFC6D2 : Theme.scheme == 2 ? #DED8CE : Theme.scheme == 3 ? #2F384E : Theme.scheme == 4 ? #303C38 : #5B5B5B;
+    out property <color> field-line-hover: Theme.scheme == 0 ? #3A4356 : Theme.scheme == 1 ? #9AA3B5 : Theme.scheme == 2 ? #CDC6BC : Theme.scheme == 3 ? #434A5F : Theme.scheme == 4 ? #434F4B : #8B8B8B;
+    out property <color> track: Theme.scheme == 0 ? #2A3142 : Theme.scheme == 1 ? #C5CCD8 : Theme.scheme == 2 ? #E2DCD2 : Theme.scheme == 3 ? #2B334A : Theme.scheme == 4 ? #2C3834 : #505050;
+    out property <color> selected: Theme.scheme == 0 ? #243049 : Theme.scheme == 1 ? #DCE6FA : Theme.scheme == 2 ? #E6D4C2 : Theme.scheme == 3 ? #3D3630 : Theme.scheme == 4 ? #183A2E : #403608;
+    out property <color> now: Theme.scheme == 0 ? #1A2640 : Theme.scheme == 1 ? #E4EDFD : Theme.scheme == 2 ? #EDE0D1 : Theme.scheme == 3 ? #2C2B30 : Theme.scheme == 4 ? #153027 : #2C2609;
+    out property <color> open-line: Theme.scheme == 0 ? #2D3B5C : Theme.scheme == 1 ? #9DB6EA : Theme.scheme == 2 ? #CFB096 : Theme.scheme == 3 ? #6D5530 : Theme.scheme == 4 ? #1E5945 : #786506;
+    out property <color> accent: Theme.scheme == 0 ? #2F6FE0 : Theme.scheme == 1 ? #2F6FE0 : Theme.scheme == 2 ? #9A5B2E : Theme.scheme == 3 ? #E0A030 : Theme.scheme == 4 ? #2FA37A : #FFD400;
+    out property <color> accent-line: Theme.scheme == 0 ? #5A8EF0 : Theme.scheme == 1 ? #2F6FE0 : Theme.scheme == 2 ? #744422 : Theme.scheme == 3 ? #E8B864 : Theme.scheme == 4 ? #63BA9B : #FFDF40;
+    out property <color> meter: Theme.scheme == 0 ? #4A90E2 : Theme.scheme == 1 ? #2F6FE0 : Theme.scheme == 2 ? #885028 : Theme.scheme == 3 ? #E4AB49 : Theme.scheme == 4 ? #48AE8A : #FFD91F;
+    out property <color> link: Theme.scheme == 0 ? #6AA9FF : Theme.scheme == 1 ? #2563C9 : Theme.scheme == 2 ? #8A4A1C : Theme.scheme == 3 ? #F0BE60 : Theme.scheme == 4 ? #6FD3AE : #FFE14D;
+    out property <color> link-dim: Theme.scheme == 0 ? #4A7FD0 : Theme.scheme == 1 ? #3A6FC0 : Theme.scheme == 2 ? #A67550 : Theme.scheme == 3 ? #B89454 : Theme.scheme == 4 ? #58A689 : #C2AB3C;
+    out property <color> paused-text: Theme.scheme == 0 ? #A9C9FF : Theme.scheme == 1 ? #4A6FB0 : Theme.scheme == 2 ? #9B643B : Theme.scheme == 3 ? #CEA559 : Theme.scheme == 4 ? #61B898 : #DAC143;
+    out property <color> text-strong: Theme.scheme == 0 ? #FFFFFF : Theme.scheme == 1 ? #0F1219 : Theme.scheme == 2 ? #1E160E : Theme.scheme == 3 ? #FFFFFF : Theme.scheme == 4 ? #FFFFFF : #FFFFFF;
+    out property <color> text: Theme.scheme == 0 ? #E8EAF0 : Theme.scheme == 1 ? #1B2030 : Theme.scheme == 2 ? #3A2E22 : Theme.scheme == 3 ? #E6EAF5 : Theme.scheme == 4 ? #E3EEE9 : #FFFFFF;
+    out property <color> text-2: Theme.scheme == 0 ? #C9CEDA : Theme.scheme == 1 ? #333A49 : Theme.scheme == 2 ? #574C40 : Theme.scheme == 3 ? #C6CAD7 : Theme.scheme == 4 ? #C4CFCA : #EEEEEE;
+    out property <color> muted: Theme.scheme == 0 ? #A9B0C0 : Theme.scheme == 1 ? #4F5769 : Theme.scheme == 2 ? #746A5F : Theme.scheme == 3 ? #A6ABBA : Theme.scheme == 4 ? #A4AFAB : #DEDEDE;
+    out property <color> dim: Theme.scheme == 0 ? #8A92A3 : Theme.scheme == 1 ? #636B7D : Theme.scheme == 2 ? #8B8277 : Theme.scheme == 3 ? #8C92A2 : Theme.scheme == 4 ? #8B9692 : #D0D0D0;
+    out property <color> faint: Theme.scheme == 0 ? #6B7385 : Theme.scheme == 1 ? #8C93A3 : Theme.scheme == 2 ? #A49C91 : Theme.scheme == 3 ? #707689 : Theme.scheme == 4 ? #6F7B77 : #C2C2C2;
+    out property <color> card-off: Theme.scheme == 0 ? #4A5164 : Theme.scheme == 1 ? #A7AEBB : Theme.scheme == 2 ? #BDB6AB : Theme.scheme == 3 ? #545B6F : Theme.scheme == 4 ? #54605C : #B3B3B3;
+    out property <color> ok: Theme.scheme == 0 ? #6EE7A0 : Theme.scheme == 1 ? #157F43 : Theme.scheme == 2 ? #2E7D32 : Theme.scheme == 3 ? #6EE7A0 : Theme.scheme == 4 ? #8EF0B4 : #5CFF8A;
+    out property <color> ok-bg: Theme.scheme == 0 ? #17271F : Theme.scheme == 1 ? #E1F3E8 : Theme.scheme == 2 ? #E2E7D6 : Theme.scheme == 3 ? #1A313D : Theme.scheme == 4 ? #20362C : #142719;
+    out property <color> ok-line: Theme.scheme == 0 ? #24563A : Theme.scheme == 1 ? #8CCBA6 : Theme.scheme == 2 ? #A9C6A2 : Theme.scheme == 3 ? #356B5D : Theme.scheme == 4 ? #437157 : #2B6C3D;
+    out property <color> ok-chord-bg: Theme.scheme == 0 ? #1E3A2C : Theme.scheme == 1 ? #D3EEDD : Theme.scheme == 2 ? #D2DEC7 : Theme.scheme == 3 ? #224146 : Theme.scheme == 4 ? #2A4738 : #1A3B24;
+    out property <color> holding: Theme.scheme == 0 ? #D4F27A : Theme.scheme == 1 ? #5F7F00 : Theme.scheme == 2 ? #6B7A00 : Theme.scheme == 3 ? #D4F27A : Theme.scheme == 4 ? #D4F27A : #E6FF4D;
+    out property <color> warn: Theme.scheme == 0 ? #F2B233 : Theme.scheme == 1 ? #A86B00 : Theme.scheme == 2 ? #9A6200 : Theme.scheme == 3 ? #F2B233 : Theme.scheme == 4 ? #F2B233 : #FFC21A;
+    out property <color> danger: Theme.scheme == 0 ? #FF7B7B : Theme.scheme == 1 ? #C42F38 : Theme.scheme == 2 ? #B03A2E : Theme.scheme == 3 ? #FF7B7B : Theme.scheme == 4 ? #FF7B7B : #FF6B6B;
+    out property <color> label: Theme.scheme == 0 ? #AAAAAA : Theme.scheme == 1 ? #474D58 : Theme.scheme == 2 ? #70665B : Theme.scheme == 3 ? #AAAFBE : Theme.scheme == 4 ? #A8B3AF : #E0E0E0;
+    out property <color> hint: Theme.scheme == 0 ? #777777 : Theme.scheme == 1 ? #6B7180 : Theme.scheme == 2 ? #978E83 : Theme.scheme == 3 ? #7F8596 : Theme.scheme == 4 ? #7E8A85 : #CACACA;
+    out property <color> hint-2: Theme.scheme == 0 ? #666666 : Theme.scheme == 1 ? #727887 : Theme.scheme == 2 ? #A49C91 : Theme.scheme == 3 ? #707689 : Theme.scheme == 4 ? #6F7B77 : #C2C2C2;
+    out property <color> grey: Theme.scheme == 0 ? #888888 : Theme.scheme == 1 ? #656B77 : Theme.scheme == 2 ? #8F867B : Theme.scheme == 3 ? #878E9E : Theme.scheme == 4 ? #87928D : #CECECE;
+    out property <color> grey-2: Theme.scheme == 0 ? #999999 : Theme.scheme == 1 ? #5E6470 : Theme.scheme == 2 ? #837A6F : Theme.scheme == 3 ? #949AAA : Theme.scheme == 4 ? #939F9A : #D5D5D5;
+    out property <color> grey-3: Theme.scheme == 0 ? #8A8A8A : Theme.scheme == 1 ? #6A707C : Theme.scheme == 2 ? #8F867B : Theme.scheme == 3 ? #878E9E : Theme.scheme == 4 ? #87928D : #CECECE;
+    out property <color> bright: Theme.scheme == 0 ? #DDDDDD : Theme.scheme == 1 ? #20242C : Theme.scheme == 2 ? #493E32 : Theme.scheme == 3 ? #D5D9E5 : Theme.scheme == 4 ? #D2DDD8 : #F6F6F6;
+    out property <color> bright-2: Theme.scheme == 0 ? #BBBBBB : Theme.scheme == 1 ? #2E333C : Theme.scheme == 2 ? #61564A : Theme.scheme == 3 ? #BBC0CE : Theme.scheme == 4 ? #B9C4BF : #E9E9E9;
+    out property <color> off: Theme.scheme == 0 ? #555555 : Theme.scheme == 1 ? #B0B6C0 : Theme.scheme == 2 ? #B9B2A7 : Theme.scheme == 3 ? #585F73 : Theme.scheme == 4 ? #586460 : #B6B6B6;
+    out property <color> rule: Theme.scheme == 0 ? #444444 : Theme.scheme == 1 ? #C9CED8 : Theme.scheme == 2 ? #D4CEC4 : Theme.scheme == 3 ? #3A4257 : Theme.scheme == 4 ? #3B4743 : #767676;
+    out property <color> invert-bg: Theme.scheme == 0 ? #E8E8E8 : Theme.scheme == 1 ? #2F3542 : Theme.scheme == 2 ? #463A2E : Theme.scheme == 3 ? #D9DDE9 : Theme.scheme == 4 ? #D6E1DD : #F8F8F8;
+    out property <color> invert-line: Theme.scheme == 0 ? #3A3A3A : Theme.scheme == 1 ? #C5CAD3 : Theme.scheme == 2 ? #D1CAC0 : Theme.scheme == 3 ? #3E465B : Theme.scheme == 4 ? #3F4B47 : #818181;
+    out property <color> invert-ink: Theme.scheme == 0 ? #101010 : Theme.scheme == 1 ? #F5F6F8 : Theme.scheme == 2 ? #FBF6EC : Theme.scheme == 3 ? #0F1830 : Theme.scheme == 4 ? #111D19 : #0A0A0A;
+    out property <color> overlay: Theme.scheme == 0 ? #000000E0 : Theme.scheme == 1 ? #EEF0F4E8 : Theme.scheme == 2 ? #EFE6D6E0 : Theme.scheme == 3 ? #0A1022E0 : Theme.scheme == 4 ? #0C1512E0 : #000000E0;
+    out property <color> on-accent: Theme.scheme == 0 ? #FFFFFF : Theme.scheme == 1 ? #FFFFFF : Theme.scheme == 2 ? #FFFFFF : Theme.scheme == 3 ? #1A1200 : Theme.scheme == 4 ? #FFFFFF : #000000;
+    out property <color> on-accent-2: Theme.scheme == 0 ? #DCE7FF : Theme.scheme == 1 ? #DCE7FF : Theme.scheme == 2 ? #E1CEC0 : Theme.scheme == 3 ? #553D0E : Theme.scheme == 4 ? #C1E3D7 : #4C4000;
+}
 
 /// The size of one part's main text, and how far its slider goes.
 export struct TextSize {
@@ -71,9 +128,9 @@ component IntervalCard inherits Rectangle {
     property <bool> open: root.tile.state == 2;
 
     border-radius: 16px;
-    background: root.done ? #17271F : (root.now ? #1A2640 : #161A22);
+    background: root.done ? Theme.ok-bg : (root.now ? Theme.now : Theme.panel);
     border-width: root.now ? 2px : 1px;
-    border-color: root.done ? #24563A : (root.now ? #2F6FE0 : (root.open ? #2D3B5C : #222835));
+    border-color: root.done ? Theme.ok-line : (root.now ? Theme.accent : (root.open ? Theme.open-line : Theme.line));
     animate background, border-color { duration: 150ms; }
 
     VerticalLayout {
@@ -83,15 +140,15 @@ component IntervalCard inherits Rectangle {
             text: root.tile.degree;
             font-size: 40px * TextScale.tiles;
             horizontal-alignment: center;
-            color: root.done ? #6EE7A0
-                : root.tile.state == 3 ? #D4F27A
-                : (root.now || root.open) ? #FFFFFF : #6B7385;
+            color: root.done ? Theme.ok
+                : root.tile.state == 3 ? Theme.holding
+                : (root.now || root.open) ? Theme.text-strong : Theme.faint;
         }
         Text {
             text: root.tile.note;
             font-size: 16px * TextScale.captions;
             horizontal-alignment: center;
-            color: #C9CEDA;
+            color: Theme.text-2;
         }
     }
 }
@@ -105,7 +162,7 @@ component StepArrow inherits Rectangle {
     width: 68px;
     height: 68px;
     border-radius: 12px;
-    background: root.shown && touch.has-hover ? #1C212C : transparent;
+    background: root.shown && touch.has-hover ? Theme.raised : transparent;
     touch := TouchArea {
         enabled: root.shown;
         clicked => { root.clicked(); }
@@ -113,7 +170,7 @@ component StepArrow inherits Rectangle {
     if root.shown : Text {
         text: root.glyph;
         font-size: 40px;
-        color: touch.has-hover ? #FFFFFF : #A9B0C0;
+        color: touch.has-hover ? Theme.text-strong : Theme.muted;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -126,11 +183,11 @@ component ProgressChip inherits Rectangle {
     /// A chord clicked: go there.
     callback picked();
     border-radius: 10px;
-    background: root.chip.current ? #2F6FE0
-        : touch.has-hover ? #243049
-        : (root.chip.played ? #17271F : #1C212C);
+    background: root.chip.current ? Theme.accent
+        : touch.has-hover ? Theme.selected
+        : (root.chip.played ? Theme.ok-bg : Theme.chip);
     border-width: root.chip.current ? 2px : 0px;
-    border-color: #5A8EF0;
+    border-color: Theme.accent-line;
     touch := TouchArea {
         enabled: !root.chip.current;
         clicked => { root.picked(); }
@@ -143,7 +200,7 @@ component ProgressChip inherits Rectangle {
             text: root.chip.name;
             font-size: 17px * TextScale.strip;
             font-weight: root.chip.current ? 700 : 500;
-            color: root.chip.current ? #FFFFFF : root.chip.fg;
+            color: root.chip.current ? Theme.on-accent : root.chip.fg;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
@@ -151,7 +208,7 @@ component ProgressChip inherits Rectangle {
         if root.show_degree : Text {
             text: root.chip.degree;
             font-size: 15px * TextScale.strip;
-            color: root.chip.current ? #DCE7FF : #8A92A3;
+            color: root.chip.current ? Theme.on-accent-2 : Theme.dim;
             horizontal-alignment: center;
             overflow: elide;
         }
@@ -169,7 +226,7 @@ export struct HeardNote {
 /// gesture wherever it appears.
 component FoldArrow inherits Path {
     in property <bool> up;
-    in property <brush> tint: #A9B0C0;
+    in property <brush> tint: Theme.muted;
     width: 14px;
     height: 14px;
     viewbox-width: 14;
@@ -223,16 +280,16 @@ component HintBubble inherits Rectangle {
     width: bubble_text.preferred-width + 20px;
     height: bubble_text.preferred-height + 12px;
     visible: SideHint.shown;
-    background: #1C212C;
+    background: Theme.raised;
     border-radius: 6px;
     border-width: 1px;
-    border-color: #2D3444;
+    border-color: Theme.field-line;
     bubble_text := Text {
         x: 10px;
         y: 6px;
         text: SideHint.text;
         font-size: 13px;
-        color: #E8EAF0;
+        color: Theme.text;
     }
 }
 
@@ -246,7 +303,7 @@ component SideToggle inherits Rectangle {
 
     height: 32px * TextScale.sidebar;
     border-radius: 8px;
-    background: touch.has-hover ? #1C212C : transparent;
+    background: touch.has-hover ? Theme.raised : transparent;
     touch := TouchArea { clicked => { root.toggled(); } }
     HorizontalLayout {
         // Lined up with the text of a list above it in the quick options:
@@ -257,7 +314,7 @@ component SideToggle inherits Rectangle {
         label := Text {
             text: root.text;
             font-size: 13px * TextScale.sidebar;
-            color: root.on ? #E8EAF0 : #A9B0C0;
+            color: root.on ? Theme.text : Theme.muted;
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;
@@ -268,7 +325,7 @@ component SideToggle inherits Rectangle {
                 width: 32px;
                 height: 18px;
                 border-radius: 9px;
-                background: root.on ? #2F6FE0 : #2A3142;
+                background: root.on ? Theme.accent : Theme.track;
                 animate background { duration: 120ms; }
                 Rectangle {
                     x: root.on ? 16px : 2px;
@@ -276,7 +333,7 @@ component SideToggle inherits Rectangle {
                     width: 14px;
                     height: 14px;
                     border-radius: 7px;
-                    background: root.on ? #FFFFFF : #6B7385;
+                    background: root.on ? Theme.on-accent : Theme.faint;
                     animate x { duration: 120ms; }
                 }
             }
@@ -304,7 +361,7 @@ component IconButton inherits Rectangle {
     width: 40px * TextScale.sidebar;
     height: 40px * TextScale.sidebar;
     border-radius: 10px;
-    background: root.on ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    background: root.on ? Theme.selected : (touch.has-hover ? Theme.raised : transparent);
     animate background { duration: 120ms; }
     touch := TouchArea { clicked => { root.clicked(); } }
     Path {
@@ -315,7 +372,7 @@ component IconButton inherits Rectangle {
         viewbox-width: 20;
         viewbox-height: 20;
         commands: root.path;
-        stroke: root.on ? #FFFFFF : #A9B0C0;
+        stroke: root.on ? Theme.text-strong : Theme.muted;
         stroke-width: 1.6px;
         fill: transparent;
     }
@@ -344,7 +401,7 @@ component NavItem inherits Rectangle {
 
     height: 40px * TextScale.sidebar;
     border-radius: 10px;
-    background: root.selected ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    background: root.selected ? Theme.selected : (touch.has-hover ? Theme.raised : transparent);
     animate background { duration: 120ms; }
 
     touch := TouchArea { clicked => { root.clicked(); } }
@@ -362,7 +419,7 @@ component NavItem inherits Rectangle {
                 viewbox-width: 20;
                 viewbox-height: 20;
                 commands: root.path;
-                stroke: root.selected ? #FFFFFF : #A9B0C0;
+                stroke: root.selected ? Theme.text-strong : Theme.muted;
                 stroke-width: 1.6px;
                 fill: transparent;
             }
@@ -370,13 +427,13 @@ component NavItem inherits Rectangle {
                 width: 20px;
                 height: 20px;
                 source: root.image;
-                colorize: root.selected ? #FFFFFF : #A9B0C0;
+                colorize: root.selected ? Theme.text-strong : Theme.muted;
             }
         }
         label := Text {
             text: root.text;
             font-size: 14px * TextScale.sidebar;
-            color: root.selected ? #FFFFFF : #A9B0C0;
+            color: root.selected ? Theme.text-strong : Theme.muted;
             font-weight: root.selected ? 600 : 400;
             vertical-alignment: center;
             overflow: elide;
@@ -385,11 +442,11 @@ component NavItem inherits Rectangle {
         // Points the way a click would go: down to unfold, up to fold.
         if root.expandable : VerticalLayout {
             alignment: center;
-            FoldArrow { up: root.expanded; tint: root.selected ? #FFFFFF : #A9B0C0; }
+            FoldArrow { up: root.expanded; tint: root.selected ? Theme.text-strong : Theme.muted; }
         }
         if root.marked : VerticalLayout {
             alignment: center;
-            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #F2B233; }
+            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.warn; }
         }
     }
     OverflowHint {
@@ -412,17 +469,17 @@ component TunerMeter inherits Rectangle {
     in property <int> cents;
     in property <bool> live;
     border-radius: 4px;
-    background: #2A3142;
+    background: Theme.track;
     Rectangle {
         x: (parent.width - self.width) / 2;
         width: 2px;
-        background: #6B7385;
+        background: Theme.faint;
     }
     if root.live : Rectangle {
         width: 6px;
         border-radius: 3px;
         x: (root.cents + 50) / 100 * (parent.width - self.width);
-        background: abs(root.cents) <= 5 ? #6EE7A0 : #F2B233;
+        background: abs(root.cents) <= 5 ? Theme.ok : Theme.warn;
         animate x { duration: 80ms; }
     }
 }
@@ -431,19 +488,19 @@ component LevelMeter inherits Rectangle {
     in property <float> level_db;
     in property <float> gate_db;
 
-    background: #11141A;
+    background: Theme.window;
     border-radius: 4px;
     clip: true;
     Rectangle {
         x: 0;
         width: parent.width * Math.max(0.0, Math.min(1.0, (root.level_db + 72) / 72));
-        background: root.level_db > root.gate_db ? #4A90E2 : #2A3142;
+        background: root.level_db > root.gate_db ? Theme.meter : Theme.track;
         border-radius: 4px;
     }
     Rectangle {
         x: parent.width * Math.max(0.0, Math.min(1.0, (root.gate_db + 72) / 72)) - 1px;
         width: 2px;
-        background: #F2B233;
+        background: Theme.warn;
     }
 }
 
@@ -453,14 +510,14 @@ component TabButton inherits Rectangle {
     callback clicked;
 
     border-radius: 8px;
-    background: root.selected ? #243049 : (touch.has-hover ? #1C212C : transparent);
+    background: root.selected ? Theme.selected : (touch.has-hover ? Theme.raised : transparent);
 
     touch := TouchArea { clicked => { root.clicked() } }
 
     Text {
         text: root.text;
         font-size: 13px;
-        color: root.selected ? white : #A9B0C0;
+        color: root.selected ? Theme.text-strong : Theme.muted;
         font-weight: root.selected ? 600 : 400;
         vertical-alignment: center;
         horizontal-alignment: center;
@@ -470,7 +527,7 @@ component TabButton inherits Rectangle {
 /// Close/remove cross, centred. A path, because no bundled font has "✕".
 component Cross inherits Rectangle {
     in property <length> size: 12px;
-    in property <brush> ink: #A9B0C0;
+    in property <brush> ink: Theme.muted;
     Path {
         x: (parent.width - root.size) / 2;
         y: (parent.height - root.size) / 2;
@@ -487,7 +544,7 @@ component Cross inherits Rectangle {
 /// A triangle pointing down. Drawn rather than written: "▾" is not in the
 /// bundled font, and what a system font puts there differs per platform.
 component Chevron inherits Path {
-    in property <brush> tint: #999;
+    in property <brush> tint: Theme.grey-2;
     width: 9px;
     height: 5px;
     viewbox-width: 9;
@@ -513,7 +570,7 @@ component ShapeThumb inherits TouchArea {
         height: 100%;
         border-radius: 12px;
         border-width: 1px;
-        border-color: #222835;
+        border-color: Theme.line;
         clip: true;
         Image {
             source: root.shape;
@@ -572,10 +629,10 @@ component Dropdown inherits Rectangle {
     horizontal-stretch: 1;
     border-radius: root.title-look ? 10px : 8px;
     border-width: root.title-look ? 0px : 1px;
-    border-color: touch.has-hover && root.enabled ? #3A4356 : #2D3444;
+    border-color: touch.has-hover && root.enabled ? Theme.field-line-hover : Theme.field-line;
     background: root.title-look
-        ? (touch.has-hover ? #1C212C : transparent)
-        : (root.enabled ? #1C212C : #161A22);
+        ? (touch.has-hover ? Theme.raised : transparent)
+        : (root.enabled ? Theme.raised : Theme.panel);
 
     HorizontalLayout {
         padding-left: 10px;
@@ -588,14 +645,14 @@ component Dropdown inherits Rectangle {
             text: root.title-look ? root.title-text
                 : root.current-index >= 0 && root.current-index < root.model.length
                     ? root.model[root.current-index] : "";
-            color: root.title-look ? #C9CEDA : (root.enabled ? #E8EAF0 : #6B7385);
+            color: root.title-look ? Theme.text-2 : (root.enabled ? Theme.text : Theme.faint);
             font-size: root.title-look ? root.title-size : 13px * root.text-scale;
             vertical-alignment: center;
             overflow: elide;
         }
         VerticalLayout {
             alignment: center;
-            FoldArrow { tint: root.enabled ? #A9B0C0 : #555; }
+            FoldArrow { tint: root.enabled ? Theme.muted : Theme.off; }
         }
     }
 
@@ -626,10 +683,10 @@ component Dropdown inherits Rectangle {
         close-policy: close-on-click-outside;
 
         Rectangle {
-            background: #1C212C;
+            background: Theme.raised;
             border-radius: 10px;
             border-width: 1px;
-            border-color: #2D3444;
+            border-color: Theme.field-line;
 
             VerticalLayout {
                 padding: root.pad;
@@ -644,8 +701,8 @@ component Dropdown inherits Rectangle {
                         for value[index] in root.model : Rectangle {
                             height: root.row-h;
                             border-radius: 6px;
-                            background: index == root.current-index ? #2F6FE0
-                                : (row-touch.has-hover ? #243049 : transparent);
+                            background: index == root.current-index ? Theme.accent
+                                : (row-touch.has-hover ? Theme.selected : transparent);
 
                             HorizontalLayout {
                                 padding-left: 8px;
@@ -653,7 +710,7 @@ component Dropdown inherits Rectangle {
                                 Text {
                                     text: value;
                                     font-size: root.title-look ? 15px : 13px * root.text-scale;
-                                    color: index == root.current-index ? white : #C9CEDA;
+                                    color: index == root.current-index ? Theme.on-accent : Theme.text-2;
                                     vertical-alignment: center;
                                     overflow: elide;
                                 }
@@ -676,7 +733,7 @@ component Dropdown inherits Rectangle {
                                 x: parent.width - self.width;
                                 Cross {
                                     size: 9px;
-                                    ink: del-touch.has-hover ? #ff7b7b : #888;
+                                    ink: del-touch.has-hover ? Theme.danger : Theme.grey;
                                 }
                                 del-touch := TouchArea {
                                     clicked => {
@@ -697,7 +754,7 @@ component Dropdown inherits Rectangle {
                     height: 14px;
                     Chevron {
                         visible: -list.content-y + list.visible-height < list.content-height - 1px;
-                        tint: #888;
+                        tint: Theme.grey;
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
                     }
@@ -724,14 +781,14 @@ component IconToggle inherits Rectangle {
     height: 34px;
     border-radius: 6px;
     border-width: 1px;
-    background: root.active && root.invert ? #e8e8e8 : transparent;
-    border-color: root.active && root.invert ? transparent : (touch.has-hover ? #666 : #3a3a3a);
+    background: root.active && root.invert ? Theme.invert-bg : transparent;
+    border-color: root.active && root.invert ? transparent : (touch.has-hover ? Theme.hint-2 : Theme.invert-line);
     opacity: root.dim && !root.active && !touch.has-hover ? 0.45 : 1.0;
     animate opacity, background { duration: 120ms; }
 
     Image {
         source: root.icon;
-        colorize: root.active && root.invert ? #101010 : (touch.has-hover ? #ddd : #999);
+        colorize: root.active && root.invert ? Theme.invert-ink : (touch.has-hover ? Theme.bright : Theme.grey-2);
         width: 62%;
         height: 62%;
         x: (parent.width - self.width) / 2;
@@ -904,6 +961,8 @@ export global Tr {
     in-out property <[string]> text_parts: ["Side bar", "Chord strip", "Tune name", "Chord name", "Tiles", "Captions"];
     in-out property <string> text_sizes_reset: "Designed sizes";
     in-out property <string> text_sizes_hint: "";
+    in-out property <string> look: "Look";
+    in-out property <[string]> looks: ["Graphite", "Light", "Sepia", "Night", "Forest", "High contrast"];
     in-out property <string> text_size_default: "Default";
     in-out property <string> chord_tones: "chord tones";
     in-out property <string> fav_hint: "";
@@ -914,7 +973,7 @@ export global Tr {
     in-out property <string> formula_key_line: "Key";
     in-out property <string> formula_similar: "Similar to:";
     in-out property <string> random_hint: "Random order: chords in shuffled order, and in the note modes the tones within each chord too.";
-    in-out property <string> startup_mode: "Startup mode: ";
+    in-out property <string> startup_mode: "Startup mode";
     in-out property <string> chord_confidence: "Chord confidence: ";
     in-out property <string> note_threshold: "Note threshold: ";
     in-out property <string> hold_time: "Hold time: ";
@@ -925,7 +984,7 @@ export global Tr {
     in-out property <string> next: "Next";
     in-out property <string> previous: "Previous";
     in-out property <string> no_data: "No Data";
-    in-out property <string> language: "Language: ";
+    in-out property <string> language: "Language";
     in-out property <string> lang_auto: "Auto";
 }
 
@@ -936,7 +995,8 @@ export component AppWindow inherits Window {
     title: root.app_version == "" ? "Solitito" : "Solitito " + root.app_version;
     // Window and taskbar icon. Compiled into the binary like the chord shapes,
     // so a release package is still one file with nothing to lose beside it.
-    icon: @image-url("../src/assets/app-icon.png");
+    // In the colours of the scheme: dist/scheme_icons.py.
+    icon: Theme.scheme == 0 ? @image-url("../src/assets/app-icon.png") : Theme.scheme == 1 ? @image-url("../src/assets/scheme_icons/app-icon-light.png") : Theme.scheme == 2 ? @image-url("../src/assets/scheme_icons/app-icon-sepia.png") : Theme.scheme == 3 ? @image-url("../src/assets/scheme_icons/app-icon-night.png") : Theme.scheme == 4 ? @image-url("../src/assets/scheme_icons/app-icon-forest.png") : @image-url("../src/assets/scheme_icons/app-icon-contrast.png");
     /// The size the UI is laid out at, whatever the window size. Resizing sets
     /// the window's scale factor to fit this box, so the UI zooms instead of
     /// reflowing and the proportions are the ones it was designed with. Rust
@@ -963,7 +1023,7 @@ export component AppWindow inherits Window {
     // is what actually stops the window shrinking into unreadability.
     min-width: root.design_w;
     min-height: root.design_h;
-    background: #11141A;
+    background: Theme.window;
 
     /// Emitted when the window changes size, so Rust can recompute the scale
     /// factor. Reading the size back from Rust rather than passing it keeps the
@@ -1349,6 +1409,15 @@ export component AppWindow inherits Window {
     // 0 = auto (system locale), 1 = Polish, 2 = English
     in-out property <int> language_idx: 0;
     callback language_changed(int);
+    /// App settings: the colour scheme, as `Theme.scheme`.
+    in-out property <int> look_idx: 0;
+    callback look_changed(int);
+    /// The window and the standard widgets in one colour scheme: the
+    /// standard widgets are light in Light and Sepia.
+    public function apply_look(scheme: int) {
+        Theme.scheme = scheme;
+        Palette.color-scheme = scheme == 1 || scheme == 2 ? ColorScheme.light : ColorScheme.dark;
+    }
     in-out property <string> interval_input_text: "1 3 5";
 
     // --- AUDIO CONTROL ---
@@ -1460,8 +1529,8 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.sidebar_w;
         height: root.height;
-        background: #161A22;
-        Rectangle { x: parent.width - 1px; width: 1px; background: #222835; }
+        background: Theme.panel;
+        Rectangle { x: parent.width - 1px; width: 1px; background: Theme.line; }
 
         VerticalLayout {
             padding-top: 22px;
@@ -1477,8 +1546,8 @@ export component AppWindow inherits Window {
                 height: 74px;
                 // A copy made small beforehand: the renderer shrinking the 256px icon
                 // without smoothing left it speckled.
-                Image { width: 56px; height: 56px; source: @image-url("../src/assets/app-icon-small.png"); }
-                Text { text: "Solitito"; font-size: 20px * TextScale.sidebar; font-weight: 800; color: #E8EAF0; vertical-alignment: center; }
+                Image { width: 56px; height: 56px; source: Theme.scheme == 0 ? @image-url("../src/assets/app-icon-small.png") : Theme.scheme == 1 ? @image-url("../src/assets/scheme_icons/app-icon-small-light.png") : Theme.scheme == 2 ? @image-url("../src/assets/scheme_icons/app-icon-small-sepia.png") : Theme.scheme == 3 ? @image-url("../src/assets/scheme_icons/app-icon-small-night.png") : Theme.scheme == 4 ? @image-url("../src/assets/scheme_icons/app-icon-small-forest.png") : @image-url("../src/assets/scheme_icons/app-icon-small-contrast.png"); }
+                Text { text: "Solitito"; font-size: 20px * TextScale.sidebar; font-weight: 800; color: Theme.text; vertical-alignment: center; }
             }
             // The modes and their quick options, scrolled with the wheel where
             // the options run into the cards below.
@@ -1793,20 +1862,20 @@ export component AppWindow inherits Window {
             // TUNER: the nearest note and how far off it the string is.
             if root.show_tuner : Rectangle {
                 height: 84px * TextScale.sidebar;
-                background: #1C212C;
+                background: Theme.raised;
                 border-radius: 12px;
                 border-width: 1px;
-                border-color: #262D3B;
+                border-color: Theme.line-strong;
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
                     HorizontalLayout {
-                        Text { text: Tr.tuner_card; font-size: 12px * TextScale.sidebar; color: #A9B0C0; }
+                        Text { text: Tr.tuner_card; font-size: 12px * TextScale.sidebar; color: Theme.muted; }
                         Text {
                             text: !root.tuner_live ? "" : (root.tuner_cents > 0 ? "+" : "") + root.tuner_cents + " ¢";
                             font-size: 12px * TextScale.sidebar;
                             font-weight: 600;
-                            color: abs(root.tuner_cents) <= 5 ? #6EE7A0 : #F2B233;
+                            color: abs(root.tuner_cents) <= 5 ? Theme.ok : Theme.warn;
                             horizontal-alignment: right;
                         }
                     }
@@ -1814,7 +1883,7 @@ export component AppWindow inherits Window {
                         text: root.tuner_live ? root.tuner_note : "–";
                         font-size: 18px * TextScale.sidebar;
                         font-weight: 600;
-                        color: root.tuner_live && abs(root.tuner_cents) <= 5 ? #6EE7A0 : #E8EAF0;
+                        color: root.tuner_live && abs(root.tuner_cents) <= 5 ? Theme.ok : Theme.text;
                     }
                     TunerMeter { height: 8px; cents: root.tuner_cents; live: root.tuner_live; }
                 }
@@ -1827,10 +1896,10 @@ export component AppWindow inherits Window {
             // the audio settings, where the threshold is moved.
             if root.show_input_meter : Rectangle {
                 height: 104px * TextScale.sidebar;
-                background: input_touch.has-hover ? #222836 : #1C212C;
+                background: input_touch.has-hover ? Theme.raised-hover : Theme.raised;
                 border-radius: 12px;
                 border-width: 1px;
-                border-color: #262D3B;
+                border-color: Theme.line-strong;
                 input_touch := TouchArea {
                     clicked => {
                         root.settings_tab = 0;
@@ -1847,7 +1916,7 @@ export component AppWindow inherits Window {
                             text: Tr.input_card
                                 + (root.audio_channel_count > 1 ? " · " + root.audio_channels[root.audio_channel_index] : "");
                             font-size: 12px * TextScale.sidebar;
-                            color: #A9B0C0;
+                            color: Theme.muted;
                             overflow: elide;
                         }
                         // A shape, because no bundled font has "●".
@@ -1860,14 +1929,14 @@ export component AppWindow inherits Window {
                                     width: 7px;
                                     height: 7px;
                                     border-radius: 3.5px;
-                                    background: root.input_level_db > root.gate_db ? #6EE7A0 : #6B7385;
+                                    background: root.input_level_db > root.gate_db ? Theme.ok : Theme.faint;
                                 }
                             }
                             Text {
                                 text: root.input_level_db > root.gate_db ? Tr.input_hearing : Tr.input_silent;
                                 font-size: 12px * TextScale.sidebar;
                                 font-weight: 600;
-                                color: root.input_level_db > root.gate_db ? #6EE7A0 : #6B7385;
+                                color: root.input_level_db > root.gate_db ? Theme.ok : Theme.faint;
                                 horizontal-alignment: right;
                             }
                         }
@@ -1876,11 +1945,11 @@ export component AppWindow inherits Window {
                         text: root.audio_devices[root.audio_device_index];
                         font-size: 13px * TextScale.sidebar;
                         font-weight: 600;
-                        color: #E8EAF0;
+                        color: Theme.text;
                         overflow: elide;
                     }
                     LevelMeter { height: 8px; level_db: root.input_level_db; gate_db: root.gate_db; }
-                    Text { text: Tr.gate_mark; font-size: 11px * TextScale.sidebar; color: #8A92A3; overflow: elide; }
+                    Text { text: Tr.gate_mark; font-size: 11px * TextScale.sidebar; color: Theme.dim; overflow: elide; }
                 }
             }
             // Air between the card and the entries below it.
@@ -2009,7 +2078,7 @@ export component AppWindow inherits Window {
                 if root.current_mode == 4 : Text {
                     text: root.song_title;
                     font-size: 26px * TextScale.song;
-                    color: #aaa;
+                    color: Theme.label;
                     horizontal-alignment: center;
                     wrap: word-wrap;
                 }
@@ -2047,26 +2116,26 @@ export component AppWindow inherits Window {
                 if root.formula_chord_name != "" : Text {
                     text: root.formula_chord_name;
                     font-size: 30px * fbox.zoom;
-                    color: #ddd;
+                    color: Theme.bright;
                     horizontal-alignment: center;
                 }
                 if root.formula_chord_name != "" : Text {
                     text: Tr.placement_from + root.formula_degree_name;
                     font-size: 15px * fbox.zoom;
-                    color: #888;
+                    color: Theme.grey;
                     horizontal-alignment: center;
                 }
                 if root.formula_chord_name == "" : Text {
                     text: Tr.formula_key_line + " " + root.formula_key;
                     font-size: 22px * fbox.zoom;
-                    color: #aaa;
+                    color: Theme.label;
                     horizontal-alignment: center;
                 }
 
                 if root.formula_against_label != "" : Text {
                     text: root.formula_against_label;
                     font-size: 13px * fbox.zoom;
-                    color: #777;
+                    color: Theme.hint;
                     horizontal-alignment: center;
                 }
 
@@ -2110,8 +2179,8 @@ export component AppWindow inherits Window {
                         property <bool> lit: self.pointing ? self.in_chord : root.paused;
                         border-radius: 14px;
                         border-width: self.lit ? 2px : 1px;
-                        background: self.done ? #17271F : (self.lit ? #1A2640 : #161A22);
-                        border-color: self.done ? #24563A : (self.lit ? #2F6FE0 : #222835);
+                        background: self.done ? Theme.ok-bg : (self.lit ? Theme.now : Theme.panel);
+                        border-color: self.done ? Theme.ok-line : (self.lit ? Theme.accent : Theme.line);
                         animate background, border-color { duration: 150ms; }
                         VerticalLayout {
                             padding-top: 8px;
@@ -2126,17 +2195,17 @@ export component AppWindow inherits Window {
                                 text: root.formula_against[i];
                                 font-size: max(11px, func_row.fsize * 0.38) * TextScale.captions;
                                 font-weight: root.formula_is_chord_tone[i] ? 700 : 400;
-                                color: root.formula_is_chord_tone[i] ? #6aa9ff : #6B7385;
+                                color: root.formula_is_chord_tone[i] ? Theme.link : Theme.faint;
                                 horizontal-alignment: center;
                             }
                             Text {
                                 text: f;
                                 font-size: func_row.fsize;
                                 font-weight: 800;
-                                color: card.done ? #6EE7A0
+                                color: card.done ? Theme.ok
                                     : card.pointing
-                                        ? (card.in_chord ? #FFFFFF : #4A5164)
-                                    : root.paused ? #A9C9FF : #E8EAF0;
+                                        ? (card.in_chord ? Theme.text-strong : Theme.card-off)
+                                    : root.paused ? Theme.paused-text : Theme.text;
                                 horizontal-alignment: center;
                             }
                             if root.formula_note_names.length > i : Text {
@@ -2146,7 +2215,7 @@ export component AppWindow inherits Window {
                                 // the card down - to a floor, below which the
                                 // names stop being readable at all.
                                 font-size: max(11px, func_row.fsize * 0.38) * TextScale.captions;
-                                color: #C9CEDA;
+                                color: Theme.text-2;
                                 horizontal-alignment: center;
                             }
                         }
@@ -2156,7 +2225,7 @@ export component AppWindow inherits Window {
                 if root.formula_verdict != "" : Text {
                     text: root.formula_verdict;
                     font-size: 15px * fbox.zoom;
-                    color: #aaa;
+                    color: Theme.label;
                     horizontal-alignment: center;
                 }
 
@@ -2168,7 +2237,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: Tr.formula_similar + " " + root.formula_scale_name;
                         font-size: 15px * fbox.zoom;
-                        color: #888;
+                        color: Theme.grey;
                         horizontal-alignment: center;
                     }
                     HorizontalLayout {
@@ -2178,7 +2247,7 @@ export component AppWindow inherits Window {
                             text: d;
                             font-size: 17px * fbox.zoom;
                             font-weight: root.formula_scale_in[i] ? 700 : 400;
-                            color: root.formula_scale_in[i] ? #6aa9ff : #555;
+                            color: root.formula_scale_in[i] ? Theme.link : Theme.off;
                         }
                     }
                 }
@@ -2197,7 +2266,7 @@ export component AppWindow inherits Window {
                             ? Tr.formula_chords
                             : Tr.formula_chords + " —";
                         font-size: 15px * fbox.zoom;
-                        color: #888;
+                        color: Theme.grey;
                         horizontal-alignment: center;
                     }
                     // Seven chords of eight characters - bIIIMaj7 and the like -
@@ -2217,7 +2286,7 @@ export component AppWindow inherits Window {
                             font-size: chord_row.csize;
                             horizontal-alignment: center;
                             font-weight: root.formula_hover == i ? 700 : 400;
-                            color: root.formula_hover == i ? #6aa9ff : #999;
+                            color: root.formula_hover == i ? Theme.link : Theme.grey-2;
                             chord_touch := TouchArea {
                                 // A click as well as the pointer: on a touch
                                 // screen there is no hover to speak of.
@@ -2238,7 +2307,7 @@ export component AppWindow inherits Window {
                                 // is the same chord, so pointing at either one
                                 // should light up what it is built from.
                                 font-weight: root.formula_hover == i ? 700 : 400;
-                                color: root.formula_hover == i ? #6aa9ff : #8a8a8a;
+                                color: root.formula_hover == i ? Theme.link : Theme.grey-3;
                                 horizontal-alignment: center;
                                 name_touch := TouchArea {
                                     clicked => {
@@ -2344,7 +2413,7 @@ export component AppWindow inherits Window {
                         ? (root.formula_starred ? Tr.fav_remove : Tr.fav_add)
                         : (root.paused ? Tr.formula_free : "");
                     font-size: 17px;
-                    color: root.star_hover ? #888 : #6aa9ff;
+                    color: root.star_hover ? Theme.grey : Theme.link;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -2452,7 +2521,7 @@ export component AppWindow inherits Window {
                     : root.start_hint == "" ? root.shapes_note
                     : root.shapes_note + "  ·  " + root.start_hint;
                 font-size: (root.start_hint == "" ? 14px : 20px) * TextScale.captions;
-                color: #888;
+                color: Theme.grey;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -2462,7 +2531,7 @@ export component AppWindow inherits Window {
                 // where to play. Elsewhere it is a side suggestion, so it stays
                 // quiet. Same size as the interval labels the other modes show.
                 font-size: root.current_mode == 4 ? 32px * TextScale.tiles : 20px * TextScale.captions;
-                color: root.current_mode == 4 ? #bbb : #888;
+                color: root.current_mode == 4 ? Theme.bright-2 : Theme.grey;
                 horizontal-alignment: center;
             }
             
@@ -2480,9 +2549,9 @@ export component AppWindow inherits Window {
                         width: max(130px * TextScale.tiles, tile_note.preferred-width + 60px);
                         height: 120px * TextScale.tiles;
                         border-radius: 16px;
-                        background: root.fret_done ? #17271F : #161A22;
+                        background: root.fret_done ? Theme.ok-bg : Theme.panel;
                         border-width: 1px;
-                        border-color: root.fret_done ? #24563A : #222835;
+                        border-color: root.fret_done ? Theme.ok-line : Theme.line;
                         animate background, border-color { duration: 150ms; }
                         tile_note := Text {
                             text: root.chord_name;
@@ -2490,7 +2559,7 @@ export component AppWindow inherits Window {
                             font-weight: 400;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            color: root.fret_done ? #6EE7A0 : #E8EAF0;
+                            color: root.fret_done ? Theme.ok : Theme.text;
                         }
                         tile_touch := TouchArea {
                             mouse-cursor: pointer;
@@ -2509,16 +2578,16 @@ export component AppWindow inherits Window {
                     Rectangle {
                         height: 52px * TextScale.tiles;
                         border-radius: 26px * TextScale.tiles;
-                        background: #161A22;
+                        background: Theme.panel;
                         border-width: 1px;
-                        border-color: #222835;
+                        border-color: Theme.line;
                         HorizontalLayout {
                             padding-left: 24px;
                             padding-right: 24px;
                             Text {
                                 text: root.start_hint;
                                 font-size: 32px * TextScale.tiles;
-                                color: #C9CEDA;
+                                color: Theme.text-2;
                                 vertical-alignment: center;
                             }
                         }
@@ -2540,7 +2609,7 @@ export component AppWindow inherits Window {
                         x: (parent.width - self.width) / 2;
                         border-radius: 12px;
                         border-width: 1px;
-                        border-color: #222835;
+                        border-color: Theme.line;
                         clip: true;
                         Image {
                             source: root.note_hint_image;
@@ -2634,7 +2703,7 @@ export component AppWindow inherits Window {
             if root.step_captions && root.step_caption != "" && root.current_mode >= 1 && root.current_mode <= 3 : Text {
                 text: root.step_caption;
                 font-size: 18px * TextScale.captions;
-                color: #C9CEDA;
+                color: Theme.text-2;
                 horizontal-alignment: center;
             }
             if root.draws_on_neck && root.tab_image.width > 0
@@ -2658,7 +2727,7 @@ export component AppWindow inherits Window {
                     height: parent.box_w / root.tab_aspect;
                     border-radius: 12px;
                     border-width: 1px;
-                    border-color: #222835;
+                    border-color: Theme.line;
                     clip: true;
                     Image {
                         source: root.tab_image;
@@ -2717,10 +2786,10 @@ export component AppWindow inherits Window {
                 // a wide one it was a long bar with everything at its left end.
                 Rectangle {
                     width: min(parent.width, 520px);
-                    background: #161A22;
+                    background: Theme.panel;
                     border-radius: 14px;
                     border-width: 1px;
-                    border-color: #222835;
+                    border-color: Theme.line;
                     HorizontalLayout {
                         padding-left: 16px;
                         padding-right: 16px;
@@ -2733,7 +2802,7 @@ export component AppWindow inherits Window {
                             width: 50px;
                             text: Tr.heard;
                             font-size: 12px;
-                            color: #8A92A3;
+                            color: Theme.dim;
                             vertical-alignment: center;
                         }
                         Text {
@@ -2741,7 +2810,7 @@ export component AppWindow inherits Window {
                             text: root.heard_name;
                             font-size: 20px;
                             font-weight: 700;
-                            color: #E8EAF0;
+                            color: Theme.text;
                             vertical-alignment: center;
                             overflow: elide;
                         }
@@ -2756,12 +2825,12 @@ export component AppWindow inherits Window {
                                     width: 38px;
                                     height: 28px;
                                     border-radius: 7px;
-                                    background: n.in_chord ? #1E3A2C : #232836;
+                                    background: n.in_chord ? Theme.ok-chord-bg : Theme.raised-hover-2;
                                     Text {
                                         text: n.name;
                                         font-size: 13px;
                                         font-weight: 600;
-                                        color: n.in_chord ? #6EE7A0 : #8A92A3;
+                                        color: n.in_chord ? Theme.ok : Theme.dim;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                     }
@@ -2785,14 +2854,14 @@ export component AppWindow inherits Window {
                 if root.formula_exercise == 2 : Text {
                     text: Tr.next_chord;
                     font-size: 15px;
-                    color: step_word.has-hover ? #6aa9ff : #4a7fd0;
+                    color: step_word.has-hover ? Theme.link : Theme.link-dim;
                     vertical-alignment: center;
                     step_word := TouchArea { clicked => { root.next_change(); } }
                 }
                 Text {
                     text: Tr.formula_another;
                     font-size: 15px;
-                    color: draw_word.has-hover ? #6aa9ff : #4a7fd0;
+                    color: draw_word.has-hover ? Theme.link : Theme.link-dim;
                     vertical-alignment: center;
                     draw_word := TouchArea { clicked => { root.step_chord(1); } }
                 }
@@ -2811,10 +2880,10 @@ export component AppWindow inherits Window {
         y: root.panel_top;
         width: root.panel_w;
         height: root.design_h - 45px;
-        background: #161A22;
+        background: Theme.panel;
         border-radius: 14px;
         border-width: 1px;
-        border-color: #222835;
+        border-color: Theme.line;
 
         // Escape closes the panel wherever the focus is inside it: a control
         // that does not want the key passes it up to here.
@@ -2845,8 +2914,8 @@ export component AppWindow inherits Window {
                     Rectangle {
                         width: 32px;
                         border-radius: 8px;
-                        background: close_touch.has-hover ? #243049 : transparent;
-                        Cross { size: 12px; ink: close_touch.has-hover ? #FFFFFF : #A9B0C0; }
+                        background: close_touch.has-hover ? Theme.selected : transparent;
+                        Cross { size: 12px; ink: close_touch.has-hover ? Theme.text-strong : Theme.muted; }
                         close_touch := TouchArea { clicked => { root.show_settings = false; } }
                     }
                 }
@@ -2866,7 +2935,7 @@ export component AppWindow inherits Window {
                                 alignment: start;
                                 spacing: 10px;
                                 Text {
-                                    text: Tr.audio_device; color: #aaa;
+                                    text: Tr.audio_device; color: Theme.label;
                                     vertical-alignment: center; width: 100px;
                                 }
                                 Dropdown {
@@ -2881,7 +2950,7 @@ export component AppWindow inherits Window {
                             if root.audio_channel_count > 1 : HorizontalLayout {
                                 spacing: 10px;
                                 Text {
-                                    text: Tr.audio_channel; color: #aaa;
+                                    text: Tr.audio_channel; color: Theme.label;
                                     vertical-alignment: center; width: 100px;
                                 }
                                 Dropdown {
@@ -2894,7 +2963,7 @@ export component AppWindow inherits Window {
 
                             Text {
                                 text: root.audio_info;
-                                font-size: 11px; color: #777; wrap: word-wrap;
+                                font-size: 11px; color: Theme.hint; wrap: word-wrap;
                             }
 
                             HorizontalLayout {
@@ -2908,7 +2977,7 @@ export component AppWindow inherits Window {
                                 // system has none, and fontconfig resolves the name to a
                                 // face with different metrics. Sized by its own text, it
                                 // fits by construction; the slider takes what is left.
-                                Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: white; vertical-alignment: center; }
+                                Text { text: Tr.noise_gate + round(root.gate_db) + " dB"; color: Theme.text-strong; vertical-alignment: center; }
                                 Slider { width: root.ctrl_w; horizontal-stretch: 1; minimum: -72.0; maximum: 0.0; step: 0.5; value <=> root.gate_db; }
                             }
 
@@ -2921,7 +2990,7 @@ export component AppWindow inherits Window {
 
                             Text {
                                 text: Tr.gate_hint;
-                                color: #666; font-size: 11px; wrap: word-wrap;
+                                color: Theme.hint-2; font-size: 11px; wrap: word-wrap;
                             }
 
                             HorizontalLayout {
@@ -2935,7 +3004,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 15px;
                                     CheckBox { checked <=> root.boost_enabled; }
-                                    Text { text: Tr.bass_boost; color: #aaa; vertical-alignment: center; }
+                                    Text { text: Tr.bass_boost; color: Theme.label; vertical-alignment: center; }
                                 }
                                 if root.boost_enabled : Slider {
                                     width: root.ctrl_w;
@@ -2950,7 +3019,7 @@ export component AppWindow inherits Window {
                                     checked <=> root.show_input_meter;
                                     toggled => { root.show_input_meter_changed(self.checked); }
                                 }
-                                Text { text: Tr.show_input_meter; color: #aaa; vertical-alignment: center; }
+                                Text { text: Tr.show_input_meter; color: Theme.label; vertical-alignment: center; }
                             }
 
                             HorizontalLayout {
@@ -2960,7 +3029,7 @@ export component AppWindow inherits Window {
                                     checked <=> root.show_heard;
                                     toggled => { root.show_heard_changed(self.checked); }
                                 }
-                                Text { text: Tr.show_heard; color: #aaa; vertical-alignment: center; }
+                                Text { text: Tr.show_heard; color: Theme.label; vertical-alignment: center; }
                             }
 
                             // How the judge weighs what it hears. Measured defaults;
@@ -2969,7 +3038,7 @@ export component AppWindow inherits Window {
                                 // Packed left: with the default stretch the row hands its spare width
                                 // to the control, which undoes the width set on it.
                                 alignment: start;
-                                Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Text { text: Tr.chord_confidence + round(root.chord_confidence*100)/100; color: Theme.label; vertical-alignment: center; width: 185px; }
                                 Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.chord_confidence; }
                             }
 
@@ -2977,13 +3046,13 @@ export component AppWindow inherits Window {
                             // calls - there the verdict comes from the chord name.
                             if root.current_mode != 0 : HorizontalLayout {
                                 alignment: start;
-                                Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Text { text: Tr.note_threshold + round(root.note_threshold*100)/100; color: Theme.label; vertical-alignment: center; width: 185px; }
                                 Slider { width: root.ctrl_w; minimum: 0.05; maximum: 0.95; step: 0.01; value <=> root.note_threshold; }
                             }
 
                             HorizontalLayout {
                                 alignment: start;
-                                Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: #aaa; vertical-alignment: center; width: 185px; }
+                                Text { text: Tr.hold_time + round(root.delay*100)/100 + " s"; color: Theme.label; vertical-alignment: center; width: 185px; }
                                 Slider { width: root.ctrl_w; minimum: 0.05; maximum: 1.5; step: 0.01; value <=> root.delay; }
                             }
 
@@ -3005,7 +3074,7 @@ export component AppWindow inherits Window {
                             if root.current_mode != 4
                                && (root.current_mode != 5 || root.formula_exercise == 2)
                                : HorizontalLayout {
-                                Text { text: root.library_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Text { text: root.library_label; color: Theme.label; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                         width: root.ctrl_w;
                                     model: root.library_items;
@@ -3015,7 +3084,7 @@ export component AppWindow inherits Window {
                             }
 
                             if root.takes_a_written_run : HorizontalLayout {
-                                Text { text: root.secondary_label; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Text { text: root.secondary_label; color: Theme.label; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                         width: root.ctrl_w;
                                     model: root.secondary_items;
@@ -3027,7 +3096,7 @@ export component AppWindow inherits Window {
                             // Intervals is played from a list of exercises; scales and
                             // studies keep the degrees written out, editable.
                             if root.current_mode == 1 : HorizontalLayout {
-                                Text { text: Tr.interval_level; color: #aaa; vertical-alignment: center; width: 100px; }
+                                Text { text: Tr.interval_level; color: Theme.label; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                     width: root.ctrl_w;
                                     model: root.interval_levels;
@@ -3042,7 +3111,7 @@ export component AppWindow inherits Window {
                                     // Packed left: with the default stretch the row hands its spare width
                                     // to the control, which undoes the width set on it.
                                     alignment: start;
-                                    Text { text: Tr.intervals_label; color: #aaa; vertical-alignment: center; width: 80px; }
+                                    Text { text: Tr.intervals_label; color: Theme.label; vertical-alignment: center; width: 80px; }
                                     LineEdit {
                                         text <=> root.interval_input_text;
                                         placeholder-text: Tr.intervals_placeholder;
@@ -3054,9 +3123,9 @@ export component AppWindow inherits Window {
                                     // than breaking - it fitted before only because the
                                     // old hint was short.
                                     wrap: word-wrap;
-                                    color: #666; font-size: 11px;
+                                    color: Theme.hint-2; font-size: 11px;
                                 }
-                                Rectangle { height: 1px; background: #444; }
+                                Rectangle { height: 1px; background: Theme.rule; }
                             }
 
                             // Neither mode has a written order for the shuffle to
@@ -3072,7 +3141,7 @@ export component AppWindow inherits Window {
                                     CheckBox { checked <=> root.random_enabled; }
                                     Text {
                                         text: root.current_mode == 2 ? Tr.random_key : Tr.random_order;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
@@ -3081,7 +3150,7 @@ export component AppWindow inherits Window {
                                     // wrapped line goes missing.
                                     width: root.panel_w - 30px;
                                     text: Tr.random_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3104,7 +3173,7 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.shuffle_chords;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
@@ -3115,7 +3184,7 @@ export component AppWindow inherits Window {
                                     // can work its own height out.
                                     width: root.panel_w - 30px;
                                     text: Tr.shuffle_chords_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3130,7 +3199,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.arp_exercise; color: #aaa;
+                                        text: Tr.arp_exercise; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3144,7 +3213,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.arp_quality; color: #aaa;
+                                        text: Tr.arp_quality; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3158,7 +3227,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.arp_direction; color: #aaa;
+                                        text: Tr.arp_direction; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3172,7 +3241,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.harris_figure; color: #aaa;
+                                        text: Tr.harris_figure; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3186,7 +3255,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.harris_start; color: #aaa;
+                                        text: Tr.harris_start; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3200,7 +3269,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.harris_notes; color: #aaa;
+                                        text: Tr.harris_notes; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3214,7 +3283,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.harris_figure; color: #aaa;
+                                        text: Tr.harris_figure; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3228,7 +3297,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.harris_notes; color: #aaa;
+                                        text: Tr.harris_notes; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3247,17 +3316,17 @@ export component AppWindow inherits Window {
                                             checked <=> root.greene_tensions;
                                             toggled => { root.greene_tensions_changed(self.checked); }
                                         }
-                                        Text { text: Tr.greene_tensions; color: #aaa; vertical-alignment: center; }
+                                        Text { text: Tr.greene_tensions; color: Theme.label; vertical-alignment: center; }
                                     }
                                     Text {
                                         width: root.panel_w - 30px;
                                         text: Tr.greene_tensions_hint;
-                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                        font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                     }
                                     Text {
                                         width: root.panel_w - 30px;
                                         text: Tr.greene_hint;
-                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                        font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                     }
                                 }
                                 if root.arp_exercise == 1 || root.arp_exercise == 2 : VerticalLayout {
@@ -3269,18 +3338,18 @@ export component AppWindow inherits Window {
                                             checked <=> root.arp_position;
                                             toggled => { root.arp_position_changed(self.checked); }
                                         }
-                                        Text { text: Tr.arp_position; color: #aaa; vertical-alignment: center; }
+                                        Text { text: Tr.arp_position; color: Theme.label; vertical-alignment: center; }
                                     }
                                     Text {
                                         width: root.panel_w - 30px;
                                         text: Tr.arp_position_hint;
-                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                        font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                     }
                                 }
                                 if root.arp_exercise == 2 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.harris_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3300,13 +3369,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.voice_leading;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 if root.current_mode == 1 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.voice_leading_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                                 // The other leading: of the line, from one chord's last
                                 // note to the next chord's first.
@@ -3319,20 +3388,20 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.lead_line;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 if root.current_mode == 1 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.lead_line_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
 
                                 HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.preview; color: #aaa;
+                                        text: Tr.preview; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     // Two entries where tablature has nothing to
@@ -3376,7 +3445,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.preview_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                                 // Only worth offering once there is a drawing to
                                 // put the numbers in - and not in the fretboard
@@ -3391,13 +3460,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.tab_frets;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 if root.draws_on_neck && root.current_mode != 4 : Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.tab_frets_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3414,13 +3483,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.repeat_root;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.repeat_root_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                                 HorizontalLayout {
                                     alignment: start;
@@ -3429,10 +3498,10 @@ export component AppWindow inherits Window {
                                         checked <=> root.scale_there_and_back;
                                         toggled => { root.scale_way_changed(); }
                                     }
-                                    Text { text: Tr.there_and_back; color: #aaa; vertical-alignment: center; }
+                                    Text { text: Tr.there_and_back; color: Theme.label; vertical-alignment: center; }
                                 }
                                 HorizontalLayout {
-                                    Text { text: Tr.scale_from; color: #aaa; vertical-alignment: center; width: 100px; }
+                                    Text { text: Tr.scale_from; color: Theme.label; vertical-alignment: center; width: 100px; }
                                     Dropdown {
                                         width: root.ctrl_w;
                                         model: root.scale_from_items;
@@ -3442,7 +3511,7 @@ export component AppWindow inherits Window {
                                 }
                                 // Unshuffled only: with the shuffle on, the key is drawn.
                                 HorizontalLayout {
-                                    Text { text: Tr.key_move; color: #aaa; vertical-alignment: center; width: 100px; }
+                                    Text { text: Tr.key_move; color: Theme.label; vertical-alignment: center; width: 100px; }
                                     Dropdown {
                                         width: root.ctrl_w;
                                         enabled: !root.random_enabled;
@@ -3464,13 +3533,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.chord_strip;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.chord_strip_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3485,13 +3554,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.step_captions;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.step_captions_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3504,7 +3573,7 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: Tr.chord_degrees;
-                                    color: #aaa; vertical-alignment: center;
+                                    color: Theme.label; vertical-alignment: center;
                                 }
                             }
 
@@ -3522,13 +3591,13 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.jazz_names;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.jazz_names_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3545,7 +3614,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.exercise; color: #aaa;
+                                        text: Tr.exercise; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3564,7 +3633,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.placement; color: #aaa;
+                                        text: Tr.placement; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3585,7 +3654,7 @@ export component AppWindow inherits Window {
                                     }
                                     Text {
                                         text: Tr.jazz_names;
-                                        color: #aaa; vertical-alignment: center;
+                                        color: Theme.label; vertical-alignment: center;
                                     }
                                 }
 
@@ -3593,7 +3662,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.formula_notes; color: #aaa;
+                                        text: Tr.formula_notes; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
@@ -3613,7 +3682,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
-                                        text: Tr.formula_key; color: #aaa;
+                                        text: Tr.formula_key; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     LineEdit {
@@ -3630,7 +3699,7 @@ export component AppWindow inherits Window {
                                         toggled => { root.formula_random_key_changed(self.checked); }
                                     }
                                     Text {
-                                        text: Tr.formula_random; color: #aaa;
+                                        text: Tr.formula_random; color: Theme.label;
                                         vertical-alignment: center;
                                     }
                                 }
@@ -3641,7 +3710,7 @@ export component AppWindow inherits Window {
                                         alignment: start;
                                         spacing: 10px;
                                         Text {
-                                            text: Tr.formula_required; color: #aaa;
+                                            text: Tr.formula_required; color: Theme.label;
                                             vertical-alignment: center; width: 185px;
                                         }
                                         LineEdit {
@@ -3656,7 +3725,7 @@ export component AppWindow inherits Window {
                                     Text {
                                         width: root.panel_w - 30px;
                                         text: Tr.formula_required_hint;
-                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                        font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                     }
                                 }
 
@@ -3668,7 +3737,7 @@ export component AppWindow inherits Window {
                                         toggled => { root.formula_show_names_changed(self.checked); }
                                     }
                                     Text {
-                                        text: Tr.formula_note_names; color: #aaa;
+                                        text: Tr.formula_note_names; color: Theme.label;
                                         vertical-alignment: center;
                                     }
                                 }
@@ -3681,7 +3750,7 @@ export component AppWindow inherits Window {
                                         toggled => { root.formula_show_similar_changed(self.checked); }
                                     }
                                     Text {
-                                        text: Tr.formula_similar_opt; color: #aaa;
+                                        text: Tr.formula_similar_opt; color: Theme.label;
                                         vertical-alignment: center;
                                     }
                                 }
@@ -3694,7 +3763,7 @@ export component AppWindow inherits Window {
                                         toggled => { root.formula_show_chords_changed(self.checked); }
                                     }
                                     Text {
-                                        text: Tr.formula_chords_opt; color: #aaa;
+                                        text: Tr.formula_chords_opt; color: Theme.label;
                                         vertical-alignment: center;
                                     }
                                 }
@@ -3716,7 +3785,7 @@ export component AppWindow inherits Window {
                                     // the same width, which reads as one control
                                     // with two ways in rather than three columns.
                                     Text {
-                                        text: Tr.fav_pick; color: #aaa;
+                                        text: Tr.fav_pick; color: Theme.label;
                                         vertical-alignment: center;
                                     }
                                     HorizontalLayout {
@@ -3750,7 +3819,7 @@ export component AppWindow inherits Window {
                                     Text {
                                         width: root.panel_w - 30px;
                                         text: Tr.fav_hint;
-                                        font-size: 12px; color: #777; wrap: word-wrap;
+                                        font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                     }
                                 }
 
@@ -3770,7 +3839,7 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: Tr.show_diagrams;
-                                    color: #aaa; vertical-alignment: center;
+                                    color: Theme.label; vertical-alignment: center;
                                 }
                             }
 
@@ -3783,7 +3852,7 @@ export component AppWindow inherits Window {
                                 alignment: start;
                                 spacing: 15px;
                                 Text {
-                                    text: Tr.shapes_kind; color: #aaa;
+                                    text: Tr.shapes_kind; color: Theme.label;
                                     vertical-alignment: center; width: 185px;
                                 }
                                 CheckBox {
@@ -3794,7 +3863,7 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: Tr.shapes_full;
-                                    color: #aaa; vertical-alignment: center;
+                                    color: Theme.label; vertical-alignment: center;
                                 }
                                 CheckBox {
                                     checked <=> root.show_shell_shapes;
@@ -3804,7 +3873,7 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: Tr.shapes_shell;
-                                    color: #aaa; vertical-alignment: center;
+                                    color: Theme.label; vertical-alignment: center;
                                 }
                             }
 
@@ -3829,43 +3898,65 @@ export component AppWindow inherits Window {
                                     checked <=> root.debug_console;
                                     toggled => { root.debug_console_changed(self.checked); }
                                 }
-                                Text { text: Tr.debug_console; color: #aaa; vertical-alignment: center; }
+                                Text { text: Tr.debug_console; color: Theme.label; vertical-alignment: center; }
                             }
 
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.startup_mode; color: #aaa;
-                                    vertical-alignment: center; width: 140px;
+                            // Spaced as the rows of the text sizes.
+                            VerticalLayout {
+                                spacing: 8px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.startup_mode; color: Theme.label;
+                                        vertical-alignment: center; width: 140px;
+                                    }
+                                    Dropdown {
+                                            width: root.ctrl_w;
+                                        // Every mode button has an entry here; a mode
+                                        // missing from the list cannot be picked, and
+                                        // the index would then point at its neighbour.
+                                        model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard, Tr.formulas];
+                                        current-index <=> root.startup_mode;
+                                        selected(v) => { root.startup_mode_changed(root.startup_mode); }
+                                    }
                                 }
-                                Dropdown {
-                                        width: root.ctrl_w;
-                                    // Every mode button has an entry here; a mode
-                                    // missing from the list cannot be picked, and
-                                    // the index would then point at its neighbour.
-                                    model: [Tr.chords, Tr.intervals, Tr.scales, Tr.arpeggios, Tr.fretboard, Tr.formulas];
-                                    current-index <=> root.startup_mode;
-                                    selected(v) => { root.startup_mode_changed(root.startup_mode); }
-                                }
-                            }
 
-                            HorizontalLayout {
-                                // Packed left: with the default stretch the row hands its spare width
-                                // to the control, which undoes the width set on it.
-                                alignment: start;
-                                spacing: 10px;
-                                Text {
-                                    text: Tr.language; color: #aaa;
-                                    vertical-alignment: center; width: 140px;
+                                HorizontalLayout {
+                                    // Packed left: with the default stretch the row hands its spare width
+                                    // to the control, which undoes the width set on it.
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.language; color: Theme.label;
+                                        vertical-alignment: center; width: 140px;
+                                    }
+                                    Dropdown {
+                                            width: root.ctrl_w;
+                                        model: [Tr.lang_auto, "Polski", "English"];
+                                        current-index <=> root.language_idx;
+                                        selected(v) => { root.language_changed(root.language_idx); }
+                                    }
                                 }
-                                Dropdown {
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.look; color: Theme.label;
+                                        vertical-alignment: center; width: 140px;
+                                    }
+                                    Dropdown {
                                         width: root.ctrl_w;
-                                    model: [Tr.lang_auto, "Polski", "English"];
-                                    current-index <=> root.language_idx;
-                                    selected(v) => { root.language_changed(root.language_idx); }
+                                        model: Tr.looks;
+                                        current-index <=> root.look_idx;
+                                        selected(v) => {
+                                            root.apply_look(v);
+                                            root.look_changed(v);
+                                        }
+                                    }
                                 }
                             }
 
@@ -3878,22 +3969,22 @@ export component AppWindow inherits Window {
                                         checked <=> root.software_renderer;
                                         toggled => { root.software_renderer_changed(self.checked); }
                                     }
-                                    Text { text: Tr.software_renderer; color: #aaa; vertical-alignment: center; }
+                                    Text { text: Tr.software_renderer; color: Theme.label; vertical-alignment: center; }
                                 }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.software_renderer_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
                             VerticalLayout {
                                 spacing: 8px;
-                                Text { text: Tr.text_sizes; color: #aaa; }
+                                Text { text: Tr.text_sizes; color: Theme.label; }
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.text_sizes_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                                 for size[part] in root.text_sizes : HorizontalLayout {
                                     alignment: start;
@@ -3903,7 +3994,7 @@ export component AppWindow inherits Window {
                                     property <int> px: size.px;
                                     changed px => { field.text = self.px; }
                                     Text {
-                                        text: Tr.text_parts[part]; color: #aaa;
+                                        text: Tr.text_parts[part]; color: Theme.label;
                                         vertical-alignment: center; width: 140px;
                                     }
                                     Button {
@@ -3939,7 +4030,7 @@ export component AppWindow inherits Window {
                                             root.text_size_changed(part, size.px + 1);
                                         }
                                     }
-                                    Text { text: "px"; color: #aaa; vertical-alignment: center; }
+                                    Text { text: "px"; color: Theme.label; vertical-alignment: center; }
                                     Button {
                                         text: Tr.text_size_default;
                                         enabled: size.px != size.designed;
@@ -3967,7 +4058,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.reset_window_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -3989,7 +4080,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     width: root.panel_w - 30px;
                                     text: Tr.reset_settings_hint;
-                                    font-size: 12px; color: #777; wrap: word-wrap;
+                                    font-size: 12px; color: Theme.hint; wrap: word-wrap;
                                 }
                             }
 
@@ -4010,7 +4101,7 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.width;
         height: root.height;
-        background: #000000e0;
+        background: Theme.overlay;
         // Without the focus the FocusScope never sees a key press.
         init => { zoom_keys.focus(); }
 

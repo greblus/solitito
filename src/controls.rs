@@ -38,6 +38,22 @@ pub fn connect(ui: &AppWindow, shared: &Shared) {
     connect_language(ui, shared);
     connect_navigation(ui, shared);
     connect_text_sizes(ui, &shared.cfg);
+    connect_look(ui, &shared.cfg);
+}
+
+/// The colour scheme picked in the App settings, saved; the hint drawn in
+/// the fretboard trainer is drawn again in it.
+fn connect_look(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
+    let uw = ui.as_weak();
+    let cfg = Rc::clone(cfg);
+    ui.on_look_changed(move |idx| {
+        let mut cfg = cfg.borrow_mut();
+        cfg.scheme = idx.max(0) as usize;
+        cfg.save();
+        if let Some(ui) = uw.upgrade() {
+            ui.set_note_hint_note(-1);
+        }
+    });
 }
 
 /// The text sizes of the App settings: a slider moved resizes its part at

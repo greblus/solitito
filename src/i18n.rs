@@ -281,6 +281,9 @@ pub struct Strings {
     pub text_size_default: &'static str,
     /// What the tiles and the captions cover, which their names do not say.
     pub text_sizes_hint: &'static str,
+    pub look: &'static str,
+    /// The colour schemes, in the order of `theme::SCHEMES`.
+    pub looks: [&'static str; 6],
     pub chord_tones: &'static str,
     pub fav_name: &'static str,
     pub fav_pick: &'static str,
@@ -490,6 +493,8 @@ pub const EN: Strings = Strings {
     text_parts: ["Side bar", "Chord strip", "Tune name", "Chord name", "Tiles", "Captions"],
     text_sizes_reset: "Designed sizes",
     text_size_default: "Default",
+    look: "Colours",
+    looks: ["Graphite", "Light", "Sepia", "Night", "Forest", "High contrast"],
     text_sizes_hint: "Tiles: the degrees on the tiles and in the line of degrees. Captions: the line above the exercise, the hints and the names of the notes on the tiles.",
     step_captions_hint: "A line above the exercise saying what to play now: which way, from which note to which.",
     jazz_names_hint: "Notes outside the chord as tensions: 9 for 2, 11 for 4, 13 for 6 - in Scales above the octave only. The chord's notes count no octaves: the root on top is 1 again.",
@@ -507,7 +512,7 @@ pub const EN: Strings = Strings {
     fav_remove: "Drop it from the favourites",
     formula_chords: "Chords inside the formula:",
     formula_chords_opt: "Show the chords that fit",
-    startup_mode: "Startup mode: ",
+    startup_mode: "Startup mode",
     chord_confidence: "Chord confidence: ",
     note_threshold: "Note threshold: ",
     hold_time: "Hold time: ",
@@ -525,7 +530,7 @@ pub const EN: Strings = Strings {
     next: "Next",
     previous: "Previous",
     no_data: "No Data",
-    language: "Language: ",
+    language: "Language",
     lang_auto: "Auto",
 };
 
@@ -708,6 +713,8 @@ pub const PL: Strings = Strings {
     text_parts: ["Pasek boczny", "Pasek akordów", "Nazwa utworu", "Nazwa akordu", "Kafelki", "Opisy"],
     text_sizes_reset: "Rozmiary domyślne",
     text_size_default: "Domyślny",
+    look: "Kolory",
+    looks: ["Grafit", "Jasny", "Sepia", "Noc", "Las", "Wysoki kontrast"],
     text_sizes_hint: "Kafelki: funkcje na kafelkach i w linii funkcji interwałowych. Opisy: linia nad ćwiczeniem, podpowiedzi i nazwy dźwięków na kafelkach.",
     step_captions_hint: "Linia nad ćwiczeniem mówiąca, co zagrać teraz: w którą stronę, od którego dźwięku do którego.",
     jazz_names_hint: "Dźwięki spoza akordu jako napięcia: 9 zamiast 2, 11 zamiast 4, 13 zamiast 6 - w Skalach tylko nad oktawą. Dźwięki akordu bez liczenia oktaw: pryma na górze to znów 1.",
@@ -725,7 +732,7 @@ pub const PL: Strings = Strings {
     fav_remove: "Usuń z ulubionych",
     formula_chords: "Akordy pasujące do formuły:",
     formula_chords_opt: "Pokazuj pasujące akordy",
-    startup_mode: "Tryb po uruchomieniu: ",
+    startup_mode: "Tryb początkowy",
     chord_confidence: "Pewność akordu: ",
     note_threshold: "Próg dźwięku: ",
     hold_time: "Czas przytrzymania: ",
@@ -743,7 +750,7 @@ pub const PL: Strings = Strings {
     next: "Następny",
     previous: "Poprzedni",
     no_data: "Brak danych",
-    language: "Język: ",
+    language: "Język",
     lang_auto: "Automatycznie",
 };
 

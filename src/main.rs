@@ -23,6 +23,7 @@ mod state;
 mod strike;
 mod tab;
 mod tuner;
+mod theme;
 mod ui_frame;
 mod voices;
 
@@ -622,6 +623,9 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_chord_context(cfg.chord_context);
     ui.set_show_tuner(cfg.show_tuner);
     show_text_sizes(&ui, &cfg.text_px);
+    let scheme = cfg.scheme.min(theme::SCHEMES.len() - 1) as i32;
+    ui.set_look_idx(scheme);
+    ui.invoke_apply_look(scheme);
     ui.set_formula_exercise(cfg.formula_exercise as i32);
     ui.set_formula_placement(cfg.formula_placement as i32);
     ui.set_formula_notes(cfg.formula_notes as i32);
@@ -1049,6 +1053,9 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_text_sizes_reset(t.text_sizes_reset.into());
     g.set_text_size_default(t.text_size_default.into());
     g.set_text_sizes_hint(t.text_sizes_hint.into());
+    g.set_look(t.look.into());
+    let looks: Vec<slint::SharedString> = t.looks.iter().map(|&l| l.into()).collect();
+    g.set_looks(ModelRc::from(Rc::new(VecModel::from(looks))));
     g.set_reset_window(t.reset_window.into());
     g.set_reset_window_hint(t.reset_window_hint.into());
     g.set_reset_settings(t.reset_settings.into());
