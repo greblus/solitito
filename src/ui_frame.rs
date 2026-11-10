@@ -78,7 +78,7 @@ pub struct UiFrame {
     last_diagram_key: String,
     /// The progression strip and what is heard, pushed only when they change:
     /// both are lists, and a new model every frame would redraw them for nothing.
-    last_progress: Vec<(String, String, i32, bool, Color)>,
+    last_progress: Vec<(String, (String, String), i32, bool, Color)>,
     last_song_keys: Vec<String>,
     last_heard: (String, Vec<(String, bool)>),
     last_heard_push: Instant,
@@ -917,7 +917,14 @@ impl UiFrame {
         // in the colour it was passed on - the big name's palette, so one
         // colour means one thing wherever it appears - and one stepped
         // over, or still to come, in grey.
-        let progress: Vec<(String, String, i32, bool, Color)> = app
+        let functions = app.chord_functions();
+        let written = |i: usize| -> (String, String) {
+            functions
+                .get(i)
+                .map(|f| (f.degree.written(), f.lead.map(|lead| lead.written()).unwrap_or_default()))
+                .unwrap_or_default()
+        };
+        let progress: Vec<(String, (String, String), i32, bool, Color)> = app
             .progress_around(3)
             .into_iter()
             .map(|(i, d)| {
@@ -927,15 +934,16 @@ impl UiFrame {
                     _ => MatchStatus::None,
                 };
                 let fg = theme::chip_colour(result, look);
-                (app.chord_label(i), app.chord_degree(i), d, result != MatchStatus::None, fg)
+                (app.chord_label(i), written(i), d, result != MatchStatus::None, fg)
             })
             .collect();
         if progress != self.last_progress {
             let chips: Vec<Chip> = progress
                 .iter()
-                .map(|(name, degree, d, played, fg)| Chip {
+                .map(|(name, (degree, lead), d, played, fg)| Chip {
                     name: name.into(),
                     degree: degree.into(),
+                    lead: lead.into(),
                     current: *d == 0,
                     played: *played,
                     fg: *fg,

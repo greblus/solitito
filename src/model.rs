@@ -126,24 +126,6 @@ fn jazz_degree(name: &str, major_third: bool) -> String {
     format!("{open}{accidental}{jazz}{close}")
 }
 
-/// A chord's degree in its tune, as a progression is written: the numeral
-/// counted from `tonic`, upper case over a major third and lower over a minor
-/// one, so that a ii-V-I reads `ii V I`. The numeral alone: an accidental and
-/// the kind of seventh stand in the chord's name right above it, so in G minor
-/// an F7 is `VII` and a Db dim in Bb is `iii`, as the Dm7 before it is.
-pub fn progression_degree(chord: &Chord, tonic: usize) -> String {
-    const NUMERALS: [&str; 12] =
-        ["I", "II", "II", "III", "III", "IV", "V", "V", "VI", "VI", "VII", "VII"];
-    let diminished = matches!(chord.quality, ChordQuality::HalfDiminished | ChordQuality::Diminished);
-    let semitones = (chord.root as usize + 12 - tonic % 12) % 12;
-    // Between the IV and the V a diminished chord leans up, from the IV.
-    let numeral = if semitones == 6 && diminished { "IV" } else { NUMERALS[semitones] };
-    match chord.quality {
-        ChordQuality::Major7 | ChordQuality::Dominant7 | ChordQuality::CustomScale(_) => numeral.to_string(),
-        _ => numeral.to_lowercase(),
-    }
-}
-
 /// A written phrase as the text field shows it: tones above the octave by
 /// their compound numbers - `"1 3 5 7 1' 3'"` -> `"1 3 5 7 8 10"`. Tones below
 /// the root keep their commas: the field is edited, and a line going below the
@@ -866,7 +848,8 @@ fn parse_single_chord(s: &str) -> Option<Chord> {
 fn map_chord_quality(s: &str) -> ChordQuality {
     match s {
         "Maj7" | "maj7" | "M7" | "Δ7" => ChordQuality::Major7,
-        "m7" | "min7" | "-" | "-7" => ChordQuality::Minor7,
+        // A minor triad is read as its seventh, as "-" is: there are no triads.
+        "m" | "min" | "m7" | "min7" | "-" | "-7" => ChordQuality::Minor7,
         "7" | "dom7" | "7b9" | "7#9" | "7alt" | "7b13" => ChordQuality::Dominant7,
         "m7b5" | "hdim" | "ø" => ChordQuality::HalfDiminished,
         // Without this the diminished chords in the standards fell through to the
@@ -1004,21 +987,14 @@ mod scale_library_tests {
 }
 
 #[cfg(test)]
-mod progression_degree_tests {
+mod song_tests {
     use super::*;
 
-    fn degrees(line: &str, key: &str) -> String {
-        let tonic = parse_single_chord(key).unwrap().root as usize;
-        parse_chords_line(line).iter().map(|c| progression_degree(c, tonic)).collect::<Vec<_>>().join(" ")
-    }
-
+    /// "Cm" is a minor chord: without its own entry it fell through to the
+    /// catch-all and was taught as C7.
     #[test]
-    fn a_progression_is_written_from_its_tonic() {
-        assert_eq!(degrees("Cm7 F7 BbMaj7", "Bb"), "ii V I");
-        assert_eq!(degrees("Am7b5 D7 Gm7", "G"), "ii V i");
-        assert_eq!(degrees("Cm7 F7 BbMaj7 EbMaj7", "G"), "iv VII III VI");
-        assert_eq!(degrees("Dm7 Dbdim Cm7", "Bb"), "iii iii ii");
-        assert_eq!(degrees("F#m7b5 Gb7", "C"), "iv V");
+    fn a_minor_triad_is_minor() {
+        assert_eq!(parse_single_chord("Cm").unwrap().quality, ChordQuality::Minor7);
     }
 
     #[test]

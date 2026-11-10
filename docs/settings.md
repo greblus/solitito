@@ -80,7 +80,7 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Jazz notation** | Scales, the chord scales of Intervals and Formulas: what falls between the chord's tones is named as a tension above it — `b9` for `b2`, `11` for `4`, `13` for `6` — so the Phrygian dominant reads `1 b9 3 4 5 b13 b7`. A plain `4` over a major third stays `4`: a semitone above the third, it is a note to pass over, not to hold. Nothing is counted past the octave: the root on top is `1` again, and how high is on the neck. Off by default; the exercise lists keep their plain degrees either way |
 | **Chord strip** (quick option, Chords and Intervals) | Chords, Intervals and Arpeggios over the changes: the chords of the tune at the top of the window, the current one and those around it. On by default. It helps while you get to know a progression; once you do, turn it off and keep the next chords in your head — see [Practising intervals](intervals-practice.md#playing-without-the-chord-strip) |
 | **Captions** (quick option, Intervals, Scales and Arpeggios) | A line above the exercise saying what to play now: which way, from which note to which, and in Ted Greene which group. On by default |
-| **Degrees in the chord strip** | Chords, Intervals and Arpeggios over the changes: each chord in the strip also shows its degree in the tune — `ii V I`. Upper case over a major third, lower over a minor one. Just the numeral: accidentals and the kind of seventh are in the chord's name above it, so in G minor an `F7` is `VII`. The degrees are counted from the tune's home, so they stay the same in every key |
+| **Degrees in the chord strip** | Chords, Intervals and Arpeggios over the changes: each chord in the strip shows its degree in the tune and under it — when it leads somewhere other than home — where it goes: `V7 → B♭`. See [Degrees and functions in the chord strip](#degrees-and-functions-in-the-chord-strip) |
 | **Voice leading** | Intervals, with the shuffle on: each chord starts on its tone nearest the last one played, never on the same note, so a shuffled exercise still reads as a line |
 | **Show chord shapes** | The diagram thumbnails under the chord name in Chords mode |
 | **Shapes** | Two boxes: the full grips and shell voicings — third and seventh over the root. Both ticked draws both, neither draws none. Past four shapes they are drawn in two rows. A `m7b5` has no shell of its own: its shell is the `m7` shell note for note, since the fifth is the only place the two differ, so that is what is drawn, captioned *substitute: the m7 shell*. With shells the only shapes on screen that grip is the one being asked for, so playing it passes green; with the full shapes drawn too, a `m7` reading means the flat fifth was missed and it stays yellow. A diminished seventh has nothing to leave out — its four notes are all a minor third apart, with no third-and-seventh pair to keep — so it keeps its full grips, captioned with what they also are: a `7b9` without its root, from a semitone below any of its notes |
@@ -97,6 +97,45 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 
 The line under `Channel` says what actually opened — device, sample rate, channel count
 and sample format. `./solitito --help` lists every option. `./solitito --devices` prints the same information for every device the backend can see, and `./solitito --bench` times one model inference — the app asks the model every 40 ms while a chord rings, so that figure is essentially the whole of its CPU load. A release build has the `windows` subsystem, so on Windows these modes write to the console that launched them; started with no console at all — from a shortcut carrying the flag — the program opens one of its own and waits for a key, so the report can be read.
+
+---
+
+## Degrees and functions in the chord strip
+
+<img width="700" alt="The Autumn Leaves chord strip with degrees and functions" src="screenshots/solitito_strip_functions.png" />
+
+Each chip has three lines: the chord, its **degree** in the tune and — smaller — **where it leads**. Autumn Leaves
+in G minor:
+
+| Chord | Degree | Leads | What it means |
+|---|---|---|---|
+| Cm7 | `iv` | `ii → B♭` | minor on the fourth degree; here the ii of a ii–V–I to B♭ |
+| F7 | `♭VII` | `V7 → B♭` | the flat seventh degree (F, not F♯); the dominant of B♭ |
+| B♭maj7 | `♭III` | | the target: the relative major |
+| E♭maj7 | `♭VI` | | on round the cycle of fifths |
+| Am7♭5 | `iiø` | | the half-diminished ii of a minor ii–V–i |
+| D7 | `V` | | the key's dominant: it goes home, which the degree already says |
+| Gm7 | `i` | | home |
+
+First a ii–V–I to the relative major, then a minor iiø–V–i home.
+
+The **degree** is counted from the tune's home on the major scale, with its accidental: in G minor an `F7` is
+`♭VII` and an `F♯°` `vii°`. Upper case over a major third, lower over a minor one. `ø` is half-diminished (m7♭5: a
+diminished fifth, a minor seventh), `°` diminished (dim7: fifth and seventh diminished). A diminished chord between
+two degrees is counted from the lower: `F♯°` in F is `♯i°`. Degrees are counted from home, so a transposed tune
+keeps them.
+
+**Leads** is shown only when the chord goes somewhere other than home, and names the target chord:
+
+- `V7 → x` — a dominant whose next different chord lies a fifth below. Repeated (`C7 C7 F`), it leads from both bars.
+- `subV7 → x` — a dominant resolving a semitone down, the tritone substitute; shown going home too, as `♭II`
+  alone does not say it.
+- `ii → x`, `iiø → x` — the minor or half-diminished chord before such a dominant.
+- An unresolved ii–V (`Em7 A7 Em7 A7` in Satin Doll) names the target it implies.
+- In a chain of dominants each leads to the nearest: `A7 D7 G7 C` is `V7 → D`, `V7 → G`, `V`, `I`.
+
+Left without a lead: the dominant on the home of a blues (`I7`), the backdoor (`Fm7 B♭7 → C` is `iv ♭VII I`), and a
+dominant that resolves nowhere. The strip plays round, so the last chord leads to the first.
 
 ---
 

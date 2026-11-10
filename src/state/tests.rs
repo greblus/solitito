@@ -3106,9 +3106,9 @@ fn a_tune_moved_to_another_key_keeps_its_degrees() {
     let mut a = app();
     a.set_mode(AppMode::Chords as i32);
     a.item_selected(0);
-    let degrees = |a: &MyApp| (0..a.chords.len()).map(|i| a.chord_degree(i)).collect::<Vec<_>>();
+    let degrees = |a: &MyApp| a.chord_functions().iter().map(|f| f.degree.written()).collect::<Vec<_>>();
     let written = degrees(&a);
-    assert_eq!(written[..3], ["iv", "VII", "III"], "Autumn Leaves from G");
+    assert_eq!(written[..3], ["iv", "♭VII", "♭III"], "Autumn Leaves from G");
     a.set_song_key(a.song_tonic().unwrap() + 5);
     assert_eq!(degrees(&a), written);
 }

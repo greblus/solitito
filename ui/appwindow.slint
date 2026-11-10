@@ -103,6 +103,8 @@ export struct Chip {
     name: string,
     /// Its degree in the tune, as a progression is written.
     degree: string,
+    /// Where it leads when that is not home, `V7/IV`; empty otherwise.
+    lead: string,
     current: bool,
     played: bool,
     fg: color,
@@ -209,6 +211,14 @@ component ProgressChip inherits Rectangle {
             text: root.chip.degree;
             font-size: 15px * TextScale.strip;
             color: root.chip.current ? Theme.on-accent-2 : Theme.dim;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        // Held to its line when empty, so every chip's name sits at one height.
+        if root.show_degree : Text {
+            text: root.chip.lead;
+            font-size: 13px * TextScale.strip;
+            color: root.chip.current ? Theme.on-accent-2 : Theme.link-dim;
             horizontal-alignment: center;
             overflow: elide;
         }
@@ -2016,7 +2026,8 @@ export component AppWindow inherits Window {
         // centred column, so it does not move the chord name up or down.
         if !root.show_settings && root.shows_changes && root.chord_strip
             && root.progress.length > 1 : Rectangle {
-            height: root.bar_h;
+            // Taller with the degrees: a chip carries its degree and its lead.
+            height: root.chord_degrees ? root.bar_h + 14px * max(1, TextScale.strip) : root.bar_h;
             // All the same width, so the current chord stays where the eye is -
             // and seven of them as wide as the room beside the side bar, less
             // the margin the drawings keep, its 15px margins and the six gaps.

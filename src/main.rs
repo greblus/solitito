@@ -12,6 +12,7 @@ mod flux;
 mod journal;
 mod formulas;
 mod fretboard;
+mod harmony;
 mod harris;
 mod renderer;
 mod i18n;

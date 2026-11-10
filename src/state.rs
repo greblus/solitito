@@ -1975,14 +1975,13 @@ impl MyApp {
             .unwrap_or_default()
     }
 
-    /// The chord's degree in its tune. Counted from the tonic the chords are
-    /// standing on, so a tune moved to another key keeps its numerals.
-    pub fn chord_degree(&self, index: usize) -> String {
-        let (Some(chord), Some(tonic)) = (self.chords.get(index), self.song_tonic()) else {
-            return String::new();
-        };
+    /// Every chord of the tune analysed: its degree and where it leads.
+    /// Counted from the tonic the chords are standing on, so a tune moved to
+    /// another key keeps its numerals. Empty without a tonic.
+    pub fn chord_functions(&self) -> Vec<crate::harmony::Analysis> {
+        let Some(tonic) = self.song_tonic() else { return Vec::new() };
         let moved = if self.app_mode == AppMode::Chords { self.transpose } else { 0 };
-        crate::model::progression_degree(chord, tonic + moved)
+        crate::harmony::analyse(&self.chords, tonic + moved)
     }
 
     /// How the previous chord was passed - `None` means it was stepped over.
