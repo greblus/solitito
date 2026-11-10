@@ -234,10 +234,10 @@ impl Approach {
 }
 
 impl Lead {
-    /// What the chord is and the chord it goes to, by name: `V7 → B♭`,
-    /// `iiø → Gm`, `subV7 → C`. Named rather than numbered: under the degree,
-    /// a second numeral counted from the same tonic - `♭VII` over `V7/♭III` -
-    /// had to be worked out back into a chord before it said anything.
+    /// What the chord is and the degree it goes to, with that degree's chord
+    /// named after it: `V7 → ♭III (B♭)`, `iiø → i (Gm)`. The degree alone,
+    /// `♭VII` over `V7/♭III`, had to be worked out back into a chord; the name
+    /// alone left the target's place in the tune out.
     pub fn written(&self) -> String {
         let root = crate::tab::spell(&crate::model::NoteName::from_index(self.target_root).to_string());
         let kind = match self.target.kind {
@@ -246,7 +246,7 @@ impl Lead {
             Kind::HalfDiminished => "ø",
             Kind::Diminished => "°",
         };
-        format!("{} → {root}{kind}", self.approach.written())
+        format!("{} → {} ({root}{kind})", self.approach.written(), self.target.numeral())
     }
 }
 
@@ -278,14 +278,15 @@ mod tests {
         }
     }
 
-    /// The strip names the target: in G minor the F7 is ♭VII going to B♭.
+    /// The strip writes the target's degree and names its chord: in G minor
+    /// the F7 is ♭VII going to ♭III, B♭.
     #[test]
     fn a_lead_names_its_target_chord() {
         let leads: Vec<String> = analyse(&parse_chords_line_pub("Cm7 F7 BbMaj7 Ab7 Gm7"), 7)
             .iter()
             .filter_map(|a| a.lead.map(|lead| lead.written()))
             .collect();
-        assert_eq!(leads, ["ii → B♭", "V7 → B♭", "subV7 → Gm"]);
+        assert_eq!(leads, ["ii → ♭III (B♭)", "V7 → ♭III (B♭)", "subV7 → i (Gm)"]);
     }
 
     /// Bars 3 to 15 of Solar: every ii-V goes somewhere else, and the C7

@@ -125,7 +125,7 @@ Reszta dokumentacji w `docs/`:
 | | |
 |---|---|
 | [**Ćwiczenie interwałów**](docs/intervals-practice_pl.md) | Pięćdziesiąt ćwiczeń grupa po grupie: co każde każe zagrać nad każdym rodzajem akordu, jak czytać listę i II–V–I do wypróbowania |
-| [**Analiza i nauka progresji**](docs/progressions_pl.md) | Co znaczą stopnie i funkcje na pasku akordów — `♭VII`, `V7 → B♭`, `subV7` — na przykładzie Autumn Leaves, i reguły, którymi program je wyznacza |
+| [**Analiza i nauka progresji**](docs/progressions_pl.md) | Co znaczą stopnie i funkcje na pasku akordów — `♭VII`, `V7 → ♭III (B♭)`, `subV7` — na przykładzie Autumn Leaves, i reguły, którymi program je wyznacza |
 | [**Ćwiczenie arpeggiów**](docs/arpeggios-practice_pl.md) | Zestaw ćwiczeń w czterech grupach: studia, arpeggio na zmianach, ćwiczenia Teda Greene'a w jednej pozycji i linie Harrisa |
 | [**Ćwiczenie z formułami**](docs/formulas-practice_pl.md) | Trzy ćwiczenia z formułami krok po kroku: co grać, czego słuchać, co to za szyfry na ekranie |
 | [Wybór wejścia](docs/audio-input_pl.md) | Co znaczą nazwy urządzeń w Linuksie, gdzie trzymane są ustawienia i jakie są tryby diagnostyczne |
