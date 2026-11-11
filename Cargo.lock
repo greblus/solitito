@@ -5147,7 +5147,7 @@ dependencies = [
 
 [[package]]
 name = "solitito"
-version = "0.5.15"
+version = "0.5.16"
 dependencies = [
  "anyhow",
  "chrono",
