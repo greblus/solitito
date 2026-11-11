@@ -543,12 +543,15 @@ AtoA holds some notes twice. The falling lines first took the later A3 and
 stalled on it in all three, 6/8 to 7/9; the first take, the one the rising
 lines use, goes through. The harness takes the first take of every note.
 
-The runs are not repeatable to the note. Four runs of the rising lines at
-0.50 s, on this change and on the commit before it alike: D dorian 4 to 8 of
-8, G mixolydian 4 to 8 of 8, the D m7 arpeggio 3 to 5 of 5 - against the
-single run of the table above. The same audio gives a different outcome
-from run to run; why is not known yet. The falling lines at 0.50 s came out
-whole every time.
+The rising lines were not repeatable to the note: four runs at 0.50 s gave
+D dorian 4 to 8 of 8, G mixolydian 4 to 8 of 8, the D m7 arpeggio 3 to 5 of
+5, against the single run of the table above. It was the harness, found
+November 2026: Scales runs from E to e by default, in a position drawn for
+every run, so the app asked for the scale from whatever note that position
+starts on - from A or B as often as from D - while the audio was the line
+from the root. The falling lines switched E to e off and came out whole
+every time; the rising ones now do the same, and give the table's numbers
+on every run.
 
 ### Enclosures and phrases
 
@@ -616,3 +619,153 @@ nothing - the pitch head reached 90% of the strongest class a hop after the
   AtoA one at a time                     37 false / 33 notes, unchanged;
                                          median 260 -> 220 ms
   everything else in the grid            identical
+
+## Quick crediting
+
+### struck_and_named
+
+*`src/state/judge.rs`, `src/state/quick_credit.rs`; harness `src/state/ear_speed_harness.rs`*
+
+Where the 0.4 s between a strike and its credit goes. On the user's sessions
+(sesja-g1, gitara-g1 to g3, 388 credits in Intervals), how long before the
+app's credit each witness had named the note's class - an estimate once it
+had said so for two hops running, looked for from the credit before, at most
+1.5 s back:
+
+  witness                 named before the credit   sooner by (median)
+  the ear, 8192 samples   388 of 388                128 ms
+  the strike detector     366                       352 to 368 ms
+  YIN, 2048 samples       355                       320 ms
+  YIN, 1024 samples       359                       336 ms
+  the rise, 2048 samples  387                       352 to 432 ms
+  the detector and YIN 1024: 345; and the rise: 366; and either: 366
+
+The ear's 128 ms is `NOTE_HOLD`: the credit comes eight hops after the ear
+names the note, and the ear names it a quarter of a second after the strike.
+
+The witnesses alone, on `line_harness`'s three rising lines (21 notes)
+spliced from AtoA at several speeds - notes named before the next one
+begins, the median time from the strike, and hops spent naming the note
+before or some other class:
+
+  each note stops the one before
+  seconds a note   detector        ear 8192            YIN 2048       YIN 1024
+  0.50             21, 22 ms       21, 262 ms          21, 54 ms      21, 26 ms
+  0.30             18, 26 ms       21, 258 ms          21, 62 ms      21, 30 ms
+  0.25             18, 22 ms       10, 232 ms          21, 64 ms      21, 32 ms
+  0.20             18, 18 ms        0                  21, 58 ms      21, 26 ms
+  0.15             18, 24 ms        0                  21, 66 ms      21, 30 ms
+  hops astray      0 to 1          160 to 180 before,  0 to 6 other   5 to 8 other
+                                   12 to 61 other
+
+  the note before left ringing 0.3 s under the next
+  0.50             21, 30 ms       20, 258 ms          21, 94 ms      21, 54 ms
+  0.30             19, 30 ms       19, 270 ms          11, 70 ms      14, 50 ms
+  0.20             20, 26 ms        1                   9             9
+  hops astray      0 to 1          as above            98 to 165      107 to 149
+
+YIN is the tuner's (`tuner::frequency`), on the end of the analysis window.
+It reads one period, so two strings at once defeat it; the rise does not
+care - see below. 1024 samples are taken: as many notes, half the wait.
+
+The other side, on AtoA's 51 reviewed notes, each left to ring out
+(`agreement_on_single_notes`): a strike report and an estimate naming the
+same class for two hops within 8 hops of it.
+
+  with the detector   the note played   a class nobody played   alone: runs of 3 hops on another class
+  YIN, 1024           44 of 51, 32 ms   2                       64
+  the rise            44 of 51, 34 ms   2                       194
+  the ear, 8192        4 of 51          0                       150
+
+The two false agreements are the same two for every estimate: a semitone
+below the note at 56.24 s and at 60.78 s, in the attack itself. 8 hops for
+`QUICK_AGREE` is the window of that measurement; `QUICK_TICKS` is two, as
+`CREDIT_TICKS` is.
+
+Through the whole judge (`lines_through_the_judge`, SOLITITO_QUICK=1 for the
+option), the three lines judged as Scales judges them - credited of 8, 8
+and 5, and the median time from the strike to the credit:
+
+  seconds a note   ordinary           quick, YIN alone    quick, YIN and the rise
+  each note stops the one before
+  0.50             8 8 5, 400 ms      8 8 5, 26-46 ms     8 8 5, 26-46 ms
+  0.40 to 0.25     1 1 1              8 8 5               8 8 5
+  0.20             1 1 1              7 7 5               7 7 5
+  0.15             1 1 1              7 7 4               7 7 4
+  the note before ringing 0.3 s
+  0.50             8 8 5, 400 ms      8 8 5, 46-94 ms     8 8 5, 30-62 ms
+  0.40             1 1 1              8 5 1               8 8 5
+  0.30             1 1 1              5 2 1               8 8 5
+  0.20             1 1 1              1 2 1               8 8 5
+  0.15             1 1 1              4 1 1               8 7 4
+
+A line is judged in order, so one note missed stops it: the notes lost at
+0.2 s and faster are strikes the detector did not report, left to the
+ordinary path, which at that speed has no time. The harness reports a
+first note credited 6 ms "before" it began: that is the label, which sits
+after the attack - the splice starts 50 ms ahead of it, and on AtoA itself
+a strike and an estimate agreed up to 30 ms before a label.
+
+The quick ear costs 154 µs a hop of 16 ms on the measuring machine
+(`what_the_quick_ear_costs`), and is computed only while the option is on
+in a mode that uses it.
+
+What is not measured: the live input. The harness feeds the judge every
+hop; the app's judge reads the audio thread from the window's 16 ms timer,
+after the sound card's buffer. The runs of the quick ear are counted on the
+audio thread for that reason, hop by hop, and only the agreement is read
+from the timer. Scales, Arpeggios and the fretboard trainer were judged
+only when the chord model answered - at most every 40 ms and not before
+half its window, 0.38 s, held sound - so the quick path has a clock of its
+own, once per audio frame.
+
+### The rise of the short spectrum
+
+*`src/rise.rs`; harness `src/state/rise_harness.rs`*
+
+The magnitude spectrum of the newest 2048 samples (`ShortSpectrum`, already
+computed for flux) less the same spectrum 8 hops before, what is negative
+dropped: the two windows share no audio, so a string only ringing leaves
+nothing and a string struck leaves its partials, whatever rings beside it.
+The rise is explained as `voices` explains a spectrum - the note with the
+largest sum over five partials is taken, its partials struck out, the rest
+asked again, up to four - and a note counts only where its own fundamental
+rose at least as much as its mean partial, or the fifth above a struck
+note collects that note's third and sixth partials and is named for it.
+Nothing is read where the rise sums to less than a tenth of the spectrum.
+
+On the lines above, the strongest risen note, two hops running:
+
+  seconds a note   each note stops the one before   the note before ringing 0.3 s
+  0.50             21 of 21, 38 ms                  21, 26 ms
+  0.30             21, 34 ms                        21, 34 ms
+  0.20             21, 34 ms                        21, 42 ms
+  0.15             21, 50 ms                        21, 60 ms
+
+It names every note at every speed, ringing or not - and on a held note it
+goes on naming things: 38 to 56 hops on another class over the 21 notes at
+half a second each, 194 runs of three hops on AtoA's notes left to ring.
+So it is a witness for the moment after a strike and nothing else, which
+is how `struck_and_named` uses it.
+
+More than one note, measured and not used. Triads of AtoA's notes struck
+15 ms apart, the fifth at full level, -6 and -12 dB and not played at all
+(51 triads); classes named two hops running within 12 hops of the strum:
+
+  fifth      roots   thirds   fifths   classes outside the triad
+   0 dB      48      49       48       79
+  -6 dB      50      49       45       77
+  -12 dB     50      49       27       74
+  absent     50      49        3       77
+
+The judge with "struck only" credits the fifth 24, 16 and 10 times of 51 on
+the same triads and 6 times where it is absent (see *A chord struck at
+once* on the `experiments` branch), so the rise hears the quiet fifth far
+more often and names it falsely less. But it names one and a half classes
+outside each triad as well, and on the user's 17 strummed chords 60 of 68
+chord tones with 74 classes outside them - four to a strum. Opening the
+model's pitch head to every class it names would open it to those too; as
+a gate for "struck only" it needs measuring through the judge, on the three
+sides the detector's replacements were measured on, before anything is
+built on it.
+

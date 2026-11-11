@@ -88,6 +88,11 @@ impl MyApp {
         if !self.held_past(NOTE_HOLD) {
             return;
         }
+        self.pass_fret_target(target);
+    }
+
+    /// Credits the note asked for and holds it on screen.
+    pub(super) fn pass_fret_target(&mut self, target: usize) {
         self.credit_class(target, 0);
         // Passed, but not moved on: the note stays where it is, green, for as
         // long as `FRET_SHOW` says. The clock for that runs in `tick`, every

@@ -747,6 +747,8 @@ pub(crate) fn app() -> MyApp {
         cqt_pitch: None,
         gate_open: false,
         frames_seen: 0,
+        quick_ear: false,
+        quick: Default::default(),
         tuner_on: false,
         tuner_hz: None,
     }));
@@ -758,6 +760,8 @@ pub(crate) fn app() -> MyApp {
         Chord { root: NoteName::A, quality: ChordQuality::Minor7 },
     ];
     a.reset_logic_state();
+    // SOLITITO_QUICK=1: every harness run with quick crediting on.
+    a.quick_credit = std::env::var_os("SOLITITO_QUICK").is_some();
     a
 }
 

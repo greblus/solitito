@@ -215,6 +215,64 @@ the low strings, which the detector does not see - and most of a strummed chord'
 the other modes do without it. In Formulas the price is a quiet or legato note that has to be
 picked again.
 
+### Quick crediting
+
+The ordinary path credits a single note about 0.4 s after it is struck, and the time is not
+spent deciding: it is spent waiting. The ear reads a window of half a second and names a new
+note only once it outweighs the one before in that window, about 0.26 s after the strike; the
+answer then has to hold for 0.12 s. On 388 credits of the user's own sessions the ear had
+named the note 128 ms before the credit - and the strike detector, which answers some 25 ms
+after an attack, 350 to 370 ms before it. A line of single notes is therefore credited whole
+at half a second a note and stops at 0.4 s: about two notes a second.
+
+Two witnesses are quicker than the ear, and neither is good enough alone:
+
+- **The strike detector** names the class struck 22 to 32 ms after the strike, in 18 to 21 of
+  21 notes of a line at any speed, and almost never a class nobody played. But it misses
+  some strikes, and what it does report is a claim about an attack, not about what sounds.
+- **The quick ear** reads the newest samples only. Its first reading is the tuner's YIN on
+  the last 64 ms: on a line where each note stops the one before, it names all 21 notes at
+  every speed down to 0.15 s a note, 26 to 32 ms after the strike. It is no ear for two
+  strings at once - with the note before left ringing 0.3 s under the next it named 14 of 21
+  at 0.3 s a note - and on a note dying away it wanders. Its second reading is what rose in
+  the spectrum of the last 128 ms against the 128 ms before: a string only ringing has not
+  risen, so the note just struck is the strongest thing in the rise, ringing notes or not.
+  That reading named all 21 notes at every speed with and without the ring - and on a held
+  note it goes on naming things: on AtoA's 51 notes left to ring, another class for three
+  hops or more 194 times.
+
+With **Quick crediting** on, where notes are taken one at a time, a note is credited the
+moment the two agree: the detector reported the class asked for within the last 8 hops, 0.13 s,
+and the quick ear names the same class, by either reading, for two hops running. A strike that
+has been credited does not count again, so a class asked for twice still has to be struck
+twice. Everything else is left to the ordinary path, which credits as it always did - so a
+note the detector missed is late, not lost.
+
+Measured through the whole judge, on lines spliced from AtoA's notes and judged as Scales
+judges them - a scale of eight notes, another, an arpeggio of five - credited notes and the
+median time from the strike to the credit:
+
+| seconds a note | ordinary | quick | quick, the note before ringing 0.3 s |
+| --- | --- | --- | --- |
+| 0.50 | 8, 8, 5 - 400 ms | 8, 8, 5 - 26 to 46 ms | 8, 8, 5 - 30 to 62 ms |
+| 0.40 to 0.25 | 1, 1, 1 | 8, 8, 5 | 8, 8, 5 |
+| 0.20 | 1, 1, 1 | 7, 7, 5 | 8, 8, 5 |
+| 0.15 | 1, 1, 1 | 7, 7, 4 | 8, 7, 4 |
+
+The notes still missed at 0.2 s and faster are strikes the detector did not report; a line
+is judged in order, so it waits there for the ordinary path, which at that speed cannot
+answer. On the user's sessions the detector and the quick ear agreed before the credit in
+366 of 388 notes; the other 22 are credited as before.
+
+The other side, on AtoA's 51 single notes each left to ring: the two agreed on the note
+played 44 times, a median 33 ms after the strike, and on a class nobody played twice - a
+semitone below the note, in the attack itself, both times. The ear proper, by its own rule
+and alone, named another class for three hops or more 150 times on the same recording.
+
+It is an option, off by default: all of this is measured on recordings, and the live input
+adds what a recording does not have - the sound card's buffer, and a judge that reads the
+audio thread from the window's clock.
+
 ### Which notes are sounding
 
 The spectrum is explained rather than ranked. The strongest candidate is taken, the partial

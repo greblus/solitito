@@ -307,14 +307,6 @@ impl MyApp {
     /// notes of anyone not picking hard enough to be heard as one.
     pub(super) fn collect_formula(&mut self, ai_root: Option<NoteName>, confidence: f32) -> bool {
         let pitches = self.formula_pitches();
-        let funcs = crate::formulas::functions_of(self.formula_mask);
-        // What the ear reported and what was credited. On by default while the
-        // mode is being tuned - it is the only way to tell a bad reading from a
-        // bad rule, and it says one line per credit, not per frame.
-        // SOLITITO_FORMULA=0 silences it.
-        let loud = std::env::var("SOLITITO_FORMULA")
-            .map(|v| v != "0")
-            .unwrap_or(self.log_credits && !cfg!(test));
         // A new lap holds for a moment: what finished the last one is still
         // ringing, and the ear would hand it straight back.
         if self.lap_hold > 0.0 {
@@ -348,22 +340,35 @@ impl MyApp {
             if self.strict_formulas && (branch != 1 || !self.ear_says(pc)) {
                 continue;
             }
+            self.credit_branch = Some(branch);
             self.credit_class(pc, 0);
             self.formula_collected[i] = true;
-            if loud {
-                println!(
-                    "atak#{} zaliczono {:<3} (sposob {branch})  ucho={:<3} model_prymy={:<3}",
-                    self.heard.onset_id,
-                    funcs.get(i).map(|&f| crate::formulas::FUNCS[f]).unwrap_or("?"),
-                    self.heard.cqt_pitch
-                        .map(|p| NoteName::from_index(p).to_string().to_string())
-                        .unwrap_or_else(|| "-".into()),
-                    ai_root
-                        .map(|r| r.to_string().to_string())
-                        .unwrap_or_else(|| "-".into()),
-                );
-            }
+            self.print_formula_credit(i, branch, ai_root);
         }
         !self.formula_collected.is_empty() && self.formula_collected.iter().all(|&c| c)
+    }
+
+    /// What the ear reported and what was credited, one line per credit: the
+    /// way to tell a bad reading from a bad rule. The debug option turns it
+    /// on; SOLITITO_FORMULA=1 or 0 overrules it.
+    pub(super) fn print_formula_credit(&self, function: usize, branch: u8, ai_root: Option<NoteName>) {
+        let loud = std::env::var("SOLITITO_FORMULA")
+            .map(|v| v != "0")
+            .unwrap_or(self.log_credits && !cfg!(test));
+        if !loud {
+            return;
+        }
+        let funcs = crate::formulas::functions_of(self.formula_mask);
+        println!(
+            "atak#{} zaliczono {:<3} (sposob {branch})  ucho={:<3} model_prymy={:<3}",
+            self.heard.onset_id,
+            funcs.get(function).map(|&f| crate::formulas::FUNCS[f]).unwrap_or("?"),
+            self.heard.cqt_pitch
+                .map(|p| NoteName::from_index(p).to_string().to_string())
+                .unwrap_or_else(|| "-".into()),
+            ai_root
+                .map(|r| r.to_string().to_string())
+                .unwrap_or_else(|| "-".into()),
+        );
     }
 }

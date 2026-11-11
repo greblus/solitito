@@ -135,6 +135,23 @@ impl MyApp {
             || self.heard.class_strike_age[pc] <= EAR_BACKED
     }
 
+    /// Whether `pc` was struck and named: the strike detector reported the
+    /// class within `QUICK_AGREE` hops and the quick ear names it too - by
+    /// the period of the newest 64 ms, or as the note that rose most in the
+    /// short spectrum. Witnesses with nothing in common: the detector is a
+    /// model answering which class was attacked, the other two are
+    /// arithmetic on the newest samples.
+    ///
+    /// A strike a credit has already been given for does not count again: the
+    /// class has to be struck anew, as in `Credits::struck_since`.
+    pub(super) fn struck_and_named(&self, pc: usize) -> bool {
+        let pc = pc % 12;
+        let heard = &self.heard;
+        let struck = heard.strikes_live && heard.class_strike_age[pc] <= QUICK_AGREE;
+        let unused = self.credited[pc].is_none_or(|credit| credit.class_strike != heard.class_strikes[pc]);
+        struck && unused && heard.quickly_named(pc)
+    }
+
     /// Whether `pc` was struck just now, for "credit only what was struck".
     /// The strike detector where it runs - see `STRUCK_FRESH`. Without it only
     /// flux is left, which says that a string was hit but not which.

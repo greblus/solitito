@@ -106,6 +106,10 @@ pub struct AudioAnalysis {
     /// is enough for one bad reading to carry a vote. This is what says whether
     /// there is anything new to look at.
     pub frames_seen: u64,
+    /// Whether the quick ear is wanted; it is measured only then.
+    pub quick_ear: bool,
+    /// What the quick ear read on the last hop - see `QuickEar`.
+    pub quick: QuickReading,
     /// Whether the tuner is on screen; it is measured only then.
     pub tuner_on: bool,
     /// The tuner's reading, `tuner::frequency` of the window's end. `None`
@@ -142,6 +146,13 @@ impl AudioAnalysis {
             self.class_strikes[pc] = self.class_strikes[pc].wrapping_add(1);
             self.class_strike_age[pc] = 0;
         }
+    }
+
+    /// The quick ear's reading of a hop where it is wanted, nothing where it
+    /// is not. For a replay and the tests: the live input measures it without
+    /// holding the lock.
+    pub fn hear_quickly(&mut self, quick: &mut QuickEar, window: &[f32], spectrum: &[f32]) {
+        self.quick = if self.quick_ear { quick.hear(window, spectrum, self.noise_gate) } else { quick.forget() };
     }
 
     /// Reports an attack: resets the counter and bumps the event id.
@@ -924,6 +935,7 @@ struct Listener {
     /// detector existed, and says so once.
     strikes: Option<crate::strike::Strikes>,
     attack: AttackDetector,
+    quick: QuickEar,
     /// SOLITITO_EAR=1: print every reading of the ear - see `print_ear`.
     loud_ear: bool,
 }
@@ -952,6 +964,7 @@ impl Listener {
             capture,
             strikes,
             attack: AttackDetector::new(),
+            quick: QuickEar::default(),
             loud_ear: std::env::var("SOLITITO_EAR").is_ok(),
         })
     }
@@ -988,10 +1001,17 @@ impl Listener {
         // Outside the noise gate, as the envelope's own detector is: a quiet
         // attack is exactly what both are here to catch, and the gate is a
         // level test of the kind that misses it.
-        if self.flux.push(self.short.of(window)).1 {
+        let spectrum = self.short.of(window);
+        if self.flux.push(spectrum).1 {
             if let Ok(mut st) = self.shared.lock() {
                 st.mark_flux();
             }
+        }
+        // Measured without the lock held: the UI reads the same struct.
+        let wanted = self.shared.lock().is_ok_and(|st| st.quick_ear);
+        let quick = if wanted { self.quick.hear(window, spectrum, gate) } else { self.quick.forget() };
+        if let Ok(mut st) = self.shared.lock() {
+            st.quick = quick;
         }
         self.listen_for_strikes(hop);
 
@@ -1105,6 +1125,70 @@ impl Listener {
     }
 }
 
+/// The samples the quick ear reads, at the end of the analysis window: 64 ms.
+pub const QUICK_SAMPLES: usize = 1024;
+
+/// What the quick witnesses read on a hop: each a pitch class, and the hops
+/// it has read the same one for.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct QuickReading {
+    /// The pitch of the newest `QUICK_SAMPLES`, by the tuner's YIN.
+    pub pitch: Option<usize>,
+    pub pitch_for: u32,
+    /// The note that rose most in the short spectrum - see `rise::Rise`.
+    pub risen: Option<usize>,
+    pub risen_for: u32,
+}
+
+/// The quick ear: two readings of the newest audio, hop by hop.
+///
+/// The ear proper reads a window of half a second and names a new note once
+/// it outweighs the one before in it, about 0.26 s after the strike. These
+/// two read less: YIN the period of the last 64 ms, a window short enough to
+/// hold the new note alone, and the rise what the last 128 ms have that the
+/// 128 ms before them had not. YIN is no ear for two strings at once and
+/// wanders on a note dying away; the rise names things through a held note.
+/// Neither is believed alone, only together with the strike detector - see
+/// `docs/judge-measurements.md#quick-crediting`.
+#[derive(Default)]
+pub struct QuickEar {
+    reading: QuickReading,
+    rise: crate::rise::Rise,
+}
+
+impl QuickEar {
+    /// One hop: `window` ends with the newest samples and `spectrum` is
+    /// `ShortSpectrum`'s of the same window. YIN reads nothing below `gate`,
+    /// the level of its own samples.
+    pub fn hear(&mut self, window: &[f32], spectrum: &[f32], gate: f32) -> QuickReading {
+        let newest = &window[window.len() - QUICK_SAMPLES..];
+        let level = (newest.iter().map(|x| x * x).sum::<f32>() / QUICK_SAMPLES as f32).sqrt();
+        let pitch = (level > gate)
+            .then(|| crate::tuner::frequency(newest, TARGET_SR as f32))
+            .flatten()
+            .map(|hz| crate::tuner::nearest_note(hz).0);
+        let risen = self.rise.push(spectrum).first().map(|class| class.0);
+        let held = |now: Option<usize>, before: Option<usize>, hops: u32| match now {
+            Some(_) if now == before => hops.saturating_add(1),
+            Some(_) => 1,
+            None => 0,
+        };
+        self.reading = QuickReading {
+            pitch,
+            pitch_for: held(pitch, self.reading.pitch, self.reading.pitch_for),
+            risen,
+            risen_for: held(risen, self.reading.risen, self.reading.risen_for),
+        };
+        self.reading
+    }
+
+    /// Not wanted: nothing is read and nothing is remembered.
+    pub fn forget(&mut self) -> QuickReading {
+        *self = QuickEar::default();
+        self.reading
+    }
+}
+
 /// SOLITITO_EAR=1: every reading with its score, the ones under the gate
 /// included. A note played softly has its upper partials down in the noise and
 /// scores lower for it, and this is the only way to see by how much before
@@ -1134,6 +1218,7 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
         let mut short = ShortSpectrum::new();
         let mut flux = crate::flux::Flux::default();
         let mut strikes = crate::strike::Strikes::load_any().ok().map(|(s, _)| s);
+        let mut quick = QuickEar::default();
         let mut pos = 0;
         
         while pos + FFT_SIZE < samples.len() {
@@ -1147,7 +1232,8 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
             let heard = mono_pitch(&cqt)
                 .filter(|&(_, score)| score >= MONO_MIN_SCORE)
                 .map(|(note, _)| note);
-            let attack = flux.push(short.of(chunk)).1;
+            let spectrum = short.of(chunk);
+            let attack = flux.push(spectrum).1;
             let struck = strikes
                 .as_mut()
                 .and_then(|d| d.push(&chunk[FFT_SIZE - HOP_LENGTH..]).ok())
@@ -1161,6 +1247,7 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
                     let end = &chunk[FFT_SIZE - crate::tuner::SAMPLES..];
                     state.tuner_hz = crate::tuner::frequency(end, spec.sample_rate as f32);
                 }
+                state.hear_quickly(&mut quick, chunk, spectrum);
                 state.voices = sounding;
                 state.cqt_pitch = heard.map(|n| n % 12);
                 state.cqt_semitone = heard;
@@ -1319,6 +1406,8 @@ mod fill_tests {
             cqt_semitone: None,
             gate_open: false,
             frames_seen: 0,
+            quick_ear: false,
+            quick: Default::default(),
             tuner_on: false,
             tuner_hz: None,
         }

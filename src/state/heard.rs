@@ -2,9 +2,9 @@
 //! copied in once per audio frame, and the questions that are answered from
 //! it alone.
 
-use crate::audio::AudioAnalysis;
+use crate::audio::{AudioAnalysis, QuickReading};
 
-use super::{CREDIT_TICKS, LEFT_TICKS};
+use super::{CREDIT_TICKS, LEFT_TICKS, QUICK_TICKS};
 
 pub struct Heard {
     /// Audio frames pushed so far; the last one judged is `MyApp::judged_frame`.
@@ -28,6 +28,9 @@ pub struct Heard {
     /// Pitch class sounding in the last CQT frame - see `audio::mono_pitch`.
     /// `None` while the gate is shut or the estimate is weak.
     pub cqt_pitch: Option<usize>,
+    /// What the quick ear read on the last hop, its runs counted on the audio
+    /// thread, hop by hop - see `audio::QuickEar`.
+    pub quick: QuickReading,
     /// Attack counter, mirrored from the audio thread.
     pub onset_id: u64,
     /// The recording's hop clock, so a journal row is a position in the WAV.
@@ -75,6 +78,7 @@ impl Default for Heard {
             steady_for: 0,
             cqt_semitone: None,
             cqt_pitch: None,
+            quick: QuickReading::default(),
             onset_id: 0,
             capture_hop: 0,
             voices: 0,
@@ -99,6 +103,7 @@ impl Heard {
         }
         self.cqt_pitch = state.cqt_pitch;
         self.cqt_semitone = state.cqt_semitone;
+        self.quick = state.quick;
         self.onset_id = state.onset_id;
         if state.flux_id != self.flux_id {
             self.flux_seen = true;
@@ -165,6 +170,14 @@ impl Heard {
     /// brings the repeats back. So only the first one is short.
     pub fn sounding_now(&self) -> Option<usize> {
         self.held_for(CREDIT_TICKS)
+    }
+
+    /// Whether a quick witness names `pc`: YIN or the rise, either for
+    /// `QUICK_TICKS` hops running.
+    pub fn quickly_named(&self, pc: usize) -> bool {
+        let quick = &self.quick;
+        quick.pitch == Some(pc) && quick.pitch_for >= QUICK_TICKS
+            || quick.risen == Some(pc) && quick.risen_for >= QUICK_TICKS
     }
 
     /// Where notes are played one at a time: Scales, Arpeggios and the

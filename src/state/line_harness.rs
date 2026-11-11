@@ -20,7 +20,7 @@ const GATE: f32 = 0.001;
 const LEAD_IN: f32 = 0.5;
 
 /// AtoA's notes with their MIDI numbers, in playing order.
-fn atoa_notes() -> (Vec<f32>, Vec<(f32, u8)>) {
+pub(super) fn atoa_notes() -> (Vec<f32>, Vec<(f32, u8)>) {
     let (signal, _) = super::repeat_harness::load_atoa_pub();
     let notes = std::fs::read_to_string("dist/crediting_measurements/atoa-reference-reviewed.csv")
         .unwrap()
@@ -36,7 +36,7 @@ fn atoa_notes() -> (Vec<f32>, Vec<(f32, u8)>) {
 
 /// The notes of a rising line through `pcs`, from the lowest `pcs[0]` AtoA
 /// holds: each the nearest note above the one before with the class asked.
-fn rising(notes: &[(f32, u8)], pcs: &[usize]) -> Vec<usize> {
+pub(super) fn rising(notes: &[(f32, u8)], pcs: &[usize]) -> Vec<usize> {
     let mut picked = Vec::new();
     let mut floor = 0u8;
     for &pc in pcs {
@@ -129,7 +129,7 @@ fn splice_shifted(signal: &[f32], notes: &[(f32, u8, i8)], line: &[usize], lengt
 /// The line as audio: each note `length` long, from just before its attack,
 /// with `ring` more of it left under the next - a note on another string.
 /// Returns the audio and when each note starts.
-fn splice(signal: &[f32], notes: &[(f32, u8)], line: &[usize], length: f32, ring: f32) -> (Vec<f32>, Vec<f32>) {
+pub(super) fn splice(signal: &[f32], notes: &[(f32, u8)], line: &[usize], length: f32, ring: f32) -> (Vec<f32>, Vec<f32>) {
     let step = (length * SR) as usize;
     let lead = (LEAD_IN * SR) as usize;
     let mut out = vec![0.0f32; lead + step * line.len() + (2.0 * SR) as usize];
@@ -163,10 +163,11 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8],
     a.scale_repeat_root = true;
     a.scale_descending = false;
     a.random_mode = false;
+    // One octave from the root, as the line is spliced - not from E to e
+    // wherever the hand was drawn to stand, which starts on another note
+    // from run to run.
+    a.set_scale_e_to_e(false);
     if down {
-        // One octave down from the top, as the line is spliced - not the
-        // whole neck from wherever the hand was drawn to stand.
-        a.set_scale_e_to_e(false);
         a.scale_direction = ScaleDirection::Down;
     }
     a.reset_logic_state();
@@ -193,6 +194,7 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
     let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).unwrap();
     let mut short = ShortSpectrum::new();
     let mut flux = crate::flux::Flux::default();
+    let mut quick = crate::audio::QuickEar::default();
     let mut buffer = vec![0.0f32; FFT_SIZE];
     let mut next_model = 0.0f32;
     let mut credited: Vec<Option<f32>> = vec![None; steps];
@@ -203,7 +205,8 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
-        let attack = flux.push(short.of(&buffer)).1;
+        let spectrum = short.of(&buffer);
+        let attack = flux.push(spectrum).1;
         let (_, struck) = strikes.push(hop).unwrap();
         {
             let mut st = a.analysis_state.lock().unwrap();
@@ -214,6 +217,7 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
                 st.mark_onset();
             }
             st.mark_strikes(&struck);
+            st.hear_quickly(&mut quick, &buffer, spectrum);
             if rms > GATE {
                 let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
                 let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
@@ -301,7 +305,7 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
 
 /// One line at one speed: how many steps were credited, how many before their
 /// own note began, and the median delay of the rest.
-fn measure(name: &str, root: NoteName, names: &[&str], intervals: &[u8], length: f32, ring: f32) {
+pub(super) fn measure(name: &str, root: NoteName, names: &[&str], intervals: &[u8], length: f32, ring: f32) {
     measure_way(name, root, names, intervals, length, ring, false);
 }
 

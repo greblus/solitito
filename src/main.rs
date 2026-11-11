@@ -15,6 +15,7 @@ mod fretboard;
 mod harmony;
 mod harris;
 mod renderer;
+mod rise;
 mod i18n;
 mod interval_levels;
 mod latch;
@@ -464,6 +465,8 @@ fn new_analysis_state() -> Arc<Mutex<AudioAnalysis>> {
         cqt_semitone: None,
         gate_open: false,
         frames_seen: 0,
+        quick_ear: false,
+        quick: Default::default(),
         tuner_on: false,
         tuner_hz: None,
     }))
@@ -588,6 +591,7 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_language_idx(cfg.language);
     ui.set_short_verdict(cfg.short_verdict);
     ui.set_single_notes(cfg.single_notes);
+    ui.set_quick_credit(cfg.quick_credit);
     ui.set_require_onset(cfg.require_onset_for(cfg.startup_mode));
     ui.set_shuffle_chords(cfg.shuffle_chords);
     ui.set_show_diagrams(cfg.show_diagrams);
@@ -912,6 +916,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_show_heard(t.show_heard.into());
     g.set_chip_in_order(t.chip_in_order.into());
     g.set_chip_single(t.chip_single.into());
+    g.set_chip_quick(t.chip_quick.into());
+    g.set_chip_quick_hint(t.chip_quick_hint.into());
     g.set_chip_struck(t.chip_struck.into());
     g.set_chip_lock(t.chip_lock.into());
     g.set_chip_attack(t.chip_attack.into());

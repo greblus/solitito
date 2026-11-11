@@ -16,6 +16,7 @@ mod fretboard_mode;
 mod heard;
 mod judge;
 mod notes_mode;
+mod quick_credit;
 pub use credits::Credits;
 #[cfg(test)]
 use chords_mode::{chord_reading, ChordReading};
@@ -399,6 +400,14 @@ const EAR_WINDOW: usize = 5;
 const CREDIT_TICKS: u32 = 2;
 const LEFT_TICKS: u32 = 3;
 
+/// Hops the quick ear has to have read a class for it to count as named.
+const QUICK_TICKS: u32 = 2;
+
+/// Hops after the strike detector reports a class within which the quick ear
+/// naming it too is the two agreeing: about 0.13 s. Measurements:
+/// `docs/judge-measurements.md#quick-crediting`.
+const QUICK_AGREE: u32 = 8;
+
 /// The attack counters as they stood when the current chord became the target.
 #[derive(Clone, Copy, Default, Debug)]
 struct ChordHeard {
@@ -655,6 +664,14 @@ pub struct MyApp {
     /// the note modes' rule back for a comparison.
     pub strict_formulas: bool,
     judged_frame: u64,
+    /// Quick crediting: where notes are taken one at a time, a note is credited
+    /// the moment the strike detector and the quick ear agree on it, without
+    /// waiting for the ear proper - see `struck_and_named`. An option, off by
+    /// default.
+    pub quick_credit: bool,
+    /// The last audio frame the quick path looked at: once per frame, as the
+    /// other clocks.
+    quick_judged_frame: u64,
     /// The model's last word, kept so the frame clock can judge a formula
     /// without waiting for the next one. The model is asked only while the
     /// context window is nine tenths full, and playing one note at a time never
@@ -862,6 +879,8 @@ impl MyApp {
                 .map(|v| v != "0")
                 .unwrap_or(true),
             judged_frame: u64::MAX,
+            quick_credit: false,
+            quick_judged_frame: u64::MAX,
             last_ai_root: None,
             last_ai_conf: 0.0,
             formula_in_order: false,
@@ -1909,6 +1928,7 @@ impl MyApp {
     /// Intervals and Formulas also judge here, but only on a new audio frame;
     /// polling the same CQT sample twice must not count as two observations.
     pub fn tick(&mut self, dt: f32) {
+        self.tick_quick_credit();
         match self.app_mode {
             AppMode::Intervals => self.tick_intervals(dt),
             AppMode::Fretboard => self.tick_fretboard(dt),
@@ -2150,6 +2170,7 @@ impl MyApp {
                 state.noise_gate = self.noise_gate;
                 state.bass_boost_enabled = self.bass_boost_enabled;
                 state.bass_boost_gain = self.bass_boost_gain;
+                state.quick_ear = self.quick_credit && self.one_at_a_time();
                 self.heard.read_audio_frame(&state);
                 state.gate_open
             }
@@ -2271,7 +2292,16 @@ mod generator_tests;
 mod level_tests;
 
 #[cfg(test)]
+mod quick_credit_tests;
+
+#[cfg(test)]
 mod line_harness;
+
+#[cfg(test)]
+mod ear_speed_harness;
+
+#[cfg(test)]
+mod rise_harness;
 
 #[cfg(test)]
 mod formula_harness;

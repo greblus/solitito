@@ -281,6 +281,7 @@ impl UiFrame {
             }
         }
         app.single_notes = ui.get_single_notes();
+        app.quick_credit = ui.get_quick_credit();
         // In Formulas the strict judge - the single-frame estimate alone - is
         // Single notes: off, the set is strummed, and the estimate names one
         // note of a chord. Struck whole, 17 strums of four tones credited 17

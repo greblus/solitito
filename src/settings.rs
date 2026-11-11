@@ -48,6 +48,11 @@ pub struct Settings {
     /// something the app can do and a monophonic tuner cannot.
     #[serde(default)]
     pub single_notes: bool,
+    /// Quick crediting, where notes are taken one at a time: a note is
+    /// credited the moment the strike detector and the quick ear agree on it.
+    /// Off by default, until it has been played with.
+    #[serde(default)]
+    pub quick_credit: bool,
     /// "Credit only what was struck", offered in Intervals alone and on by
     /// default, including in older settings that saved a shared value for every
     /// mode - that one is no longer read. The other modes do without it: the
@@ -425,6 +430,7 @@ impl Default for Settings {
             language: 0,
             short_verdict: false,
             single_notes: true,
+            quick_credit: false,
             interval_require_onset: true,
             shuffle_chords: false,
             audio_device: None,
@@ -819,6 +825,16 @@ mod tests {
         // A file written before the option existed still loads, with it off.
         let old: Settings = serde_json::from_str(r#"{"startup_mode":4,"language":1}"#).unwrap();
         assert!(!old.single_notes);
+    }
+
+    #[test]
+    fn quick_crediting_is_off_until_asked_for_and_is_remembered() {
+        assert!(!Settings::default().quick_credit);
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":2}"#).unwrap();
+        assert!(!old.quick_credit, "a file written before the option turned it on");
+        let s = Settings { quick_credit: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.quick_credit, "the option did not survive being saved");
     }
 
     #[test]

@@ -830,6 +830,8 @@ export global Tr {
     in-out property <string> show_heard: "The Hearing bar under the exercise";
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
+    in-out property <string> chip_quick: "Quick crediting";
+    in-out property <string> chip_quick_hint: "Credits a note as soon as the strike detector and the quick ear agree on it";
     in-out property <string> chip_struck: "Struck only";
     in-out property <string> chip_lock: "Hold the quality";
     in-out property <string> chip_attack: "Short strums";
@@ -1369,6 +1371,9 @@ export component AppWindow inherits Window {
     callback single_notes_changed(bool);
     in-out property <bool> require_onset: false;
     callback require_onset_changed(bool);
+    /// Quick crediting, where notes are taken one at a time.
+    in-out property <bool> quick_credit: false;
+    callback quick_credit_changed(bool);
     in-out property <bool> in_order: false;
     callback in_order_changed(bool);
     in-out property <bool> interval_in_order: true;
@@ -1602,6 +1607,8 @@ export component AppWindow inherits Window {
                             padding-bottom: 4px;
                             SideToggle { text: Tr.chip_hint; on: root.fret_hint;
                                 toggled => { root.fret_hint = !root.fret_hint; root.fret_hint_changed(root.fret_hint); } }
+                            SideToggle { text: Tr.chip_quick; hint: Tr.chip_quick_hint; on: root.quick_credit;
+                                toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                         }
                         NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
                             expandable: root.current_mode == 0 && !root.show_settings;
@@ -1676,6 +1683,9 @@ export component AppWindow inherits Window {
                                 toggled => { root.interval_in_order = !root.interval_in_order; root.interval_in_order_changed(root.interval_in_order); } }
                             SideToggle { text: Tr.chip_struck; on: root.require_onset;
                                 toggled => { root.require_onset = !root.require_onset; root.require_onset_changed(root.require_onset); } }
+                            // Only where notes are taken one at a time.
+                            if root.single_notes : SideToggle { text: Tr.chip_quick; hint: Tr.chip_quick_hint; on: root.quick_credit;
+                                toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                             SideToggle { text: Tr.chord_strip; on: root.chord_strip;
                                 toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
@@ -1728,6 +1738,8 @@ export component AppWindow inherits Window {
                                 toggled => { root.scale_e_to_e = !root.scale_e_to_e; root.scale_way_changed(); } }
                             SideToggle { text: Tr.there_and_back; on: root.scale_there_and_back;
                                 toggled => { root.scale_there_and_back = !root.scale_there_and_back; root.scale_way_changed(); } }
+                            SideToggle { text: Tr.chip_quick; hint: Tr.chip_quick_hint; on: root.quick_credit;
+                                toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
                                 toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
                         }
@@ -1821,6 +1833,8 @@ export component AppWindow inherits Window {
                                 toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
                             if root.arp_exercise >= 1 : SideToggle { text: Tr.chord_context; hint: Tr.chord_context_hint; on: root.chord_context;
                                 toggled => { root.chord_context = !root.chord_context; root.chord_context_changed(root.chord_context); } }
+                            SideToggle { text: Tr.chip_quick; hint: Tr.chip_quick_hint; on: root.quick_credit;
+                                toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                             if root.arp_exercise == 3 : SideToggle { text: Tr.greene_tensions; on: root.greene_tensions;
                                 toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
@@ -1864,6 +1878,8 @@ export component AppWindow inherits Window {
                                 toggled => { root.single_notes = !root.single_notes; root.single_notes_changed(root.single_notes); } }
                             SideToggle { text: Tr.chip_in_order; on: root.in_order;
                                 toggled => { root.in_order = !root.in_order; root.in_order_changed(root.in_order); } }
+                            if root.single_notes : SideToggle { text: Tr.chip_quick; hint: Tr.chip_quick_hint; on: root.quick_credit;
+                                toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                         }
                     }
                 }

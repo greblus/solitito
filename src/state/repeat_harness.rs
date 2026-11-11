@@ -148,6 +148,7 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
         })
     };
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut quick = crate::audio::QuickEar::default();
     let mut out = Outcome { credited_at: None, permitted_at: None, by: None };
 
     for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
@@ -155,7 +156,8 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
-        let attack = flux.push(short.of(&buffer)).1;
+        let spectrum = short.of(&buffer);
+        let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
         {
             let mut st = a.analysis_state.lock().unwrap();
@@ -168,6 +170,7 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
             if let Some(s) = &struck {
                 st.mark_strikes(s);
             }
+            st.hear_quickly(&mut quick, &buffer, spectrum);
             if rms > gate {
                 let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt)
@@ -239,13 +242,15 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
             })
     };
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut quick = crate::audio::QuickEar::default();
     let mut switched = false;
     for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
-        let attack = flux.push(short.of(&buffer)).1;
+        let spectrum = short.of(&buffer);
+        let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
         {
             let mut st = a.analysis_state.lock().unwrap();
@@ -258,6 +263,7 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
             if let Some(s) = &struck {
                 st.mark_strikes(s);
             }
+            st.hear_quickly(&mut quick, &buffer, spectrum);
             if rms > gate {
                 let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
@@ -337,6 +343,7 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
     let mut flux = crate::flux::Flux::default();
     let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).ok();
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut quick = crate::audio::QuickEar::default();
     let mut switched = false;
     let mut x_credited: Option<f32> = None;
     for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
@@ -344,7 +351,8 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
         let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
-        let attack = flux.push(short.of(&buffer)).1;
+        let spectrum = short.of(&buffer);
+        let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
         {
             let mut st = a.analysis_state.lock().unwrap();
@@ -357,6 +365,7 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
             if let Some(s) = &struck {
                 st.mark_strikes(s);
             }
+            st.hear_quickly(&mut quick, &buffer, spectrum);
             if rms > gate {
                 let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
                 let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);

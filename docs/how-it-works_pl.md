@@ -223,6 +223,65 @@ grane legato, niskie struny, których detektor nie widzi — i większość skł
 akordu, dlatego pozostałe tryby obywają się bez niego. W Formułach kosztuje to cichą albo
 legato nutę, którą trzeba zagrać jeszcze raz kostką.
 
+### Szybkie zaliczanie
+
+Zwykła droga zalicza pojedynczy dźwięk około 0,4 s po uderzeniu i ten czas nie idzie na
+decyzję, tylko na czekanie. Ucho czyta okno o długości pół sekundy i nazywa nowy dźwięk dopiero
+wtedy, gdy przeważy on w tym oknie nad poprzednim, czyli około 0,26 s po uderzeniu; potem
+odpowiedź musi się utrzymać przez 0,12 s. Na 388 zaliczeniach z sesji użytkownika ucho nazwało
+dźwięk 128 ms przed zaliczeniem — a detektor uderzeń, który odpowiada około 25 ms po ataku,
+350–370 ms przed nim. Dlatego linia pojedynczych dźwięków zaliczana jest w całości przy pół
+sekundy na nutę, a staje przy 0,4 s: to mniej więcej dwa dźwięki na sekundę.
+
+Dwa źródła są szybsze od ucha i żadne nie wystarcza samo:
+
+- **Detektor uderzeń** nazywa uderzoną klasę 22–32 ms po uderzeniu, w 18–21 z 21 dźwięków linii
+  przy każdym tempie, i prawie nigdy klasę, której nikt nie zagrał. Ale część uderzeń przegapia,
+  a to, co zgłasza, mówi o ataku, nie o tym, co brzmi.
+- **Szybkie ucho** czyta tylko najnowsze próbki. Pierwszy odczyt to YIN z tunera na ostatnich
+  64 ms: w linii, w której każdy dźwięk gasi poprzedni, nazywa wszystkie 21 dźwięków przy każdym
+  tempie aż do 0,15 s na nutę, 26–32 ms po uderzeniu. Nie jest uchem na dwie struny naraz — gdy
+  poprzedni dźwięk dzwonił 0,3 s pod następnym, nazwał 14 z 21 przy 0,3 s na nutę — a na
+  wygasającym dźwięku błądzi. Drugi odczyt to to, co przyrosło w widmie ostatnich 128 ms
+  względem 128 ms przed nimi: struna, która tylko dzwoni, nie przyrosła, więc dźwięk właśnie
+  uderzony jest w przyroście najsilniejszy, czy coś pod nim dzwoni, czy nie. Ten odczyt nazwał
+  wszystkie 21 dźwięków przy każdym tempie, z wybrzmiewaniem i bez — a na trzymanym dźwięku
+  dalej coś nazywa: na 51 dźwiękach AtoA z pełnym wybrzmieniem inną klasę przez trzy kroki lub
+  dłużej 194 razy.
+
+Przy włączonym **Szybkim zaliczaniu**, tam gdzie dźwięki grane są pojedynczo, dźwięk jest
+zaliczany w chwili, gdy oba źródła się zgodzą: detektor zgłosił zadaną klasę w ostatnich
+8 krokach (0,13 s), a szybkie ucho nazywa tę samą klasę, którymkolwiek odczytem, przez dwa
+kroki z rzędu. Uderzenie, za które już zaliczono, nie liczy się drugi raz, więc klasę zadaną
+dwa razy nadal trzeba uderzyć dwa razy. Wszystko inne zostaje zwykłej drodze, która zalicza
+tak jak zawsze — dźwięk przegapiony przez detektor jest więc spóźniony, nie stracony.
+
+Zmierzone przez całego sędziego, na liniach sklejonych z nut AtoA i sądzonych tak, jak sądzą
+Skale — skala ośmiu dźwięków, druga taka, arpeggio pięciu — zaliczone dźwięki i mediana czasu
+od uderzenia do zaliczenia:
+
+| sekund na nutę | zwykła droga | szybka | szybka, poprzedni dźwięk dzwoni 0,3 s |
+| --- | --- | --- | --- |
+| 0,50 | 8, 8, 5 — 400 ms | 8, 8, 5 — 26–46 ms | 8, 8, 5 — 30–62 ms |
+| 0,40–0,25 | 1, 1, 1 | 8, 8, 5 | 8, 8, 5 |
+| 0,20 | 1, 1, 1 | 7, 7, 5 | 8, 8, 5 |
+| 0,15 | 1, 1, 1 | 7, 7, 4 | 8, 7, 4 |
+
+Dźwięki wciąż gubione przy 0,2 s i szybciej to uderzenia, których detektor nie zgłosił; linia
+jest sądzona po kolei, więc czeka tam na zwykłą drogę, a ta przy takim tempie nie zdąża. Na
+sesjach użytkownika detektor i szybkie ucho zgodziły się przed zaliczeniem w 366 z 388
+dźwięków; pozostałe 22 zaliczane są jak dotąd.
+
+Druga strona, na 51 pojedynczych dźwiękach AtoA, każdy z pełnym wybrzmieniem: oba źródła
+zgodziły się na zagranym dźwięku 44 razy, z medianą 33 ms po uderzeniu, a na klasie, której
+nikt nie zagrał, dwa razy — pół tonu poniżej dźwięku, w samym ataku. Zwykłe ucho, według
+własnej reguły i samo, na tym samym nagraniu nazwało inną klasę przez trzy kroki lub dłużej
+150 razy.
+
+To opcja, domyślnie wyłączona: wszystko to jest zmierzone na nagraniach, a wejście na żywo
+dokłada to, czego nagranie nie ma — bufor karty dźwiękowej i sędziego, który czyta wątek audio
+z zegara okna.
+
 ### Które dźwięki brzmią
 
 Widmo jest **tłumaczone**, nie rankowane. Bierze się najmocniejszego kandydata, odejmuje

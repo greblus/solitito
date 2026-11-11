@@ -108,6 +108,7 @@ fn saving<T>(
 fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_short_verdict_changed(saving(cfg, |s, on| s.short_verdict = on));
     ui.on_single_notes_changed(saving(cfg, |s, on| s.single_notes = on));
+    ui.on_quick_credit_changed(saving(cfg, |s, on| s.quick_credit = on));
     ui.on_fret_hint_changed(saving(cfg, |s, on| s.fret_hint = on));
     ui.on_scale_repeat_root_changed(saving(cfg, |s, on| s.scale_repeat_root = on));
     {
