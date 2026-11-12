@@ -70,13 +70,17 @@ chord, the app moves on to the next one.
 
 - **Arpeggios** — chord tones in sequence over a progression, written as degrees so one
   pattern fits every chord in a standard. Two-octave jazz phrases, plus a generator that
-  builds a fresh one after every pass. Over the changes there are also Harris lines: eighth
-  notes with the chord tones on the strong beats, through the whole tune, and Ted Greene's
-  exercises: every note of the chord in one position. A set of exercises in four
+  builds a fresh one after every pass. There are also Harris lines: first what
+  lines are made of — thirds, triads and seventh chords through the chords of a key or of a tune,
+  led into by a half step and turned on the root — then the lines themselves: eighth notes with
+  the chord tones on the strong beats, through the whole tune. And Ted Greene's exercises: every
+  note of the chord in one position — right through it, in groups of 3, 4 and 5, or in groups played
+  in one of the 24 orders — over the standards and over his own progressions, from two chords
+  round and round to a cadence through five keys. A set of exercises in four
   groups, from the shape of an arpeggio to phrases, with examples, is in [practising arpeggios](docs/arpeggios-practice.md).
 
 <div align="center">
-<img width="560" alt="Ted Greene's exercise: the condensed arpeggio with tensions over Cm7, the whole position on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />
+<img width="560" alt="Ted Greene's exercise: the arpeggio in position with tensions over Cm7, the whole position on the neck" src="docs/screenshots/en/solitito_arpeggios.png" />
 </div>
 
 - **Formulas** — random selection from all subsets of the 12 chromatic functions that contain "1",

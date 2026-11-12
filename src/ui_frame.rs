@@ -266,6 +266,7 @@ impl UiFrame {
             let greene = crate::harris::PositionRecipe {
                 figure: (ui.get_greene_figure().max(0) as usize).into(),
                 tensions: ui.get_greene_tensions(),
+                group: ui.get_greene_group().clamp(0, 2) as usize + 3,
                 notes: match ui.get_harris_notes() { 1 => Some(4), 2 => None, _ => Some(8) },
                 ..app.greene
             };
@@ -520,6 +521,11 @@ impl UiFrame {
             AppMode::Arpeggios if app.arp_exercise == ArpExercise::Study => {
                 i18n::arpeggio_name(lang_here, &app.song_title).to_string()
             }
+            // Through a key there is no tune: the title says whose chords.
+            AppMode::Arpeggios if app.walks_a_key() => {
+                let key = tab::spell(NoteName::from_index(app.harris_key).to_string());
+                i18n::strings(lang_here).harris_key_title.replace("{key}", &key)
+            }
             _ => app.song_title.clone(),
         };
         set_if_changed(ui.get_song_title(), shown_title.into(), |v| ui.set_song_title(v));
@@ -527,7 +533,7 @@ impl UiFrame {
         // Scales in random mode redraw the key on their own; push it to the
         // combo, but only on a real change so it does not fight the user
         // mid-selection (the binding is two-way).
-        if app.app_mode == AppMode::Scales
+        if (app.app_mode == AppMode::Scales || app.walks_a_key())
             && ui.get_current_secondary_index() != app.secondary_index as i32
         {
             set_if_changed(ui.get_current_secondary_index(), app.secondary_index as i32, |v| ui.set_current_secondary_index(v));
@@ -1102,7 +1108,7 @@ impl UiFrame {
     /// shapes.
     fn draw_steps_on_neck(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool) {
         let t = i18n::strings(Lang::from_setting(ui.get_language_idx()));
-        let part = greene_part(app, chord, steps, jazz, t);
+        let part = greene_part(app, chord, steps, jazz, t).or_else(|| harris_cell(app, chord, steps, jazz, t));
         let caption = match &part {
             Some((_, caption)) => caption.clone(),
             None => step_caption(app, chord, steps, jazz, t).unwrap_or_default(),
@@ -1508,7 +1514,7 @@ fn led_along_the_changes(app: &MyApp, jazz: bool) -> Option<Vec<tab::Spot>> {
 }
 
 /// Ted Greene's exercise: the part of the figure the step due belongs to - a
-/// group of four, or one way through the position - and what to play in it.
+/// group, or one way through the position - and what to play in it.
 fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t: &i18n::Strings) -> Option<(std::ops::Range<usize>, String)> {
     use crate::harris::PositionFigure;
     let recipe = app.greene_recipe()?;
@@ -1518,17 +1524,19 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
     let semis = app.degree_intervals(chord);
     let pitch = |s: &model::Step| semis.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32;
     let due = app.note_due().unwrap_or(0).min(steps.len() - 1);
-    let range = match recipe.figure {
-        PositionFigure::Sweep => {
+    let range = match recipe.group_len() {
+        None => {
             let pitches: Vec<i32> = steps.iter().map(pitch).collect();
             let parts = sweep_parts(&pitches);
             parts.iter().find(|r| r.contains(&due)).cloned().unwrap_or(0..steps.len())
         }
-        _ => {
-            let start = due / 4 * 4;
-            start..(start + 4).min(steps.len())
+        Some(size) => {
+            let start = due / size * size;
+            start..(start + size).min(steps.len())
         }
     };
+    let size = recipe.group_len().unwrap_or(1);
+    let (group, groups) = ((range.start / size + 1).to_string(), steps.len().div_ceil(size).to_string());
     let part = &steps[range.clone()];
     let part_pitches: Vec<i32> = part.iter().map(pitch).collect();
     let way = way_of(&part_pitches, t);
@@ -1542,16 +1550,56 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
             .replace("{way}", &way)
             .replace("{from}", notes.first().map_or("", String::as_str))
             .replace("{to}", notes.last().map_or("", String::as_str)),
-        _ => format!(
+        // The order of the pass, its tones counted from the lowest as 1.
+        PositionFigure::Orders => {
+            let order: Vec<String> = crate::harris::order(recipe.seed).iter().map(|tone| (tone + 1).to_string()).collect();
+            let part = t
+                .greene_order_part
+                .replace("{order}", &order.join(" "))
+                .replace("{k}", &(recipe.seed % crate::harris::ORDERS + 1).to_string())
+                .replace("{g}", &group)
+                .replace("{n}", &groups);
+            format!("{part}: {}", notes.join(" "))
+        }
+        PositionFigure::GroupsUp | PositionFigure::GroupsDown => format!(
             "{}: {}",
-            t.greene_group_part
-                .replace("{k}", &(range.start / 4 + 1).to_string())
-                .replace("{n}", &steps.len().div_ceil(4).to_string())
-                .replace("{way}", &way),
+            t.greene_group_part.replace("{k}", &group).replace("{n}", &groups).replace("{way}", &way),
             notes.join(" ")
         ),
     };
     Some((range, caption))
+}
+
+/// The name of the Harris figure chosen, as the list has it.
+fn harris_figure_name(app: &MyApp, t: &i18n::Strings) -> &'static str {
+    let figures = [
+        t.harris_thirds, t.harris_triads, t.harris_sevenths, t.harris_led_thirds, t.harris_bebop,
+        t.harris_pivot, t.harris_scale_down, t.harris_scale_up, t.harris_arp_scale, t.harris_from_third,
+        t.harris_own_third, t.harris_enclosure, t.harris_drop, t.harris_into_root,
+    ];
+    figures.get(app.harris.figure as usize).copied().unwrap_or("")
+}
+
+/// Harris lines, where a bar holds more than one cell of the figure: the
+/// cell the step due belongs to, drawn alone as Greene's groups are - two
+/// triads a step apart share no note, two seventh chords a third apart share
+/// three, and drawn together their dots lay on one another - and every cell
+/// named, a dot between them.
+fn harris_cell(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t: &i18n::Strings) -> Option<(std::ops::Range<usize>, String)> {
+    if app.arp_exercise != state::ArpExercise::HarrisLines {
+        return None;
+    }
+    let cell = app.line_recipe()?.figure.cell()?;
+    if steps.len() <= cell {
+        return None;
+    }
+    let names = app.degree_names(chord);
+    let names = if jazz { model::jazz_names(&names) } else { names };
+    let notes: Vec<String> = steps.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let cells: Vec<String> = notes.chunks(cell).map(|notes| notes.join(" ")).collect();
+    let due = app.note_due().unwrap_or(0).min(steps.len() - 1);
+    let start = due / cell * cell;
+    Some((start..(start + cell).min(steps.len()), format!("{}: {}", harris_figure_name(app, t), cells.join("  ·  "))))
 }
 
 /// The chord's notes around the line, drawn grey: in Greene's exercise those of
@@ -1640,12 +1688,7 @@ fn step_caption(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t
     let way = way_of(&pitches, t);
     if let Some(recipe) = app.line_recipe() {
         if app.arp_exercise == state::ArpExercise::HarrisLines {
-            let figures = [
-                t.harris_scale_down, t.harris_scale_up, t.harris_arp_scale, t.harris_from_third,
-                t.harris_own_third, t.harris_enclosure, t.harris_drop, t.harris_into_root,
-            ];
-            let figure = figures.get(app.harris.figure as usize).copied().unwrap_or("");
-            return Some(format!("{figure}: {list}"));
+            return Some(format!("{}: {list}", harris_figure_name(app, t)));
         }
         let octaves = if recipe.notes == 4 { t.one_octave } else { t.two_octaves };
         let template = if recipe.start == crate::harris::Start::Continuous { t.caption_one_line } else { t.caption_changes };
@@ -1801,7 +1844,12 @@ mod this_way_tests {
         let mut a = app();
         a.set_mode(AppMode::Arpeggios as i32);
         a.set_random_mode(false);
-        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (2, 0, 3), (2, 2, 3), (2, 3, 0), (2, 0, 0), (2, 4, 3), (2, 5, 3), (2, 6, 3), (2, 7, 3)] {
+        // Harris figures by their place in the list: the six cells, then
+        // the lines from 6 on.
+        for (exercise, figure, start) in [
+            (1usize, 0usize, 0usize), (2, 6, 3), (2, 8, 3), (2, 9, 0), (2, 6, 0), (2, 10, 3), (2, 11, 3), (2, 12, 3), (2, 13, 3),
+            (2, 0, 0), (2, 2, 3), (2, 4, 1), (2, 5, 0),
+        ] {
             a.arp_exercise = exercise.into();
             a.reload_library();
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
@@ -1826,7 +1874,7 @@ mod this_way_tests {
                 // leap, and an octave or so where it has run out of range. An
                 // arpeggio over two octaves from every root leaps by its
                 // nature, and is only printed.
-                if exercise == 2 && start == 3 && figure < 4 {
+                if exercise == 2 && start == 3 && (6..10).contains(&figure) {
                     let far = leaps.iter().filter(|&&l| l > 5).count();
                     assert!(far * 4 <= leaps.len(), "too many leaps: {leaps:?}");
                 }
@@ -1844,12 +1892,18 @@ mod this_way_tests {
         a.set_mode(AppMode::Arpeggios as i32);
         a.set_random_mode(false);
         a.arp_position = true;
-        for (exercise, figure, start) in [(1usize, 0usize, 0usize), (1, 0, 3), (2, 0, 3), (2, 2, 0), (2, 3, 3), (2, 4, 1), (2, 5, 3), (2, 6, 0), (2, 7, 2), (3, 0, 0), (3, 1, 0), (3, 2, 0), (3, 3, 0)] {
+        for (exercise, figure, start) in [
+            (1usize, 0usize, 0usize), (1, 0, 3), (2, 6, 3), (2, 8, 0), (2, 9, 3), (2, 10, 1), (2, 11, 3), (2, 12, 0), (2, 13, 2),
+            (2, 0, 3), (2, 1, 0), (2, 2, 0), (2, 3, 3), (2, 4, 1), (2, 5, 3),
+            (3, 0, 0), (3, 1, 0), (3, 2, 0), (3, 3, 0),
+        ] {
             a.arp_exercise = exercise.into();
             a.reload_library();
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
+            // Greene's groups of three, four and five in turn, by the fret.
             a.greene = crate::harris::PositionRecipe { figure: figure.into(), tensions: start == 0, notes: Some(8), ..Default::default() };
-            for fret in [1, 5, 9] {
+            for (fret, group) in [(1, 3), (5, 4), (9, 5)] {
+                a.greene.group = group;
                 a.home_anchor = fret;
                 let (lo, hi) = tab::hand_from(fret);
                 for pos in 0..a.positions().min(16) {
@@ -1864,6 +1918,35 @@ mod this_way_tests {
         }
     }
 
+
+    /// A permuted group is named by its order - the tones counted from the
+    /// lowest, and which of the 24 it is - and the group due is the part
+    /// drawn; a group of three is a part of three.
+    #[test]
+    fn greenes_groups_are_named_and_drawn_one_at_a_time() {
+        use crate::harris::{PositionFigure, PositionRecipe};
+        let mut a = app();
+        a.set_mode(AppMode::Arpeggios as i32);
+        a.set_random_mode(false);
+        a.arp_exercise = state::ArpExercise::Greene;
+        a.reload_library();
+        a.home_anchor = 5;
+        let chord = a.chords[a.current_chord_index].clone();
+        let part = |a: &MyApp| {
+            let steps = a.get_active_indices(&chord);
+            greene_part(a, &chord, &steps, false, &i18n::EN).expect("a part")
+        };
+
+        a.greene = PositionRecipe { figure: PositionFigure::Orders, notes: Some(8), ..Default::default() };
+        let (range, caption) = part(&a);
+        assert_eq!(range, 0..4);
+        assert!(caption.starts_with("Order 4 3 2 1 (1 of 24), group 1 of 2: "), "{caption}");
+
+        a.greene = PositionRecipe { figure: PositionFigure::GroupsUp, group: 3, notes: Some(8), ..Default::default() };
+        let (range, caption) = part(&a);
+        assert_eq!(range, 0..3);
+        assert!(caption.starts_with("Group 1 of 2, up: "), "{caption}");
+    }
 
     /// A sweep that reaches the end of the position in one note joins that
     /// tail to the way back; a tail at the end joins the part before it.

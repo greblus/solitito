@@ -71,13 +71,17 @@ akord, przechodzi do następnego.
 
 - **Arpeggia** — składniki akordu w kolejności lub losowo, przez progresję, zapisane stopniami, więc
   jeden wzorzec pasuje do każdego akordu w standardzie. Dwuoktawowe frazy jazzowe oraz
-  generator budujący nowe arpeggio po każdym przejściu. Na zmianach są też linie Harrisa:
-  ósemki z dźwiękami akordu na mocnych częściach taktu, przez cały utwór, oraz ćwiczenia Teda
-  Greene'a: wszystkie dźwięki akordu w jednej pozycji. Zestaw ćwiczeń w czterech
+  generator budujący nowe arpeggio po każdym przejściu. Są też linie Harrisa: najpierw
+  klocki, z których składa się linie — tercje, trójdźwięki i akordy septymowe przez akordy tonacji
+  albo utworu, z dojściem o pół tonu i z prymą przeniesioną o oktawę — a potem same linie: ósemki
+  z dźwiękami akordu na mocnych częściach taktu, przez cały utwór. Oraz ćwiczenia Teda Greene'a:
+  wszystkie dźwięki akordu w jednej pozycji — przez całą pozycję, grupami po 3, 4 i 5 albo grupami
+  w jednej z 24 kolejności — na standardach i na jego własnych progresjach, od dwóch akordów
+  w kółko po kadencję przez pięć tonacji. Zestaw ćwiczeń w czterech
   grupach, od kształtu arpeggia do fraz, z przykładami, opisuje [ćwiczenie arpeggiów](docs/arpeggios-practice_pl.md).
 
 <div align="center">
-<img width="560" alt="Ćwiczenie Ted Greene: arpeggio ściśnięte z napięciami nad Cm7, cała pozycja na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
+<img width="560" alt="Ćwiczenie Ted Greene: arpeggio w pozycji z napięciami nad Cm7, cała pozycja na podstrunnicy" src="docs/screenshots/pl/solitito_arpeggios.png" />
 </div>
 
 - **Formuły** — losowo wybrana spośród wszystkich podzbiorów dwunastu funkcji chromatycznych

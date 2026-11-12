@@ -892,21 +892,34 @@ export global Tr {
     in-out property <string> arp_harris: "Harris lines";
     in-out property <string> harris_hint: "Eighth notes, the chord tones on the beats. Over m7 the line thinks in the dominant a fourth up, over m7b5 in the dominant a major third down.";
     in-out property <string> harris_figure: "Figure";
+    in-out property <string> harris_thirds: "Thirds";
+    in-out property <string> harris_triads: "Triads";
+    in-out property <string> harris_sevenths: "Seventh arpeggios";
+    in-out property <string> harris_led_thirds: "Thirds with a leading note";
+    in-out property <string> harris_bebop: "Arpeggios with a leading note";
+    in-out property <string> harris_pivot: "Arpeggios with a pivot";
+    in-out property <string> harris_harmony: "Played over";
+    in-out property <string> harris_in_key: "A key's chords";
+    in-out property <string> harris_on_tune: "The tune's chords";
     in-out property <string> harris_scale_down: "Scale down";
     in-out property <string> harris_scale_up: "Scale up";
     in-out property <string> harris_arp_scale: "Arpeggio, scale down";
-    in-out property <string> harris_from_third: "Dominant's third";
-    in-out property <string> harris_own_third: "Chord's third";
+    in-out property <string> harris_from_third: "From the dominant's third";
+    in-out property <string> harris_own_third: "From the chord's third";
     in-out property <string> harris_enclosure: "Enclosure";
     in-out property <string> harris_drop: "Drop to the 3rd";
     in-out property <string> harris_into_root: "3rd into the root";
     in-out property <string> arp_position: "In one position";
     in-out property <string> chip_position: "One position";
     in-out property <string> arp_greene: "Ted Greene";
-    in-out property <string> greene_sweep: "Condensed";
-    in-out property <string> greene_groups_up: "Groups of 4 up";
-    in-out property <string> greene_groups_down: "Groups of 4 down";
-    in-out property <string> greene_groups_random: "Random groups";
+    in-out property <string> greene_sweep: "Arpeggio in position";
+    in-out property <string> greene_groups_up: "Groups up";
+    in-out property <string> greene_groups_down: "Groups down";
+    in-out property <string> greene_orders: "Permutations of a group";
+    in-out property <string> greene_group: "Notes in a group";
+    in-out property <string> greene_group_3: "Groups of 3";
+    in-out property <string> greene_group_4: "Groups of 4";
+    in-out property <string> greene_group_5: "Groups of 5";
     in-out property <string> greene_whole: "The whole position";
     in-out property <string> greene_tensions: "With tensions";
     in-out property <string> greene_tensions_hint: "Over maj7 the 9 and 6, over 7 the 9 and 13, over m7 the 9 and 11, over m7b5 the 11.";
@@ -1163,6 +1176,9 @@ export component AppWindow inherits Window {
     /// Harris lines: the figure, the start, and eight notes a chord or four.
     in-out property <int> harris_figure: 0;
     callback harris_figure_changed(int);
+    /// Harris lines through the chords of a key, or over the tune's.
+    in-out property <bool> harris_in_key: true;
+    callback harris_in_key_changed(bool);
     in-out property <int> harris_start: 0;
     callback harris_start_changed(int);
     in-out property <int> harris_notes: 0;
@@ -1170,10 +1186,13 @@ export component AppWindow inherits Window {
     /// Over the changes: the whole pass in one position.
     in-out property <bool> arp_position: false;
     callback arp_position_changed(bool);
-    /// Ted Greene's exercises: the figure walked in the position, and
-    /// whether the tensions are in it.
+    /// Ted Greene's exercises: the figure walked in the position, the tones
+    /// in a group of it - 3, 4 or 5, as a row of the list - and whether the
+    /// tensions are in it.
     in-out property <int> greene_figure: 0;
     callback greene_figure_changed(int);
+    in-out property <int> greene_group: 1;
+    callback greene_group_changed(int);
     in-out property <bool> greene_tensions: false;
     callback greene_tensions_changed(bool);
     /// Software rendering, see `renderer`. Read at start.
@@ -1477,6 +1496,11 @@ export component AppWindow inherits Window {
     /// Arpeggios over the changes, where a study has just the one chord.
     property <bool> shows_changes: root.current_mode == 0 || root.current_mode == 1
         || (root.current_mode == 3 && root.arp_exercise != 0);
+    /// Harris lines through the chords of a key: no tune to pick, a key to.
+    property <bool> walks_a_key: root.current_mode == 3 && root.arp_exercise == 2 && root.harris_in_key;
+    /// The first six figures through a key: one cell over each chord, so
+    /// there are no notes per chord to choose.
+    property <bool> one_cell_a_chord: root.walks_a_key && root.harris_figure < 6;
     /// Scales and a study of Arpeggios: a key and the degrees of the run to
     /// set. Over the changes both come from the tune.
     property <bool> takes_a_written_run: (root.current_mode == 2 || root.current_mode == 3)
@@ -1770,9 +1794,18 @@ export component AppWindow inherits Window {
                                 current-index <=> root.preview;
                                 selected(v) => { root.preview_changed(v); }
                             }
+                            // Harris lines: the chords of a key, or the tune's.
+                            if root.arp_exercise == 2 : Dropdown {
+                                text-scale: TextScale.sidebar;
+                                list-width: 220px;
+                                model: [Tr.harris_in_key, Tr.harris_on_tune];
+                                current-index: root.harris_in_key ? 0 : 1;
+                                selected(v) => { root.harris_in_key = v == 0; root.harris_in_key_changed(root.harris_in_key); }
+                            }
                             // The key of the study; the study itself is chosen from its
-                            // title above the exercise, as a scale is.
-                            if root.arp_exercise == 0 : Dropdown {
+                            // title above the exercise, as a scale is. And the key Harris
+                            // lines are taken through.
+                            if root.arp_exercise == 0 || root.walks_a_key : Dropdown {
                                 text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: root.secondary_items;
@@ -1796,16 +1829,24 @@ export component AppWindow inherits Window {
                             if root.arp_exercise == 2 : Dropdown {
                                 text-scale: TextScale.sidebar;
                                 list-width: 260px;
-                                model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                                model: [Tr.harris_thirds, Tr.harris_triads, Tr.harris_sevenths, Tr.harris_led_thirds, Tr.harris_bebop, Tr.harris_pivot, Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
                                 current-index <=> root.harris_figure;
                                 selected(v) => { root.harris_figure_changed(v); }
                             }
                             if root.arp_exercise == 3 : Dropdown {
                                 text-scale: TextScale.sidebar;
                                 list-width: 260px;
-                                model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
+                                model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_orders];
                                 current-index <=> root.greene_figure;
                                 selected(v) => { root.greene_figure_changed(v); }
+                            }
+                            // The groups up and down alone: a permuted group is one of four.
+                            if root.arp_exercise == 3 && (root.greene_figure == 1 || root.greene_figure == 2) : Dropdown {
+                                text-scale: TextScale.sidebar;
+                                list-width: 220px;
+                                model: [Tr.greene_group_3, Tr.greene_group_4, Tr.greene_group_5];
+                                current-index <=> root.greene_group;
+                                selected(v) => { root.greene_group_changed(v); }
                             }
                             if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
                                 text-scale: TextScale.sidebar;
@@ -1814,7 +1855,8 @@ export component AppWindow inherits Window {
                                 current-index <=> root.harris_start;
                                 selected(v) => { root.harris_start_changed(v); }
                             }
-                            if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                            // Not where a cell is taken through a key: one cell a chord.
+                            if (root.arp_exercise == 1 || root.arp_exercise == 2) && !root.one_cell_a_chord : Dropdown {
                                 text-scale: TextScale.sidebar;
                                 list-width: 220px;
                                 model: [Tr.harris_eight, Tr.harris_four];
@@ -1987,7 +2029,7 @@ export component AppWindow inherits Window {
             if root.current_mode != 4 && root.current_mode != 5 : NavItem {
                 // In Scales there is one run and no order to shuffle: what
                 // changes is the key.
-                text: root.current_mode == 2 ? Tr.random_key : Tr.random_order;
+                text: root.current_mode == 2 || root.walks_a_key ? Tr.random_key : Tr.random_order;
                 image: root.icon_shuffle;
                 selected: root.random_enabled;
                 clicked => { root.random_enabled = !root.random_enabled; }
@@ -2093,7 +2135,7 @@ export component AppWindow inherits Window {
                 // Formulas have no song of their own - but played over the
                 // changes they borrow one, and then its name belongs here as
                 // much as it does in Chords.
-                if root.current_mode != 4 : Dropdown {
+                if root.current_mode != 4 && !root.walks_a_key : Dropdown {
                     horizontal-stretch: 0;
                     title-look: true;
                     title-size: 26px * TextScale.song;
@@ -2102,7 +2144,7 @@ export component AppWindow inherits Window {
                     current-index <=> root.current_item_index;
                     selected => { root.item_selected(self.current-index); }
                 }
-                if root.current_mode == 4 : Text {
+                if root.current_mode == 4 || root.walks_a_key : Text {
                     text: root.song_title;
                     font-size: 26px * TextScale.song;
                     color: Theme.label;
@@ -3098,7 +3140,7 @@ export component AppWindow inherits Window {
                             // The fretboard trainer draws its own notes and formulas
                             // draw their own sets - except over the changes, where
                             // the tune under the formula comes from this same list.
-                            if root.current_mode != 4
+                            if root.current_mode != 4 && !root.walks_a_key
                                && (root.current_mode != 5 || root.formula_exercise == 2)
                                : HorizontalLayout {
                                 Text { text: root.library_label; color: Theme.label; vertical-alignment: center; width: 100px; }
@@ -3110,7 +3152,7 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.takes_a_written_run : HorizontalLayout {
+                            if root.takes_a_written_run || root.walks_a_key : HorizontalLayout {
                                 Text { text: root.secondary_label; color: Theme.label; vertical-alignment: center; width: 100px; }
                                 Dropdown {
                                         width: root.ctrl_w;
@@ -3268,12 +3310,26 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
+                                        text: Tr.harris_harmony; color: Theme.label;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.harris_in_key, Tr.harris_on_tune];
+                                        current-index: root.harris_in_key ? 0 : 1;
+                                        selected(v) => { root.harris_in_key = v == 0; root.harris_in_key_changed(root.harris_in_key); }
+                                    }
+                                }
+                                if root.arp_exercise == 2 : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
                                         text: Tr.harris_figure; color: Theme.label;
                                         vertical-alignment: center; width: 185px;
                                     }
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        model: [Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                                        model: [Tr.harris_thirds, Tr.harris_triads, Tr.harris_sevenths, Tr.harris_led_thirds, Tr.harris_bebop, Tr.harris_pivot, Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
                                         current-index <=> root.harris_figure;
                                         selected(v) => { root.harris_figure_changed(v); }
                                     }
@@ -3292,7 +3348,8 @@ export component AppWindow inherits Window {
                                         selected(v) => { root.harris_start_changed(v); }
                                     }
                                 }
-                                if root.arp_exercise == 1 || root.arp_exercise == 2 : HorizontalLayout {
+                                if (root.arp_exercise == 1 || root.arp_exercise == 2)
+                                    && !(root.arp_exercise == 2 && root.harris_in_key && root.harris_figure < 6) : HorizontalLayout {
                                     alignment: start;
                                     spacing: 10px;
                                     Text {
@@ -3315,9 +3372,23 @@ export component AppWindow inherits Window {
                                     }
                                     Dropdown {
                                         width: root.ctrl_w;
-                                        model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_groups_random];
+                                        model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_orders];
                                         current-index <=> root.greene_figure;
                                         selected(v) => { root.greene_figure_changed(v); }
+                                    }
+                                }
+                                if root.arp_exercise == 3 && (root.greene_figure == 1 || root.greene_figure == 2) : HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Tr.greene_group; color: Theme.label;
+                                        vertical-alignment: center; width: 185px;
+                                    }
+                                    Dropdown {
+                                        width: root.ctrl_w;
+                                        model: [Tr.greene_group_3, Tr.greene_group_4, Tr.greene_group_5];
+                                        current-index <=> root.greene_group;
+                                        selected(v) => { root.greene_group_changed(v); }
                                     }
                                 }
                                 if root.arp_exercise == 3 : HorizontalLayout {

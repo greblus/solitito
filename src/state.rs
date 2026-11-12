@@ -428,6 +428,12 @@ pub(crate) const CQT_STEADY_TICKS: u32 = EAR_WINDOW as u32;
 /// screen owes the player the sight of the last function going green.
 pub const FORMULA_LAP_PAUSE: f32 = 0.6;
 
+/// Chords played over the changes in Arpeggios before the hand moves to
+/// another position at the end of a pass. A tune is longer than this and moves
+/// every pass; a progression of two or four chords goes round four times or
+/// twice first.
+const SHORTEST_STAY: usize = 8;
+
 pub struct MyApp {
     /// What the audio thread has reported, copied in once per frame.
     pub heard: Heard,
@@ -560,14 +566,21 @@ pub struct MyApp {
     pub arp_direction: ArpDirection,
     /// The figure, the start and the length of the lines over the changes.
     pub harris: harris::Recipe,
+    /// Harris lines through the chords of a key, not of a tune - see
+    /// `harris::Harmony` - and the key: its tonic's pitch class.
+    pub harris_in_key: bool,
+    pub harris_key: usize,
     /// Over the changes: the whole pass kept in one position, the fret
     /// `home_anchor` - drawn again for every pass.
     pub arp_position: bool,
     /// Ted Greene's exercises; the fret and the seed are filled in from the
     /// pass when the line is built - see `greene_recipe`.
     pub greene: harris::PositionRecipe,
-    /// Passes of the tune so far: draws Greene's random groups anew each.
+    /// Positions the tune has been played in so far: the order Greene's
+    /// permuted groups are played in changes with each.
     passes: u64,
+    /// Chords played in the position held now - see `SHORTEST_STAY`.
+    chords_in_position: usize,
     /// The studies: which chord they are read over. An index into
     /// `ARP_QUALITIES`.
     pub arp_quality: usize,
@@ -843,9 +856,12 @@ impl MyApp {
             arp_exercise: ArpExercise::Study,
             arp_direction: ArpDirection::Up,
             harris: harris::Recipe::default(),
+            harris_in_key: false,
+            harris_key: 0,
             arp_position: false,
             greene: harris::PositionRecipe { notes: Some(8), ..Default::default() },
             passes: 0,
+            chords_in_position: 0,
             arp_quality: 0,
             step_order: vec![],
             voicing_anchor: 5,
@@ -949,8 +965,8 @@ impl MyApp {
         Some(harris::line(chords.iter().copied(), self.line_recipe()?))
     }
 
-    /// Ted Greene's exercises as they run this pass: in the position drawn
-    /// for it, the random groups drawn for it.
+    /// Ted Greene's exercises as they run now: in the position drawn, the
+    /// groups in the order that goes with it.
     pub fn greene_recipe(&self) -> Option<harris::PositionRecipe> {
         let running = self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::Greene;
         running.then_some(harris::PositionRecipe { fret: self.home_anchor, seed: self.passes, ..self.greene })
@@ -974,9 +990,14 @@ impl MyApp {
             return None;
         }
         let position = self.arp_position.then_some(self.home_anchor);
+        let harmony = if self.walks_a_key() {
+            harris::Harmony::Key(self.harris_key)
+        } else {
+            harris::Harmony::Tune(self.song_tonic())
+        };
         match self.arp_exercise {
             ArpExercise::Study | ArpExercise::Greene => None,
-            ArpExercise::HarrisLines => Some(harris::Recipe { position, ..self.harris }),
+            ArpExercise::HarrisLines => Some(harris::Recipe { position, harmony, ..self.harris }),
             ArpExercise::OverChanges => {
                 let (figure, alternate) = match self.arp_direction {
                     ArpDirection::Up => (harris::Figure::ArpeggioUp, false),
@@ -984,9 +1005,15 @@ impl MyApp {
                     ArpDirection::AlternateUpFirst => (harris::Figure::ArpeggioUp, true),
                     ArpDirection::AlternateDownFirst => (harris::Figure::ArpeggioDown, true),
                 };
-                Some(harris::Recipe { figure, alternate, position, ..self.harris })
+                Some(harris::Recipe { figure, alternate, position, harmony, ..self.harris })
             }
         }
+    }
+
+    /// Whether the exercise stands on the chords of a key rather than a
+    /// tune's: Harris lines taken through one.
+    pub fn walks_a_key(&self) -> bool {
+        self.app_mode == AppMode::Arpeggios && self.arp_exercise == ArpExercise::HarrisLines && self.harris_in_key
     }
 
     /// Whether the steps index the chord's ring and the semitones past it -
@@ -1130,8 +1157,11 @@ impl MyApp {
     /// The names a step's `degree` indexes: in a level of Intervals the
     /// chord's scale, everywhere else the chord's own tones.
     pub fn degree_names(&self, chord: &Chord) -> Vec<String> {
-        if let Some(ring) = self.on_a_harris_ring(chord) {
-            return harris::names(ring, &chord.quality);
+        if self.on_a_harris_ring(chord).is_some() {
+            let harmony = self.line_recipe().map(|recipe| recipe.harmony).unwrap_or_default();
+            if let Some(names) = harris::names_over(chord, harmony) {
+                return names;
+            }
         }
         if self.level().is_some() { chord.quality.scale_names() } else { chord.quality.interval_names() }
     }
@@ -1268,7 +1298,9 @@ impl MyApp {
     /// the order of the chords, and the order of the tones inside each. Only the
     /// note modes have both, and only there is the distinction worth a setting.
     fn shuffles_chord_order(&self) -> bool {
-        if !self.random_mode {
+        // The chords of a key come in the scale's order; shuffled, it is the
+        // key that changes - see `advance_chord`.
+        if !self.random_mode || self.walks_a_key() {
             return false;
         }
         match self.app_mode {
@@ -1652,7 +1684,7 @@ impl MyApp {
     pub fn reads_songs(&self) -> bool {
         match self.app_mode {
             AppMode::Chords | AppMode::Intervals => true,
-            AppMode::Arpeggios => self.arp_exercise != ArpExercise::Study,
+            AppMode::Arpeggios => self.arp_exercise != ArpExercise::Study && !self.walks_a_key(),
             AppMode::Formulas => self.formula_exercise == FormulaExercise::OverChanges,
             _ => false,
         }
@@ -1700,6 +1732,9 @@ impl MyApp {
     
     pub fn secondary_item_selected(&mut self, index: i32) {
         self.secondary_index = index as usize;
+        if self.walks_a_key() {
+            self.harris_key = index as usize % 12;
+        }
         if self.app_mode == AppMode::Scales || self.app_mode == AppMode::Arpeggios {
             self.reload_library_content();
         }
@@ -1776,6 +1811,14 @@ impl MyApp {
                     self.song_title = String::new();
                     self.intervals_input = "1 3 5 7".to_string();
                 }
+            }
+            AppMode::Arpeggios if self.walks_a_key() => {
+                // The chords of the key, up its scale; the key is the second
+                // combo's, as a study's is.
+                self.secondary_index = self.harris_key;
+                self.chords = harris::chords_of_key(self.harris_key);
+                self.song_title = String::new();
+                self.intervals_input = String::new();
             }
             AppMode::Arpeggios => {
                 // Over the changes the phrase is not chosen but built, one
@@ -1882,6 +1925,7 @@ impl MyApp {
         self.match_status = MatchStatus::None;
         self.chord_history.clear();
         self.home_anchor = 1 + self.rng.below(9) as i32;
+        self.chords_in_position = 0;
         self.reroll();
         self.update_collected_notes_size();
     }
@@ -1999,7 +2043,8 @@ impl MyApp {
     /// Counted from the tonic the chords are standing on, so a tune moved to
     /// another key keeps its numerals. Empty without a tonic.
     pub fn chord_functions(&self) -> Vec<crate::harmony::Analysis> {
-        let Some(tonic) = self.song_tonic() else { return Vec::new() };
+        let tonic = if self.walks_a_key() { Some(self.harris_key) } else { self.song_tonic() };
+        let Some(tonic) = tonic else { return Vec::new() };
         let moved = if self.app_mode == AppMode::Chords { self.transpose } else { 0 };
         crate::harmony::analyse(&self.chords, tonic + moved)
     }
@@ -2143,15 +2188,25 @@ impl MyApp {
             *result = earned;
         }
         self.play_pos += 1;
+        self.chords_in_position += 1;
         if self.play_pos >= self.play_order.len() {
             self.play_pos = 0;
             // A new pass: what the last one earned is not this one's.
             self.pass_results.fill(MatchStatus::None);
             // And over the changes in Arpeggios, a new place on the neck:
-            // the same tune in another position.
-            if self.app_mode == AppMode::Arpeggios {
+            // the same tune in another position - a progression of a few
+            // chords goes round until the hand has stayed long enough.
+            let stays = self.arp_exercise != ArpExercise::Study && self.chords_in_position < SHORTEST_STAY;
+            if self.app_mode == AppMode::Arpeggios && !stays {
                 self.home_anchor = 1 + self.rng.below(9) as i32;
                 self.passes += 1;
+                self.chords_in_position = 0;
+            }
+            // Through a key, shuffled: the next pass in another key.
+            if self.walks_a_key() && self.random_mode {
+                self.harris_key = self.rng.below_excluding(12, self.harris_key);
+                self.secondary_index = self.harris_key;
+                self.chords = harris::chords_of_key(self.harris_key);
             }
         }
         self.current_chord_index = self.play_order[self.play_pos];

@@ -88,7 +88,7 @@ fn falling(notes: &[(f32, u8, i8)], pcs: &[usize]) -> Vec<usize> {
 /// below played a semitone faster - `(attack, midi, semitones shifted)` - so
 /// a chromatic line can be spliced at all. An approximation: the attack and
 /// the body come out a little shorter and brighter than a fretted note.
-fn with_black_keys(notes: &[(f32, u8)]) -> Vec<(f32, u8, i8)> {
+pub(super) fn with_black_keys(notes: &[(f32, u8)]) -> Vec<(f32, u8, i8)> {
     let mut all: Vec<(f32, u8, i8)> = notes.iter().map(|&(t, m)| (t, m, 0)).collect();
     for &(t, m) in notes {
         if !notes.iter().any(|n| n.1 == m + 1) && !all.iter().any(|n| n.1 == m + 1) {
@@ -99,7 +99,7 @@ fn with_black_keys(notes: &[(f32, u8)]) -> Vec<(f32, u8, i8)> {
 }
 
 /// `splice` for notes that may be shifted: read faster by 2^(shift/12).
-fn splice_shifted(signal: &[f32], notes: &[(f32, u8, i8)], line: &[usize], length: f32, ring: f32) -> (Vec<f32>, Vec<f32>) {
+pub(super) fn splice_shifted(signal: &[f32], notes: &[(f32, u8, i8)], line: &[usize], length: f32, ring: f32) -> (Vec<f32>, Vec<f32>) {
     let step = (length * SR) as usize;
     let lead = (LEAD_IN * SR) as usize;
     let mut out = vec![0.0f32; lead + step * line.len() + (2.0 * SR) as usize];
@@ -182,10 +182,10 @@ fn credit_times(audio: &[f32], root: NoteName, names: &[&str], intervals: &[u8],
     credit_with(a, audio, root, names.len() + 1)
 }
 
-/// When each step of the exercise `a` is set to was credited, the audio run
-/// through the app as it runs. `root` is the chord's: the app moving to
-/// another one ends the run.
-fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec<Option<f32>> {
+/// The audio run through the app as it runs - features, the ear, voices,
+/// flux, the strike detector, the quick ear, the chord model every 40 ms -
+/// hop by hop. `after_hop` sees the app and the time, and says when to stop.
+pub(super) fn run_app(mut a: MyApp, audio: &[f32], mut after_hop: impl FnMut(&MyApp, f32) -> bool) {
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
     let mut brain = crate::brain::ChordBrain::new(
         ["best_model_v2_take6_chords.onnx", "best_model_v2_take6_onset.onnx"]
@@ -197,7 +197,6 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
     let mut quick = crate::audio::QuickEar::default();
     let mut buffer = vec![0.0f32; FFT_SIZE];
     let mut next_model = 0.0f32;
-    let mut credited: Vec<Option<f32>> = vec![None; steps];
     let dt = HOP_LENGTH as f32 / SR;
 
     for (n, hop) in audio.chunks_exact(HOP_LENGTH).enumerate() {
@@ -255,6 +254,18 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
                 a.check_progress_with_ai(MODEL_PERIOD, "...", p.confidence);
             }
         }
+        if after_hop(&a, t) {
+            break;
+        }
+    }
+}
+
+/// When each step of the exercise `a` is set to was credited, the audio run
+/// through the app as it runs. `root` is the chord's: the app moving to
+/// another one ends the run.
+fn credit_with(a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec<Option<f32>> {
+    let mut credited: Vec<Option<f32>> = vec![None; steps];
+    run_app(a, audio, |a, t| {
         if let Ok(window) = std::env::var("SOLITITO_LINE_TRACE") {
             let (from, to) = window.split_once('-').unwrap();
             let (from, to): (f32, f32) = (from.parse().unwrap(), to.parse().unwrap());
@@ -278,7 +289,7 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
         }
         // Once the whole scale is in, the app moves to a new key: stop there.
         if credited.iter().all(Option::is_some) {
-            break;
+            return true;
         }
         for (k, slot) in credited.iter_mut().enumerate() {
             if slot.is_none() && a.collected_notes.get(k).copied().unwrap_or(false) {
@@ -297,9 +308,10 @@ fn credit_with(mut a: MyApp, audio: &[f32], root: NoteName, steps: usize) -> Vec
             for slot in credited.iter_mut().filter(|s| s.is_none()) {
                 *slot = Some(t);
             }
-            break;
+            return true;
         }
-    }
+        false
+    });
     credited
 }
 
@@ -463,7 +475,9 @@ fn harris_enclosures() {
 }
 
 /// Ted Greene's exercises over one chord, the whole position played as the
-/// app asks for it: the groups of four bring a note back after three others,
+/// app asks for it: the groups - of three, four and five, and of four in an
+/// order of their own, `order N` the one the sheet numbers N - bring a note
+/// back after a few others,
 /// and the tensions lie a semitone or a tone from the chord's own tones - the
 /// 13 under the flat seventh, the 9 above the root. Is each note credited
 /// when it is played?
@@ -473,7 +487,19 @@ fn greene_in_position() {
     use crate::harris::{PositionFigure, PositionRecipe};
     let (signal, notes) = atoa_notes();
     let all = with_black_keys(&notes);
-    let figures = [("sweep", PositionFigure::Sweep), ("groups up", PositionFigure::GroupsUp), ("groups down", PositionFigure::GroupsDown)];
+    // The figure, the tones in a group, the pass that picks the order.
+    let figures = [
+        ("sweep", PositionFigure::Sweep, 4, 0),
+        ("groups up", PositionFigure::GroupsUp, 4, 0),
+        ("groups down", PositionFigure::GroupsDown, 4, 0),
+        ("threes up", PositionFigure::GroupsUp, 3, 0),
+        ("fives up", PositionFigure::GroupsUp, 5, 0),
+        ("order 1", PositionFigure::Orders, 4, 0),
+        ("order 5", PositionFigure::Orders, 4, 4),
+        ("order 9", PositionFigure::Orders, 4, 8),
+        ("order 16", PositionFigure::Orders, 4, 15),
+        ("order 20", PositionFigure::Orders, 4, 19),
+    ];
     // G7 and Am7 with their tensions are white keys only: nothing spliced from
     // a shifted note.
     let chords = [
@@ -484,16 +510,19 @@ fn greene_in_position() {
     ];
     let only = std::env::var("SOLITITO_GREENE_ONLY").ok();
     for length in [0.5] {
-        for (kind, figure) in figures {
+        for (kind, figure, group, pass) in figures {
             for (name, chord) in &chords {
                 for tensions in [false, true] {
-                    if only.as_deref().is_some_and(|o| o != format!("{kind}/{name}/{tensions}")) {
+                    // `SOLITITO_GREENE_ONLY=order` runs the orders alone,
+                    // `order 1/C7/false` one of them.
+                    if only.as_deref().is_some_and(|o| !format!("{kind}/{name}/{tensions}").starts_with(o)) {
                         continue;
                     }
                     let mut a = app();
                     a.set_mode(AppMode::Arpeggios as i32);
                     a.arp_exercise = ArpExercise::Greene;
-                    a.greene = PositionRecipe { figure, tensions, notes: None, ..Default::default() };
+                    a.greene = PositionRecipe { figure, tensions, group, notes: None, ..Default::default() };
+                    a.passes = pass;
                     a.random_mode = false;
                     a.chords = vec![chord.clone()];
                     a.play_order = vec![0];

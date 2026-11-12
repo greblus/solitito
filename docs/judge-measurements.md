@@ -577,17 +577,19 @@ through like any other; the limit is the usual one.
 *`src/state/line_harness.rs`, `greene_in_position`*
 
 The exercise after Ted Greene walks every tone of a chord in one position:
-right through it and back, or in groups of four, each group a tone on - so
-a note comes back after three others, a dozen times over. With the tensions
-the 13 lies a semitone under the flat seventh and the 9 a tone above the
-root. Measured on the whole app in Arpeggios over C7, Cmaj7, G7 and Am7 at
-the seventh fret, the whole position - 17 to 48 notes - spliced at the
-pitches the app asks for, at 0.50 s a note:
+right through it and back, or in groups - of three, four or five, each
+group a tone on - so a note comes back after a few others, a dozen times
+over. With the tensions the 13 lies a semitone under the flat seventh and
+the 9 a tone above the root. Measured on the whole app in Arpeggios over C7,
+Cmaj7, G7 and Am7 at the seventh fret, the whole position - 17 to 55 notes -
+spliced at the pitches the app asks for, at 0.50 s a note:
 
-  figure         without tensions        with tensions
-  condensed      17-19 of 17-19, all     27-29 of 27-29, all
-  groups up      24-28, all              44-48, all
-  groups down    24-28, all              44-48, all
+  figure               without tensions        with tensions
+  arpeggio in position 17-19 of 17-19, all     27-29 of 27-29, all
+  groups of 4 up       24-28, all              44-48, all
+  groups of 4 down     24-28, all              44-48, all
+  groups of 3 up       21-24, all              36-39, all
+  groups of 5 up       25-30, all              50-55, all
 
 No note was credited before it was played. The first run of the groups
 down stopped at the 25th note of 48, on every chord. It was the harness, not
@@ -597,6 +599,24 @@ credited only when it came round again four notes on, and every step after it
 waited the same. One note the line does not ask for, spliced in front, gives
 the model its history - as it has in the app, running all along - and then
 every figure goes through.
+
+The groups of four in an order of their own (`harris::order`, numbered as
+on Greene's sheet) were measured the same way, five of the 24 orders: 1, 5,
+9, 16 and 20. Order 1 plays a group from its top tone down, and over a chord
+of four tones the next group then began an octave above the note just
+played - the same pitch class twice running:
+
+  order 1, without tensions     C7, Cmaj7, G7    Am7
+  as first built                13 of 28         12 of 24
+  octave groups passed over     28 of 28         24 of 24
+
+The line stopped at the third such octave. `ordered_groups` now passes over
+a group that would begin on the class of the note just played, so in order 1
+the groups climb two chord tones at a time. With that, every order measured
+goes through whole, with the tensions (44-48 notes) and without (24-28), and
+no note is credited before it is played. With the tensions a position holds
+six classes to the octave and no group began on the last note's class to
+begin with.
 
 ### The ear holding a ring
 
@@ -768,4 +788,37 @@ model's pitch head to every class it names would open it to those too; as
 a gate for "struck only" it needs measuring through the judge, on the three
 sides the detector's replacements were measured on, before anything is
 built on it.
+
+### The cells of the Harris lines through a key
+
+*`src/harris.rs`; harness `cells_through_a_key` in `src/state/ear_speed_harness.rs`*
+
+The six cells - thirds, triads, seventh chords, thirds led into, the bebop
+arpeggio, the pivot arpeggio - taken through the chords of C major, the
+whole pass spliced from AtoA at the pitches the app asks for (the black
+keys a note a semitone below read faster) and run through the judge of
+Arpeggios. The questions were the notes a half step under a chord tone,
+and a class coming back within the cell or the next - the bebop arpeggio
+begins and ends on the same class an octave apart. November 2026:
+
+  seconds a note   ordinary                    quick crediting
+  0.50             16 24 32 24 40 40 of the    the same, all of them;
+                   same, all; 378-390 ms       30-42 ms
+  0.30             0 to 3 notes                5 to 15 of 16 to 40
+  0.20             0 to 3                      5 to 13
+
+No note was credited before it was played. At half a second every figure
+goes through whole either way.
+
+Faster, the quick path stops where a class comes back: in the thirds, the
+E of `E G` 0.9 s after the E of `C E`. The strike detector holds a class it
+has reported within three seconds until the level has risen by a quarter
+(`RECHECK`, `REFIRE_RISE`), and in a spliced line every note is as loud as
+the last, so the second E is never reported and the note waits for the
+ordinary path. The scales of *Quick crediting* above bring a class back
+once, the closing root, and went through at 0.25 s all the same; these
+cells bring one back every few notes. Whether a real pick - which stops
+the string before it strikes it - raises the level enough has not been
+measured; nor has letting the rise of the class itself answer for the
+level's.
 

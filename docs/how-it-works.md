@@ -269,9 +269,10 @@ played 44 times, a median 33 ms after the strike, and on a class nobody played t
 semitone below the note, in the attack itself, both times. The ear proper, by its own rule
 and alone, named another class for three hops or more 150 times on the same recording.
 
-It is an option, off by default: all of this is measured on recordings, and the live input
-adds what a recording does not have - the sound card's buffer, and a judge that reads the
-audio thread from the window's clock.
+It is an option, on by default since version 0.5.17. All of this is measured on recordings, and
+the live input adds what a recording does not have - the sound card's buffer, and a judge that
+reads the audio thread from the window's clock. Should it credit notes you do not play, turn it
+off in the quick options: the ordinary path alone is left.
 
 ### Which notes are sounding
 

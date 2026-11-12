@@ -3261,10 +3261,12 @@ fn harris_lines_are_judged_against_their_own_rings() {
     a.set_random_mode(false);
     a.reload_library();
     assert!(a.chords.len() > 4, "no tune to play over");
-    for figure in 0..8 {
+    for figure in 0..14 {
         for start in 0..4 {
             a.harris = crate::harris::Recipe { figure: figure.into(), start: start.into(), notes: 8, ..Default::default() };
-            let expected = crate::harris::line(a.play_order.iter().map(|&i| &a.chords[i]), a.harris);
+            // As the app builds it: over this tune, in its key.
+            let recipe = a.line_recipe().expect("a line over the changes");
+            let expected = crate::harris::line(a.play_order.iter().map(|&i| &a.chords[i]), recipe);
             for pos in 0..a.play_order.len() {
                 a.play_pos = pos;
                 let chord = a.chords[a.play_order[pos]].clone();
@@ -3279,6 +3281,101 @@ fn harris_lines_are_judged_against_their_own_rings() {
             }
         }
     }
+}
+
+/// Harris lines through a key: the chords are the key's seven sevenths up to
+/// the octave, the strip counts them from its tonic, each takes one cell of
+/// the figure - and the tune standing in the other modes is left alone.
+#[test]
+fn harris_lines_walk_the_chords_of_a_key() {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::HarrisLines;
+    a.set_random_mode(false);
+    a.reload_library();
+    let tune = (a.selected_library_idx, a.chords.len());
+    a.harris_in_key = true;
+    a.harris_key = 5;
+    a.selected_library_idx = 0;
+    a.reload_library();
+    assert!(a.walks_a_key() && !a.reads_songs());
+    let names: Vec<String> = a.chords.iter().map(|c| format!("{}{}", c.root.to_string(), c.quality.to_string())).collect();
+    assert_eq!(names.join(" "), "FMaj7 Gm7 Am7 BbMaj7 C7 Dm7 Em7b5 FMaj7");
+    let degrees: Vec<String> = a.chord_functions().iter().map(|f| f.degree.written()).collect();
+    assert_eq!(degrees.join(" "), "I ii iii IV V vi viiø I");
+    assert_eq!(a.secondary_index, 5, "the key's combo does not show the key");
+
+    // The seventh chords: four notes over each, whatever the notes per chord.
+    a.harris = crate::harris::Recipe { figure: crate::harris::Figure::Sevenths, ..Default::default() };
+    for pos in 0..a.play_order.len() {
+        a.play_pos = pos;
+        let chord = a.chords[a.play_order[pos]].clone();
+        let targets = a.degree_targets(&chord);
+        let pcs: Vec<usize> = a.get_active_indices(&chord).iter().map(|s| targets[s.degree]).collect();
+        assert_eq!(pcs, chord.get_target_indices(), "{chord:?}");
+    }
+    // Another key from the combo.
+    a.secondary_item_selected(2);
+    assert_eq!((a.harris_key, a.chords[0].root, a.chords[4].root), (2, NoteName::D, NoteName::A));
+    // And back over the tune: the one that was standing.
+    a.harris_in_key = false;
+    a.selected_library_idx = if a.reads_songs() { a.saved_song() } else { 0 };
+    a.reload_library();
+    assert_eq!((a.selected_library_idx, a.chords.len()), tune);
+}
+
+/// Through a key the shuffle does not shuffle the scale: every pass comes in
+/// another key, its chords in the scale's order.
+#[test]
+fn a_shuffled_pass_through_a_key_is_another_key() {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::HarrisLines;
+    a.harris_in_key = true;
+    a.reload_library();
+    a.set_random_mode(true);
+    a.shuffle_chords = true;
+    a.reset_logic_state();
+    assert_eq!(a.play_order, (0..8).collect::<Vec<_>>(), "the scale's chords were shuffled");
+    let key = a.harris_key;
+    for _ in 0..8 {
+        a.advance_chord();
+    }
+    assert_ne!(a.harris_key, key, "the next pass stayed in the key");
+    assert_eq!(a.chords[0].root as usize, a.harris_key);
+    assert_eq!(a.secondary_index, a.harris_key);
+    assert_eq!(a.play_pos, 0);
+}
+
+/// A progression of two chords goes round four times in one position before
+/// the hand moves, and with the position goes the order of Greene's permuted
+/// groups; a tune of twelve moves every pass, as it did.
+#[test]
+fn a_short_progression_stays_in_its_position() {
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.arp_exercise = ArpExercise::Greene;
+    a.set_random_mode(false);
+    assert!(a.select_song("Ted Greene: I – IV7"));
+    a.reload_library();
+    assert_eq!(a.chords.len(), 2);
+    let order = |a: &MyApp| a.greene_recipe().expect("Greene's exercise").seed;
+    let first = order(&a);
+    for chord in 1..8 {
+        a.advance_chord();
+        assert_eq!(order(&a), first, "moved after {chord} chords");
+    }
+    a.advance_chord();
+    assert_eq!(order(&a), first + 1, "eight chords, and still the first position");
+    assert_eq!(a.play_pos, 0);
+
+    assert!(a.select_song("Watermelon Man"));
+    a.reload_library();
+    let first = order(&a);
+    for _ in 0..12 {
+        a.advance_chord();
+    }
+    assert_eq!(order(&a), first + 1);
 }
 
 /// Over a minor seventh the beats carry the dominant a fourth up: over Cm7

@@ -683,6 +683,39 @@ DMaj7 DMaj7 Bm7b5 E7 Em7 A7 DMaj7 Ddim Am7 D7 GMaj7 Gm6 F#7 F#7 B7 B7 E7 E7 A7 A
 
 Yardbird Suite | C
 CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 D7 D7 Dm7 G7 CMaj7 Fm7 Bb7 CMaj7 Bb7 A7 Dm7 G7 CMaj7 E7
+
+Ted Greene: I – IV7 | C
+CMaj7 F7
+
+Ted Greene: I – ♭VII7 | C
+CMaj7 Bb7
+
+Ted Greene: I – ♭II7 | C
+CMaj7 Db7
+
+Ted Greene: I – I7 – IV – ♭VII7 | C
+CMaj7 C7 FMaj7 Bb7
+
+Ted Greene: I – vi – ii – V | C
+CMaj7 Am7 Dm7 G7
+
+Ted Greene: I – VI7 – ii – V | C
+CMaj7 A7 Dm7 G7
+
+Ted Greene: ii – V – I – VI7 | C
+Dm7 G7 CMaj7 A7
+
+Ted Greene: ii – V – I – IV (C E A♭ F A) | C
+CMaj7 FMaj7 F#m7 B7 EMaj7 AMaj7 Bbm7 Eb7 AbMaj7 DbMaj7 Gm7 C7 FMaj7 Bb7 Bm7 E7 AMaj7
+
+Ted Greene: maj7 – A♭ D♭ G♭ B …
+AbMaj7 DbMaj7 GbMaj7 BMaj7 EMaj7 AMaj7 DMaj7 GMaj7 CMaj7 FMaj7 BbMaj7 EbMaj7
+
+Ted Greene: 7 – A♭ D♭ G♭ B …
+Ab7 Db7 Gb7 B7 E7 A7 D7 G7 C7 F7 Bb7 Eb7
+
+Ted Greene: m7 – A♭ D♭ G♭ B …
+Abm7 Dbm7 Gbm7 Bm7 Em7 Am7 Dm7 Gm7 Cm7 Fm7 Bbm7 Ebm7
 "#;
 
 pub fn load_all_scale_definitions() -> Vec<ScaleDefinition> {
@@ -1004,6 +1037,29 @@ mod song_tests {
         assert_eq!(tonic("Four"), Some(NoteName::Ef));
         assert_eq!(tonic("Autumn Leaves"), None);
         assert!(songs.iter().all(|s| !s.title.contains('|')));
+    }
+
+    /// The progressions from Ted Greene's sheets stand after the tunes: the
+    /// vamps of two chords, the turnarounds of four, and the three chords
+    /// taken round in fourths - written as the chords the program knows, a
+    /// major ninth as maj7, a thirteenth as 7.
+    #[test]
+    fn greenes_progressions_are_in_the_library() {
+        let songs = parse_songs(SONGS_DB);
+        let greenes: Vec<&Song> = songs.iter().filter(|s| s.title.starts_with("Ted Greene: ")).collect();
+        let chords: Vec<usize> = greenes.iter().map(|s| s.chords.len()).collect();
+        assert_eq!(chords, [2, 2, 2, 4, 4, 4, 4, 17, 12, 12, 12]);
+        let first = songs.iter().position(|s| s.title.starts_with("Ted Greene: ")).unwrap();
+        assert_eq!(first + greenes.len(), songs.len(), "after every tune");
+        // Round in fourths every root comes once.
+        for cycle in &greenes[8..] {
+            let mut roots: Vec<usize> = cycle.chords.iter().map(|c| c.root as usize).collect();
+            assert!(roots.windows(2).all(|w| (w[0] + 5) % 12 == w[1]), "{}", cycle.title);
+            roots.sort();
+            roots.dedup();
+            assert_eq!(roots.len(), 12);
+        }
+        assert!(greenes[..8].iter().all(|s| s.tonic == Some(NoteName::C)));
     }
 }
 

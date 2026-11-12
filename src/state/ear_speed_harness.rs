@@ -336,3 +336,90 @@ fn what_the_quick_ear_costs() {
     let micros = started.elapsed().as_secs_f64() * 1e6 / spectra.len() as f64;
     println!("{micros:.0} µs a hop of 16 ms ({named} hops named)");
 }
+
+/// The cells of the Harris lines through a key, the whole pass spliced at
+/// the pitches the app asks for and run through the judge of Arpeggios:
+/// notes credited, credits before their note, and the median wait.
+/// SOLITITO_QUICK=1 turns quick crediting on.
+#[test]
+#[ignore = "diagnostic: needs AtoA.wav and both models"]
+fn cells_through_a_key() {
+    use super::line_harness::{run_app, splice_shifted, with_black_keys};
+    use super::tests::app;
+    use super::*;
+    use crate::harris::{Figure, Recipe};
+    let (signal, notes) = atoa_notes();
+    let all = with_black_keys(&notes);
+    let figures = [Figure::Thirds, Figure::Triads, Figure::Sevenths, Figure::LedThirds, Figure::BebopArpeggio, Figure::Pivot];
+    // SOLITITO_CELLS_ONLY=Thirds/0.3 for one case, with what the quick path
+    // saw on every hop until the line stops.
+    let only = std::env::var("SOLITITO_CELLS_ONLY").ok();
+    for length in [0.5, 0.3, 0.2] {
+        for figure in figures {
+            if only.as_deref().is_some_and(|o| o != format!("{figure:?}/{length}")) {
+                continue;
+            }
+            let mut a = app();
+            a.set_mode(AppMode::Arpeggios as i32);
+            a.arp_exercise = ArpExercise::HarrisLines;
+            a.harris_in_key = true;
+            a.harris_key = 0;
+            a.harris = Recipe { figure, ..Recipe::default() };
+            a.set_random_mode(false);
+            a.reload_library();
+            // Every note of the pass, chord by chord, as MIDI.
+            let mut midi: Vec<u8> = Vec::new();
+            let mut sizes: Vec<usize> = Vec::new();
+            for pos in 0..a.play_order.len() {
+                a.play_pos = pos;
+                let chord = a.chords[a.play_order[pos]].clone();
+                let semis = a.degree_intervals(&chord);
+                let steps = a.get_active_indices(&chord);
+                sizes.push(steps.len());
+                midi.extend(steps.iter().map(|s| (crate::harris::C3 + chord.root as i32 + semis[s.degree] as i32 + 12 * s.octave as i32) as u8));
+            }
+            a.reset_logic_state();
+            let Some(line) = midi.iter().map(|&m| all.iter().position(|n| n.1 == m)).collect::<Option<Vec<usize>>>() else {
+                println!("  {figure:?}: a note AtoA lacks, {midi:?}");
+                continue;
+            };
+            // A note first, so the model has its history when the line
+            // begins - see `greene_in_position`. Every class may be in the
+            // line: the one that enters it last, as the detector holds a
+            // class back that it reported within three seconds.
+            let enters = |pc: u8| midi.iter().position(|m| m % 12 == pc).unwrap_or(usize::MAX);
+            let primer = (0..all.len()).max_by_key(|&i| enters(all[i].1 % 12)).unwrap();
+            let mut primed = vec![primer];
+            primed.extend(&line);
+            let (audio, mut onsets) = splice_shifted(&signal, &all, &primed, length, 0.0);
+            onsets.remove(0);
+            let mut credited: Vec<Option<f32>> = vec![None; midi.len()];
+            let mut passed = false;
+            run_app(a, &audio, |a, t| {
+                let before: usize = sizes[..a.play_pos].iter().sum();
+                passed |= a.play_pos > 0;
+                // The pass over: every chord was credited whole.
+                let done = if passed && a.play_pos == 0 { midi.len() } else { before + a.collected_notes.iter().filter(|&&c| c).count() };
+                if only.is_some() && done < midi.len() {
+                    let pc = midi[done] as usize % 12;
+                    let credit = a.credited[pc].map(|c| c.class_strike);
+                    println!(
+                        "    {t:.3} due {done} pc {pc} (note at {:.2}): struck {} ago, strikes {} credit {credit:?}, quick {:?}",
+                        onsets[done], a.heard.class_strike_age[pc].min(999), a.heard.class_strikes[pc], a.heard.quick
+                    );
+                }
+                for slot in credited.iter_mut().take(done).filter(|slot| slot.is_none()) {
+                    *slot = Some(t);
+                }
+                done == midi.len()
+            });
+            let got = credited.iter().filter(|c| c.is_some()).count();
+            let early = onsets.iter().zip(&credited).filter(|(on, at)| at.is_some_and(|t| t < **on - 0.03)).count();
+            let mut waits: Vec<f32> = onsets.iter().zip(&credited).filter_map(|(on, at)| at.map(|t| t - on)).collect();
+            waits.sort_by(f32::total_cmp);
+            let median = waits.get(waits.len() / 2).map_or(f32::NAN, |w| w * 1000.0);
+            println!("  {length:.2} s a note, {figure:?}: {got}/{} credited, {early} early, median {median:.0} ms", midi.len());
+        }
+    }
+}
+

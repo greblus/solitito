@@ -180,10 +180,12 @@ struct SettingsSnapshot {
     arp_exercise: i32,
     arp_direction: i32,
     harris_figure: i32,
+    harris_in_key: bool,
     harris_start: i32,
     harris_notes: i32,
     arp_position: bool,
     greene_figure: i32,
+    greene_group: i32,
     greene_tensions: bool,
     software_renderer: bool,
     arp_quality: i32,
@@ -247,10 +249,12 @@ impl SettingsSnapshot {
             arp_exercise: ui.get_arp_exercise(),
             arp_direction: ui.get_arp_direction(),
             harris_figure: ui.get_harris_figure(),
+            harris_in_key: ui.get_harris_in_key(),
             harris_start: ui.get_harris_start(),
             harris_notes: ui.get_harris_notes(),
             arp_position: ui.get_arp_position(),
             greene_figure: ui.get_greene_figure(),
+            greene_group: ui.get_greene_group(),
             greene_tensions: ui.get_greene_tensions(),
             software_renderer: ui.get_software_renderer(),
             arp_quality: ui.get_arp_quality(),
@@ -544,6 +548,8 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
     // decides what the library IS - the studies or the tunes.
     app.arp_exercise = cfg.arp_exercise.into();
     app.arp_direction = cfg.arp_direction.into();
+    app.harris_in_key = cfg.harris_in_key;
+    app.harris_key = cfg.harris_key % 12;
     app.harris = harris::Recipe {
         figure: cfg.harris_figure.into(),
         start: cfg.harris_start.into(),
@@ -554,6 +560,7 @@ fn restore_app(cfg: &Settings, analysis: Arc<Mutex<AudioAnalysis>>) -> MyApp {
     app.greene = harris::PositionRecipe {
         figure: cfg.greene_figure.into(),
         tensions: cfg.greene_tensions,
+        group: cfg.greene_group,
         notes: match cfg.harris_notes { 1 => Some(4), 2 => None, _ => Some(8) },
         ..harris::PositionRecipe::default()
     };
@@ -604,10 +611,12 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_arp_exercise(cfg.arp_exercise as i32);
     ui.set_arp_direction(cfg.arp_direction as i32);
     ui.set_harris_figure(cfg.harris_figure as i32);
+    ui.set_harris_in_key(cfg.harris_in_key);
     ui.set_harris_start(cfg.harris_start as i32);
     ui.set_harris_notes(cfg.harris_notes as i32);
     ui.set_arp_position(cfg.arp_position);
     ui.set_greene_figure(cfg.greene_figure as i32);
+    ui.set_greene_group(cfg.greene_group.clamp(3, 5) as i32 - 3);
     ui.set_greene_tensions(cfg.greene_tensions);
     ui.set_software_renderer(cfg.software_renderer);
     ui.set_arp_quality(cfg.arp_quality as i32);
@@ -770,10 +779,12 @@ fn restore_window(ui: &AppWindow, cfg: &Settings) -> Rc<Timer> {
 /// Wanted in two places - when the mode changes and when the language does -
 /// and it used to be built only in the first, from a language captured at
 /// startup. Switching to English left "Utwór" standing over an English panel.
-fn mode_labels(t: &i18n::Strings, mode: AppMode, arp_study: bool) -> (&'static str, &'static str) {
+/// `arp_in_key`: an arpeggio exercise that stands in a key - a study, or
+/// Harris lines through the chords of one.
+fn mode_labels(t: &i18n::Strings, mode: AppMode, arp_in_key: bool) -> (&'static str, &'static str) {
     match mode {
         AppMode::Scales => (t.select_scale, t.key_root),
-        AppMode::Arpeggios if arp_study => (t.select_study, t.key_root),
+        AppMode::Arpeggios if arp_in_key => (t.select_study, t.key_root),
         AppMode::Arpeggios => (t.select_song, ""),
         _ => (t.select_song, ""),
     }
@@ -813,6 +824,8 @@ fn library_lists(app: &MyApp, lang: Lang) -> (Vec<SharedString>, Vec<SharedStrin
                 .collect(),
             keys_list(),
         ),
+        // Harris lines through a key: no tune to pick, the key in the second.
+        AppMode::Arpeggios if app.walks_a_key() => (vec![], keys_list()),
         AppMode::Arpeggios => (songs(), vec![]),
         _ => (songs(), vec![]),
     }
@@ -856,7 +869,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     let t = i18n::strings(lang);
     // Not everything on screen goes through the Tr global: these are built in
     // Rust and stayed in whatever language they were made in.
-    let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()), ui.get_arp_exercise() == 0);
+    let arp_in_key = ui.get_arp_exercise() == 0 || (ui.get_arp_exercise() == 2 && ui.get_harris_in_key());
+    let (label, sec_label) = mode_labels(&t, AppMode::from(ui.get_current_mode()), arp_in_key);
     ui.set_library_label(label.into());
     ui.set_secondary_label(sec_label.into());
     // The scale names among them: they are the library list in Scales, so the
@@ -947,6 +961,15 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_arp_harris(t.arp_harris.into());
     g.set_harris_hint(t.harris_hint.into());
     g.set_harris_figure(t.harris_figure.into());
+    g.set_harris_thirds(t.harris_thirds.into());
+    g.set_harris_triads(t.harris_triads.into());
+    g.set_harris_sevenths(t.harris_sevenths.into());
+    g.set_harris_led_thirds(t.harris_led_thirds.into());
+    g.set_harris_bebop(t.harris_bebop.into());
+    g.set_harris_pivot(t.harris_pivot.into());
+    g.set_harris_harmony(t.harris_harmony.into());
+    g.set_harris_in_key(t.harris_in_key.into());
+    g.set_harris_on_tune(t.harris_on_tune.into());
     g.set_harris_scale_down(t.harris_scale_down.into());
     g.set_harris_scale_up(t.harris_scale_up.into());
     g.set_harris_arp_scale(t.harris_arp_scale.into());
@@ -962,7 +985,11 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_greene_sweep(t.greene_sweep.into());
     g.set_greene_groups_up(t.greene_groups_up.into());
     g.set_greene_groups_down(t.greene_groups_down.into());
-    g.set_greene_groups_random(t.greene_groups_random.into());
+    g.set_greene_orders(t.greene_orders.into());
+    g.set_greene_group(t.greene_group.into());
+    g.set_greene_group_3(t.greene_group_3.into());
+    g.set_greene_group_4(t.greene_group_4.into());
+    g.set_greene_group_5(t.greene_group_5.into());
     g.set_greene_whole(t.greene_whole.into());
     g.set_greene_tensions(t.greene_tensions.into());
     g.set_greene_tensions_hint(t.greene_tensions_hint.into());

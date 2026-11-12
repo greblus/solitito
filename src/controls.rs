@@ -132,6 +132,8 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_harris_notes_changed(saving(cfg, |s, idx: i32| s.harris_notes = idx.max(0) as usize));
     ui.on_arp_position_changed(saving(cfg, |s, on: bool| s.arp_position = on));
     ui.on_greene_figure_changed(saving(cfg, |s, idx: i32| s.greene_figure = idx.max(0) as usize));
+    // The list's rows are groups of 3, 4 and 5.
+    ui.on_greene_group_changed(saving(cfg, |s, row: i32| s.greene_group = row.clamp(0, 2) as usize + 3));
     ui.on_greene_tensions_changed(saving(cfg, |s, on: bool| s.greene_tensions = on));
     ui.on_software_renderer_changed(saving(cfg, |s, on: bool| s.software_renderer = on));
     ui.on_arp_quality_changed(saving(cfg, |s, idx: i32| s.arp_quality = idx.max(0) as usize));
@@ -413,6 +415,23 @@ fn connect_practice(ui: &AppWindow, shared: &Shared) {
         let cur = shared.cfg.clone();
         let app = shared.app.clone();
         let uw = ui.as_weak();
+        let (app_k, cur_k, uw_k) = (app.clone(), cur.clone(), uw.clone());
+        // A key's chords or the tune's: another progression under the same
+        // figure, so the library is read again as for another exercise.
+        ui.on_harris_in_key_changed(move |on| {
+            {
+                let mut cur = cur_k.borrow_mut();
+                cur.harris_in_key = on;
+                cur.save();
+            }
+            let mut app = app_k.lock().unwrap();
+            app.harris_in_key = on;
+            app.selected_library_idx = if app.reads_songs() { app.saved_song() } else { 0 };
+            app.reload_library();
+            if let Some(ui) = uw_k.upgrade() {
+                show_library(&ui, &app);
+            }
+        });
         // The exercise decides what the two combos hold, so they are dealt
         // again the moment it changes - and the exercise itself has to
         // reach the state before the lists are built from it.
@@ -636,11 +655,18 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
         });
     }
     let app = shared.app.clone();
+    let cfg = shared.cfg.clone();
     let uw = ui.as_weak();
     ui.on_secondary_item_selected(move |index| {
         let mut app = app.lock().unwrap();
         let Some(ui) = uw.upgrade() else { return };
         app.secondary_item_selected(index);
+        // The key Harris lines are taken through is kept between sessions.
+        if app.walks_a_key() {
+            let mut cfg = cfg.borrow_mut();
+            cfg.harris_key = app.harris_key;
+            cfg.save();
+        }
         if app.app_mode == AppMode::Scales || app.app_mode == AppMode::Arpeggios {
             ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into());
         }
@@ -652,7 +678,8 @@ fn connect_navigation(ui: &AppWindow, shared: &Shared) {
 fn show_library(ui: &AppWindow, app: &MyApp) {
     let lang = Lang::from_setting(ui.get_language_idx());
     let t = i18n::strings(lang);
-    let (label, sec_label) = mode_labels(&t, app.app_mode, app.arp_exercise == ArpExercise::Study);
+    let arp_in_key = app.arp_exercise == ArpExercise::Study || app.walks_a_key();
+    let (label, sec_label) = mode_labels(&t, app.app_mode, arp_in_key);
     let (items, sec_items) = library_lists(app, lang);
     ui.set_library_label(label.into());
     ui.set_library_items(ModelRc::from(Rc::new(VecModel::from(items))));

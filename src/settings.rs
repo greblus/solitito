@@ -50,8 +50,9 @@ pub struct Settings {
     pub single_notes: bool,
     /// Quick crediting, where notes are taken one at a time: a note is
     /// credited the moment the strike detector and the quick ear agree on it.
-    /// Off by default, until it has been played with.
-    #[serde(default)]
+    /// On by default since 0.5.17, and saved under a new name: a file written
+    /// by 0.5.16 holds `quick_credit: false`, the default of that version.
+    #[serde(default = "yes", rename = "quick_crediting")]
     pub quick_credit: bool,
     /// "Credit only what was struck", offered in Intervals alone and on by
     /// default, including in older settings that saved a shared value for every
@@ -137,22 +138,34 @@ pub struct Settings {
     #[serde(default)]
     pub arp_direction: usize,
     /// Harris lines: the figure (`harris::Figure`), where it starts
-    /// (`harris::Start`), and 0 eight notes a chord or 1 four.
-    #[serde(default)]
+    /// (`harris::Start`), and 0 eight notes a chord or 1 four. The figure is
+    /// saved under a name of its own since the list was put in a new order:
+    /// an index saved before it would pick another figure.
+    #[serde(default, rename = "harris_figure_of_14")]
     pub harris_figure: usize,
+    /// Harris lines through the chords of a key - the one saved - or over
+    /// the chords of the tune.
+    #[serde(default = "yes")]
+    pub harris_in_key: bool,
+    #[serde(default)]
+    pub harris_key: usize,
     #[serde(default)]
     pub harris_start: usize,
     #[serde(default)]
     pub harris_notes: usize,
     /// Over the changes: the whole pass in one position, another for every
     /// pass. The start and the notes per chord above serve both exercises.
-    #[serde(default)]
+    /// On by default since 0.5.17: without it a line over a tune keeps coming
+    /// back to the nut, whichever fret was drawn.
+    #[serde(default = "yes")]
     pub arp_position: bool,
-    /// Ted Greene's exercises: the figure (`harris::PositionFigure`) and
-    /// whether the tensions are in it. The notes per chord are
-    /// `harris_notes`, with 2 the whole position.
+    /// Ted Greene's exercises: the figure (`harris::PositionFigure`), the
+    /// tones in a group of it - 3, 4 or 5 - and whether the tensions are in
+    /// it. The notes per chord are `harris_notes`, with 2 the whole position.
     #[serde(default)]
     pub greene_figure: usize,
+    #[serde(default = "four_tones")]
+    pub greene_group: usize,
     #[serde(default)]
     pub greene_tensions: bool,
     /// Software rendering instead of OpenGL; set automatically when the window
@@ -331,6 +344,10 @@ fn five_notes() -> usize {
     5
 }
 
+fn four_tones() -> usize {
+    4
+}
+
 fn key_of_c() -> String {
     "C".to_string()
 }
@@ -430,7 +447,7 @@ impl Default for Settings {
             language: 0,
             short_verdict: false,
             single_notes: true,
-            quick_credit: false,
+            quick_credit: true,
             interval_require_onset: true,
             shuffle_chords: false,
             audio_device: None,
@@ -456,10 +473,13 @@ impl Default for Settings {
             arp_exercise: 0,
             arp_direction: 0,
             harris_figure: 0,
+            harris_in_key: true,
+            harris_key: 0,
             harris_start: 0,
             harris_notes: 0,
-            arp_position: false,
+            arp_position: true,
             greene_figure: 0,
+            greene_group: 4,
             greene_tensions: false,
             software_renderer: false,
             arp_quality: 0,
@@ -828,13 +848,15 @@ mod tests {
     }
 
     #[test]
-    fn quick_crediting_is_off_until_asked_for_and_is_remembered() {
-        assert!(!Settings::default().quick_credit);
-        let old: Settings = serde_json::from_str(r#"{"startup_mode":2}"#).unwrap();
-        assert!(!old.quick_credit, "a file written before the option turned it on");
-        let s = Settings { quick_credit: true, ..Settings::default() };
+    fn quick_crediting_is_on_until_turned_off_and_is_remembered() {
+        assert!(Settings::default().quick_credit);
+        // A file of 0.5.16 holds that version's default, off, and a file
+        // older still nothing: both come up with it on.
+        let old: Settings = serde_json::from_str(r#"{"startup_mode":2,"quick_credit":false}"#).unwrap();
+        assert!(old.quick_credit, "the old default was carried over");
+        let s = Settings { quick_credit: false, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert!(back.quick_credit, "the option did not survive being saved");
+        assert!(!back.quick_credit, "turning it off did not survive being saved");
     }
 
     #[test]

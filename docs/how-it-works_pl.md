@@ -278,9 +278,10 @@ nikt nie zagrał, dwa razy — pół tonu poniżej dźwięku, w samym ataku. Zwy
 własnej reguły i samo, na tym samym nagraniu nazwało inną klasę przez trzy kroki lub dłużej
 150 razy.
 
-To opcja, domyślnie wyłączona: wszystko to jest zmierzone na nagraniach, a wejście na żywo
-dokłada to, czego nagranie nie ma — bufor karty dźwiękowej i sędziego, który czyta wątek audio
-z zegara okna.
+To opcja, domyślnie włączona od wersji 0.5.17. Wszystko to jest zmierzone na nagraniach, a wejście
+na żywo dokłada to, czego nagranie nie ma — bufor karty dźwiękowej i sędziego, który czyta wątek
+audio z zegara okna. Gdyby na żywo zaliczała dźwięki, których nie grasz, wyłącz ją w szybkich
+opcjach: zostaje wtedy sama zwykła droga.
 
 ### Które dźwięki brzmią
 
