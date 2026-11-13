@@ -1060,10 +1060,10 @@ impl UiFrame {
         shown_names: &[String],
         jazz: bool,
     ) {
-        // Intervals draws the steps as tiles, with the note each degree
+        // The note modes draw the steps as tiles, with the note each degree
         // falls on in this chord. Pushed only when something changed:
         // a new model every frame would rebuild every tile.
-        if matches!(app.app_mode, AppMode::Intervals | AppMode::Scales)
+        if matches!(app.app_mode, AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios)
             && Preview::from(ui.get_preview()) == Preview::Tiles
         {
             let key = formulas::parse_key(chord.root.to_string());
@@ -1368,7 +1368,8 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
 /// E to e is fifteen notes, too narrow drawn at once.
 const TILES_PER_PAGE: usize = 8;
 
-/// The page of tiles the step due is on; all of them in Intervals.
+/// The page of tiles the step due is on; all of them in Intervals, and in
+/// Arpeggios, where the window scrolls the row itself.
 fn tiles_page(app: &MyApp, tiles: Vec<IntervalTile>) -> Vec<IntervalTile> {
     if app.app_mode != AppMode::Scales || tiles.len() <= TILES_PER_PAGE {
         return tiles;

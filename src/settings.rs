@@ -365,7 +365,7 @@ pub enum Preview {
     Tab,
     /// The neck: every note where the finger goes.
     Neck,
-    /// The degrees as tiles. Intervals and Scales only.
+    /// The degrees as tiles. Intervals, Scales and Arpeggios only.
     Tiles,
 }
 
@@ -389,9 +389,9 @@ impl From<i32> for Preview {
 
 pub const PREVIEW_TILES: usize = Preview::Tiles as usize;
 
-/// Intervals and Scales, the modes that offer the tiles.
+/// Intervals, Scales and Arpeggios, the modes that offer the tiles.
 fn has_tiles(mode: usize) -> bool {
-    matches!(mode, 1 | 2)
+    matches!(mode, 1..=3)
 }
 
 /// How each mode shows its exercise when nothing has been saved for it.
@@ -732,12 +732,13 @@ mod tests {
         assert!(!s.set_preview_for(2, 0), "setting the same view changes nothing");
         assert!(!s.set_preview_for(9, 1), "a mode this build has no entry for");
         assert!(!s.set_preview_for(2, 7), "not one of the three views");
-        assert!(!s.set_preview_for(3, PREVIEW_TILES), "tiles outside Intervals and Scales");
+        assert!(!s.set_preview_for(5, PREVIEW_TILES), "tiles in Formulas, which has none");
         assert!(s.set_preview_for(1, PREVIEW_TILES), "tiles in Intervals");
         assert_eq!(s.preview_for(1), PREVIEW_TILES);
         assert!(s.set_preview_for(1, DEFAULT_PREVIEWS[1]), "and back");
         assert_eq!(s.preview_for(3), 2, "and neither refusal moved it");
         assert!(s.set_preview_for(2, PREVIEW_TILES), "tiles in Scales");
+        assert!(s.set_preview_for(3, PREVIEW_TILES), "tiles in Arpeggios");
     }
 
     /// A file written before the split carries one view for the whole app.
@@ -765,15 +766,16 @@ mod tests {
         assert_eq!(s.previews, DEFAULT_PREVIEWS.to_vec());
     }
 
-    /// The tiles survive a reload in Intervals, and only there.
+    /// The tiles survive a reload in the modes that have them, and only there.
     #[test]
-    fn tiles_are_kept_in_intervals_and_scales_alone() {
+    fn tiles_are_kept_in_the_note_modes_alone() {
         let mut s: Settings = serde_json::from_str(r#"{"startup_mode":0,"previews":[3,3,3,3,3,3]}"#)
             .expect("reads");
         s.fill_previews();
         let mut want = DEFAULT_PREVIEWS.to_vec();
         want[1] = PREVIEW_TILES;
         want[2] = PREVIEW_TILES;
+        want[3] = PREVIEW_TILES;
         assert_eq!(s.previews, want);
     }
 

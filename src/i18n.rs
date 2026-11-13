@@ -101,6 +101,8 @@ pub struct Strings {
     pub note_hint_hover: &'static str,
     /// The fretboard trainer's quick option: the hint with every note.
     pub chip_hint: &'static str,
+    /// The quick option of the modes with a drawing: `tab_frets`, said short.
+    pub chip_frets: &'static str,
     /// After the key a tune is written in, in the key list of Chords.
     pub key_original: &'static str,
     /// The shuffle's name in Scales, where it draws the key.
@@ -361,6 +363,7 @@ pub const EN: Strings = Strings {
     chip_drawn_hint: "Up or down",
     note_hint_hover: "Click to see a hint",
     chip_hint: "Hint",
+    chip_frets: "Fret numbers",
     key_original: " (original)",
     random_key: "Random key",
     there_and_back: "There and back",
@@ -598,6 +601,7 @@ pub const PL: Strings = Strings {
     chip_drawn_hint: "W górę lub w dół",
     note_hint_hover: "Kliknij, aby zobaczyć podpowiedź",
     chip_hint: "Podpowiedź",
+    chip_frets: "Numery progów",
     key_original: " (oryginał)",
     random_key: "Losowa tonacja",
     there_and_back: "Tam i z powrotem",
@@ -869,6 +873,7 @@ mod tests {
             ("chip_drawn_hint", EN.chip_drawn_hint, PL.chip_drawn_hint),
             ("note_hint_hover", EN.note_hint_hover, PL.note_hint_hover),
             ("chip_hint", EN.chip_hint, PL.chip_hint),
+            ("chip_frets", EN.chip_frets, PL.chip_frets),
             ("key_original", EN.key_original, PL.key_original),
             ("random_key", EN.random_key, PL.random_key),
             ("there_and_back", EN.there_and_back, PL.there_and_back),

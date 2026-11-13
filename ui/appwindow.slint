@@ -311,7 +311,7 @@ component SideToggle inherits Rectangle {
     in property <string> hint;
     callback toggled();
 
-    height: 32px * TextScale.sidebar;
+    height: 28px * TextScale.sidebar;
     border-radius: 8px;
     background: touch.has-hover ? Theme.raised : transparent;
     touch := TouchArea { clicked => { root.toggled(); } }
@@ -332,17 +332,17 @@ component SideToggle inherits Rectangle {
         VerticalLayout {
             alignment: center;
             Rectangle {
-                width: 32px;
-                height: 18px;
-                border-radius: 9px;
+                width: 26px;
+                height: 14px;
+                border-radius: 7px;
                 background: root.on ? Theme.accent : Theme.track;
                 animate background { duration: 120ms; }
                 Rectangle {
-                    x: root.on ? 16px : 2px;
+                    x: root.on ? 14px : 2px;
                     y: 2px;
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 7px;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
                     background: root.on ? Theme.on-accent : Theme.faint;
                     animate x { duration: 120ms; }
                 }
@@ -841,6 +841,7 @@ export global Tr {
     in-out property <string> chip_drawn_hint: "Up or down";
     in-out property <string> note_hint_hover: "Click to see a hint";
     in-out property <string> chip_hint: "Hint";
+    in-out property <string> chip_frets: "Fret numbers";
     in-out property <string> chip_e_to_e: "From E to e";
     in-out property <string> random_key: "Random key";
     in-out property <string> there_and_back: "There and back";
@@ -1714,6 +1715,9 @@ export component AppWindow inherits Window {
                                 toggled => { root.chord_strip = !root.chord_strip; root.chord_strip_changed(root.chord_strip); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
                                 toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                            // Only where there is a drawing to put the numbers in.
+                            if root.draws_on_neck : SideToggle { text: Tr.chip_frets; hint: Tr.tab_frets; on: root.tab_frets;
+                                toggled => { root.tab_frets = !root.tab_frets; root.tab_frets_changed(root.tab_frets); } }
                         }
                         NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
                             expandable: root.current_mode == 2 && !root.show_settings;
@@ -1766,6 +1770,8 @@ export component AppWindow inherits Window {
                                 toggled => { root.quick_credit = !root.quick_credit; root.quick_credit_changed(root.quick_credit); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
                                 toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                            if root.draws_on_neck : SideToggle { text: Tr.chip_frets; hint: Tr.tab_frets; on: root.tab_frets;
+                                toggled => { root.tab_frets = !root.tab_frets; root.tab_frets_changed(root.tab_frets); } }
                         }
                         NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
                             expandable: root.current_mode == 3 && !root.show_settings;
@@ -1776,100 +1782,103 @@ export component AppWindow inherits Window {
                         // itself is chosen from the title above the exercise.
                         if root.current_mode == 3 && root.quick_open && !root.show_settings : VerticalLayout {
                             padding-bottom: 4px;
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            spacing: 6px;
-                            Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 260px;
-                                model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
-                                current-index <=> root.arp_exercise;
-                                selected(v) => { root.arp_exercise_changed(v); }
-                            }
-                            // The view, as in the settings.
-                            Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 260px;
-                                model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
-                                current-index <=> root.preview;
-                                selected(v) => { root.preview_changed(v); }
-                            }
-                            // Harris lines: the chords of a key, or the tune's.
-                            if root.arp_exercise == 2 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: [Tr.harris_in_key, Tr.harris_on_tune];
-                                current-index: root.harris_in_key ? 0 : 1;
-                                selected(v) => { root.harris_in_key = v == 0; root.harris_in_key_changed(root.harris_in_key); }
-                            }
-                            // The key of the study; the study itself is chosen from its
-                            // title above the exercise, as a scale is. And the key Harris
-                            // lines are taken through.
-                            if root.arp_exercise == 0 || root.walks_a_key : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: root.secondary_items;
-                                current-index <=> root.current_secondary_index;
-                                selected => { root.secondary_item_selected(self.current-index); }
-                            }
-                            if root.arp_exercise == 0 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: ["m7", "Maj7", "7", "m7b5", "dim7"];
-                                current-index <=> root.arp_quality;
-                                selected(v) => { root.arp_quality_changed(v); }
-                            }
-                            if root.arp_exercise == 1 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
-                                current-index <=> root.arp_direction;
-                                selected(v) => { root.arp_direction_changed(v); }
-                            }
-                            if root.arp_exercise == 2 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 260px;
-                                model: [Tr.harris_thirds, Tr.harris_triads, Tr.harris_sevenths, Tr.harris_led_thirds, Tr.harris_bebop, Tr.harris_pivot, Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
-                                current-index <=> root.harris_figure;
-                                selected(v) => { root.harris_figure_changed(v); }
-                            }
-                            if root.arp_exercise == 3 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 260px;
-                                model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_orders];
-                                current-index <=> root.greene_figure;
-                                selected(v) => { root.greene_figure_changed(v); }
-                            }
-                            // The groups up and down alone: a permuted group is one of four.
-                            if root.arp_exercise == 3 && (root.greene_figure == 1 || root.greene_figure == 2) : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: [Tr.greene_group_3, Tr.greene_group_4, Tr.greene_group_5];
-                                current-index <=> root.greene_group;
-                                selected(v) => { root.greene_group_changed(v); }
-                            }
-                            if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 260px;
-                                model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
-                                current-index <=> root.harris_start;
-                                selected(v) => { root.harris_start_changed(v); }
-                            }
-                            // Not where a cell is taken through a key: one cell a chord.
-                            if (root.arp_exercise == 1 || root.arp_exercise == 2) && !root.one_cell_a_chord : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: [Tr.harris_eight, Tr.harris_four];
-                                current-index <=> root.harris_notes;
-                                selected(v) => { root.harris_notes_changed(v); }
-                            }
-                            // The whole position is a third length, Greene's alone.
-                            if root.arp_exercise == 3 : Dropdown {
-                                text-scale: TextScale.sidebar;
-                                list-width: 220px;
-                                model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
-                                current-index <=> root.harris_notes;
-                                selected(v) => { root.harris_notes_changed(v); }
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+                                Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
+                                    current-index <=> root.arp_exercise;
+                                    selected(v) => { root.arp_exercise_changed(v); }
+                                }
+                                // The view, as in the settings.
+                                Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
+                                    current-index <=> root.preview;
+                                    selected(v) => { root.preview_changed(v); }
+                                }
+                                // Harris lines: the chords of a key, or the tune's.
+                                if root.arp_exercise == 2 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: [Tr.harris_in_key, Tr.harris_on_tune];
+                                    current-index: root.harris_in_key ? 0 : 1;
+                                    selected(v) => { root.harris_in_key = v == 0; root.harris_in_key_changed(root.harris_in_key); }
+                                }
+                                // The key of the study; the study itself is chosen from its
+                                // title above the exercise, as a scale is. And the key Harris
+                                // lines are taken through.
+                                if root.arp_exercise == 0 || root.walks_a_key : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: root.secondary_items;
+                                    current-index <=> root.current_secondary_index;
+                                    selected => { root.secondary_item_selected(self.current-index); }
+                                }
+                                if root.arp_exercise == 0 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: ["m7", "Maj7", "7", "m7b5", "dim7"];
+                                    current-index <=> root.arp_quality;
+                                    selected(v) => { root.arp_quality_changed(v); }
+                                }
+                                if root.arp_exercise == 1 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
+                                    current-index <=> root.arp_direction;
+                                    selected(v) => { root.arp_direction_changed(v); }
+                                }
+                                if root.arp_exercise == 2 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.harris_thirds, Tr.harris_triads, Tr.harris_sevenths, Tr.harris_led_thirds, Tr.harris_bebop, Tr.harris_pivot, Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                                    current-index <=> root.harris_figure;
+                                    selected(v) => { root.harris_figure_changed(v); }
+                                }
+                                if root.arp_exercise == 3 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_orders];
+                                    current-index <=> root.greene_figure;
+                                    selected(v) => { root.greene_figure_changed(v); }
+                                }
+                                // The groups up and down alone: a permuted group is one of four.
+                                if root.arp_exercise == 3 && (root.greene_figure == 1 || root.greene_figure == 2) : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: [Tr.greene_group_3, Tr.greene_group_4, Tr.greene_group_5];
+                                    current-index <=> root.greene_group;
+                                    selected(v) => { root.greene_group_changed(v); }
+                                }
+                                if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 260px;
+                                    model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                                    current-index <=> root.harris_start;
+                                    selected(v) => { root.harris_start_changed(v); }
+                                }
+                                // Not where a cell is taken through a key: one cell a chord.
+                                if (root.arp_exercise == 1 || root.arp_exercise == 2) && !root.one_cell_a_chord : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: [Tr.harris_eight, Tr.harris_four];
+                                    current-index <=> root.harris_notes;
+                                    selected(v) => { root.harris_notes_changed(v); }
+                                }
+                                // The whole position is a third length, Greene's alone.
+                                if root.arp_exercise == 3 : Dropdown {
+                                    text-scale: TextScale.sidebar;
+                                    list-width: 220px;
+                                    model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
+                                    current-index <=> root.harris_notes;
+                                    selected(v) => { root.harris_notes_changed(v); }
+                                }
                             }
                             if root.arp_exercise == 1 || root.arp_exercise == 2 : SideToggle { text: Tr.chip_position; on: root.arp_position;
                                 toggled => { root.arp_position = !root.arp_position; root.arp_position_changed(root.arp_position); } }
@@ -1881,6 +1890,8 @@ export component AppWindow inherits Window {
                                 toggled => { root.greene_tensions = !root.greene_tensions; root.greene_tensions_changed(root.greene_tensions); } }
                             SideToggle { text: Tr.step_captions; on: root.step_captions;
                                 toggled => { root.step_captions = !root.step_captions; root.step_captions_changed(root.step_captions); } }
+                            if root.draws_on_neck : SideToggle { text: Tr.chip_frets; hint: Tr.tab_frets; on: root.tab_frets;
+                                toggled => { root.tab_frets = !root.tab_frets; root.tab_frets_changed(root.tab_frets); } }
                         }
                         NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                             expandable: root.current_mode == 5 && !root.show_settings;
@@ -2692,6 +2703,7 @@ export component AppWindow inherits Window {
 
             // Intervals and Scales drawn as tiles: the degrees, the note each
             // is on, and where it stands. One of the views the settings offer.
+            // Narrowed to fit; Arpeggios has its own row below, scrolled.
             if (root.current_mode == 1 || root.current_mode == 2) && root.preview == 3 : Rectangle {
                 height: 124px * TextScale.tiles;
                 // Four tiles at full size, more of them narrower, so a long
@@ -2713,6 +2725,43 @@ export component AppWindow inherits Window {
                         width: parent.tile_w;
                         height: 124px * TextScale.tiles;
                         tile: t;
+                    }
+                }
+            }
+
+            // Arpeggios as tiles, at full size: a study is nineteen notes, and
+            // narrowed to fit they could not be read. As many as the room
+            // beside the side bar takes, and the row turns over a page at a
+            // time, as the line of names does.
+            if root.current_mode == 3 && root.preview == 3 : arp_tiles := Rectangle {
+                height: 124px * TextScale.tiles;
+                property <length> tile_w: 112px * TextScale.tiles;
+                property <length> step_w: self.tile_w + 12px;
+                property <length> room: (root.width - root.sidebar_w) * 92 / 100 - 30px;
+                property <int> per_page: max(1, floor((self.room + 12px) / self.step_w));
+                property <int> shown: min(self.per_page, root.interval_tiles.length);
+                property <int> page: floor(root.interval_step / self.per_page);
+                // Cut to whole tiles and centred by hand over the column, free
+                // to be wider than it.
+                Rectangle {
+                    width: max(0px, arp_tiles.shown * arp_tiles.step_w - 12px);
+                    height: parent.height;
+                    x: (parent.width - self.width) / 2;
+                    clip: true;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        x: -arp_tiles.page * arp_tiles.per_page * arp_tiles.step_w;
+                        width: root.interval_tiles.length * arp_tiles.step_w - 12px;
+                        height: parent.height;
+                        animate x {
+                            duration: root.interval_jump ? 40ms : 90ms;
+                            easing: ease-out;
+                        }
+                        for t in root.interval_tiles : IntervalCard {
+                            width: arp_tiles.tile_w;
+                            height: 124px * TextScale.tiles;
+                            tile: t;
+                        }
                     }
                 }
             }
@@ -3526,14 +3575,14 @@ export component AppWindow inherits Window {
                                             root.preview_changed(root.preview);
                                         }
                                     }
-                                    // Scales has the tiles as a fourth entry.
-                                    if root.current_mode == 2 : Dropdown {
+                                    // Scales and Arpeggios have the tiles as a fourth entry.
+                                    if root.current_mode == 2 || root.current_mode == 3 : Dropdown {
                                         width: root.ctrl_w;
                                         model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
                                         current-index <=> root.preview;
                                         selected(v) => { root.preview_changed(v); }
                                     }
-                                    if root.current_mode != 1 && root.current_mode != 2 : Dropdown {
+                                    if root.current_mode < 1 || root.current_mode > 3 : Dropdown {
                                         width: root.ctrl_w;
                                         model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck];
                                         current-index <=> root.preview;

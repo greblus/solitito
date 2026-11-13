@@ -1030,6 +1030,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_chip_drawn_hint(t.chip_drawn_hint.into());
     g.set_note_hint_hover(t.note_hint_hover.into());
     g.set_chip_hint(t.chip_hint.into());
+    g.set_chip_frets(t.chip_frets.into());
     g.set_chip_e_to_e(t.scale_from_e_to_e.into());
     g.set_random_key(t.random_key.into());
     g.set_there_and_back(t.there_and_back.into());
