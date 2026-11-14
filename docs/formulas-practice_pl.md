@@ -66,8 +66,7 @@ Możesz powyłączać czego w danej chwili nie potrzebujesz:
           Em7      C#dim
                    ★                 zapisz tę formułę w Ulubionych
                 Twoja kolej          pokazywane przy pauzie
-                   ⏸
-       następny akord      nowa formuła
+            ‹      ⏸      ›   Następny akord   strzałki: nowa formuła
 ```
 - **Funkcje**, czyli interwały. Zapalają się na **zielono** jeden po drugim, w miarę jak
   program słyszy, że je grasz. Po zagraniu ostatniego, runda się kończy: krótka przerwa i
@@ -295,7 +294,7 @@ klucza: najpierw zagraj, potem zgadnij, dopiero potem czytaj.
 
 **Dokąd prowadzi runda.** Domknięcie zbioru losuje **nowe nałożenie na tym samym akordzie**.
 Tak ma być: to ćwiczenie polega na wizualizacji gryfu i słyszeniu interwałów jednej formuły z
-dwunastu miejsc, a żeby to było możliwe, akord musi stać w miejscu. Nowy akord przychodzi z *nową formułą*.
+dwunastu miejsc, a żeby to było możliwe, akord musi stać w miejscu. Nowy akord przychodzi z nową formułą, którą losują strzałki obok pauzy.
 
 ---
 
@@ -323,9 +322,9 @@ Cztery rzeczy decydują o tym, czy to jest ćwiczenie, czy walka z żywiołem:
 1. Wybierz utwór i formułę. Na początku zostaw **Nałożenie** na *dowolne*.
 2. Zagraj zbiór nad pierwszym akordem. Gdy się domknie, program przechodzi do następnego
    akordu utworu i losuje na nim nałożenie — formuła zostaje ta sama.
-3. Kliknij na **następny akord** pod przyciskiem pauzy, żeby przejść dalej bez domykania
+3. Kliknij **Następny akord** obok przycisku pauzy, żeby przejść dalej bez domykania
    zbioru: rzecz jest w graniu przez zmiany, nie w odhaczaniu listy.
-4. Używaj **nowej formuły**, gdy chcesz zagrać w utworze inny zbiór interwałów.
+4. Używaj **strzałek** po bokach pauzy, gdy chcesz zagrać w utworze inny zbiór interwałów.
 5. Zagraj cały chorus, a potem zatrzymaj się na pauzie i poimprowizuj chwilę nad stojącym
    akordem.
 6. Nagraj chorus z klikiem i odsłuchaj, zanim zagrasz następny. Zwłaszcza w

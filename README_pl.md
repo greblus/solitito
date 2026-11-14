@@ -22,7 +22,7 @@ rozwijają się pod nim w pasku bocznym — w Akordach tonacja utworu: wybór in
 każdy akord standardu. Niżej Interwały z rozwiniętą listą ćwiczeń.
 
 <div align="center">
-<img width="560" alt="Interwały: lista ćwiczeń rozwinięta w pasku bocznym, stopnie jako kafelki" src="docs/screenshots/pl/solitito_intervals.png" />
+<img width="560" alt="Interwały: ćwiczenie i widok w pasku bocznym, stopnie jako kafelki" src="docs/screenshots/pl/solitito_intervals.png" />
 </div>
 
 Solitito jest mocno zainspirowane [Solo](https://www.solotrainer.app/), trenerem na

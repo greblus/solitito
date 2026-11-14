@@ -3230,6 +3230,21 @@ fn a_scale_from_e_to_e_is_placed_anew_when_chosen() {
     assert!(hands.len() > 2, "the scale kept to {hands:?}");
 }
 
+/// The arrows beside the pause in Scales: each click stands the scale
+/// somewhere else on the neck, the run starting again from its first note.
+#[test]
+fn an_arrow_in_scales_stands_the_scale_somewhere_else() {
+    let mut a = e_to_e_app();
+    let chord = a.chords[0].clone();
+    for delta in [1, -1, 1, 1, -1, 1] {
+        let before = a.scale_hand(&chord).unwrap();
+        a.current_note_step = 3;
+        a.step_chord(delta);
+        assert_ne!(a.scale_hand(&chord).unwrap(), before, "the arrow left the scale where it was");
+        assert_eq!(a.current_note_step, 0, "the run did not start again");
+    }
+}
+
 /// Up, the run starts on the start degree as low as the hand has it - on the
 /// low E where it lies there; down, as high - on the high e where it lies
 /// there.

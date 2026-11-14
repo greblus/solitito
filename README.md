@@ -22,7 +22,7 @@ under it in the side bar — in Chords, the key of the song: pick another and ev
 the standard is transposed. Below, Intervals with its list of exercises open.
 
 <div align="center">
-<img width="560" alt="Intervals: the list of exercises open in the side bar, the degrees as tiles" src="docs/screenshots/en/solitito_intervals.png" />
+<img width="560" alt="Intervals: the exercise and the view in the side bar, the degrees as tiles" src="docs/screenshots/en/solitito_intervals.png" />
 </div>
 
 Solitito is heavily inspired by [Solo](https://www.solotrainer.app/), an Android/iOS guitar

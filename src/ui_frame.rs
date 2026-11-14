@@ -541,6 +541,9 @@ impl UiFrame {
     }
 
     fn show_formula(&mut self, ui: &AppWindow, app: &MyApp) {
+        // No string to start from here: and the region of the fretboard
+        // trainer, left from the mode before, stood under the pause.
+        set_if_changed(ui.get_start_hint(), SharedString::new(), |v| ui.set_start_hint(v));
         Self::show_formula_functions(ui, app);
         self.show_formula_placement(ui, app);
         self.show_formula_key(ui, app);
@@ -1096,7 +1099,7 @@ impl UiFrame {
                 .collect();
             let tiles = tiles_page(app, tiles);
             if tiles != self.last_tiles {
-                ui.set_interval_tiles(ModelRc::from(Rc::new(VecModel::from(tiles.clone()))));
+                push_tiles(ui, &tiles);
                 self.last_tiles = tiles;
             }
         }
@@ -1362,6 +1365,22 @@ fn functions_over(app: &MyApp, chord: &Chord, jazz_names: bool) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// The tiles on screen brought up to `tiles`. Row by row where the count
+/// stands: a tile keeps its element, so the flash of the one just credited is
+/// seen - a new model would build every tile again, already green.
+fn push_tiles(ui: &AppWindow, tiles: &[IntervalTile]) {
+    let shown = ui.get_interval_tiles();
+    if shown.row_count() != tiles.len() {
+        ui.set_interval_tiles(ModelRc::from(Rc::new(VecModel::from(tiles.to_vec()))));
+        return;
+    }
+    for (row, tile) in tiles.iter().enumerate() {
+        if shown.row_data(row).as_ref() != Some(tile) {
+            shown.set_row_data(row, tile.clone());
+        }
+    }
 }
 
 /// Tiles in a page at a time in Scales, as the line of names pages: a run from

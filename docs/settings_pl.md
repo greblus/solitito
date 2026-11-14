@@ -119,14 +119,18 @@ w akord zatrzymuje ćwiczenie i przechodzi do niego. **Tytuł utworu** pod nim o
 utworów.
 
 **Szybkie opcje** rozwijają się w pasku bocznym pod bieżącym trybem: kliknięcie w jego pozycję
-rozwija je albo zwija, a strzałka obok mówi, w którą stronę. To przełączniki, po które warto
+rozwija je albo zwija, a strzałka obok mówi, w którą stronę. Lista mówi drobnym drukiem po lewej,
+co ustawia, tam gdzie sama wartość by tego nie powiedziała; wartość za długa na pole jest ucinana
+i widać ją w całości po rozwinięciu listy. Okrągły uchwyt na krawędzi paska bocznego zwija go
+do samych ikon, żeby zostawić więcej miejsca na ćwiczenie, i rozwija z powrotem; program pamięta
+wybór. Szybkie opcje to przełączniki, po które warto
 sięgać w trakcie grania:
 
 | tryb | szybkie opcje |
 |---|---|
 | Akordy | tonacja utworu, **Pełne chwyty**, **Shelle**, **Trzymaj jakość**, **Krótkie uderzenia**, **Pasek akordów** |
 | Interwały | ćwiczenie, widok, **Pojedynczo**, **Po kolei**, **Tylko uderzone**, przy Pojedynczo **Szybkie zaliczanie**, **Pasek akordów**, **Opisy**, na podstrunnicy **Numery progów** |
-| Skale | tonacja, widok, **W górę**, **W dół**, **Losowo**, **Po kolei**, **Od E do e**, **Tam i z powrotem**, **Szybkie zaliczanie**, **Opisy**, na rysunku **Numery progów** |
+| Skale | tonacja, widok, kierunek (**W górę**, **W dół** albo **Losowo**), **Po kolei**, **Od E do e**, **Tam i z powrotem**, **Szybkie zaliczanie**, **Opisy**, na rysunku **Numery progów** |
 | Arpeggia | ćwiczenie, widok; w studium tonacja i akord, przy ogrywaniu zmian kierunek, w liniach Harrisa akordy tonacji albo utworu, tonacja i figura, w obu tych ćwiczeniach start, liczba dźwięków na akord, **W jednej pozycji** i **Kontekst akordu**, a w ćwiczeniu Ted Greene figura, liczba dźwięków na akord, **Kontekst akordu** i **Z napięciami**; zawsze **Szybkie zaliczanie** i **Opisy**, na rysunku **Numery progów** |
 | Formuły | ćwiczenie, liczba dźwięków w formule, **Pojedynczo**, **Po kolei**, przy Pojedynczo **Szybkie zaliczanie** |
 | Gryf | **Szybkie zaliczanie** i **Podpowiedź**: gryf do 15. progu z każdym miejscem szukanego dźwięku, przy każdym dźwięku; wyłączona, pokazuje ją jednorazowo kliknięcie w dźwięk |
@@ -160,6 +164,7 @@ losowana spośród trzech, od których warto zaczynać, nigdy ta sama co w poprz
 
 **Pauza** zatrzymuje progresję, a kolory dalej mówią, czy akord jest właściwy — można zostać
 przy jednym chwycie i go opracować. Przy pauzie strzałki po bokach przycisku pauzy przechodzą tam
-i z powrotem po progresji.
+i z powrotem po progresji. W Skalach strzałki są widoczne cały czas i stawiają skalę w innym
+miejscu gryfu; w Formułach losują nową formułę. Po najechaniu każda strzałka mówi, co robi.
 
 Puste struny w gripach interwałów są rysowane jako niewypełnione kółka poza kolumnami progów, z interwałem w środku. Nie trafiają na pierwszy próg.

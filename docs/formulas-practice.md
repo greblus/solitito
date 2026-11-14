@@ -67,8 +67,7 @@ with everything switched on, if it's too much, disable some of these:
           Em7      C#dim
                    ★                 keep this formula under a name
                 your turn            shown while paused
-                   ⏸
-       next chord      another formula
+            ‹      ⏸      ›   Next chord   the arrows: another formula
 ```
 
 **The big row is the exercise.** Everything else is there to explain it, and every part of it
@@ -309,7 +308,7 @@ guess, then read.
 
 **Where the lap goes.** Finishing the set draws **a new placement on the same chord**. That is
 deliberate: this exercise is visualising the neck and hearing the intervals of one formula from twelve places, and the chord has to stand
-still for that to happen. A new chord comes from *another formula*.
+still for that to happen. A new chord comes with another formula, from the arrows beside the pause.
 
 ---
 
@@ -338,9 +337,9 @@ Four things make the difference between practising this and flailing at it:
 1. Pick a tune and a formula. Leave **Placement** on *any* the first few times through.
 2. Play the set over the first chord. When it completes, the app moves to the next chord of
    the tune and draws a placement on it — the formula does not change.
-3. Use **next chord** under the pause button to move on without finishing the set: the point
+3. Use **Next chord** beside the pause button to move on without finishing the set: the point
    is playing over the changes, not completing a checklist.
-4. Use **another formula** when you want a different set to carry through the tune.
+4. Use the **arrows** either side of the pause when you want a different set to carry through the tune.
 5. Do a whole chorus, then pause and improvise over the standing chord for a while.
 6. Record the chorus with the click running and listen back before you play another. Over
    changes especially, the joins between chords sound very different from the outside.

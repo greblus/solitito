@@ -112,14 +112,17 @@ yellow if a triad or a substitution got it through — and one stepped over stay
 on a chord pauses and goes there. The **song title** under it opens the list of songs.
 
 **Quick options** unfold under the mode on screen in the side bar: a click on the mode's own
-entry folds them in or out, and the arrow beside it says which. They are the switches worth
-reaching for while playing:
+entry folds them in or out, and the arrow beside it says which. A list says what it sets in
+small letters at its left, where its value alone would not; a value too long for the box is cut,
+and read whole in the open list. The round handle on the side bar's edge folds the bar to its
+icons, for more room to the exercise, and unfolds it again; the app remembers which. The quick
+options are the switches worth reaching for while playing:
 
 | mode | quick options |
 |---|---|
 | Chords | the key of the song, **Full chords**, **Shell voicings**, **Hold the quality**, **Short strums**, **Chord strip** |
 | Intervals | the exercise, the view, **Single notes**, **In order**, **Struck only**, with Single notes **Quick crediting**, **Chord strip**, **Captions**, on the neck **Fret numbers** |
-| Scales | the key, the view, **Up**, **Down**, **Random**, **In order**, **From E to e**, **There and back**, **Quick crediting**, **Captions**, in a drawing **Fret numbers** |
+| Scales | the key, the view, the way (**Up**, **Down** or **Random**), **In order**, **From E to e**, **There and back**, **Quick crediting**, **Captions**, in a drawing **Fret numbers** |
 | Arpeggios | the exercise, the view; in a study the key and the chord, over the changes the direction, in Harris lines a key's chords or the tune's, the key and the figure, in both of these the start, the notes per chord, **In one position** and **Chord context**, and in Ted Greene the figure, the notes per chord, **Chord context** and **With tensions**; always **Quick crediting** and **Captions**, in a drawing **Fret numbers** |
 | Formulas | the exercise, the notes in a formula, **Single notes**, **In order**, with Single notes **Quick crediting** |
 | Fretboard | **Quick crediting** and **Hint**: the neck to the fifteenth fret with the note asked for at every place, shown with every note; off, a click on the note shows it once |
@@ -154,6 +157,8 @@ from, never the one the last pass started on.
 
 **Pause** stops the progression while the colours go on reporting whether the chord is right,
 so you can stay on one shape and work it out. While paused, the arrows either side of the
-pause button step back and forth through the progression.
+pause button step back and forth through the progression. In Scales the arrows are there all
+the time and stand the scale somewhere else on the neck; in Formulas they draw another formula.
+Pointed at, each arrow says what it does.
 
 Open strings in interval grips appear as unfilled circles outside the fret columns, with the interval inside. They are not drawn on the first fret.

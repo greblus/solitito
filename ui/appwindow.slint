@@ -135,6 +135,21 @@ component IntervalCard inherits Rectangle {
     border-color: root.done ? Theme.ok-line : (root.now ? Theme.accent : (root.open ? Theme.open-line : Theme.line));
     animate background, border-color { duration: 150ms; }
 
+    // A flash as the note is credited: lit, then settling to the green of a
+    // tile done.
+    property <float> flash: 1;
+    Rectangle {
+        border-radius: root.border-radius;
+        background: Theme.ok;
+        opacity: root.done ? root.flash * 0.45 : 0;
+    }
+    states [
+        credited when root.done : {
+            flash: 0;
+            in { animate flash { duration: 420ms; easing: ease-out; } }
+        }
+    ]
+
     VerticalLayout {
         alignment: center;
         spacing: 6px;
@@ -155,41 +170,22 @@ component IntervalCard inherits Rectangle {
     }
 }
 
-/// A step through the progression beside the pause: as large a target as
-/// the pause itself, the arrow only drawn while it does something.
-component StepArrow inherits Rectangle {
-    in property <string> glyph;
-    in property <bool> shown;
-    callback clicked();
-    width: 68px;
-    height: 68px;
-    border-radius: 12px;
-    background: root.shown && touch.has-hover ? Theme.raised : transparent;
-    touch := TouchArea {
-        enabled: root.shown;
-        clicked => { root.clicked(); }
-    }
-    if root.shown : Text {
-        text: root.glyph;
-        font-size: 40px;
-        color: touch.has-hover ? Theme.text-strong : Theme.muted;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-}
-
 /// One chord of the progression strip.
 component ProgressChip inherits Rectangle {
     in property <Chip> chip;
     in property <bool> show_degree;
     /// A chord clicked: go there.
     callback picked();
-    border-radius: 10px;
-    background: root.chip.current ? Theme.accent
-        : touch.has-hover ? Theme.selected
-        : (root.chip.played ? Theme.ok-bg : Theme.chip);
-    border-width: root.chip.current ? 2px : 0px;
-    border-color: Theme.accent-line;
+    // Drawn as the interval tiles are: a card with a line round it, the
+    // chord now marked by the accent line alone, the ones played on the
+    // green of a tile done.
+    border-radius: 12px;
+    background: touch.has-hover && !root.chip.current ? Theme.raised
+        : (root.chip.played ? Theme.ok-bg : Theme.panel);
+    border-width: root.chip.current ? 2px : 1px;
+    border-color: root.chip.current ? Theme.accent
+        : (root.chip.played ? Theme.ok-line : Theme.line);
+    animate background, border-color { duration: 150ms; }
     touch := TouchArea {
         enabled: !root.chip.current;
         clicked => { root.picked(); }
@@ -201,8 +197,8 @@ component ProgressChip inherits Rectangle {
         Text {
             text: root.chip.name;
             font-size: 17px * TextScale.strip;
-            font-weight: root.chip.current ? 700 : 500;
-            color: root.chip.current ? Theme.on-accent : root.chip.fg;
+            font-weight: root.chip.current ? 600 : 400;
+            color: root.chip.current ? Theme.text-strong : root.chip.fg;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
@@ -210,7 +206,7 @@ component ProgressChip inherits Rectangle {
         if root.show_degree : Text {
             text: root.chip.degree;
             font-size: 15px * TextScale.strip;
-            color: root.chip.current ? Theme.on-accent-2 : Theme.dim;
+            color: root.chip.current ? Theme.text-2 : Theme.dim;
             horizontal-alignment: center;
             overflow: elide;
         }
@@ -218,7 +214,7 @@ component ProgressChip inherits Rectangle {
         if root.show_degree : Text {
             text: root.chip.lead;
             font-size: 13px * TextScale.strip;
-            color: root.chip.current ? Theme.on-accent-2 : Theme.link-dim;
+            color: root.chip.current ? Theme.link : Theme.link-dim;
             horizontal-alignment: center;
             overflow: elide;
         }
@@ -280,6 +276,15 @@ component OverflowHint {
             SideHint.shown = false;
         }
     }
+    // What it says changed while it was up - the handle of the side bar,
+    // clicked: the new words, and the place the click moved it to.
+    changed text => {
+        if (self.shown) {
+            SideHint.text = self.text;
+            SideHint.x = self.absolute-position.x;
+            SideHint.y = self.absolute-position.y;
+        }
+    }
 }
 
 /// The bubble itself, the window's last child so it is drawn on top. It takes
@@ -311,15 +316,15 @@ component SideToggle inherits Rectangle {
     in property <string> hint;
     callback toggled();
 
-    height: 28px * TextScale.sidebar;
+    height: 26px * TextScale.sidebar;
     border-radius: 8px;
     background: touch.has-hover ? Theme.raised : transparent;
     touch := TouchArea { clicked => { root.toggled(); } }
     HorizontalLayout {
-        // Lined up with the text of a list above it in the quick options:
-        // its row's 12px and the list's own 10px.
-        padding-left: 22px;
-        padding-right: 12px;
+        // Lined up with the text of a list above it in the quick options,
+        // and the switch with the list's arrow.
+        padding-left: 10px;
+        padding-right: 9px;
         spacing: 8px;
         label := Text {
             text: root.text;
@@ -356,6 +361,134 @@ component SideToggle inherits Rectangle {
         // A pixel of slack: "Tam i z powrotem" fits to a fraction of one, and
         // the bubble repeated a label that was there whole.
         shown: touch.has-hover && (root.hint != "" || label.preferred-width > label.width + 1px);
+    }
+}
+
+/// A step through the progression beside the pause: a round target, the
+/// arrow only drawn while it does something.
+component StepArrow inherits Rectangle {
+    in property <bool> forward;
+    in property <bool> shown;
+    /// Said in the bubble on hover, where the arrow alone does not say enough.
+    in property <string> hint;
+    callback clicked();
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: root.shown && touch.has-hover ? Theme.raised : transparent;
+    animate background { duration: 120ms; }
+    touch := TouchArea {
+        enabled: root.shown;
+        clicked => { root.clicked(); }
+    }
+    if root.shown : Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px;
+        height: 22px;
+        viewbox-width: 22;
+        viewbox-height: 22;
+        commands: root.forward ? "M 8.5 5.5 L 14 11 L 8.5 16.5" : "M 13.5 5.5 L 8 11 L 13.5 16.5";
+        stroke: touch.has-hover ? Theme.text-strong : Theme.muted;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    // Over the arrow: beside it stands the next button of the row.
+    OverflowHint {
+        x: 0px;
+        y: -34px;
+        text: root.hint;
+        shown: root.hint != "" && touch.has-hover;
+    }
+}
+
+/// The pause, and the play it turns into: a round plate under the exercise.
+/// The glyph is drawn, so it takes the colours of the scheme; quiet while
+/// playing, lit when pointed at and while paused.
+component PlayButton inherits Rectangle {
+    in property <bool> paused;
+    callback toggled();
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.field-line-hover : Theme.field-line;
+    background: touch.has-hover ? Theme.raised-hover : Theme.raised;
+    animate background, border-color { duration: 120ms; }
+    touch := TouchArea { clicked => { root.toggled(); } }
+    Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px;
+        height: 22px;
+        viewbox-width: 22;
+        viewbox-height: 22;
+        commands: root.paused
+            ? "M 8 4.5 L 17.5 11 L 8 17.5 Z"
+            : "M 6 4.5 L 9.5 4.5 L 9.5 17.5 L 6 17.5 Z M 12.5 4.5 L 16 4.5 L 16 17.5 L 12.5 17.5 Z";
+        fill: root.paused || touch.has-hover ? Theme.text-strong : Theme.muted;
+        stroke-width: 0px;
+    }
+}
+
+/// A round-ended button with words on it, beside the pause.
+component PillButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    width: label.preferred-width + 36px;
+    height: 44px;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.field-line-hover : Theme.field-line;
+    background: touch.has-hover ? Theme.raised : transparent;
+    animate background, border-color { duration: 120ms; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    label := Text {
+        text: root.text;
+        font-size: 14px;
+        color: touch.has-hover ? Theme.text-strong : Theme.text-2;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// One of a few, side by side in one box: which way a scale runs. `hints`
+/// are said in the bubble under a part, where its word alone is not enough.
+component Segmented inherits Rectangle {
+    in property <[string]> model;
+    in property <[string]> hints;
+    in property <int> current;
+    callback selected(int);
+
+    height: 30px * TextScale.sidebar;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.field-line;
+    background: Theme.raised;
+    property <length> part_w: (self.width - 4px - (self.model.length - 1) * 2px) / max(1, self.model.length);
+    for name[i] in root.model : Rectangle {
+        x: 2px + i * (root.part_w + 2px);
+        y: 2px;
+        width: root.part_w;
+        height: root.height - 4px;
+        border-radius: 6px;
+        background: i == root.current ? Theme.accent : (part.has-hover ? Theme.selected : transparent);
+        animate background { duration: 120ms; }
+        part := TouchArea { clicked => { root.selected(i); } }
+        Text {
+            text: name;
+            font-size: 12.5px * TextScale.sidebar;
+            color: i == root.current ? Theme.on-accent : Theme.muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        OverflowHint {
+            x: 0px;
+            y: parent.height + 6px;
+            text: root.hints[i];
+            shown: part.has-hover && root.hints[i] != "";
+        }
     }
 }
 
@@ -407,6 +540,10 @@ component NavItem inherits Rectangle {
     /// click on it then folds them in or out, and the arrow says which.
     in property <bool> expandable;
     in property <bool> expanded;
+    /// The filled parts of the icon, in the same 20x20 box as `path`.
+    in property <string> dots;
+    /// The icon alone, in the folded side bar: the name goes to the bubble.
+    in property <bool> compact;
     callback clicked;
 
     height: 40px * TextScale.sidebar;
@@ -417,31 +554,44 @@ component NavItem inherits Rectangle {
     touch := TouchArea { clicked => { root.clicked(); } }
 
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 12px;
+        // Folded, the bar is 40px of entry at the side bar's text size: the
+        // icon in its middle. Not from the entry's own width, which the
+        // layout is asked for.
+        padding-left: root.compact ? max(0px, (40px * TextScale.sidebar - 20px) / 2) : 12px;
+        padding-right: root.compact ? 0px : 12px;
+        spacing: root.compact ? 0px : 12px;
         VerticalLayout {
             alignment: center;
             width: 20px;
-            if root.path != "" : Path {
+            Rectangle {
                 width: 20px;
                 height: 20px;
-                viewbox-width: 20;
-                viewbox-height: 20;
-                commands: root.path;
-                stroke: root.selected ? Theme.text-strong : Theme.muted;
-                stroke-width: 1.6px;
-                fill: transparent;
-            }
-            if root.path == "" : Image {
-                width: 20px;
-                height: 20px;
-                source: root.image;
-                colorize: root.selected ? Theme.text-strong : Theme.muted;
+                if root.path != "" : Path {
+                    viewbox-width: 20;
+                    viewbox-height: 20;
+                    commands: root.path;
+                    stroke: root.selected ? Theme.text-strong : Theme.muted;
+                    stroke-width: 1.6px;
+                    fill: transparent;
+                }
+                if root.dots != "" : Path {
+                    viewbox-width: 20;
+                    viewbox-height: 20;
+                    commands: root.dots;
+                    fill: root.selected ? Theme.text-strong : Theme.muted;
+                    stroke-width: 0px;
+                }
+                if root.path == "" : Image {
+                    width: 20px;
+                    height: 20px;
+                    source: root.image;
+                    colorize: root.selected ? Theme.text-strong : Theme.muted;
+                }
             }
         }
         label := Text {
             text: root.text;
+            visible: !root.compact;
             font-size: 14px * TextScale.sidebar;
             color: root.selected ? Theme.text-strong : Theme.muted;
             font-weight: root.selected ? 600 : 400;
@@ -450,11 +600,11 @@ component NavItem inherits Rectangle {
             horizontal-stretch: 1;
         }
         // Points the way a click would go: down to unfold, up to fold.
-        if root.expandable : VerticalLayout {
+        if root.expandable && !root.compact : VerticalLayout {
             alignment: center;
             FoldArrow { up: root.expanded; tint: root.selected ? Theme.text-strong : Theme.muted; }
         }
-        if root.marked : VerticalLayout {
+        if root.marked && !root.compact : VerticalLayout {
             alignment: center;
             Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.warn; }
         }
@@ -463,7 +613,7 @@ component NavItem inherits Rectangle {
         x: root.width + 8px;
         y: 8px;
         text: root.text;
-        shown: touch.has-hover && label.preferred-width > label.width;
+        shown: touch.has-hover && (root.compact || label.preferred-width > label.width);
     }
 }
 
@@ -623,6 +773,12 @@ component Dropdown inherits Rectangle {
     /// The text of a box that is not a title: `TextScale.sidebar` in the
     /// side bar.
     in property <float> text-scale: 1;
+    /// What the list sets, written small at the left of the box with the
+    /// value at its right. Always there: a value too long beside it is cut,
+    /// and read whole in the open list or in the bubble on hover.
+    in property <string> label;
+    /// The lower box of the quick options.
+    in property <bool> dense;
 
     property <length> row-h: root.title-look ? 32px : 28px * root.text-scale;
     // As many rows as fit between where the list opens and the foot of the
@@ -635,7 +791,7 @@ component Dropdown inherits Rectangle {
     property <bool> overflows: root.model.length > root.max-rows;
     property <length> pad: 4px;
 
-    height: root.title-look ? root.title-size * 1.5 : 34px * root.text-scale;
+    height: root.title-look ? root.title-size * 1.5 : (root.dense ? 30px : 34px) * root.text-scale;
     horizontal-stretch: 1;
     border-radius: root.title-look ? 10px : 8px;
     border-width: root.title-look ? 0px : 1px;
@@ -650,6 +806,12 @@ component Dropdown inherits Rectangle {
         spacing: 8px;
         alignment: root.title-look ? center : stretch;
 
+        if root.label != "" && !root.title-look : Text {
+            text: root.label;
+            font-size: 11px * root.text-scale;
+            color: Theme.dim;
+            vertical-alignment: center;
+        }
         box_text := Text {
             horizontal-stretch: root.title-look ? 0 : 1;
             text: root.title-look ? root.title-text
@@ -658,6 +820,7 @@ component Dropdown inherits Rectangle {
             color: root.title-look ? Theme.text-2 : (root.enabled ? Theme.text : Theme.faint);
             font-size: root.title-look ? root.title-size : 13px * root.text-scale;
             vertical-alignment: center;
+            horizontal-alignment: root.label != "" ? right : left;
             overflow: elide;
         }
         VerticalLayout {
@@ -774,31 +937,26 @@ component Dropdown inherits Rectangle {
     }
 }
 
-/// Icon toggle. On = inverted: light plate, dark glyph. Off = outline only.
-/// The icons are monochrome black on transparent, so `colorize` recolours them.
+/// A round button with an icon alone, beside the pause. The icons are
+/// monochrome black on transparent, so `colorize` recolours them; the icon
+/// itself carries the state, as the star does filled or in outline.
 component IconToggle inherits Rectangle {
     in property <image> icon;
-    in property <bool> active;
     in property <bool> dim;          // translucent until pointed at
-    /// Light plate + dark glyph when active. Switch off where the icon itself
-    /// already carries the state, as pause/play does.
-    in property <bool> invert: true;
     /// For whoever wants to say what the icon does while it is pointed at.
     out property <bool> hovered: touch.has-hover;
     callback toggled();
 
-    width: 34px;
-    height: 34px;
-    border-radius: 6px;
-    border-width: 1px;
-    background: root.active && root.invert ? Theme.invert-bg : transparent;
-    border-color: root.active && root.invert ? transparent : (touch.has-hover ? Theme.hint-2 : Theme.invert-line);
-    opacity: root.dim && !root.active && !touch.has-hover ? 0.45 : 1.0;
+    width: 44px;
+    height: 44px;
+    border-radius: self.width / 2;
+    background: touch.has-hover ? Theme.raised : transparent;
+    opacity: root.dim && !touch.has-hover ? 0.45 : 1.0;
     animate opacity, background { duration: 120ms; }
 
     Image {
         source: root.icon;
-        colorize: root.active && root.invert ? Theme.invert-ink : (touch.has-hover ? Theme.bright : Theme.grey-2);
+        colorize: touch.has-hover ? Theme.bright : Theme.grey-2;
         width: 62%;
         height: 62%;
         x: (parent.width - self.width) / 2;
@@ -842,6 +1000,13 @@ export global Tr {
     in-out property <string> note_hint_hover: "Click to see a hint";
     in-out property <string> chip_hint: "Hint";
     in-out property <string> chip_frets: "Fret numbers";
+    in-out property <string> opt_key: "Key";
+    in-out property <string> opt_chord: "Chord";
+    in-out property <string> opt_start: "Start";
+    in-out property <string> opt_length: "Length";
+    in-out property <string> opt_harmony: "Harmony";
+    in-out property <string> sidebar_fold: "Fold the side bar";
+    in-out property <string> sidebar_unfold: "Unfold the side bar";
     in-out property <string> chip_e_to_e: "From E to e";
     in-out property <string> random_key: "Random key";
     in-out property <string> there_and_back: "There and back";
@@ -956,7 +1121,7 @@ export global Tr {
     in-out property <string> formula_required_hint: "";
     in-out property <string> formula_note_names: "Show note names";
     in-out property <string> formula_similar_opt: "Show the nearest scale";
-    in-out property <string> formula_another: "another formula";
+    in-out property <string> formula_another: "Another formula";
     in-out property <string> formula_free: "Your turn! Improvise!";
     in-out property <string> fav_name: "Name it:";
     in-out property <string> fav_pick: "Favourites: ";
@@ -967,7 +1132,9 @@ export global Tr {
     in-out property <string> exercise_changes: "Over the changes";
     in-out property <string> placement: "Placement: ";
     in-out property <string> placement_from: "Placed from ";
-    in-out property <string> next_chord: "next chord";
+    in-out property <string> next_chord: "Next chord";
+    in-out property <string> prev_chord: "Previous chord";
+    in-out property <string> scale_redraw: "The scale in another place";
     in-out property <string> placement_any: "any";
     in-out property <string> placement_defines: "spells the chord out";
     in-out property <string> placement_colours: "colours it";
@@ -1027,11 +1194,13 @@ export component AppWindow inherits Window {
     /// the window's scale factor to fit this box, so the UI zooms instead of
     /// reflowing and the proportions are the ones it was designed with. Rust
     /// reads these to compute that factor, so the numbers live only here.
-    out property <length> design_w: 760px;
+    out property <length> design_w: 790px;
     out property <length> design_h: 800px;
     /// The side navigation on the left, and the practice column that takes
     /// the rest. The column keeps the width the whole app had before.
-    property <length> sidebar_w: 210px * max(1, TextScale.sidebar);
+    property <length> sidebar_w: root.sidebar_collapsed
+        ? 28px + 40px * TextScale.sidebar
+        : 240px * max(1, TextScale.sidebar);
     property <length> content_w: 550px;
     /// One height for the strip above the practice column and the cards
     /// below it, so the two frame the column evenly.
@@ -1121,6 +1290,14 @@ export component AppWindow inherits Window {
     /// Index of the shape shown enlarged, -1 for none.
     in-out property <int> diagram_zoom: -1;
     changed diagram_zoom => { if (self.diagram_zoom < 0) { window_keys.focus(); } }
+    /// Off for a moment as the chord's name changes, so the new one fades in.
+    property <bool> chord_in: true;
+    changed chord_name => { self.chord_in = false; chord_fade.running = true; }
+    chord_fade := Timer {
+        interval: 30ms;
+        running: false;
+        triggered => { root.chord_in = true; self.running = false; }
+    }
 
     in property <[string]> interval_names;
     /// The same steps as tiles, in Intervals only.
@@ -1373,8 +1550,6 @@ export component AppWindow inherits Window {
     in property <image> icon_star_on;
     /// True once any setting differs from what the app started with.
     in property <bool> settings_touched: false;
-    in property <image> icon_pause;
-    in property <image> icon_play;
     /// Freezes progression: colours still report the chord, the app just stops
     /// moving on. For sitting on one shape and working it out.
     in-out property <bool> paused: false;
@@ -1408,6 +1583,11 @@ export component AppWindow inherits Window {
     /// the side navigation. Remembered.
     in-out property <bool> quick_open: false;
     callback quick_open_changed(bool);
+    /// The side bar folded to its icons, by the handle on its edge: the
+    /// exercise takes the room. Remembered.
+    in-out property <bool> sidebar_collapsed: false;
+    callback sidebar_collapsed_changed(bool);
+    property <bool> quick_shown: root.quick_open && !root.show_settings && !root.sidebar_collapsed;
     /// A mode entry clicked: another mode is switched to; the one on screen
     /// folds its quick options in or out. With the settings open, either one
     /// closes them first, as it always has.
@@ -1416,8 +1596,11 @@ export component AppWindow inherits Window {
             root.show_settings = false;
             if (mode != root.current_mode) { root.pick_mode(mode); }
         } else if (mode == root.current_mode) {
-            root.quick_open = !root.quick_open;
-            root.quick_open_changed(root.quick_open);
+            // Folded, there are no options to fold in or out.
+            if (!root.sidebar_collapsed) {
+                root.quick_open = !root.quick_open;
+                root.quick_open_changed(root.quick_open);
+            }
         } else {
             root.pick_mode(mode);
         }
@@ -1580,14 +1763,16 @@ export component AppWindow inherits Window {
             spacing: 4px;
 
             HorizontalLayout {
-                padding-left: 10px;
+                padding-left: root.sidebar_collapsed ? 0px : 10px;
                 padding-bottom: 18px;
                 spacing: 10px;
-                height: 74px;
+                // Folded, the icon alone, as wide as the entries under it.
+                property <length> logo: min(56px, root.sidebar_w - 28px);
+                height: self.logo + 18px;
                 // A copy made small beforehand: the renderer shrinking the 256px icon
                 // without smoothing left it speckled.
-                Image { width: 56px; height: 56px; source: Theme.scheme == 0 ? @image-url("../src/assets/app-icon-small.png") : Theme.scheme == 1 ? @image-url("../src/assets/scheme_icons/app-icon-small-light.png") : Theme.scheme == 2 ? @image-url("../src/assets/scheme_icons/app-icon-small-sepia.png") : Theme.scheme == 3 ? @image-url("../src/assets/scheme_icons/app-icon-small-night.png") : Theme.scheme == 4 ? @image-url("../src/assets/scheme_icons/app-icon-small-forest.png") : @image-url("../src/assets/scheme_icons/app-icon-small-contrast.png"); }
-                Text { text: "Solitito"; font-size: 20px * TextScale.sidebar; font-weight: 800; color: Theme.text; vertical-alignment: center; }
+                Image { width: parent.logo; height: parent.logo; source: Theme.scheme == 0 ? @image-url("../src/assets/app-icon-small.png") : Theme.scheme == 1 ? @image-url("../src/assets/scheme_icons/app-icon-small-light.png") : Theme.scheme == 2 ? @image-url("../src/assets/scheme_icons/app-icon-small-sepia.png") : Theme.scheme == 3 ? @image-url("../src/assets/scheme_icons/app-icon-small-night.png") : Theme.scheme == 4 ? @image-url("../src/assets/scheme_icons/app-icon-small-forest.png") : @image-url("../src/assets/scheme_icons/app-icon-small-contrast.png"); }
+                if !root.sidebar_collapsed : Text { text: "Solitito"; font-size: 20px * TextScale.sidebar; font-weight: 800; color: Theme.text; vertical-alignment: center; }
             }
             // The modes and their quick options, scrolled with the wheel where
             // the options run into the cards below.
@@ -1627,8 +1812,10 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.fretboard; selected: root.current_mode == 4; clicked => { root.nav_clicked(4); }
                             expandable: root.current_mode == 4 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 2 5 L 18 5 L 18 15 L 2 15 Z M 6 5 L 6 15 M 10 5 L 10 15 M 14 5 L 14 15"; }
-                        if root.current_mode == 4 && root.quick_open && !root.show_settings : VerticalLayout {
+                            compact: root.sidebar_collapsed;
+                            path: "M 2.5 5.5 L 17.5 5.5 L 17.5 14.5 L 2.5 14.5 Z M 7.5 5.5 L 7.5 14.5 M 12.5 5.5 L 12.5 14.5";
+                            dots: "M 8.7 10 A 1.3 1.3 0 1 0 11.3 10 A 1.3 1.3 0 1 0 8.7 10 Z"; }
+                        if root.current_mode == 4 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             SideToggle { text: Tr.chip_hint; on: root.fret_hint;
                                 toggled => { root.fret_hint = !root.fret_hint; root.fret_hint_changed(root.fret_hint); } }
@@ -1638,18 +1825,20 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.chords; selected: root.current_mode == 0; clicked => { root.nav_clicked(0); }
                             expandable: root.current_mode == 0 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 3 3 L 17 3 L 17 17 L 3 17 Z M 6.5 8 L 9 8 M 11 12 L 13.5 12"; }
-                        if root.current_mode == 0 && root.quick_open && !root.show_settings : VerticalLayout {
+                            compact: root.sidebar_collapsed;
+                            path: "M 4 4 L 16 4 L 16 16 L 4 16 Z M 8 4 L 8 16 M 12 4 L 12 16";
+                            dots: "M 6.1 8.5 A 1.9 1.9 0 1 0 9.9 8.5 A 1.9 1.9 0 1 0 6.1 8.5 Z M 10.1 12.5 A 1.9 1.9 0 1 0 13.9 12.5 A 1.9 1.9 0 1 0 10.1 12.5 Z"; }
+                        if root.current_mode == 0 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             // The key the tune is played in: the whole progression moves.
                             HorizontalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
+                                padding-bottom: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: root.song_keys;
+                                    label: Tr.opt_key;
                                     current-index <=> root.song_key;
                                     selected => { root.song_key_selected(self.current-index); }
                                 }
@@ -1670,16 +1859,17 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.intervals; selected: root.current_mode == 1; clicked => { root.nav_clicked(1); }
                             expandable: root.current_mode == 1 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 3 15 L 8 9 L 12 12 L 17 5"; }
-                        if root.current_mode == 1 && root.quick_open && !root.show_settings : VerticalLayout {
+                            compact: root.sidebar_collapsed;
+                            path: "M 7 12.7 L 13 7.3";
+                            dots: "M 2.6 14.5 A 2.4 2.4 0 1 0 7.4 14.5 A 2.4 2.4 0 1 0 2.6 14.5 Z M 12.6 5.5 A 2.4 2.4 0 1 0 17.4 5.5 A 2.4 2.4 0 1 0 12.6 5.5 Z"; }
+                        if root.current_mode == 1 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             // The exercise, the setting most often changed while playing.
                             HorizontalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
+                                padding-bottom: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 430px;
                                     model: root.interval_levels;
                                     current-index <=> root.interval_level;
@@ -1688,13 +1878,13 @@ export component AppWindow inherits Window {
                             }
                             // The view, as in the settings: entries 0, 2 and 3 of the setting.
                             HorizontalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
+                                padding-bottom: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.preview_functions, Tr.preview_functions_neck, Tr.preview_tiles];
+                                    label: Tr.preview;
                                     current-index: root.preview == 0 ? 0 : (root.preview == 3 ? 2 : 1);
                                     selected(v) => {
                                         root.preview = v == 0 ? 0 : (v == 1 ? 2 : 3);
@@ -1722,42 +1912,44 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.scales; selected: root.current_mode == 2; clicked => { root.nav_clicked(2); }
                             expandable: root.current_mode == 2 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 3 16 L 6 16 L 6 13 L 9 13 L 9 10 L 12 10 L 12 7 L 15 7 L 15 4 L 17 4"; }
-                        // Which way the scale runs: one of three, so each switch sets it.
-                        if root.current_mode == 2 && root.quick_open && !root.show_settings : VerticalLayout {
+                            compact: root.sidebar_collapsed;
+                            path: "M 3 16.5 L 6.5 16.5 L 6.5 13 L 10 13 L 10 9.5 L 13.5 9.5 L 13.5 6 L 17 6"; }
+                        // The key, the view, and which way the scale runs: one of three.
+                        if root.current_mode == 2 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             // The key: the scale itself is chosen from its title above it.
                             HorizontalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
+                                padding-bottom: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: root.secondary_items;
+                                    label: Tr.opt_key;
                                     current-index <=> root.current_secondary_index;
                                     selected => { root.secondary_item_selected(self.current-index); }
                                 }
                             }
                             // The view, as in the settings: the tiles as a fourth entry.
                             HorizontalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
+                                padding-bottom: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
+                                    label: Tr.preview;
                                     current-index <=> root.preview;
                                     selected(v) => { root.preview_changed(v); }
                                 }
                             }
-                            SideToggle { text: Tr.chip_up; on: root.scale_direction == 0;
-                                toggled => { root.scale_direction = 0; root.scale_way_changed(); } }
-                            SideToggle { text: Tr.chip_down; on: root.scale_direction == 1;
-                                toggled => { root.scale_direction = 1; root.scale_way_changed(); } }
-                            SideToggle { text: Tr.chip_drawn; hint: Tr.chip_drawn_hint; on: root.scale_direction == 2;
-                                toggled => { root.scale_direction = 2; root.scale_way_changed(); } }
+                            Segmented {
+                                model: [Tr.chip_up, Tr.chip_down, Tr.chip_drawn];
+                                hints: ["", "", Tr.chip_drawn_hint];
+                                current: root.scale_direction;
+                                selected(way) => { root.scale_direction = way; root.scale_way_changed(); }
+                            }
+                            Rectangle { height: 3px; }
                             SideToggle { text: Tr.chip_in_order; on: root.scale_in_order;
                                 toggled => { root.scale_in_order = !root.scale_in_order; root.scale_way_changed(); } }
                             // Only where the run is drawn on the strings: in the line and the
@@ -1776,37 +1968,43 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.arpeggios; selected: root.current_mode == 3; clicked => { root.nav_clicked(3); }
                             expandable: root.current_mode == 3 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 3 14 L 7 8 L 11 13 L 15 6 L 17 9"; }
+                            compact: root.sidebar_collapsed;
+                            path: "M 3.5 15.5 C 6 5.5 14 5.5 16.5 15.5";
+                            dots: "M 1.6 15.5 A 1.9 1.9 0 1 0 5.4 15.5 A 1.9 1.9 0 1 0 1.6 15.5 Z M 8.1 8 A 1.9 1.9 0 1 0 11.9 8 A 1.9 1.9 0 1 0 8.1 8 Z M 14.6 15.5 A 1.9 1.9 0 1 0 18.4 15.5 A 1.9 1.9 0 1 0 14.6 15.5 Z"; }
                         // Which exercise, and what it needs: the chord a study stands on, or
                         // which way each arpeggio runs over the changes. The study or tune
                         // itself is chosen from the title above the exercise.
-                        if root.current_mode == 3 && root.quick_open && !root.show_settings : VerticalLayout {
+                        if root.current_mode == 3 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             VerticalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
-                                spacing: 6px;
+                                padding-bottom: 3px;
+                                spacing: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.arp_study, Tr.arp_changes, Tr.arp_harris, Tr.arp_greene];
+                                    label: Tr.arp_exercise;
                                     current-index <=> root.arp_exercise;
                                     selected(v) => { root.arp_exercise_changed(v); }
                                 }
                                 // The view, as in the settings.
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.preview_names, Tr.preview_tab, Tr.preview_neck, Tr.preview_tiles];
+                                    label: Tr.preview;
                                     current-index <=> root.preview;
                                     selected(v) => { root.preview_changed(v); }
                                 }
                                 // Harris lines: the chords of a key, or the tune's.
                                 if root.arp_exercise == 2 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.harris_in_key, Tr.harris_on_tune];
+                                    label: Tr.opt_harmony;
                                     current-index: root.harris_in_key ? 0 : 1;
                                     selected(v) => { root.harris_in_key = v == 0; root.harris_in_key_changed(root.harris_in_key); }
                                 }
@@ -1815,42 +2013,53 @@ export component AppWindow inherits Window {
                                 // lines are taken through.
                                 if root.arp_exercise == 0 || root.walks_a_key : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: root.secondary_items;
+                                    label: Tr.opt_key;
                                     current-index <=> root.current_secondary_index;
                                     selected => { root.secondary_item_selected(self.current-index); }
                                 }
                                 if root.arp_exercise == 0 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: ["m7", "Maj7", "7", "m7b5", "dim7"];
+                                    label: Tr.opt_chord;
                                     current-index <=> root.arp_quality;
                                     selected(v) => { root.arp_quality_changed(v); }
                                 }
                                 if root.arp_exercise == 1 : Dropdown {
                                     text-scale: TextScale.sidebar;
-                                    list-width: 220px;
+                                    dense: true;
+                                    list-width: 260px;
                                     model: [Tr.arp_up, Tr.arp_down, Tr.arp_alt_down, Tr.arp_alt_up];
+                                    label: Tr.arp_direction;
                                     current-index <=> root.arp_direction;
                                     selected(v) => { root.arp_direction_changed(v); }
                                 }
                                 if root.arp_exercise == 2 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.harris_thirds, Tr.harris_triads, Tr.harris_sevenths, Tr.harris_led_thirds, Tr.harris_bebop, Tr.harris_pivot, Tr.harris_scale_down, Tr.harris_scale_up, Tr.harris_arp_scale, Tr.harris_from_third, Tr.harris_own_third, Tr.harris_enclosure, Tr.harris_drop, Tr.harris_into_root];
+                                    label: Tr.harris_figure;
                                     current-index <=> root.harris_figure;
                                     selected(v) => { root.harris_figure_changed(v); }
                                 }
                                 if root.arp_exercise == 3 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.greene_sweep, Tr.greene_groups_up, Tr.greene_groups_down, Tr.greene_orders];
+                                    label: Tr.harris_figure;
                                     current-index <=> root.greene_figure;
                                     selected(v) => { root.greene_figure_changed(v); }
                                 }
                                 // The groups up and down alone: a permuted group is one of four.
                                 if root.arp_exercise == 3 && (root.greene_figure == 1 || root.greene_figure == 2) : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.greene_group_3, Tr.greene_group_4, Tr.greene_group_5];
                                     current-index <=> root.greene_group;
@@ -1858,24 +2067,30 @@ export component AppWindow inherits Window {
                                 }
                                 if root.arp_exercise == 1 || root.arp_exercise == 2 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 260px;
                                     model: [Tr.harris_from_root, Tr.harris_from_3, Tr.harris_in_turn, Tr.harris_continuous];
+                                    label: Tr.opt_start;
                                     current-index <=> root.harris_start;
                                     selected(v) => { root.harris_start_changed(v); }
                                 }
                                 // Not where a cell is taken through a key: one cell a chord.
                                 if (root.arp_exercise == 1 || root.arp_exercise == 2) && !root.one_cell_a_chord : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.harris_eight, Tr.harris_four];
+                                    label: Tr.opt_length;
                                     current-index <=> root.harris_notes;
                                     selected(v) => { root.harris_notes_changed(v); }
                                 }
                                 // The whole position is a third length, Greene's alone.
                                 if root.arp_exercise == 3 : Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.harris_eight, Tr.harris_four, Tr.greene_whole];
+                                    label: Tr.opt_length;
                                     current-index <=> root.harris_notes;
                                     selected(v) => { root.harris_notes_changed(v); }
                                 }
@@ -1896,25 +2111,27 @@ export component AppWindow inherits Window {
                         NavItem { text: Tr.formulas; selected: root.current_mode == 5; clicked => { root.nav_clicked(5); }
                             expandable: root.current_mode == 5 && !root.show_settings;
                             expanded: root.quick_open;
-                            path: "M 5 4 L 15 4 M 5 10 L 12 10 M 5 16 L 15 16"; }
-                        if root.current_mode == 5 && root.quick_open && !root.show_settings : VerticalLayout {
+                            compact: root.sidebar_collapsed;
+                            path: "M 3.7 6 L 5.3 6 Q 6.5 6 6.5 7.2 L 6.5 12.8 Q 6.5 14 5.3 14 L 3.7 14 Q 2.5 14 2.5 12.8 L 2.5 7.2 Q 2.5 6 3.7 6 Z M 9.2 6 L 10.8 6 Q 12 6 12 7.2 L 12 12.8 Q 12 14 10.8 14 L 9.2 14 Q 8 14 8 12.8 L 8 7.2 Q 8 6 9.2 6 Z M 14.7 6 L 16.3 6 Q 17.5 6 17.5 7.2 L 17.5 12.8 Q 17.5 14 16.3 14 L 14.7 14 Q 13.5 14 13.5 12.8 L 13.5 7.2 Q 13.5 6 14.7 6 Z"; }
+                        if root.current_mode == 5 && root.quick_shown : VerticalLayout {
                             padding-bottom: 4px;
                             // The exercise, and how many tones a formula has - named in
                             // the list, where a bare digit would say nothing.
                             VerticalLayout {
-                                padding-left: 12px;
-                                padding-right: 12px;
-                                padding-bottom: 4px;
-                                spacing: 6px;
+                                padding-bottom: 3px;
+                                spacing: 3px;
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.exercise_key, Tr.exercise_chord, Tr.exercise_changes];
+                                    label: Tr.arp_exercise;
                                     current-index <=> root.formula_exercise;
                                     selected(v) => { root.formula_exercise_changed(v); }
                                 }
                                 Dropdown {
                                     text-scale: TextScale.sidebar;
+                                    dense: true;
                                     list-width: 220px;
                                     model: [Tr.formula_notes + "1", Tr.formula_notes + "2", Tr.formula_notes + "3",
                                             Tr.formula_notes + "4", Tr.formula_notes + "5", Tr.formula_notes + "6",
@@ -1939,7 +2156,7 @@ export component AppWindow inherits Window {
             }
 
             // TUNER: the nearest note and how far off it the string is.
-            if root.show_tuner : Rectangle {
+            if root.show_tuner && !root.sidebar_collapsed : Rectangle {
                 height: 84px * TextScale.sidebar;
                 background: Theme.raised;
                 border-radius: 12px;
@@ -1967,13 +2184,13 @@ export component AppWindow inherits Window {
                     TunerMeter { height: 8px; cents: root.tuner_cents; live: root.tuner_live; }
                 }
             }
-            if root.show_tuner : Rectangle { height: 12px; }
+            if root.show_tuner && !root.sidebar_collapsed : Rectangle { height: 12px; }
 
             // INPUT CARD: is the guitar heard, and where the silence threshold
             // sits against it. Always in sight, because a gate set too high
             // looked like the app not crediting what was played. A click opens
             // the audio settings, where the threshold is moved.
-            if root.show_input_meter : Rectangle {
+            if root.show_input_meter && !root.sidebar_collapsed : Rectangle {
                 height: 104px * TextScale.sidebar;
                 background: input_touch.has-hover ? Theme.raised-hover : Theme.raised;
                 border-radius: 12px;
@@ -2032,7 +2249,7 @@ export component AppWindow inherits Window {
                 }
             }
             // Air between the card and the entries below it.
-            if root.show_input_meter : Rectangle { height: 12px; }
+            if root.show_input_meter && !root.sidebar_collapsed : Rectangle { height: 12px; }
 
             // Hidden in the fretboard trainer, which draws its own region at
             // random and has no order to shuffle.
@@ -2042,6 +2259,7 @@ export component AppWindow inherits Window {
                 // changes is the key.
                 text: root.current_mode == 2 || root.walks_a_key ? Tr.random_key : Tr.random_order;
                 image: root.icon_shuffle;
+                compact: root.sidebar_collapsed;
                 selected: root.random_enabled;
                 clicked => { root.random_enabled = !root.random_enabled; }
             }
@@ -2050,6 +2268,7 @@ export component AppWindow inherits Window {
                 NavItem {
                     text: Tr.nav_settings;
                     image: root.icon_gear;
+                    compact: root.sidebar_collapsed;
                     selected: root.show_settings;
                     marked: root.settings_touched;
                     clicked => {
@@ -2061,7 +2280,8 @@ export component AppWindow inherits Window {
                         root.show_settings = !root.show_settings;
                     }
                 }
-                IconButton {
+                // Not in the folded bar: the tuner's card is not there either.
+                if !root.sidebar_collapsed : IconButton {
                     path: "M 7 2 L 7 9 Q 7 12.5 10 12.5 Q 13 12.5 13 9 L 13 2 M 10 12.5 L 10 18";
                     hint: Tr.tuner_card;
                     on: root.show_tuner;
@@ -2096,7 +2316,9 @@ export component AppWindow inherits Window {
         if !root.show_settings && root.shows_changes && root.chord_strip
             && root.progress.length > 1 : Rectangle {
             // Taller with the degrees: a chip carries its degree and its lead.
-            height: root.chord_degrees ? root.bar_h + 14px * max(1, TextScale.strip) : root.bar_h;
+            // Room above and below the three lines, so a chip whose third is
+            // empty does not read as cut short at the foot.
+            height: root.chord_degrees ? root.bar_h + 30px * max(1, TextScale.strip) : root.bar_h;
             // All the same width, so the current chord stays where the eye is -
             // and seven of them as wide as the room beside the side bar, less
             // the margin the drawings keep, its 15px margins and the six gaps.
@@ -2171,6 +2393,15 @@ export component AppWindow inherits Window {
                 font-weight: 400; 
                 color: root.chord_text_color; 
                 horizontal-alignment: center;
+                // A new name fades in: gone at once as the chord changes, back
+                // over a sixth of a second - see `chord_in`.
+                states [
+                    shown when root.chord_in : {
+                        opacity: 1;
+                        in { animate opacity { duration: 160ms; easing: ease-out; } }
+                    }
+                    hidden when !root.chord_in : { opacity: 0; }
+                ]
             }
 
             // FORMULAS. Plain text, like the other modes: the functions carry
@@ -2262,6 +2493,19 @@ export component AppWindow inherits Window {
                         background: self.done ? Theme.ok-bg : (self.lit ? Theme.now : Theme.panel);
                         border-color: self.done ? Theme.ok-line : (self.lit ? Theme.accent : Theme.line);
                         animate background, border-color { duration: 150ms; }
+                        // The flash of a tile credited, as in `IntervalCard`.
+                        property <float> flash: 1;
+                        Rectangle {
+                            border-radius: card.border-radius;
+                            background: Theme.ok;
+                            opacity: card.done ? card.flash * 0.45 : 0;
+                        }
+                        states [
+                            credited when card.done : {
+                                flash: 0;
+                                in { animate flash { duration: 420ms; easing: ease-out; } }
+                            }
+                        ]
                         VerticalLayout {
                             padding-top: 8px;
                             padding-bottom: 8px;
@@ -2402,113 +2646,122 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // The star: keep this formula, or let go of one already kept. In the
-                // middle of the column, between what the formula IS and what to do
-                // with it, and no bigger than the shuffle it borrows its manner from.
+                // Under the formula: the star that keeps it, centred over the
+                // pause, and below them the pause with the arrows that draw
+                // another formula. Over the changes the other thing to ask for
+                // stands beside them: the next chord of the tune.
                 if root.current_mode == 5 : VerticalLayout {
                     spacing: 6px;
-
-                // The star hangs in the middle of the space between the chords
-                // above and the pause below, rather than sitting on top of the
-                // pause: the box takes whatever slack the column has to give,
-                // with a floor of its own, and the star is placed at its centre
-                // by hand. A layout would have stretched the star itself.
-                star_box := Rectangle {
-                    vertical-stretch: 1;
-                    min-height: 84px;
+                    // The slack of the column, between the formula and the star.
+                    Rectangle { vertical-stretch: 1; min-height: 12px; }
                     HorizontalLayout {
-                    width: 100%;
-                    height: 54px;
-                    y: (star_box.height - self.height) / 2;
-                    alignment: center;
-                    spacing: 12px;
-                    // Out of the way while a name is being typed: standing
-                    // beside the field it was pushed off centre by it, and
-                    // there is nothing to click on it until the name is in.
-                    if !root.naming : IconToggle {
-                        // Filled when kept, outline when not - the glyph carries the
-                        // state, so the plate does not have to.
-                        icon: root.formula_starred ? root.icon_star_on : root.icon_star;
-                        active: false;
-                        dim: !root.formula_starred;
-                        invert: false;
-                        // Bigger than the toolbar icons it borrows its manner
-                        // from: those sit in a row of six and this one stands
-                        // alone in the middle of the screen.
-                        width: 54px;
-                        height: 54px;
-                        toggled => { root.star_clicked(); }
-                        changed hovered => { root.star_hover = self.hovered; }
-                    }
-                    // The scope is there for Escape alone: a LineEdit has no key
-                    // callback of its own, and the text field rejects the key, so
-                    // it reaches the scope around it. Enter saves, Escape drops the
-                    // whole thing - nothing is written until one or the other.
-                    if root.naming : FocusScope {
-                        width: 180px;
-                        height: 32px;
-                        key-pressed(event) => {
-                            if (event.text == Key.Escape) {
-                                root.naming = false;
-                                return accept;
-                            }
-                            reject
+                        alignment: center;
+                        height: 44px;
+                        // Out of the way while a name is being typed: the field
+                        // takes its place.
+                        if !root.naming : IconToggle {
+                            // Filled when kept, outline when not - the glyph
+                            // carries the state.
+                            icon: root.formula_starred ? root.icon_star_on : root.icon_star;
+                            dim: !root.formula_starred;
+                            toggled => { root.star_clicked(); }
+                            changed hovered => { root.star_hover = self.hovered; }
                         }
-                        // Typing is the only thing to do here, so the caret is
-                        // put in the field rather than waiting for a click.
-                        init => { fav_edit.focus(); }
-                        fav_edit := LineEdit {
-                            width: 100%;
-                            height: 100%;
-                            // The word sits in the field in grey and leaves the
-                            // moment anything is typed, rather than standing
-                            // beside it as a label with nothing to line up on.
-                            placeholder-text: Tr.fav_name;
-                            text <=> root.favourite_name;
-                            accepted => {
-                                root.favourite_named(root.favourite_name);
-                                root.naming = false;
+                        // The scope is there for Escape alone: a LineEdit has no
+                        // key callback of its own. Enter saves, Escape drops the
+                        // whole thing - nothing is written until one or the other.
+                        if root.naming : FocusScope {
+                            width: 180px;
+                            height: 32px;
+                            key-pressed(event) => {
+                                if (event.text == Key.Escape) {
+                                    root.naming = false;
+                                    return accept;
+                                }
+                                reject
+                            }
+                            // Typing is the only thing to do here, so the caret is
+                            // put in the field rather than waiting for a click.
+                            init => { fav_edit.focus(); }
+                            fav_edit := LineEdit {
+                                width: 100%;
+                                height: 100%;
+                                // The word sits in the field in grey and leaves the
+                                // moment anything is typed.
+                                placeholder-text: Tr.fav_name;
+                                text <=> root.favourite_name;
+                                accepted => {
+                                    root.favourite_named(root.favourite_name);
+                                    root.naming = false;
+                                }
                             }
                         }
-                    }
-                }
                     }
 
-                // In Formulas the pause is an exercise of its own: the whole set
-                // lit and nothing judged, so the thing to do is play inside it.
-                //
-                // The line is here whether it says anything or not. Appearing and
-                // disappearing, it pushed everything below it down - the words
-                // under the pause button slid towards the bottom edge on every
-                // pause and back again on every release.
-                Text {
-                    // Fixed height, not just a line that is sometimes empty: an
-                    // empty string is measured as no line at all, so the column
-                    // still shrank and everything below it slid up and down with
-                    // every pause.
-                    height: 26px;
-                    // The line under the star is already a fixed box, so the
-                    // hint can borrow it without anything moving.
-                    text: root.star_hover
-                        ? (root.formula_starred ? Tr.fav_remove : Tr.fav_add)
-                        : (root.paused ? Tr.formula_free : "");
-                    font-size: 17px;
-                    color: root.star_hover ? Theme.grey : Theme.link;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-                HorizontalLayout {
-                    alignment: center;
-                    IconToggle {
-                        icon: root.paused ? root.icon_play : root.icon_pause;
-                        active: root.paused;
-                        dim: true;
-                        invert: false;
-                        width: 68px;
-                        height: 68px;
-                        toggled => { root.paused = !root.paused; }
+                    // In Formulas the pause is an exercise of its own: the whole set
+                    // lit and nothing judged, so the thing to do is play inside it.
+                    //
+                    // The line is here whether it says anything or not. Appearing and
+                    // disappearing, it pushed everything below it down - the row
+                    // under it slid towards the bottom edge on every pause and back
+                    // again on every release.
+                    Text {
+                        // Fixed height, not just a line that is sometimes empty: an
+                        // empty string is measured as no line at all.
+                        height: 26px;
+                        text: root.star_hover
+                            ? (root.formula_starred ? Tr.fav_remove : Tr.fav_add)
+                            : (root.paused ? Tr.formula_free : "");
+                        font-size: 17px;
+                        color: root.star_hover ? Theme.grey : Theme.link;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
                     }
-                }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 22px;
+                        // As wide as the cell on the other side of the pause, so
+                        // the pause stays in the middle whatever stands beside it.
+                        HorizontalLayout {
+                            width: 200px;
+                            alignment: end;
+                            // Both arrows draw another formula: there is no order
+                            // of formulas to go back along.
+                            VerticalLayout {
+                                alignment: center;
+                                StepArrow {
+                                    shown: true;
+                                    hint: Tr.formula_another;
+                                    clicked => { root.step_chord(-1); }
+                                }
+                            }
+                        }
+                        PlayButton {
+                            paused: root.paused;
+                            toggled => { root.paused = !root.paused; }
+                        }
+                        HorizontalLayout {
+                            width: 200px;
+                            alignment: start;
+                            spacing: 22px;
+                            VerticalLayout {
+                                alignment: center;
+                                StepArrow {
+                                    forward: true;
+                                    shown: true;
+                                    hint: Tr.formula_another;
+                                    clicked => { root.step_chord(1); }
+                                }
+                            }
+                            if root.formula_exercise == 2 : VerticalLayout {
+                                alignment: center;
+                                PillButton {
+                                    text: Tr.next_chord;
+                                    clicked => { root.next_change(); }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2835,7 +3088,10 @@ export component AppWindow inherits Window {
                 // than the window and sits centred in it, so a width taken from
                 // `root.width` overflowed to the right and the long phrases
                 // came out pushed off centre.
-                property <length> box_h: min(root.height / 3, 380px);
+                // Two fifths of the height where the Hearing bar is off, a
+                // little less with it: what the column has left over the name,
+                // the caption and the pause.
+                property <length> box_h: min(root.height * (root.show_heard && root.walks_progression ? 0.37 : 0.42), 380px);
                 property <length> box_w: min(parent.width, self.box_h * root.tab_aspect);
                 // On a card, as the chord shapes are: the drawing's ground is
                 // the card colour, so the corners and the border are all there
@@ -2865,40 +3121,41 @@ export component AppWindow inherits Window {
             // - playing would move it on again before the hand got back to the
             // guitar. Their places are held while playing, so the pause does
             // not move when they come and go.
+            // In Scales there is no progression to walk: both arrows draw
+            // another place on the neck for the scale, at any time.
             if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
-                spacing: 12px;
-                if root.walks_progression : StepArrow {
-                    glyph: "‹";
-                    shown: root.paused;
-                    clicked => { root.step_chord(-1); }
+                spacing: 22px;
+                if root.walks_progression || root.current_mode == 2 : VerticalLayout {
+                    alignment: center;
+                    StepArrow {
+                        shown: root.paused || root.current_mode == 2;
+                        hint: root.current_mode == 2 ? Tr.scale_redraw : Tr.prev_chord;
+                        clicked => { root.step_chord(-1); }
+                    }
                 }
-                IconToggle {
-                    icon: root.paused ? root.icon_play : root.icon_pause;
-                    active: root.paused;
-                    dim: true;
-                    // The glyph already says which state it is in; inverting the
-                    // plate as well made it read like a pressed toggle.
-                    invert: false;
-                    width: 68px;
-                    height: 68px;
+                PlayButton {
+                    paused: root.paused;
                     toggled => { root.paused = !root.paused; }
                 }
-                if root.walks_progression : StepArrow {
-                    glyph: "›";
-                    shown: root.paused;
-                    clicked => { root.step_chord(1); }
+                if root.walks_progression || root.current_mode == 2 : VerticalLayout {
+                    alignment: center;
+                    StepArrow {
+                        forward: true;
+                        shown: root.paused || root.current_mode == 2;
+                        hint: root.current_mode == 2 ? Tr.scale_redraw : Tr.next_chord;
+                        clicked => { root.step_chord(1); }
+                    }
                 }
             }
         }
         
         // FOOTER - what is heard. An option, off by default: while playing it
         // pulls the eye from the shapes. The chord to come is in the strip
-        // at the top. Formulas keep the row for their own words.
-        if !root.show_settings && (root.current_mode == 5
-            || (root.show_heard && root.walks_progression)) : Rectangle {
+        // at the top.
+        if !root.show_settings && root.show_heard && root.walks_progression : Rectangle {
             height: root.bar_h;
-            if root.current_mode != 5 : HorizontalLayout {
+            HorizontalLayout {
                 alignment: center;
                 // As wide as five notes and a name need, not the window: across
                 // a wide one it was a long bar with everything at its left end.
@@ -2956,32 +3213,6 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                }
-            }
-
-            // Formulas have no progression to walk, but a formula stands until
-            // it is asked to move, and this is the asking. The words alone: two
-            // arrows either side of them said the same thing three times over.
-            //
-            // Over the changes there are two things to ask for, and they are
-            // not the same: the next chord of the tune, or another formula to
-            // carry through it.
-            if root.current_mode == 5 : HorizontalLayout {
-                alignment: center;
-                spacing: 26px;
-                if root.formula_exercise == 2 : Text {
-                    text: Tr.next_chord;
-                    font-size: 15px;
-                    color: step_word.has-hover ? Theme.link : Theme.link-dim;
-                    vertical-alignment: center;
-                    step_word := TouchArea { clicked => { root.next_change(); } }
-                }
-                Text {
-                    text: Tr.formula_another;
-                    font-size: 15px;
-                    color: draw_word.has-hover ? Theme.link : Theme.link-dim;
-                    vertical-alignment: center;
-                    draw_word := TouchArea { clicked => { root.step_chord(1); } }
                 }
             }
         }
@@ -4234,6 +4465,44 @@ export component AppWindow inherits Window {
                         }
                     }
             }
+        }
+    }
+
+    // The handle that folds the side bar to its icons and back, on its edge
+    // at the height of the name. Declared after the panel, which reaches
+    // under it in a narrow window. Folded, it stands clear of the icon.
+    Rectangle {
+        x: root.sidebar_collapsed ? root.sidebar_w - 10px : root.sidebar_w - self.width / 2;
+        y: 28px;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+        background: fold_touch.has-hover ? Theme.raised-hover : Theme.panel;
+        fold_touch := TouchArea {
+            clicked => {
+                root.sidebar_collapsed = !root.sidebar_collapsed;
+                root.sidebar_collapsed_changed(root.sidebar_collapsed);
+            }
+        }
+        Path {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 20px;
+            height: 20px;
+            viewbox-width: 10;
+            viewbox-height: 10;
+            commands: root.sidebar_collapsed ? "M 3.5 2 L 6.5 5 L 3.5 8" : "M 6.5 2 L 3.5 5 L 6.5 8";
+            stroke: fold_touch.has-hover ? Theme.text-strong : Theme.muted;
+            stroke-width: 2px;
+            fill: transparent;
+        }
+        OverflowHint {
+            x: parent.width + 8px;
+            y: 8px;
+            text: root.sidebar_collapsed ? Tr.sidebar_unfold : Tr.sidebar_fold;
+            shown: fold_touch.has-hover;
         }
     }
 

@@ -56,8 +56,6 @@ const ICON_STAR: &str = include_str!("assets/icons/star.svg");
 /// inverted plate the other toggles use: a whole square lighting up said
 /// "pressed", where what is meant is "kept".
 const ICON_STAR_ON: &str = include_str!("assets/icons/star_on.svg");
-const ICON_PAUSE: &str = include_str!("assets/icons/pause.svg");
-const ICON_PLAY: &str = include_str!("assets/icons/play.svg");
 
 /// How far the UI may be scaled from its design size. The floor is where the
 /// smallest labels stop being readable, and below it the window stops shrinking
@@ -656,13 +654,12 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_show_input_meter(cfg.show_input_meter);
     ui.set_show_heard(cfg.show_heard);
     ui.set_quick_open(cfg.quick_options_open);
+    ui.set_sidebar_collapsed(cfg.sidebar_collapsed);
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_icon_shuffle(svg_icon(ICON_SHUFFLE));
     ui.set_icon_gear(svg_icon(ICON_GEAR));
     ui.set_icon_star(svg_icon(ICON_STAR));
     ui.set_icon_star_on(svg_icon(ICON_STAR_ON));
-    ui.set_icon_pause(svg_icon(ICON_PAUSE));
-    ui.set_icon_play(svg_icon(ICON_PLAY));
     apply_language(ui, lang, Some(app));
     ui.set_interval_input_text(model::shown_phrase(&app.intervals_input).into()); 
 }
@@ -1031,6 +1028,13 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_note_hint_hover(t.note_hint_hover.into());
     g.set_chip_hint(t.chip_hint.into());
     g.set_chip_frets(t.chip_frets.into());
+    g.set_opt_key(t.opt_key.into());
+    g.set_opt_chord(t.opt_chord.into());
+    g.set_opt_start(t.opt_start.into());
+    g.set_opt_length(t.opt_length.into());
+    g.set_opt_harmony(t.opt_harmony.into());
+    g.set_sidebar_fold(t.sidebar_fold.into());
+    g.set_sidebar_unfold(t.sidebar_unfold.into());
     g.set_chip_e_to_e(t.scale_from_e_to_e.into());
     g.set_random_key(t.random_key.into());
     g.set_there_and_back(t.there_and_back.into());
@@ -1067,6 +1071,8 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_placement(t.placement.into());
     g.set_placement_from(t.placement_from.into());
     g.set_next_chord(t.next_chord.into());
+    g.set_prev_chord(t.prev_chord.into());
+    g.set_scale_redraw(t.scale_redraw.into());
     g.set_placement_any(t.placement_any.into());
     g.set_placement_defines(t.placement_defines.into());
     g.set_placement_colours(t.placement_colours.into());

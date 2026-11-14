@@ -291,6 +291,9 @@ pub struct Settings {
     /// the side navigation. Folded by default.
     #[serde(default)]
     pub quick_options_open: bool,
+    /// The side bar folded to its icons, by the handle on its edge.
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
     /// Show the chords that fit inside the formula, pointing at one lighting up
     /// the functions it is built from. On by default, for the same reason as the
     /// scale: it says what the set can be played over.
@@ -505,6 +508,7 @@ impl Default for Settings {
             show_input_meter: false,
             show_heard: false,
             quick_options_open: false,
+            sidebar_collapsed: false,
             formula_show_chords: true,
             song: String::new(),
             scale: String::new(),
