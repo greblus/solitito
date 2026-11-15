@@ -3123,14 +3123,15 @@ export component AppWindow inherits Window {
             // guitar. Their places are held while playing, so the pause does
             // not move when they come and go.
             // In Scales there is no progression to walk: both arrows draw
-            // another place on the neck for the scale, at any time.
+            // another place on the neck for the scale. Shown while paused, as
+            // everywhere.
             if root.current_mode != 4 && root.current_mode != 5 : HorizontalLayout {
                 alignment: center;
                 spacing: 22px;
                 if root.walks_progression || root.current_mode == 2 : VerticalLayout {
                     alignment: center;
                     StepArrow {
-                        shown: root.paused || root.current_mode == 2;
+                        shown: root.paused;
                         hint: root.current_mode == 2 ? (root.random_enabled ? Tr.scale_redraw_key : Tr.scale_redraw) : Tr.prev_chord;
                         clicked => { root.step_chord(-1); }
                     }
@@ -3143,7 +3144,7 @@ export component AppWindow inherits Window {
                     alignment: center;
                     StepArrow {
                         forward: true;
-                        shown: root.paused || root.current_mode == 2;
+                        shown: root.paused;
                         hint: root.current_mode == 2 ? (root.random_enabled ? Tr.scale_redraw_key : Tr.scale_redraw) : Tr.next_chord;
                         clicked => { root.step_chord(1); }
                     }

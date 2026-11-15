@@ -164,7 +164,7 @@ losowana spośród trzech, od których warto zaczynać, nigdy ta sama co w poprz
 
 **Pauza** zatrzymuje progresję, a kolory dalej mówią, czy akord jest właściwy — można zostać
 przy jednym chwycie i go opracować. Przy pauzie strzałki po bokach przycisku pauzy przechodzą tam
-i z powrotem po progresji. W Skalach strzałki są widoczne cały czas i stawiają skalę w innym
+i z powrotem po progresji. W Skalach strzałki, też widoczne przy pauzie, stawiają skalę w innym
 miejscu gryfu — od E do e w innej pozycji, w przeciwnym razie od innej struny — a przy włączonej
 **Losowej tonacji** także w innej tonacji; w Formułach losują nową formułę. Po najechaniu każda strzałka mówi, co robi.
 
