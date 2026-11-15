@@ -1158,6 +1158,32 @@ mod tests {
     use super::*;
 
 
+    /// A scale started from the E, the A or the D string stands in three
+    /// different places: the arrows in Scales draw another string, and the
+    /// drawing has to move with it.
+    #[test]
+    fn a_scale_from_another_string_stands_elsewhere() {
+        let major: [u8; 7] = [0, 2, 4, 5, 7, 9, 11];
+        let names: Vec<String> = ["1", "2", "3", "4", "5", "6", "7"].iter().map(|n| n.to_string()).collect();
+        let steps: Vec<Step> = (0..7).map(|degree| Step { degree, octave: 0 })
+            .chain(std::iter::once(Step { degree: 0, octave: 1 }))
+            .collect();
+        let places: Vec<Vec<(usize, i32)>> = (0..3)
+            .map(|from| {
+                place_from(0, &major, &steps, &names, None, Some(from))
+                    .iter()
+                    .map(|s| (s.string, s.fret))
+                    .collect()
+            })
+            .collect();
+        for (from, place) in places.iter().enumerate() {
+            assert!(!place.is_empty(), "nothing drawn from string {from}");
+            assert_eq!(place[0].0, from, "C major from string {from} starts on {:?}", place[0]);
+        }
+        assert_ne!(places[0], places[1]);
+        assert_ne!(places[1], places[2]);
+    }
+
     /// The fingerings of the three arpeggio studies, note for note. This is the
     /// whole justification for the placing rule: it was not designed, it was
     /// checked against what a player actually wrote.

@@ -1492,16 +1492,21 @@ impl MyApp {
         }
     }
 
+    /// Another string for a scale to start from, never the one it starts from
+    /// now. Taken in turn, the place on the neck came round in an order the
+    /// hand learned; drawn from the other two, it is somewhere new.
+    fn draw_another_scale_start(&mut self) {
+        let others = START_STRINGS.len() - 1;
+        self.scale_start = (self.scale_start + 1 + self.rng.below(others)) % START_STRINGS.len();
+    }
+
     /// A new pass of a scale: another string to start from - drawn, and never
     /// the one the last pass started on - and, where the direction is drawn, a
     /// new way and a new starting degree. Only a finished scale is a new pass: choosing
     /// another scale or key keeps the way it was going.
     fn next_scale_pass(&mut self) {
         self.pass = self.pass.wrapping_add(1);
-        // Taken in turn, the place on the neck came round in an order the
-        // hand learned; drawn from the other two, it is somewhere new.
-        let others = START_STRINGS.len() - 1;
-        self.scale_start = (self.scale_start + 1 + self.rng.below(others)) % START_STRINGS.len();
+        self.draw_another_scale_start();
         // Drawn, but never three passes the same way: a fair coin gave five
         // descents in a row, which read as a scale that only goes down.
         let previous = self.scale_descending;
@@ -2066,6 +2071,21 @@ impl MyApp {
         }
         if self.chords.is_empty() {
             return;
+        }
+        // In Scales the arrows stand the scale somewhere else on the neck:
+        // from E to e the place is drawn again below, by `reroll`; otherwise
+        // the place is the string the scale starts from. With the random key
+        // on, in another key as well, as a finished pass would.
+        if self.app_mode == AppMode::Scales {
+            if !self.scale_e_to_e {
+                self.draw_another_scale_start();
+            }
+            if self.random_mode {
+                let next = self.rng.below_excluding(12, self.chords[0].root as usize);
+                self.chords[0].root = NoteName::from_index(next);
+                // The key list shows the key being asked for.
+                self.secondary_index = next;
+            }
         }
         if self.play_order.len() != self.chords.len() {
             self.rebuild_play_order();

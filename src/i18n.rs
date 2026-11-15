@@ -282,6 +282,7 @@ pub struct Strings {
     /// The arrows beside the pause, in their bubbles.
     pub prev_chord: &'static str,
     pub scale_redraw: &'static str,
+    pub scale_redraw_key: &'static str,
     /// "1 OF 4 chord tones".
     pub of_count: &'static str,
     pub placement_any: &'static str,
@@ -534,6 +535,7 @@ pub const EN: Strings = Strings {
     next_chord: "Next chord",
     prev_chord: "Previous chord",
     scale_redraw: "The scale in another place",
+    scale_redraw_key: "The scale in another key and place",
     of_count: "of",
     placement_any: "any",
     placement_defines: "spells the chord out",
@@ -781,6 +783,7 @@ pub const PL: Strings = Strings {
     next_chord: "Następny akord",
     prev_chord: "Poprzedni akord",
     scale_redraw: "Skala w innym miejscu",
+    scale_redraw_key: "Skala w innej tonacji i miejscu",
     of_count: "z",
     placement_any: "dowolne",
     placement_defines: "pasuje do akordu",
@@ -906,6 +909,7 @@ mod tests {
             ("chip_frets", EN.chip_frets, PL.chip_frets),
             ("prev_chord", EN.prev_chord, PL.prev_chord),
             ("scale_redraw", EN.scale_redraw, PL.scale_redraw),
+            ("scale_redraw_key", EN.scale_redraw_key, PL.scale_redraw_key),
             ("opt_key", EN.opt_key, PL.opt_key),
             ("opt_chord", EN.opt_chord, PL.opt_chord),
             ("opt_start", EN.opt_start, PL.opt_start),

@@ -3245,6 +3245,36 @@ fn an_arrow_in_scales_stands_the_scale_somewhere_else() {
     }
 }
 
+/// And where the scale does not run from E to e: there the place is the
+/// string it starts from, and each arrow takes it from another one.
+#[test]
+fn an_arrow_moves_a_scale_not_from_e_to_e_to_another_string() {
+    let mut a = e_to_e_app();
+    a.set_scale_e_to_e(false);
+    for delta in [1, -1, 1, 1, -1, 1] {
+        let before = a.scale_start;
+        a.step_chord(delta);
+        assert_ne!(a.scale_start, before, "the arrow left the scale on its string");
+    }
+}
+
+/// With the random key on, an arrow draws another key too; off, the key stays.
+#[test]
+fn an_arrow_draws_another_key_where_the_key_is_random() {
+    let mut a = e_to_e_app();
+    let key = a.chords[0].root as usize;
+    a.step_chord(1);
+    assert_eq!(a.chords[0].root as usize, key, "the key moved with the random key off");
+    a.random_mode = true;
+    for delta in [1, -1, 1, 1] {
+        let before = a.chords[0].root as usize;
+        a.step_chord(delta);
+        let now = a.chords[0].root as usize;
+        assert_ne!(now, before, "the arrow kept the key");
+        assert_eq!(a.secondary_index, now, "the key list shows another key");
+    }
+}
+
 /// Up, the run starts on the start degree as low as the hand has it - on the
 /// low E where it lies there; down, as high - on the high e where it lies
 /// there.

@@ -158,7 +158,8 @@ from, never the one the last pass started on.
 **Pause** stops the progression while the colours go on reporting whether the chord is right,
 so you can stay on one shape and work it out. While paused, the arrows either side of the
 pause button step back and forth through the progression. In Scales the arrows are there all
-the time and stand the scale somewhere else on the neck; in Formulas they draw another formula.
+the time and stand the scale somewhere else on the neck - from E to e in another place, otherwise
+from another string - and with **Random key** on, in another key as well; in Formulas they draw another formula.
 Pointed at, each arrow says what it does.
 
 Open strings in interval grips appear as unfilled circles outside the fret columns, with the interval inside. They are not drawn on the first fret.

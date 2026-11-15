@@ -1135,6 +1135,7 @@ export global Tr {
     in-out property <string> next_chord: "Next chord";
     in-out property <string> prev_chord: "Previous chord";
     in-out property <string> scale_redraw: "The scale in another place";
+    in-out property <string> scale_redraw_key: "The scale in another key and place";
     in-out property <string> placement_any: "any";
     in-out property <string> placement_defines: "spells the chord out";
     in-out property <string> placement_colours: "colours it";
@@ -3130,7 +3131,7 @@ export component AppWindow inherits Window {
                     alignment: center;
                     StepArrow {
                         shown: root.paused || root.current_mode == 2;
-                        hint: root.current_mode == 2 ? Tr.scale_redraw : Tr.prev_chord;
+                        hint: root.current_mode == 2 ? (root.random_enabled ? Tr.scale_redraw_key : Tr.scale_redraw) : Tr.prev_chord;
                         clicked => { root.step_chord(-1); }
                     }
                 }
@@ -3143,7 +3144,7 @@ export component AppWindow inherits Window {
                     StepArrow {
                         forward: true;
                         shown: root.paused || root.current_mode == 2;
-                        hint: root.current_mode == 2 ? Tr.scale_redraw : Tr.next_chord;
+                        hint: root.current_mode == 2 ? (root.random_enabled ? Tr.scale_redraw_key : Tr.scale_redraw) : Tr.next_chord;
                         clicked => { root.step_chord(1); }
                     }
                 }

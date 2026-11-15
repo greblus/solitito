@@ -1131,7 +1131,7 @@ impl UiFrame {
         // and the change only showed up later when something else forced a
         // redraw.
         let signature = format!(
-            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}",
+            "{}|{}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{}",
             chord.root as usize,
             chord.quality.to_string(),
             steps,
@@ -1148,7 +1148,10 @@ impl UiFrame {
             jazz,
             app.home_anchor,
             ui.get_chord_context(),
-            look_of(ui)
+            look_of(ui),
+            // The string a scale starts from: the arrows move it, and the
+            // drawing stood where it was.
+            app.scale_start
         );
         if signature == self.last_tab {
             return;

@@ -1073,6 +1073,7 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_next_chord(t.next_chord.into());
     g.set_prev_chord(t.prev_chord.into());
     g.set_scale_redraw(t.scale_redraw.into());
+    g.set_scale_redraw_key(t.scale_redraw_key.into());
     g.set_placement_any(t.placement_any.into());
     g.set_placement_defines(t.placement_defines.into());
     g.set_placement_colours(t.placement_colours.into());
