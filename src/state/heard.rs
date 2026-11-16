@@ -16,6 +16,11 @@ pub struct Heard {
     /// while the context window is nine tenths full, which playing one note at
     /// a time never manages. Once per new frame is once per new reading.
     pub audio_frames: u64,
+    /// Frames the judge has read, and frames that came and went between two
+    /// of its reads unseen: what is counted a frame at a time - the ear held
+    /// steady, a class gone quiet - lost one there. For `SOLITITO_HOPS`.
+    pub frames_read: u64,
+    pub frames_unseen: u64,
     pub audio_gate_open: bool,
     /// What the estimate has been saying, and for how many audio frames. A
     /// drawing that follows every frame flickers on noise; one that waits for a
@@ -73,6 +78,8 @@ impl Default for Heard {
     fn default() -> Self {
         Heard {
             audio_frames: 0,
+            frames_read: 0,
+            frames_unseen: 0,
             audio_gate_open: false,
             steady_pitch: None,
             steady_for: 0,
@@ -97,9 +104,18 @@ impl Default for Heard {
 impl Heard {
     /// What the audio thread has heard, copied into the judge.
     pub fn read_audio_frame(&mut self, state: &AudioAnalysis) {
+        self.read_hop(&state.hop_reading());
+    }
+
+    /// One hop as the audio thread read it - see `AudioAnalysis::remember_hop`.
+    pub fn read_hop(&mut self, state: &crate::audio::HopReading) {
         if state.frames_seen != self.audio_frames {
             self.count_steady_pitch(state.cqt_pitch);
             self.count_quiet_classes(state.voices);
+            self.frames_read += 1;
+            if self.audio_frames != 0 {
+                self.frames_unseen += state.frames_seen.saturating_sub(self.audio_frames + 1);
+            }
         }
         self.cqt_pitch = state.cqt_pitch;
         self.cqt_semitone = state.cqt_semitone;

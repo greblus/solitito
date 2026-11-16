@@ -15,7 +15,7 @@
 //! - `one_model_pass_by_threads`: what one pass of the chord model costs.
 
 use super::line_harness::{atoa_notes, rising, splice};
-use crate::audio::{mono_pitch, CqtAnalyzer, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, MONO_MIN_SCORE};
+use crate::audio::{CqtAnalyzer, FFT_SIZE, HOP_LENGTH};
 
 const SR: f32 = 16_000.0;
 const GATE: f32 = 0.001;
@@ -34,6 +34,7 @@ fn read(audio: &[f32]) -> Readings {
     let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
     let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).unwrap();
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let mut short = crate::audio::ShortSpectrum::new();
     let mut rise = crate::rise::Rise::default();
     let mut out = Readings { struck: Vec::new(), named: [Vec::new(), Vec::new(), Vec::new(), Vec::new()] };
@@ -41,12 +42,9 @@ fn read(audio: &[f32]) -> Readings {
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         out.struck.push(strikes.push(hop).unwrap().1);
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
-        let ear = (rms > GATE)
+        let ear = (noise_gate.hear(&buffer, GATE))
             .then(|| {
-                let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-                let (cqt, _, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
-                mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n % 12)
+                analyzer.listen(&buffer, true, 5.0).note.map(|n| n % 12)
             })
             .flatten();
         out.named[0].push(ear);

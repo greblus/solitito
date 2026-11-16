@@ -75,9 +75,9 @@ fn progress_runs_without_any_chords() {
     a.note_threshold = 0.5;
     // The trainer holds for a fixed 0.12 s, as the note modes do - the
     // chord delay is not its measure.
-    a.check_progress_with_ai(0.1, "Noise", 0.0);
+    answered(&mut a, 0.1, "Noise", 0.0);
     assert_eq!(a.fret_target, Some(target), "credited before the hold was up");
-    a.check_progress_with_ai(0.1, "Noise", 0.0);
+    answered(&mut a, 0.1, "Noise", 0.0);
     // Passed - and now SHOWN, green, before the next note is drawn.
     assert_eq!(a.match_status, MatchStatus::Exact, "the verdict was not shown");
     assert_eq!(a.fret_target, Some(target), "it moved on before anything was seen");
@@ -106,7 +106,7 @@ fn a_passed_note_is_shown_before_the_next_is_drawn() {
     a.note_threshold = 0.5;
     // One answer from the model, long enough to pass the hold on its own -
     // which is the case that showed nothing.
-    a.check_progress_with_ai(0.25, "Noise", 0.0);
+    answered(&mut a, 0.25, "Noise", 0.0);
     assert_eq!(a.match_status, MatchStatus::Exact);
     assert_eq!(a.fret_target, Some(target), "the verdict was gone in the same call");
     // And it stays through the frames that follow, model answering or not.

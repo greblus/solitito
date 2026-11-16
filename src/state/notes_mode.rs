@@ -40,6 +40,37 @@ impl MyApp {
         self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
     }
 
+    /// Scales, Arpeggios and the fretboard trainer, on every tick: judged once
+    /// per new audio frame with the model's latest answer, as Intervals is -
+    /// without the finished set Intervals shows, and without its rule that
+    /// muting re-arms a note, which neither mode had.
+    pub(super) fn tick_notes(&mut self, dt: f32) {
+        self.interval_model_age += dt;
+        if self.interval_model_age >= INTERVAL_MODEL_AGE {
+            self.forget_model_answer();
+        }
+        self.credited.settle(dt, &self.heard);
+        self.interval_audio_age += dt;
+        if self.heard.audio_frames == self.judged_frame {
+            return;
+        }
+        self.judged_frame = self.heard.audio_frames;
+        // A frame after a stalled stream does not prove the note held
+        // throughout the gap.
+        if self.interval_audio_age > 0.05 {
+            self.answering_step = None;
+            self.success_timer = 0.0;
+        }
+        let elapsed = self.interval_audio_age.min(0.032);
+        self.interval_audio_age = 0.0;
+        if !self.heard.audio_gate_open {
+            self.answering_step = None;
+            self.success_timer = 0.0;
+            return;
+        }
+        self.check_progress(elapsed, self.last_ai_root, "", self.last_ai_conf);
+    }
+
     /// A stopped inference stream must not keep answering new audio frames.
     pub(super) fn forget_model_answer(&mut self) {
         self.last_pitches = [0.0; 12];

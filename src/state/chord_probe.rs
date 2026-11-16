@@ -238,6 +238,24 @@ fn chords_mode_passes(target: &str, answers: &[(String, f32)]) -> Option<f32> {
     None
 }
 
+/// `chords_mode_passes`, with what the pitch head heard at each answer.
+fn chords_mode_passes_heard(target: &str, answers: &[(String, f32, [f32; 12])]) -> Option<f32> {
+    let mut a = super::tests::app();
+    a.set_mode(AppMode::Chords as i32);
+    a.chords = crate::model::parse_chords_line_pub(&format!("{target} C7"));
+    a.current_chord_index = 0;
+    a.prev_chord_index = None;
+    a.success_timer = 0.0;
+    for (k, (name, conf, pitches)) in answers.iter().enumerate() {
+        a.last_pitches = *pitches;
+        a.check_progress_with_ai(MODEL_PERIOD, name, *conf);
+        if a.current_chord_index != 0 {
+            return Some(k as f32 * MODEL_PERIOD);
+        }
+    }
+    None
+}
+
 #[test]
 #[ignore = "diagnostic: needs AtoA.wav and the model"]
 fn chords_mode_on_the_diagram_grips() {
@@ -437,4 +455,79 @@ fn a_recording_read_by_the_model() {
         );
         start = end;
     }
+}
+
+/// The model's answers on a recording, every 40 ms, with when each came and
+/// what its pitch head heard.
+fn timed_answers(audio: &[f32]) -> Vec<(f32, String, f32, [f32; 12])> {
+    let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
+    let mut brain = crate::brain::ChordBrain::new(
+        ["best_model_v2_take6_chords.onnx", "best_model_v2_take6_onset.onnx"]
+            .into_iter().find(|f| std::path::Path::new(f).exists()).unwrap(),
+    ).unwrap();
+    let app = super::tests::app();
+    let mut state = app.analysis_state.lock().unwrap();
+    let mut gate = crate::audio::Gate::default();
+    let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut next_model = 0.0f32;
+    let mut out = Vec::new();
+    for (n, hop) in audio.chunks_exact(HOP_LENGTH).enumerate() {
+        let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
+        buffer.drain(..HOP_LENGTH);
+        buffer.extend_from_slice(hop);
+        if gate.hear(&buffer, 0.001) {
+            state.hear(&analyzer.listen(&buffer, true, 5.0));
+        } else {
+            state.go_quiet();
+        }
+        if t >= next_model {
+            next_model += MODEL_PERIOD;
+            if state.history_fill() >= 0.9 {
+                let p = brain.predict(&state.input_history).unwrap();
+                out.push((t, p.chord, p.confidence, p.pitches));
+            }
+        }
+    }
+    out
+}
+
+/// SOLITITO_WAV and SOLITITO_LABELS (t,chord,pcs): for each chord struck, how
+/// soon the model first names it, the share of its answers that name it from
+/// 0.3 s on, and when Chords mode would move on from it.
+#[test]
+#[ignore = "diagnostic: SOLITITO_WAV and SOLITITO_LABELS of a chord recording"]
+fn chords_named_on_a_recording() {
+    let wav = std::env::var("SOLITITO_WAV").unwrap();
+    let labels: Vec<(f32, String)> = std::fs::read_to_string(std::env::var("SOLITITO_LABELS").unwrap())
+        .unwrap()
+        .lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(',').collect();
+            (f[1] != "?" && f[1] != "end").then(|| (f[0].parse().unwrap(), f[1].to_string()))
+        })
+        .collect();
+    let (signal, _) = super::grip_harness::load(&wav, &std::env::var("SOLITITO_LABELS").unwrap());
+    let answers = timed_answers(&signal);
+    println!("{:>7} {:<7} {:>9} {:>7} {:>9}", "t", "chord", "first ms", "share", "passes ms");
+    let (mut firsts, mut shares, mut passes) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, (t, chord)) in labels.iter().enumerate() {
+        let end = labels.get(i + 1).map_or(t + 4.0, |next| next.0);
+        let here: Vec<&(f32, String, f32, [f32; 12])> = answers.iter().filter(|a| a.0 >= *t && a.0 < end).collect();
+        let names = |a: &(f32, String, f32, [f32; 12])| a.1.replace(' ', "") == *chord;
+        let first = here.iter().find(|a| names(a)).map(|a| ((a.0 - t) * 1000.0).round());
+        let settled: Vec<&(f32, String, f32, [f32; 12])> = here.iter().copied().filter(|a| a.0 >= t + 0.3).collect();
+        let share = settled.iter().filter(|a| names(a)).count() as f32 / settled.len().max(1) as f32;
+        let named: Vec<(String, f32, [f32; 12])> = here.iter().map(|a| (a.1.clone(), a.2, a.3)).collect();
+        let pass = chords_mode_passes_heard(chord, &named).map(|s| (s * 1000.0).round());
+        println!("{t:>7.2} {chord:<7} {:>9} {share:>7.2} {:>9}",
+                 first.map_or("-".into(), |v| format!("{v}")), pass.map_or("-".into(), |v| format!("{v}")));
+        firsts.extend(first);
+        shares.push(share);
+        passes.extend(pass);
+    }
+    let median = |v: &mut Vec<f32>| { v.sort_by(|a, b| a.total_cmp(b)); v.get(v.len() / 2).copied() };
+    println!("named {} of {}, median first {:?} ms, mean share {:.2}, passed {} of {}, median pass {:?} ms",
+             firsts.len(), labels.len(), median(&mut firsts), shares.iter().sum::<f32>() / shares.len().max(1) as f32,
+             passes.len(), labels.len(), median(&mut passes));
 }

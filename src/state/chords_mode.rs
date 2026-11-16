@@ -7,6 +7,10 @@ use super::*;
 /// the level the recordings in `diminished_heard_whole` were measured at.
 const DIM_TONE_HEARD: f32 = 0.5;
 
+/// Pitch-head level at which a tone counts as heard for `seventh_heard`: the
+/// same as for a diminished seventh.
+const SEVENTH_TONE_HEARD: f32 = 0.5;
+
 impl MyApp {
     pub(super) fn check_chord(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
         let Some(target) = self.chords.get(self.current_chord_index) else {
@@ -21,7 +25,8 @@ impl MyApp {
             Some(root) => chord_reading(target, root, ai_qual, self.shells_only),
             None => ChordReading::Wrong,
         };
-        let heard_by_its_notes = self.diminished_heard_whole(target);
+        let heard_by_its_notes =
+            self.diminished_heard_whole(target) || self.seventh_heard(target, ai_root, ai_qual);
         let reading = if heard_by_its_notes { ChordReading::Exact } else { named };
         // A chord asked for twice in a row has to be played twice. Without
         // this the ring of the pass before matches the moment the target is
@@ -73,6 +78,29 @@ impl MyApp {
                 .get_target_indices()
                 .iter()
                 .all(|&pc| self.last_pitches[pc % 12] > DIM_TONE_HEARD)
+    }
+
+    /// Whether the model named the right root with the other seventh - a
+    /// major seventh chord called a dominant one, or the other way round -
+    /// while its pitch head hears the seventh asked for and not the other.
+    ///
+    /// The quality head mixes the two up; the pitch head does not. On the
+    /// user's recording of CMaj7 strummed five times the model named it C7
+    /// nearly throughout, at 0.8 to 0.9, while the pitch head heard C, E and
+    /// B - the major seventh - and no B♭. Not one of the five passed. See
+    /// `docs/judge-measurements.md#seventh_heard`.
+    fn seventh_heard(&self, target: &Chord, ai_root: Option<NoteName>, ai_qual: &str) -> bool {
+        let (asked, other, named_as) = match target.quality {
+            ChordQuality::Major7 => (11, 10, "7"),
+            ChordQuality::Dominant7 => (10, 11, "Maj7"),
+            _ => return false,
+        };
+        let root = target.root as usize;
+        let level = |interval: usize| self.last_pitches[(root + interval) % 12];
+        ai_root == Some(target.root)
+            && ai_qual == named_as
+            && [0, 4, asked].iter().all(|&i| level(i) > SEVENTH_TONE_HEARD)
+            && level(other) < SEVENTH_TONE_HEARD
     }
 
     /// The leaky bucket: a clear reading of the chord fills the success timer

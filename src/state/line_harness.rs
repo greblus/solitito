@@ -10,12 +10,18 @@
 
 use super::*;
 use super::tests::app;
-use crate::audio::{mono_pitch, CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, MONO_MIN_SCORE, TOTAL_FEATURES};
+use crate::audio::{CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH};
 
 const SR: f32 = 16_000.0;
-const MODEL_PERIOD: f32 = 0.040;
 const MIN_FILL: f32 = 0.5;
-const GATE: f32 = 0.001;
+/// The noise gate the lines are judged with: `SOLITITO_GATE_DB`, by default
+/// -60 dB, which lets everything through. The app's own default is -34.
+fn gate() -> f32 {
+    std::env::var("SOLITITO_GATE_DB")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .map_or(0.001, crate::audio::db_to_lin)
+}
 /// Silence before the line, so the first note is not the start of the file.
 const LEAD_IN: f32 = 0.5;
 
@@ -196,6 +202,7 @@ pub(super) fn run_app(mut a: MyApp, audio: &[f32], mut after_hop: impl FnMut(&My
     let mut flux = crate::flux::Flux::default();
     let mut quick = crate::audio::QuickEar::default();
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let mut next_model = 0.0f32;
     let dt = HOP_LENGTH as f32 / SR;
 
@@ -203,7 +210,6 @@ pub(super) fn run_app(mut a: MyApp, audio: &[f32], mut after_hop: impl FnMut(&My
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         let spectrum = short.of(&buffer);
         let attack = flux.push(spectrum).1;
         let (_, struck) = strikes.push(hop).unwrap();
@@ -217,32 +223,18 @@ pub(super) fn run_app(mut a: MyApp, audio: &[f32], mut after_hop: impl FnMut(&My
             }
             st.mark_strikes(&struck);
             st.hear_quickly(&mut quick, &buffer, spectrum);
-            if rms > GATE {
-                let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-                let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
-                let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
-                st.cqt_pitch = heard.map(|x| x % 12);
-                st.cqt_semitone = heard;
-                st.voices = crate::voices::voices(&cqt, 4).iter().fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
-                st.gate_open = true;
-                let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-                frame.extend_from_slice(&cqt);
-                frame.extend_from_slice(&chroma);
-                frame.extend_from_slice(&bass);
-                st.push_frame(&frame);
+            if noise_gate.hear(&buffer, gate()) {
+                st.hear(&analyzer.listen(&buffer, true, 5.0));
             } else {
-                st.cqt_pitch = None;
-                st.cqt_semitone = None;
-                st.voices = 0;
-                st.gate_open = false;
-                st.push_silence();
+                st.go_quiet();
             }
             st.frames_seen += 1;
         }
         a.sync_audio_settings();
         a.tick(dt);
-        if t >= next_model {
-            next_model += MODEL_PERIOD;
+        // As often as the app would ask it in this mode.
+        if let Some(period) = a.model_period().filter(|_| t >= next_model) {
+            next_model += period;
             let (history, fill) = {
                 let st = a.analysis_state.lock().unwrap();
                 (st.input_history, st.history_fill())
@@ -251,7 +243,7 @@ pub(super) fn run_app(mut a: MyApp, audio: &[f32], mut after_hop: impl FnMut(&My
                 let p = brain.predict(&history).unwrap();
                 a.prev_pitches = a.last_pitches;
                 a.last_pitches = p.pitches;
-                a.check_progress_with_ai(MODEL_PERIOD, "...", p.confidence);
+                a.check_progress_with_ai(period, "...", p.confidence);
             }
         }
         if after_hop(&a, t) {

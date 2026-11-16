@@ -38,6 +38,14 @@ const HISTORY: usize = 35;
 /// 81 of 87 notes against 76.
 pub const MODEL: &str = "short_onset_masking_v2.onnx";
 
+/// The strike model the diagnostics measure: `SOLITITO_STRIKE_MODEL` names
+/// another file, so a candidate can be measured on the same recordings as the
+/// released one without moving files around.
+#[cfg(test)]
+pub fn measured_model() -> String {
+    std::env::var("SOLITITO_STRIKE_MODEL").unwrap_or_else(|_| MODEL.into())
+}
+
 /// Tried in order: the first file present is used.
 pub const MODELS: [&str; 2] = [MODEL, "short_onset_rise.onnx"];
 

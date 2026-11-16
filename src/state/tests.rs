@@ -701,6 +701,34 @@ pub(crate) fn ready(a: &mut MyApp) {
     a.lap_hold = 0.0;
 }
 
+/// A model answer and `dt` seconds of audio under it, the gate open.
+///
+/// Scales, Arpeggios and the fretboard trainer are judged on audio frames,
+/// with the model's latest answer as one witness among others; the answer
+/// alone judges nothing. So the frames are fed too, the answer renewed
+/// within its age so it does not expire under them. Elsewhere this is the
+/// answer alone, as before.
+pub(crate) fn answered(a: &mut MyApp, dt: f32, prediction: &str, confidence: f32) {
+    if !matches!(a.app_mode, AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard) {
+        a.check_progress_with_ai(dt, prediction, confidence);
+        return;
+    }
+    let (last, prev) = (a.last_pitches, a.prev_pitches);
+    let mut left = dt;
+    while left > 1e-6 {
+        let chunk = left.min(0.2);
+        a.last_pitches = last;
+        a.prev_pitches = prev;
+        a.check_progress_with_ai(chunk, prediction, confidence);
+        a.heard.audio_gate_open = true;
+        for _ in 0..((chunk / 0.016).ceil() as usize).max(1) {
+            a.heard.audio_frames += 1;
+            a.tick(0.016);
+        }
+        left -= chunk;
+    }
+}
+
 /// The ear letting go: answers arriving with nothing heard in them.
 pub(crate) fn ear_silent(a: &mut MyApp) {
     for _ in 0..EAR_WINDOW {
@@ -751,6 +779,8 @@ pub(crate) fn app() -> MyApp {
         quick: Default::default(),
         tuner_on: false,
         tuner_hz: None,
+        model_every_ms: 40,
+        recent_hops: Default::default(),
     }));
     let mut a = MyApp::new(analysis);
     a.chords = vec![
@@ -2190,7 +2220,7 @@ fn a_phrase_gets_past_a_note_it_has_already_used() {
             a.heard.audio_frames = frame - 1;
             a.feed_estimate(frame, Some(pc));
         }
-        a.check_progress_with_ai(0.3, "Noise", 0.0);
+        answered(&mut a, 0.3, "Noise", 0.0);
     }
     // The phrase comes back to it and the player plays it.
     for _ in 0..4 {
@@ -2231,7 +2261,7 @@ fn an_arpeggio_played_through_comes_round() {
             a.feed_estimate(frame, Some(pc));
         }
         for _ in 0..10 {
-            a.check_progress_with_ai(0.1, "Noise", 0.0);
+            answered(&mut a, 0.1, "Noise", 0.0);
         }
         let expected = if n + 1 == steps.len() { 0 } else { n + 1 };
         assert_eq!(
@@ -2365,7 +2395,7 @@ fn a_note_that_went_quiet_counts_when_it_comes_back() {
         a.heard.audio_frames = frame - 1;
         a.feed_estimate(frame, Some(9));
     }
-    a.check_progress_with_ai(0.6, "Noise", 0.0);   // past the settling window
+    answered(&mut a, 0.6, "Noise", 0.0);   // past the settling window
     // And now it is played again: the estimate names it, because a struck
     // string is what is loudest.
     for frame in 5..=8u64 {
@@ -2806,11 +2836,11 @@ fn one_pluck_credits_one_step() {
     a.last_pitches[target % 12] = 1.0;
     a.credit_class(target, 0);                // this pluck already counted
     a.heard.onset_id = 0;
-    for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..10 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.fret_target, Some(target), "the same pluck counted twice");
 
     a.heard.onset_id = 1;                            // strings struck again
-    for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..10 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(
         a.credited[target % 12], Some(credit(1)),
         "a fresh attack on the right note did not count"
@@ -2838,16 +2868,16 @@ fn the_closing_root_does_not_open_the_next_pass() {
     a.last_pitches = [0.0; 12];
     a.last_pitches[root_pc] = 1.0;
 
-    for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..20 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "the closing root did not end the lap");
 
     // The string is still ringing, so the model goes on reporting it.
     a.last_pitches[root_pc] = 1.0;
-    for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..20 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "the ringing root opened the next pass");
 
     detector_hop(&mut a, &[root_pc]);           // played again
-    for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..20 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 1, "a real second pluck did not count");
 }
 
@@ -2877,21 +2907,21 @@ fn the_closing_root_is_not_credited_to_the_opening_one() {
         a.hears(Some(*pc));
         a.heard.cqt_semitone = Some(low + [0, 2, 4, 5, 7, 9, 11][i]);
         a.heard.onset_id += 1;
-        for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+        for _ in 0..10 { answered(&mut a, 0.1, "Noise", 0.0); }
     }
     assert_eq!(a.current_note_step, steps.len() - 1, "the run did not reach its last step");
 
     // Nothing is played now. The opening root goes on ringing, the
     // envelope's counter has moved, and the estimate is reading the seventh
     // degree - the string that was hit last.
-    for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..20 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, steps.len() - 1, "the opening root closed the run");
 
     // Played where the run asks for it, an octave up: the estimate says so,
     // and that is enough on its own.
     a.hears(Some(pcs[0]));
     a.heard.cqt_semitone = Some(low + 12);
-    for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..10 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "playing the closing root did not end the run");
 }
 
@@ -2919,14 +2949,14 @@ fn a_root_repeated_in_its_own_octave_still_counts() {
     a.credit_class(pc, 0);                      // credited on the opening root
 
     // Ringing on, nothing struck: it must not close the run.
-    for _ in 0..20 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..20 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, steps.len() - 1, "the ring closed the run");
 
     // Struck again, in the same octave, with the estimate reading it.
     detector_hop(&mut a, &[pc]);
     a.hears(Some(pc));
     a.heard.cqt_semitone = Some(low);
-    for _ in 0..10 { a.check_progress_with_ai(0.1, "Noise", 0.0); }
+    for _ in 0..10 { answered(&mut a, 0.1, "Noise", 0.0); }
     assert_eq!(a.current_note_step, 0, "a note played again in its own octave never counted");
 }
 
@@ -2949,7 +2979,7 @@ fn a_second_strike_is_seen_by_the_detector() {
     // The note lingering does not count as another strike.
     for _ in 0..10 {
         detector_hop(&mut a, &[]);
-        a.check_progress_with_ai(0.1, "Noise", 0.0);
+        answered(&mut a, 0.1, "Noise", 0.0);
         a.tick(0.1);
     }
     assert_eq!(a.fret_target, Some(target), "a lingering note counted as a new pluck");
@@ -2957,7 +2987,7 @@ fn a_second_strike_is_seen_by_the_detector() {
     // Struck again: that is a second pluck.
     detector_hop(&mut a, &[pc]);
     for _ in 0..10 {
-        a.check_progress_with_ai(0.1, "Noise", 0.0);
+        answered(&mut a, 0.1, "Noise", 0.0);
         a.tick(0.1);
     }
     assert_ne!(a.fret_target, Some(target), "the second pluck did not count");
@@ -2973,7 +3003,7 @@ fn play_current_note(a: &mut MyApp, dt: f32) {
         a.last_pitches = [0.0; 12];
         a.last_pitches[pc] = 1.0;
     }
-    a.check_progress_with_ai(dt, "Noise", 0.0);
+    answered(a, dt, "Noise", 0.0);
 }
 
 /// Scales: the key is drawn afresh once the whole scale has been played.

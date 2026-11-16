@@ -115,7 +115,36 @@ pub struct AudioAnalysis {
     /// The tuner's reading, `tuner::frequency` of the window's end. `None`
     /// below the gate and where nothing periodic sounds.
     pub tuner_hz: Option<f32>,
+    /// How often the chord model is asked, in ms; 0 is not at all. Set by the
+    /// judge from the mode: see `MyApp::model_period`.
+    pub model_every_ms: u32,
+    /// What each hop read, oldest first, until the judge takes them - see
+    /// `remember_hop`.
+    pub recent_hops: std::collections::VecDeque<HopReading>,
 }
+
+/// What the judge reads of one hop: the ear, the voices, the gate, and the
+/// strike and attack counters as they stood after it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HopReading {
+    pub frames_seen: u64,
+    pub hops: u64,
+    pub gate_open: bool,
+    pub cqt_pitch: Option<usize>,
+    pub cqt_semitone: Option<usize>,
+    pub voices: u16,
+    pub quick: QuickReading,
+    pub onset_id: u64,
+    pub flux_id: u64,
+    pub flux_age: u32,
+    pub class_strikes: [u32; 12],
+    pub class_strike_age: [u32; 12],
+    pub strikes_live: bool,
+}
+
+/// Hops kept for the judge: half a second, far more than one tick of the
+/// window's clock ever leaves.
+const HOP_QUEUE: usize = 32;
 
 impl AudioAnalysis {
     pub fn push_frame(&mut self, data: &[f32]) {
@@ -151,6 +180,7 @@ impl AudioAnalysis {
     /// The quick ear's reading of a hop where it is wanted, nothing where it
     /// is not. For a replay and the tests: the live input measures it without
     /// holding the lock.
+    #[cfg(test)]
     pub fn hear_quickly(&mut self, quick: &mut QuickEar, window: &[f32], spectrum: &[f32]) {
         self.quick = if self.quick_ear { quick.hear(window, spectrum, self.noise_gate) } else { quick.forget() };
     }
@@ -171,6 +201,63 @@ impl AudioAnalysis {
         self.input_history[CTX_FRAMES - 1].copy_from_slice(data);
         self.frame_live.rotate_left(1);
         self.frame_live[CTX_FRAMES - 1] = live;
+    }
+
+    /// This hop as the judge reads it.
+    pub fn hop_reading(&self) -> HopReading {
+        HopReading {
+            frames_seen: self.frames_seen,
+            hops: self.hops,
+            gate_open: self.gate_open,
+            cqt_pitch: self.cqt_pitch,
+            cqt_semitone: self.cqt_semitone,
+            voices: self.voices,
+            quick: self.quick,
+            onset_id: self.onset_id,
+            flux_id: self.flux_id,
+            flux_age: self.flux_age,
+            class_strikes: self.class_strikes,
+            class_strike_age: self.class_strike_age,
+            strikes_live: self.strikes_live,
+        }
+    }
+
+    /// Keeps this hop for the judge.
+    ///
+    /// The sound card hands samples over in blocks - 1024 at a time is common,
+    /// 23 ms - so two hops often arrive together, and the judge, on the
+    /// window's clock, saw only the second: 36% of hops went unseen on the
+    /// laptop the app is developed on. Whatever is counted a hop at a time -
+    /// the ear holding steady, a class gone quiet - counted short. The judge
+    /// now takes every hop kept here, in order.
+    pub fn remember_hop(&mut self) {
+        if self.recent_hops.len() >= HOP_QUEUE {
+            self.recent_hops.pop_front();
+        }
+        let reading = self.hop_reading();
+        self.recent_hops.push_back(reading);
+    }
+
+    /// A window past the noise gate: what was read off it.
+    pub fn hear(&mut self, reading: &Reading) {
+        self.voices = reading.voices;
+        self.cqt_pitch = reading.note.map(|n| n % 12);
+        self.cqt_semitone = reading.note;
+        self.gate_open = true;
+        self.push_frame(&reading.features);
+        self.chroma_sum = reading.chroma;
+    }
+
+    /// In silence an empty frame is pushed to advance the history. Everything
+    /// read off a frame goes with it: `voices` used to keep the last sounding
+    /// classes through a closed gate, and the judge's clock goes on ticking
+    /// here, so it counted them as still in the air.
+    pub fn go_quiet(&mut self) {
+        self.cqt_pitch = None;
+        self.cqt_semitone = None;
+        self.voices = 0;
+        self.gate_open = false;
+        self.push_silence();
     }
 
     /// Fraction of the context window carrying real signal (0.0 - 1.0).
@@ -197,6 +284,11 @@ pub struct CqtAnalyzer {
     chroma_matrix: Vec<f32>,
     fft_buffer: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>,
+    /// The same filters slid to the end of the window, for the ear and the
+    /// voices - see `end_aligned`.
+    ear_re: Vec<f32>,
+    ear_im: Vec<f32>,
+    ear_buffer: Vec<Complex<f32>>,
 }
 
 impl CqtAnalyzer {
@@ -215,6 +307,8 @@ impl CqtAnalyzer {
             .collect();
 
         let scratch_len = fft.get_inplace_scratch_len();
+        let (ear_re, ear_im) =
+            end_aligned(&config.cqt_offsets, &config.cqt_fft_idx, &config.cqt_re, &config.cqt_im);
 
         Ok(Self {
             planner, fft, window,
@@ -225,6 +319,9 @@ impl CqtAnalyzer {
             chroma_matrix: config.chroma_weights,
             fft_buffer: vec![Complex{re:0.0, im:0.0}; FFT_SIZE],
             fft_scratch: vec![Complex{re:0.0, im:0.0}; scratch_len],
+            ear_re,
+            ear_im,
+            ear_buffer: vec![Complex{re:0.0, im:0.0}; FFT_SIZE],
         })
     }
 
@@ -258,6 +355,65 @@ impl CqtAnalyzer {
         (norm_cqt, chroma, bass)
     }
 
+    /// What the ear and the voices read: the CQT through the filters slid to
+    /// the end of the window, over the samples as they are.
+    ///
+    /// The model's features keep the filters where the trainer had them, in
+    /// the middle of the half-second window - and there the filter of E4,
+    /// 104 ms long, ends 204 ms before the newest sample, and the filters of
+    /// the upper partials the ear sums end nearly a quarter of a second back.
+    /// Slid to the end, each reads the newest stretch its length covers. No
+    /// Hann over the window here: it is zero at the end, which is what these
+    /// filters read, and each filter carries a window of its own.
+    pub fn ear_cqt(&mut self, audio_chunk: &[f32], boost_enabled: bool, boost_gain: f32) -> Vec<f32> {
+        for (i, slot) in self.ear_buffer.iter_mut().enumerate() {
+            let sample = audio_chunk.get(i).copied().unwrap_or(0.0);
+            *slot = Complex { re: sample, im: 0.0 };
+        }
+        self.fft.process_with_scratch(&mut self.ear_buffer, &mut self.fft_scratch);
+        let mut cqt_mag = sparse_cqt_mag(
+            &self.ear_buffer,
+            &self.cqt_offsets,
+            &self.cqt_fft_idx,
+            &self.ear_re,
+            &self.ear_im,
+        );
+        if boost_enabled {
+            for v in &mut cqt_mag[..BASS_BOOST_CUTOFF] {
+                *v *= boost_gain;
+            }
+        }
+        log_normalise(&cqt_mag)
+    }
+
+    /// One window, everything read off it: the model's features, the ear's
+    /// note and the voices. The one place this is done, for the live input,
+    /// a file played back and every measurement alike.
+    pub fn listen(&mut self, window: &[f32], boost_enabled: bool, boost_gain: f32) -> Reading {
+        let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
+        let (cqt, chroma, bass) = self.compute_cqt_chroma(&amplified, boost_enabled, boost_gain);
+        let ear = if centred_ear() { cqt.clone() } else { self.ear_cqt(&amplified, boost_enabled, boost_gain) };
+        let scored = mono_pitch(&ear);
+        // Four is a grip: more voices than that in one frame is not a thing
+        // six strings under one hand can be.
+        let voices = crate::voices::voices(&ear, 4)
+            .iter()
+            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
+        let mut features = Vec::with_capacity(TOTAL_FEATURES);
+        features.extend_from_slice(&cqt);
+        features.extend_from_slice(&chroma);
+        features.extend_from_slice(&bass);
+        Reading {
+            features,
+            chroma: chroma.try_into().unwrap_or([0.0; 12]),
+            // Weak answers are dropped - in noise this estimator always names
+            // something.
+            note: scored.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n),
+            scored,
+            voices,
+        }
+    }
+
     /// The chunk, under the Hann window and zero-padded, through the FFT into
     /// `fft_buffer`.
     fn windowed_fft(&mut self, audio_chunk: &[f32]) {
@@ -288,6 +444,132 @@ impl CqtAnalyzer {
             }
         }
         chroma
+    }
+}
+
+/// What one analysis window gives - see `CqtAnalyzer::listen`.
+pub struct Reading {
+    /// The model's input frame: the CQT, the chroma and the bass energy.
+    pub features: Vec<f32>,
+    pub chroma: [f32; 12],
+    /// The ear's note, an absolute semitone from the lowest bin, where its
+    /// score passes `MONO_MIN_SCORE`.
+    pub note: Option<usize>,
+    /// The same with its score, weak ones included - for `SOLITITO_EAR`.
+    pub scored: Option<(usize, f32)>,
+    /// The classes sounding, one bit each - see `voices::voices`.
+    pub voices: u16,
+}
+
+/// The noise gate: whether a window is playing or silence.
+///
+/// It used to compare the level of the whole half-second window with the
+/// threshold, so it opened late on a quiet attack and closed late after one,
+/// and a note dying away under the threshold dropped out mid-decay. Now the
+/// level is that of the newest `GATE_SAMPLES`, and the gate has two sides: it
+/// opens on the threshold and closes only once the level has stayed
+/// `GATE_CLOSE` below it for `GATE_HOLD` hops, so a note fading round the
+/// threshold does not flicker in and out.
+/// See `docs/judge-measurements.md#the-noise-gate`.
+#[derive(Default)]
+pub struct Gate {
+    open: bool,
+    quiet_hops: u32,
+}
+
+/// The newest 64 ms: the level the gate compares.
+const GATE_SAMPLES: usize = 1024;
+/// Under the threshold by this factor counts towards closing: -6 dB.
+const GATE_CLOSE: f32 = 0.5;
+/// Hops the level has to stay that low before the gate closes: 160 ms.
+const GATE_HOLD: u32 = 10;
+
+impl Gate {
+    /// Whether `window` - the analysis window, newest samples last - is
+    /// playing, against `threshold` in linear RMS.
+    pub fn hear(&mut self, window: &[f32], threshold: f32) -> bool {
+        if whole_window_gate() {
+            return rms(window) > threshold;
+        }
+        let level = rms(&window[window.len().saturating_sub(GATE_SAMPLES)..]);
+        if level > threshold {
+            self.open = true;
+            self.quiet_hops = 0;
+        } else if self.open && level < threshold * GATE_CLOSE {
+            self.quiet_hops += 1;
+            if self.quiet_hops >= GATE_HOLD {
+                self.open = false;
+            }
+        } else {
+            self.quiet_hops = 0;
+        }
+        self.open
+    }
+}
+
+fn rms(samples: &[f32]) -> f32 {
+    (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt()
+}
+
+/// The gate as it was, on the whole window and with one side -
+/// `SOLITITO_GATE_WINDOW` in the measurements, to compare the two on one build.
+fn whole_window_gate() -> bool {
+    #[cfg(test)]
+    {
+        std::env::var_os("SOLITITO_GATE_WINDOW").is_some()
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+/// The lowest CQT bin, C1, as librosa names it.
+const CQT_FMIN_HZ: f32 = 32.703_197;
+
+/// The filters of `dsp_weights.json` slid to the end of the window.
+///
+/// Each filter was placed in the middle of the 8192 samples before its
+/// transform was taken (`dist/gen_weights.py`). Sliding it later by `d`
+/// samples multiplies its transform by `e^{-2πi·kd/N}`; the weights are the
+/// transform's conjugate, so they are multiplied by `e^{+2πi·kd/N}`. Their
+/// magnitudes stay as they were, so the pruning does too. A filter is
+/// `Q·sr/f` samples long (librosa's `constant_q`, `filter_scale` 1); one
+/// longer than the window was cut to it and stays where it is.
+fn end_aligned(offsets: &[u32], fft_idx: &[u32], re: &[f32], im: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    let q = 1.0 / (2f64.powf(1.0 / 24.0) - 1.0);
+    let mut out_re = re.to_vec();
+    let mut out_im = im.to_vec();
+    for bin in 0..offsets.len().saturating_sub(1) {
+        let hz = CQT_FMIN_HZ as f64 * 2f64.powf(bin as f64 / 24.0);
+        let length = (q * TARGET_SR as f64 / hz).ceil();
+        // A sample short of the end, so the filter cannot wrap round.
+        let slide = ((FFT_SIZE as f64 - length) / 2.0).floor() - 1.0;
+        if slide <= 0.0 {
+            continue;
+        }
+        for j in offsets[bin] as usize..offsets[bin + 1] as usize {
+            let phase = 2.0 * std::f64::consts::PI * fft_idx[j] as f64 * slide / FFT_SIZE as f64;
+            let (sin, cos) = phase.sin_cos();
+            let (w_re, w_im) = (re[j] as f64, im[j] as f64);
+            out_re[j] = (w_re * cos - w_im * sin) as f32;
+            out_im[j] = (w_re * sin + w_im * cos) as f32;
+        }
+    }
+    (out_re, out_im)
+}
+
+/// Whether the ear reads through the filters in the middle of the window, as
+/// before `ear_cqt` - `SOLITITO_EAR_CENTRED` in the measurements, to compare
+/// the two on one build.
+fn centred_ear() -> bool {
+    #[cfg(test)]
+    {
+        std::env::var_os("SOLITITO_EAR_CENTRED").is_some()
+    }
+    #[cfg(not(test))]
+    {
+        false
     }
 }
 
@@ -935,6 +1217,7 @@ struct Listener {
     /// detector existed, and says so once.
     strikes: Option<crate::strike::Strikes>,
     attack: AttackDetector,
+    gate: Gate,
     quick: QuickEar,
     /// SOLITITO_EAR=1: print every reading of the ear - see `print_ear`.
     loud_ear: bool,
@@ -964,6 +1247,7 @@ impl Listener {
             capture,
             strikes,
             attack: AttackDetector::new(),
+            gate: Gate::default(),
             quick: QuickEar::default(),
             loud_ear: std::env::var("SOLITITO_EAR").is_ok(),
         })
@@ -1015,12 +1299,16 @@ impl Listener {
         }
         self.listen_for_strikes(hop);
 
-        if level > gate {
+        let open = self.gate.hear(window, gate);
+        if open {
             self.analyse(window, boost_enabled, boost_gain);
         } else {
             self.go_quiet();
         }
-        self.tune(window, level > gate);
+        if let Ok(mut st) = self.shared.lock() {
+            st.remember_hop();
+        }
+        self.tune(window, open);
     }
 
     /// The tuner's reading, every other hop and only while it is shown: YIN on
@@ -1076,52 +1364,20 @@ impl Listener {
     /// Past the noise gate: the frame's features into the model's window, and
     /// what the ear and the voices make of it.
     fn analyse(&mut self, window: &[f32], boost_enabled: bool, boost_gain: f32) {
-        let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
-        let (cqt, chroma, bass) =
-            self.analyzer.compute_cqt_chroma(&amplified, boost_enabled, boost_gain);
-
-        // One frame, one note: no window memory, so a scale is tracked instead
-        // of smeared. Weak answers are dropped - in noise this estimator always
-        // names something.
-        let heard = mono_pitch(&cqt);
+        // Read without the lock held: the UI reads the same struct.
+        let reading = self.analyzer.listen(window, boost_enabled, boost_gain);
         if self.loud_ear {
-            print_ear(heard);
+            print_ear(reading.scored);
         }
-        let mono = heard.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n);
-        // Four is a grip: more voices than that in one frame is not a thing
-        // six strings under one hand can be.
-        let sounding = crate::voices::voices(&cqt, 4)
-            .iter()
-            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
-
-        let Ok(mut state) = self.shared.lock() else {
-            return;
-        };
-        state.voices = sounding;
-        state.cqt_pitch = mono.map(|n| n % 12);
-        state.cqt_semitone = mono;
-        state.gate_open = true;
-        let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-        frame.extend_from_slice(&cqt);
-        frame.extend_from_slice(&chroma);
-        frame.extend_from_slice(&bass);
-        state.push_frame(&frame);
-        state.chroma_sum = chroma.try_into().unwrap_or([0.0; 12]);
+        if let Ok(mut state) = self.shared.lock() {
+            state.hear(&reading);
+        }
     }
 
-    /// In silence an empty frame is pushed to advance the history. Everything
-    /// read off a frame goes with it: `voices` used to keep the last sounding
-    /// classes through a closed gate, and the judge's clock goes on ticking
-    /// here, so it counted them as still in the air.
     fn go_quiet(&self) {
-        let Ok(mut state) = self.shared.lock() else {
-            return;
-        };
-        state.cqt_pitch = None;
-        state.cqt_semitone = None;
-        state.voices = 0;
-        state.gate_open = false;
-        state.push_silence();
+        if let Ok(mut state) = self.shared.lock() {
+            state.go_quiet();
+        }
     }
 }
 
@@ -1212,64 +1468,20 @@ pub fn start_file_playback(path: String, shared_state: Arc<Mutex<AudioAnalysis>>
     } else {
         reader.into_samples::<f32>().map(|s| s.unwrap_or(0.0)).collect()
     };
-
+    // The live path itself, fed from the file at the pace it would arrive:
+    // a recording replayed is heard as it was when it was played. The file
+    // is read as 16 kHz - see `docs/running.md`.
+    let mut listener = Listener::new(shared_state)?;
     thread::spawn(move || {
-        let mut analyzer = CqtAnalyzer::new("dsp_weights.json").unwrap();
-        let mut short = ShortSpectrum::new();
-        let mut flux = crate::flux::Flux::default();
-        let mut strikes = crate::strike::Strikes::load_any().ok().map(|(s, _)| s);
-        let mut quick = QuickEar::default();
-        let mut pos = 0;
-        
-        while pos + FFT_SIZE < samples.len() {
+        let hop_time = Duration::from_secs_f32(HOP_LENGTH as f32 / TARGET_SR as f32);
+        let mut end = FFT_SIZE;
+        while end <= samples.len() {
             let start = Instant::now();
-            let chunk = &samples[pos..pos+FFT_SIZE];
-            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(chunk, true, 5.0);
-            // The same ear and the same attack detector as the live path, so a
-            // recording replayed here is judged the way it was when played.
-            // Without these a replay pushes features and nothing else, and the
-            // ear - which decides almost everything - is simply absent.
-            let heard = mono_pitch(&cqt)
-                .filter(|&(_, score)| score >= MONO_MIN_SCORE)
-                .map(|(note, _)| note);
-            let spectrum = short.of(chunk);
-            let attack = flux.push(spectrum).1;
-            let struck = strikes
-                .as_mut()
-                .and_then(|d| d.push(&chunk[FFT_SIZE - HOP_LENGTH..]).ok())
-                .map(|(_, s)| s);
-            
-            let sounding = crate::voices::voices(&cqt, 4)
-                .iter()
-                .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
-            if let Ok(mut state) = shared_state.lock() {
-                if state.tuner_on && state.hops % 2 == 0 {
-                    let end = &chunk[FFT_SIZE - crate::tuner::SAMPLES..];
-                    state.tuner_hz = crate::tuner::frequency(end, spec.sample_rate as f32);
-                }
-                state.hear_quickly(&mut quick, chunk, spectrum);
-                state.voices = sounding;
-                state.cqt_pitch = heard.map(|n| n % 12);
-                state.cqt_semitone = heard;
-                state.gate_open = true;
-                state.hops = state.hops.wrapping_add(1);
-                state.flux_age = state.flux_age.saturating_add(1);
-                if attack {
-                    state.mark_flux();
-                    state.mark_onset();
-                }
-                if let Some(struck) = &struck {
-                    state.mark_strikes(struck);
-                }
-                let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-                frame.extend_from_slice(&cqt);
-                frame.extend_from_slice(&chroma);
-                frame.extend_from_slice(&bass);
-                state.push_frame(&frame);
+            listener.hear(&samples[end - FFT_SIZE..end], &samples[end - HOP_LENGTH..end]);
+            end += HOP_LENGTH;
+            if let Some(left) = hop_time.checked_sub(start.elapsed()) {
+                thread::sleep(left);
             }
-            pos += HOP_LENGTH;
-            let sleep = Duration::from_secs_f32(HOP_LENGTH as f32 / TARGET_SR as f32);
-            if sleep > start.elapsed() { thread::sleep(sleep - start.elapsed()); }
         }
     });
     Ok(())
@@ -1410,6 +1622,8 @@ mod fill_tests {
             quick: Default::default(),
             tuner_on: false,
             tuner_hz: None,
+            model_every_ms: 40,
+            recent_hops: Default::default(),
         }
     }
 
@@ -1666,6 +1880,104 @@ mod voices_diagnostics {
 #[cfg(test)]
 mod level_tests {
     use super::*;
+
+    /// The ear reads the newest stretch of the window: a note struck 120 ms
+    /// ago, after another that filled the rest of it, is the note the ear
+    /// names. Through the filters in the middle of the window it is still the
+    /// one before.
+    #[test]
+    fn the_ear_hears_the_note_just_struck() -> anyhow::Result<()> {
+        let tone = |hz: f32, n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|i| {
+                    let t = i as f32 / TARGET_SR as f32;
+                    (1..=5).map(|k| (2.0 * PI * hz * k as f32 * t).sin() / k as f32).sum::<f32>() * 0.1
+                })
+                .collect()
+        };
+        let newest = TARGET_SR as usize * 120 / 1000;
+        let mut window = tone(261.63, FFT_SIZE - newest); // C4
+        window.extend(tone(329.63, newest)); // E4
+        let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+        let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
+        let (centred, _, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+        let ear = analyzer.ear_cqt(&amplified, true, 5.0);
+        let name = |cqt: &[f32]| mono_pitch(cqt).map(|(n, _)| n % 12);
+        assert_eq!(name(&centred), Some(0), "the window's middle should still hold C");
+        assert_eq!(name(&ear), Some(4), "the ear did not hear the E just struck");
+        Ok(())
+    }
+
+    /// How soon each set of filters names a note struck after another: for
+    /// each pair of open strings and a few fretted notes, the shortest stretch
+    /// of the new note at the end of the window at which the ear names it.
+    #[test]
+    #[ignore = "diagnostic: prints how soon the ear names a new note"]
+    fn how_soon_the_ear_names_a_new_note() -> anyhow::Result<()> {
+        let tone = |hz: f32, n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|i| {
+                    let t = i as f32 / TARGET_SR as f32;
+                    (1..=6).map(|k| (2.0 * PI * hz * k as f32 * t).sin() / k as f32).sum::<f32>() * 0.1
+                })
+                .collect()
+        };
+        let hz = |midi: f32| 440.0 * 2f32.powf((midi - 69.0) / 12.0);
+        let mut analyzer = CqtAnalyzer::new("dsp_weights.json")?;
+        println!("before -> after   centred   end-aligned (ms of the new note)");
+        for (before, after) in [(40, 45), (45, 50), (50, 55), (55, 59), (59, 64), (64, 67), (60, 62), (67, 69)] {
+            let mut first = [None, None];
+            for ms in (8..=400).step_by(8) {
+                let newest = TARGET_SR as usize * ms / 1000;
+                let mut window = tone(hz(before as f32), FFT_SIZE - newest);
+                window.extend(tone(hz(after as f32), newest));
+                let amplified: Vec<f32> = window.iter().map(|&x| x * INPUT_GAIN).collect();
+                let (centred, _, _) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
+                let ear = analyzer.ear_cqt(&amplified, true, 5.0);
+                for (slot, cqt) in [(0, &centred), (1, &ear)] {
+                    let named = mono_pitch(cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n % 12);
+                    if first[slot].is_none() && named == Some(after % 12) {
+                        first[slot] = Some(ms);
+                    }
+                }
+            }
+            println!("{before:>6} -> {after:<5} {:>8?} {:>12?}", first[0], first[1]);
+        }
+        Ok(())
+    }
+
+    fn noise(level: f32, n: usize) -> Vec<f32> {
+        (0..n).map(|i| if i % 2 == 0 { level } else { -level }).collect()
+    }
+
+    /// A note struck 40 ms ago opens the gate at once, though the half-second
+    /// window it sits in is still mostly silence.
+    #[test]
+    fn the_gate_opens_on_a_fresh_attack() {
+        let threshold = 0.02;
+        let mut window = noise(0.001, FFT_SIZE - 640);
+        window.extend(noise(0.05, 640));
+        let whole = (window.iter().map(|x| x * x).sum::<f32>() / FFT_SIZE as f32).sqrt();
+        assert!(whole < threshold, "the test needs a window quiet as a whole");
+        assert!(Gate::default().hear(&window, threshold), "a fresh attack did not open the gate");
+    }
+
+    /// A note dying away a little under the threshold keeps the gate open;
+    /// silence closes it, after the hold.
+    #[test]
+    fn the_gate_holds_through_a_fading_note_and_closes_in_silence() {
+        let threshold = 0.02;
+        let mut gate = Gate::default();
+        assert!(gate.hear(&noise(0.05, FFT_SIZE), threshold));
+        for _ in 0..100 {
+            assert!(gate.hear(&noise(0.015, FFT_SIZE), threshold), "a fade 2.5 dB under closed the gate");
+        }
+        let silence = noise(0.001, FFT_SIZE);
+        for hop in 1..GATE_HOLD {
+            assert!(gate.hear(&silence, threshold), "closed after {hop} hops of silence");
+        }
+        assert!(!gate.hear(&silence, threshold), "silence did not close the gate");
+    }
 
     #[test]
     fn db_conversion_round_trips() {

@@ -364,10 +364,32 @@ const FRET_SHOW: f32 = 0.35;
 /// the moment it is recognised, so this is much shorter than the chord hold.
 const NOTE_HOLD: f32 = 0.12;
 
+/// How often the chord model is asked where its answer decides: 25 times a
+/// second, the rate it has always run at.
+pub(crate) const MODEL_PERIOD: f32 = 0.040;
+
+/// How often it is asked where notes are taken one at a time. There the ear
+/// credits: in the user's four Intervals sessions, 388 credits of 388 were the
+/// ear's and none the model's, which costs most of a core on a small laptop.
+/// It is still asked now and then, for the Hearing bar and for the notes too
+/// quiet for the ear, which may fall back on it. See
+/// `docs/judge-measurements.md#the-chord-model-where-notes-come-one-at-a-time`.
+const SLOW_MODEL_PERIOD: Option<f32> = Some(0.2);
+
 /// Leave the completed interval set visible, including its last mark.
 const INTERVAL_SHOW: f32 = 0.35;
 /// A stopped inference stream must not keep answering new audio frames.
 const INTERVAL_MODEL_AGE: f32 = 0.25;
+
+/// `SLOW_MODEL_PERIOD`, or for the measurements `SOLITITO_SLOW_MODEL` in ms,
+/// `0` for not at all.
+fn slow_model_period() -> Option<f32> {
+    #[cfg(test)]
+    if let Some(ms) = std::env::var("SOLITITO_SLOW_MODEL").ok().and_then(|v| v.parse::<u32>().ok()) {
+        return (ms > 0).then_some(ms as f32 / 1000.0);
+    }
+    SLOW_MODEL_PERIOD
+}
 
 /// What the studies can be read over, in the order the settings list them.
 pub const ARP_QUALITIES: [(&str, ChordQuality); 5] = [
@@ -1980,15 +2002,44 @@ impl MyApp {
         self.tick_quick_credit();
         match self.app_mode {
             AppMode::Intervals => self.tick_intervals(dt),
-            AppMode::Fretboard => self.tick_fretboard(dt),
+            AppMode::Scales | AppMode::Arpeggios => self.tick_notes(dt),
+            AppMode::Fretboard => {
+                self.tick_fretboard(dt);
+                self.tick_notes(dt);
+            }
             AppMode::Formulas => self.tick_formulas(dt),
-            AppMode::Chords | AppMode::Scales | AppMode::Arpeggios => {}
+            AppMode::Chords => {}
         }
+    }
+
+    /// How often the chord model should be asked now, in seconds; `None` is
+    /// not at all. Fully where its answer decides - a chord, a grip struck at
+    /// once - and seldom where notes come one at a time and the ear does.
+    pub fn model_period(&self) -> Option<f32> {
+        let decides = match self.app_mode {
+            AppMode::Chords => true,
+            AppMode::Intervals | AppMode::Formulas => !self.single_notes,
+            AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard => false,
+        };
+        if decides { Some(MODEL_PERIOD) } else { slow_model_period() }
+    }
+
+    /// Whether the mode is judged on every new audio frame, with the model's
+    /// latest answer as one of the witnesses, rather than when the model
+    /// answers. Every mode but Chords and Formulas: a single note is heard
+    /// by the ear a frame at a time, and with the model as the clock it waited
+    /// for an answer - which after a silence does not come for 0.38 s, until
+    /// the model's window is half full.
+    fn judged_per_frame(&self) -> bool {
+        matches!(
+            self.app_mode,
+            AppMode::Intervals | AppMode::Scales | AppMode::Arpeggios | AppMode::Fretboard
+        )
     }
 
     pub fn check_progress_with_ai(&mut self, dt: f32, ai_prediction: &str, confidence: f32) {
         let (ai_root, ai_qual) = self.parse_ai_prediction(ai_prediction);
-        if self.app_mode == AppMode::Intervals {
+        if self.judged_per_frame() {
             // Receiving an inference result is not an audio tick. Single
             // notes can be heard while the model has no window to answer.
             self.last_ai_root = ai_root;
@@ -2000,7 +2051,7 @@ impl MyApp {
     }
 
     fn check_progress(&mut self, dt: f32, ai_root: Option<NoteName>, ai_qual: &str, confidence: f32) {
-        if self.app_mode != AppMode::Intervals {
+        if !self.judged_per_frame() {
             self.credited.settle(dt, &self.heard);
         }
         match self.app_mode {
@@ -2246,11 +2297,43 @@ impl MyApp {
                 state.bass_boost_enabled = self.bass_boost_enabled;
                 state.bass_boost_gain = self.bass_boost_gain;
                 state.quick_ear = self.quick_credit && self.one_at_a_time();
+                state.model_every_ms = self.model_period().map_or(0, |s| (s * 1000.0).round() as u32);
+                // Hops kept for the judge are read one by one in
+                // `tick_with_audio`; reading the newest here would put the
+                // ones before it out of order.
+                if !state.recent_hops.is_empty() {
+                    return;
+                }
                 self.heard.read_audio_frame(&state);
                 state.gate_open
             }
             Err(_) => false,
         };
+        self.hear_gate(gate_open);
+    }
+
+    /// The window's clock: every hop the audio thread kept since the last
+    /// tick, each read and judged in turn with its share of the time, so no
+    /// hop goes unseen. Where none was kept - a file of numbers, the tests -
+    /// one tick, as before.
+    pub fn tick_with_audio(&mut self, dt: f32) {
+        let hops: Vec<crate::audio::HopReading> = match self.analysis_state.lock() {
+            Ok(mut state) => state.recent_hops.drain(..).collect(),
+            Err(_) => Vec::new(),
+        };
+        if hops.is_empty() {
+            self.tick(dt);
+            return;
+        }
+        let share = dt / hops.len() as f32;
+        for hop in &hops {
+            self.heard.read_hop(hop);
+            self.hear_gate(hop.gate_open);
+            self.tick(share);
+        }
+    }
+
+    fn hear_gate(&mut self, gate_open: bool) {
         self.heard.audio_gate_open = gate_open;
         // Nothing refreshes the pitch vector while the gate is shut - the model
         // is not even asked - so without this it keeps its last value for as
@@ -2389,4 +2472,7 @@ mod repeat_harness;
 
 #[cfg(test)]
 mod onset_sources;
+
+#[cfg(test)]
+mod grip_harness;
 

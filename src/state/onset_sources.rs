@@ -9,7 +9,7 @@
 
 use super::*;
 use super::tests::app;
-use crate::audio::{mono_pitch, CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH, INPUT_GAIN, MONO_MIN_SCORE, TOTAL_FEATURES};
+use crate::audio::{CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH};
 
 const SR: f32 = 16_000.0;
 const MODEL_PERIOD: f32 = 0.040;
@@ -55,6 +55,7 @@ fn answers(signal: &[f32], gate: f32) -> (Vec<Answer>, Vec<Hop>) {
     let mut flux = crate::flux::Flux::default();
     let a = app();
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let (mut out, mut hops) = (Vec::new(), Vec::new());
     let mut next_model = 0.0f32;
     let parser = app();
@@ -62,7 +63,6 @@ fn answers(signal: &[f32], gate: f32) -> (Vec<Answer>, Vec<Hop>) {
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         let attack = flux.push(short.of(&buffer)).1;
         let (strike_p, struck) = strikes.push(hop).unwrap();
         let mut st = a.analysis_state.lock().unwrap();
@@ -72,25 +72,10 @@ fn answers(signal: &[f32], gate: f32) -> (Vec<Answer>, Vec<Hop>) {
             st.mark_flux();
         }
         st.mark_strikes(&struck);
-        if rms > gate {
-            let amplified: Vec<f32> = buffer.iter().map(|&x| x * INPUT_GAIN).collect();
-            let (cqt, chroma, bass) = analyzer.compute_cqt_chroma(&amplified, true, 5.0);
-            let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
-            st.cqt_pitch = heard.map(|x| x % 12);
-            st.cqt_semitone = heard;
-            st.voices = crate::voices::voices(&cqt, 4).iter().fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
-            st.gate_open = true;
-            let mut frame = Vec::with_capacity(TOTAL_FEATURES);
-            frame.extend_from_slice(&cqt);
-            frame.extend_from_slice(&chroma);
-            frame.extend_from_slice(&bass);
-            st.push_frame(&frame);
+        if noise_gate.hear(&buffer, gate) {
+            st.hear(&analyzer.listen(&buffer, true, 5.0));
         } else {
-            st.cqt_pitch = None;
-            st.cqt_semitone = None;
-            st.voices = 0;
-            st.gate_open = false;
-            st.push_silence();
+            st.go_quiet();
         }
         st.frames_seen += 1;
         hops.push(Hop { t, ear: st.cqt_pitch, voices: st.voices, flux: attack, struck: struck.clone(), strike_p });

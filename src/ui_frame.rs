@@ -83,6 +83,9 @@ pub struct UiFrame {
     last_heard: (String, Vec<(String, bool)>),
     last_heard_push: Instant,
     last_ui_tick: Option<Instant>,
+    /// When `report_unseen_frames` last spoke.
+    last_hops_report: Option<Instant>,
+    ticks_since_report: u32,
     /// The chord list only changes with the formula or its key, and rebuilding it
     /// every tick would drop whichever chord the pointer is on sixty times a
     /// second. The key is in the guard because the chords are also spelled out in
@@ -130,6 +133,8 @@ impl UiFrame {
             last_heard: (String::new(), Vec::new()),
             last_heard_push: now,
             last_ui_tick: None,
+            last_hops_report: None,
+            ticks_since_report: 0,
             last_formula_chords: (0, String::new(), usize::MAX),
             last_ai_name: String::new(),
             last_level_db: f32::NEG_INFINITY,
@@ -432,7 +437,29 @@ impl UiFrame {
             .unwrap_or(0.016)
             .min(0.25);
         self.last_ui_tick = Some(now);
-        app.tick(ui_dt);
+        app.tick_with_audio(ui_dt);
+        self.report_unseen_frames(app);
+    }
+
+    /// SOLITITO_HOPS=1: every ten seconds, how many audio frames the judge
+    /// read and how many passed between two of its reads unseen. The judge
+    /// runs on the window's clock, and the audio thread hands frames over in
+    /// bursts as the sound card delivers them.
+    fn report_unseen_frames(&mut self, app: &MyApp) {
+        if std::env::var_os("SOLITITO_HOPS").is_none() {
+            return;
+        }
+        self.ticks_since_report += 1;
+        let now = Instant::now();
+        let due = self.last_hops_report.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(10));
+        if !due {
+            return;
+        }
+        self.last_hops_report = Some(now);
+        let (read, unseen) = (app.heard.frames_read, app.heard.frames_unseen);
+        let share = unseen as f64 / (read + unseen).max(1) as f64 * 100.0;
+        eprintln!("hops: {read} read, {unseen} unseen ({share:.2}%), {} ticks of the window's clock", self.ticks_since_report);
+        self.ticks_since_report = 0;
     }
 
     /// The model's latest answer, if there is a new one: voted, latched, shown,

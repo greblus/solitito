@@ -471,6 +471,8 @@ fn new_analysis_state() -> Arc<Mutex<AudioAnalysis>> {
         quick: Default::default(),
         tuner_on: false,
         tuner_hz: None,
+        model_every_ms: 40,
+        recent_hops: Default::default(),
     }))
 }
 
@@ -508,12 +510,14 @@ fn run_model(analysis: Arc<Mutex<AudioAnalysis>>, result: Arc<Mutex<AiResult>>) 
     }
 
     loop {
-        let (history, fill) = {
+        let (history, fill, every_ms) = {
             let state = analysis.lock().unwrap();
-            (state.input_history, state.history_fill())
+            (state.input_history, state.history_fill(), state.model_every_ms)
         };
 
-        if fill < MIN_FILL {
+        // Not asked in this mode: looked at again in 40 ms, so a change of
+        // mode brings it back at once.
+        if fill < MIN_FILL || every_ms == 0 {
             thread::sleep(Duration::from_millis(40));
             continue;
         }
@@ -533,7 +537,7 @@ fn run_model(analysis: Arc<Mutex<AudioAnalysis>>, result: Arc<Mutex<AiResult>>) 
             }
         }
         let spent = started.elapsed();
-        if let Some(left) = Duration::from_millis(40).checked_sub(spent) {
+        if let Some(left) = Duration::from_millis(every_ms as u64).checked_sub(spent) {
             thread::sleep(left);
         }
     }

@@ -10,7 +10,7 @@
 
 use super::*;
 use super::tests::app;
-use crate::audio::{mono_pitch, CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH, MONO_MIN_SCORE};
+use crate::audio::{CqtAnalyzer, ShortSpectrum, FFT_SIZE, HOP_LENGTH};
 
 const SR: f32 = 16_000.0;
 const PRE: f32 = 0.5;
@@ -41,8 +41,17 @@ fn why(a: &MyApp, pc: usize) -> Option<&'static str> {
     Some("attack")
 }
 
+/// Where the measuring material lives: `SOLITITO_MATERIAL`, by default
+/// `~/Documents`, which holds AtoA.wav.
+pub(crate) fn material(file: &str) -> std::path::PathBuf {
+    let dir = std::env::var_os("SOLITITO_MATERIAL")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Documents"));
+    dir.join(file)
+}
+
 fn load_atoa() -> (Vec<f32>, Vec<(f32, usize)>) {
-    let mut reader = hound::WavReader::open("/home/greblus/Documents/AtoA.wav").unwrap();
+    let mut reader = hound::WavReader::open(material("AtoA.wav")).unwrap();
     let spec = reader.spec();
     let raw: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
         (hound::SampleFormat::Float, _) => reader.samples::<f32>().map(|s| s.unwrap()).collect(),
@@ -68,8 +77,15 @@ fn load_atoa() -> (Vec<f32>, Vec<(f32, usize)>) {
     (signal, labels)
 }
 
+/// AtoA, at its own level or `SOLITITO_ATOA_GAIN_DB` from it - a player
+/// quieter by that much, against the same noise gate.
 pub(crate) fn load_atoa_pub() -> (Vec<f32>, Vec<(f32, usize)>) {
-    load_atoa()
+    let (mut signal, labels) = load_atoa();
+    if let Some(db) = std::env::var("SOLITITO_ATOA_GAIN_DB").ok().and_then(|v| v.parse::<f32>().ok()) {
+        let gain = crate::audio::db_to_lin(db);
+        signal.iter_mut().for_each(|s| *s *= gain);
+    }
+    (signal, labels)
 }
 
 /// One note of AtoA, from just before its attack to just before the next.
@@ -148,6 +164,7 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
         })
     };
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let mut quick = crate::audio::QuickEar::default();
     let mut out = Outcome { credited_at: None, permitted_at: None, by: None };
 
@@ -155,7 +172,6 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         let spectrum = short.of(&buffer);
         let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
@@ -171,17 +187,8 @@ pub(crate) fn judge(signal: &[f32], pc: usize, gate: f32) -> Outcome {
                 st.mark_strikes(s);
             }
             st.hear_quickly(&mut quick, &buffer, spectrum);
-            if rms > gate {
-                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
-                let heard = mono_pitch(&cqt)
-                    .filter(|&(_, s)| s >= MONO_MIN_SCORE)
-                    .map(|(note, _)| note);
-                st.cqt_pitch = heard.map(|n| n % 12);
-                st.cqt_semitone = heard;
-                st.voices = crate::voices::voices(&cqt, 4)
-                    .iter()
-                    .fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
-                st.gate_open = true;
+            if noise_gate.hear(&buffer, gate) {
+                st.hear(&analyzer.listen(&buffer, true, 5.0));
                 st.frames_seen += 1;
             } else {
                 st.cqt_pitch = None;
@@ -242,13 +249,13 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
             })
     };
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let mut quick = crate::audio::QuickEar::default();
     let mut switched = false;
     for (n, hop) in signal.chunks_exact(HOP_LENGTH).enumerate() {
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         let spectrum = short.of(&buffer);
         let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
@@ -264,13 +271,8 @@ fn judge_boundary(signal: &[f32], pc: usize, switch_at: f32, gate: f32) -> Optio
                 st.mark_strikes(s);
             }
             st.hear_quickly(&mut quick, &buffer, spectrum);
-            if rms > gate {
-                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
-                let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
-                st.cqt_pitch = heard.map(|x| x % 12);
-                st.cqt_semitone = heard;
-                st.voices = crate::voices::voices(&cqt, 4).iter().fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
-                st.gate_open = true;
+            if noise_gate.hear(&buffer, gate) {
+                st.hear(&analyzer.listen(&buffer, true, 5.0));
             } else {
                 st.cqt_pitch = None;
                 st.cqt_semitone = None;
@@ -343,6 +345,7 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
     let mut flux = crate::flux::Flux::default();
     let mut strikes = crate::strike::Strikes::load(crate::strike::MODEL).ok();
     let mut buffer = vec![0.0f32; FFT_SIZE];
+    let mut noise_gate = crate::audio::Gate::default();
     let mut quick = crate::audio::QuickEar::default();
     let mut switched = false;
     let mut x_credited: Option<f32> = None;
@@ -350,7 +353,6 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
         buffer.drain(..HOP_LENGTH);
         buffer.extend_from_slice(hop);
         let t = ((n + 1) * HOP_LENGTH) as f32 / SR;
-        let rms = (buffer.iter().map(|v| v * v).sum::<f32>() / FFT_SIZE as f32).sqrt();
         let spectrum = short.of(&buffer);
         let attack = flux.push(spectrum).1;
         let struck = strikes.as_mut().and_then(|d| d.push(hop).ok()).map(|(_, s)| s);
@@ -366,13 +368,8 @@ fn judge_ringing_credited(signal: &[f32], pc: usize, switch_at: f32, gate: f32) 
                 st.mark_strikes(s);
             }
             st.hear_quickly(&mut quick, &buffer, spectrum);
-            if rms > gate {
-                let (cqt, _, _) = analyzer.compute_cqt_chroma(&buffer, true, 5.0);
-                let heard = mono_pitch(&cqt).filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(x, _)| x);
-                st.cqt_pitch = heard.map(|x| x % 12);
-                st.cqt_semitone = heard;
-                st.voices = crate::voices::voices(&cqt, 4).iter().fold(0u16, |m, &(s, _)| m | 1 << (s % 12));
-                st.gate_open = true;
+            if noise_gate.hear(&buffer, gate) {
+                st.hear(&analyzer.listen(&buffer, true, 5.0));
             } else {
                 st.cqt_pitch = None;
                 st.cqt_semitone = None;
