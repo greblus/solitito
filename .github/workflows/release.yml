@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       ort_version:
-        description: "ONNX Runtime version (empty = latest release)"
+        description: "ONNX Runtime version (empty = latest stable on NuGet)"
         required: false
         default: ""
 
@@ -35,12 +35,13 @@ jobs:
       - id: pick
         run: |
           V="${{ github.event.inputs.ort_version }}"
+          # ONNX Runtime comes from Microsoft's NuGet package: the GitHub
+          # repository it was released from, microsoft/onnxruntime, answered
+          # 404 from November 2026 and the releases went with it. The package
+          # carries the same libraries, for Linux and Windows both.
           if [ -z "$V" ]; then
-            # With the job's own token: unauthenticated, the API answers a
-            # runner's shared address only so often, and a release failed here.
-            V=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
-                https://api.github.com/repos/microsoft/onnxruntime/releases/latest \
-                | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+            V=$(curl -fsSL https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/index.json \
+                | python3 -c 'import json,sys; print([v for v in json.load(sys.stdin)["versions"] if "-" not in v][-1])')
           fi
           [ -n "$V" ] || { echo "could not resolve ONNX Runtime version"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
@@ -78,10 +79,9 @@ jobs:
           cp target/release/solitito "$NAME"/
           strip "$NAME"/solitito
 
-          curl -fsSL -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT}/onnxruntime-linux-x64-${ORT}.tgz"
-          tar xzf ort.tgz
-          cp onnxruntime-linux-x64-${ORT}/lib/libonnxruntime.so.${ORT} "$NAME"/libonnxruntime.so
+          curl -fsSL -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ORT}/microsoft.ml.onnxruntime.${ORT}.nupkg"
+          unzip -j -o ort.nupkg runtimes/linux-x64/native/libonnxruntime.so -d "$NAME"
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
@@ -145,10 +145,9 @@ jobs:
 
           cp target/release/solitito.exe "$NAME"/
 
-          curl -fsSL -o ort.zip \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT}/onnxruntime-win-x64-${ORT}.zip"
-          7z x -y ort.zip > /dev/null
-          cp onnxruntime-win-x64-${ORT}/lib/onnxruntime.dll "$NAME"/
+          curl -fsSL -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ORT}/microsoft.ml.onnxruntime.${ORT}.nupkg"
+          7z e -y ort.nupkg runtimes/win-x64/native/onnxruntime.dll -o"$NAME" > /dev/null
 
           cp dsp_weights.json "$NAME"/
           curl -fsSL -o "$NAME/$MODEL" "$MODEL_URL"
