@@ -3,7 +3,7 @@
 
 use std::ops::{Index, IndexMut};
 
-use super::{Heard, CLASS_FRESH, CREDIT_SETTLE, FLUX_FRESH, GONE_QUIET};
+use super::{Heard, CLASS_FRESH, CREDIT_OWN_STRIKE, CREDIT_SETTLE, FLUX_FRESH, GONE_QUIET};
 
 /// What was true when a pitch class was last credited.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -23,6 +23,9 @@ pub struct Credit {
     /// Seconds left before the note can count as having left - see
     /// `CREDIT_SETTLE`.
     pub settle: f32,
+    /// Seconds left in which a strike of this class still belongs to this
+    /// credit - see `CREDIT_OWN_STRIKE`.
+    pub own_strike: f32,
     /// Whether something else has been heard, steadily, since this note was
     /// credited. Then the note has stopped sounding and anything heard from it
     /// afterwards is a fresh pluck - whether or not a detector noticed.
@@ -66,6 +69,7 @@ impl Credits {
             octave,
             semitone: heard.cqt_semitone.filter(|n| n % 12 == pc % 12),
             settle: CREDIT_SETTLE,
+            own_strike: CREDIT_OWN_STRIKE,
             left: false,
         });
     }
@@ -76,6 +80,7 @@ impl Credits {
         for credit in self.by_class.iter_mut().flatten() {
             credit.left = true;
             credit.settle = 0.0;
+            credit.own_strike = 0.0;
         }
     }
 
@@ -171,6 +176,11 @@ impl Credits {
             };
             if cr.settle > 0.0 {
                 cr.settle = (cr.settle - dt).max(0.0);
+            }
+            // The strike the note was credited for, reported after the credit.
+            if cr.own_strike > 0.0 {
+                cr.class_strike = heard.class_strikes[c];
+                cr.own_strike = (cr.own_strike - dt).max(0.0);
             }
             // This note has gone quiet, and what is heard from it next is
             // a new pluck. Without it a note asked for again a few steps

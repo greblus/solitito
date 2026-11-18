@@ -53,7 +53,6 @@ fretboard trainer, which has no settings of its own, does not show it at all:
 | **Noise gate** | Threshold in dBFS. The bar below shows the current input level on the same scale, with the threshold marked by a yellow line — set it just above the noise with the strings untouched |
 | **Input meter in the side bar** | The same level and yellow line, in a card in the side bar, with the device and channel above it and whether the guitar is heard. Off by default; a click on the card opens the Audio tab |
 | **Tuner** (the tuning-fork button beside Settings) | A tuner card in the side bar: the nearest note with its octave, how many cents off it the string is, and a marker on a −50 to +50 cent track, green within 5 cents. One string at a time, above the silence threshold. Off by default |
-| **The Hearing bar under the exercise** | What the model names and the notes it hears, under the exercise. Off by default — while playing it pulls the eye away from the shapes |
 | **Bass Boost** | Digital amplification of the lowest CQT bins. Useful for laptop microphones, which usually roll off the low strings |
 | **Hold the quality** (quick option, Chords) | Holds the recognised quality until you strike the strings again. Without it, a held `m7` turns into `m` as the seventh dies away |
 | **Short strums** (quick option, Chords) | For chords struck and released rather than held. One clear reading of the target counts, and the decay that follows cannot undo it. A wrong chord still fails |

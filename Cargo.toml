@@ -10,7 +10,7 @@ anyhow = "1.0"
 log = "0.4"
 ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "download-binaries"] }
 ndarray = "0.15"
-slint = "1.18.1" 
+slint = "1.19.0"
 hound = "3.5"
 keepawake = "0.4"
 # Not called from here. zune-jpeg reaches us through Slint's image support and
@@ -28,7 +28,7 @@ chrono = "0.4"
 
 
 [build-dependencies]
-slint-build = "1.18.1"
+slint-build = "1.19.0"
 
 # The icon of solitito.exe in Explorer and on shortcuts.
 [target.'cfg(windows)'.build-dependencies]

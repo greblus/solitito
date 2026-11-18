@@ -528,6 +528,9 @@ fn greene_in_position() {
                         .iter()
                         .map(|s| (crate::harris::C3 + chord.root as i32 + semis[s.degree] as i32 + 12 * s.octave as i32) as u8)
                         .collect();
+                    if std::env::var("SOLITITO_LINE_DETAIL").is_ok() {
+                        println!("    {kind} {name} {tensions}: midi {midi:?}");
+                    }
                     let Some(line) = midi.iter().map(|&m| all.iter().position(|n| n.1 == m)).collect::<Option<Vec<usize>>>() else {
                         println!("  {kind}, {name}: a note AtoA lacks, {midi:?}");
                         continue;

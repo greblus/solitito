@@ -346,6 +346,17 @@ const GONE_QUIET: u32 = 19;
 /// it belonged to, and kept because `left` is measured with it.
 const CREDIT_SETTLE: f32 = 0.5;
 
+/// How long after a credit a strike of its class is still the strike it was
+/// credited for, and does not make the class creditable again.
+///
+/// The ear can name a note 25 ms after it is struck, before the strike
+/// detector has reported the strike - it answers 22 to 32 ms after one. The
+/// report then came after the credit and passed for a new strike: a note only
+/// ringing on was credited again 14 times in 51. Nothing real is lost to this:
+/// the detector does not report a class twice within its refractory, 0.6 s.
+/// See `docs/judge-measurements.md#credit_own_strike`.
+const CREDIT_OWN_STRIKE: f32 = 0.2;
+
 /// How long the fretboard trainer keeps a note it has just credited on screen,
 /// green, before drawing the next one.
 ///
@@ -368,13 +379,13 @@ const NOTE_HOLD: f32 = 0.12;
 /// second, the rate it has always run at.
 pub(crate) const MODEL_PERIOD: f32 = 0.040;
 
-/// How often it is asked where notes are taken one at a time. There the ear
-/// credits: in the user's four Intervals sessions, 388 credits of 388 were the
-/// ear's and none the model's, which costs most of a core on a small laptop.
-/// It is still asked now and then, for the Hearing bar and for the notes too
-/// quiet for the ear, which may fall back on it. See
+/// How often it is asked where notes are taken one at a time: not at all.
+/// There the ear credits: in the user's four Intervals sessions, 388 credits of
+/// 388 were the ear's and none the model's, and asked every 200 ms or never,
+/// every measurement came out the same to the last digit. It cost most of a
+/// core on a small laptop. See
 /// `docs/judge-measurements.md#the-chord-model-where-notes-come-one-at-a-time`.
-const SLOW_MODEL_PERIOD: Option<f32> = Some(0.2);
+const SLOW_MODEL_PERIOD: Option<f32> = None;
 
 /// Leave the completed interval set visible, including its last mark.
 const INTERVAL_SHOW: f32 = 0.35;
@@ -2014,7 +2025,7 @@ impl MyApp {
 
     /// How often the chord model should be asked now, in seconds; `None` is
     /// not at all. Fully where its answer decides - a chord, a grip struck at
-    /// once - and seldom where notes come one at a time and the ear does.
+    /// once - and not where notes come one at a time and the ear does.
     pub fn model_period(&self) -> Option<f32> {
         let decides = match self.app_mode {
             AppMode::Chords => true,

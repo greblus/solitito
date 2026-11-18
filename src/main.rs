@@ -221,7 +221,6 @@ struct SettingsSnapshot {
     interval_level: i32,
     debug_console: bool,
     show_input_meter: bool,
-    show_heard: bool,
 }
 
 impl SettingsSnapshot {
@@ -290,7 +289,6 @@ impl SettingsSnapshot {
             interval_level: ui.get_interval_level(),
             debug_console: ui.get_debug_console(),
             show_input_meter: ui.get_show_input_meter(),
-            show_heard: ui.get_show_heard(),
         }
     }
 }
@@ -656,7 +654,6 @@ fn show_settings(ui: &AppWindow, app: &MyApp, cfg: &Settings, lang: Lang) {
     ui.set_interval_level(cfg.interval_level.min(interval_levels::LEVELS.len() - 1) as i32);
     ui.set_debug_console(cfg.debug_console);
     ui.set_show_input_meter(cfg.show_input_meter);
-    ui.set_show_heard(cfg.show_heard);
     ui.set_quick_open(cfg.quick_options_open);
     ui.set_sidebar_collapsed(cfg.sidebar_collapsed);
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
@@ -922,13 +919,11 @@ fn apply_language(ui: &AppWindow, lang: Lang, app: Option<&MyApp>) {
     g.set_settings(t.settings.into());
     g.set_close(t.close.into());
     g.set_settings_title(t.settings_title.into());
-    g.set_heard(t.heard.into());
     g.set_input_card(t.input_card.into());
     g.set_input_hearing(t.input_hearing.into());
     g.set_input_silent(t.input_silent.into());
     g.set_gate_mark(t.gate_mark.into());
     g.set_show_input_meter(t.show_input_meter.into());
-    g.set_show_heard(t.show_heard.into());
     g.set_chip_in_order(t.chip_in_order.into());
     g.set_chip_single(t.chip_single.into());
     g.set_chip_quick(t.chip_quick.into());

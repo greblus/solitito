@@ -123,8 +123,11 @@ wolniejszym komputerze przebieg trwa dłużej niż 40 ms i model po prostu odpow
 program zwalnia łagodnie, nic się nie psuje. To ważna własność: **nowy model z toru B jej nie
 ma**. Musi zdążyć w każdym skoku (16 ms), inaczej analiza zostaje w tyle za dźwiękiem.
 
-Liczby z cienkiego klienta jeszcze nie ma. Autor uruchamia na nim `solitito --bench`; budżety
-poniżej przelicza się tym stosunkiem.
+Cienki klient autora (17.11.2026, `solitito --bench`): **69,0 ms** na przebieg, 1,79 raza wolniej
+niż laptop. Model nie mieści się tam w 40 ms, więc liczy bez przerwy na całym rdzeniu i
+odpowiada ok. 14 razy na sekundę zamiast 25. Budżety poniżej mnoży się dla niego przez 1,79:
+model toru B w 2 ms na laptopie to ok. 3,6 ms na cienkim kliencie, 22% rdzenia przy 62,5
+ramkach na sekundę; model akordów pytany co 200 ms (A1) — ok. 35% rdzenia zamiast 100%.
 
 ### 1.5 Czego brakuje w ćwiczeniach i interfejsie
 
@@ -176,7 +179,7 @@ osobno (FFT i CQT, krótkie widma, detektor uderzeń, szybkie ucho, tuner, sędz
 udział skoku 16 ms. To polecenie autor uruchamia na cienkim kliencie przed każdym wydaniem,
 które rusza silnik; wynik trafia do `docs/judge-measurements.md`.
 
-**Budżet** (laptop autora; do przeliczenia po pomiarze na cienkim kliencie):
+**Budżet** (laptop autora; cienki klient ×1,79):
 
 | zadanie | koszt na skok na 5300U | uwagi |
 |---|---|---|
@@ -256,13 +259,64 @@ odczytać (wyniki w katalogu tymczasowym sesji: `score/base`, `a1_200`, `a1_0`, 
 | krok | co zrobione | wynik zmierzony |
 |---|---|---|
 | A0 | `dist/scorecard.sh` (jedna zamrożona binarka testowa), harness chwytów z gałęzi `experiments`, AtoA z `SOLITITO_MATERIAL` | pomiar bazowy gotowy |
-| A1 | Skale, Arpeggia i Gryf sądzone co ramkę dźwięku (`MyApp::tick_notes`), model akordów pytany według trybu (`MyApp::model_period`: 40 ms w Akordach i przy akordach naraz, 200 ms gdzie indziej; `SOLITITO_SLOW_MODEL` w testach) | czeka na tablicę |
+| A1 | Skale, Arpeggia i Gryf sądzone co ramkę dźwięku (`MyApp::tick_notes`), model akordów pytany według trybu (`MyApp::model_period`: 40 ms w Akordach i przy akordach naraz, 200 ms gdzie indziej; `SOLITITO_SLOW_MODEL` w testach) | procesor na laptopie autora, AtoA przez `--file` (`target/scorecard/cpu.sh`): Skale 113% → **35%** rdzenia, Arpeggia 111% → **34%**, Interwały pojedynczo 112% → **34%**, Akordy 111% → 108%; tablica wyników — czeka |
 | A2 | filtry CQT dosunięte do końca okna dla ucha i głosów (`CqtAnalyzer::ear_cqt`, `end_aligned`), jeden wspólny odczyt okna `CqtAnalyzer::listen` dla programu, `--file` i wszystkich harnessów; stare filtry: `SOLITITO_EAR_CENTRED` w testach | sygnał syntetyczny: nowy dźwięk nazwany po **24–96 ms** zamiast **256–272 ms** (`how_soon_the_ear_names_a_new_note`) |
 | A3 | bramka na ostatnich 64 ms z histerezą −6 dB i 160 ms (`audio::Gate`), też w harnessach; stara: `SOLITITO_GATE_WINDOW` w testach | czeka na tablicę (`gate/` przy progu −34 dB, AtoA 0 i −6 dB) |
 | A4 | licznik ramek niewidzianych przez sędziego (`SOLITITO_HOPS=1`) | **36–37% ramek gubionych na żywo** na laptopie autora: karta oddaje próbki po ok. 23 ms, zegar okna widział tylko ostatnią ramkę porcji |
 | A6 (lżejsze) | kolejka odczytów każdej ramki (`AudioAnalysis::remember_hop`), sędzia przerabia wszystkie przy każdym tyknięciu (`MyApp::tick_with_audio`) | **0% gubionych**; przenoszenie sędziego do osobnego wątku okazało się niepotrzebne |
 | A5 | normalizacja cech kroczącym maksimum zamiast maksimum ramki | **bez zysku** (odsetek poprawnych nazw 0,61 → 0,62) — wycofane |
 | A7 (nowe) | tryb Akordy: septyma wielka lub mała rozstrzygana głowicą wysokości (`seventh_heard`), gdy model podaje tę samą prymę z drugą septymą | `akordy-g1`: **17/17** akordów przechodzi (było 13/17, wszystkie porażki CMaj7); `arpeggia-g1`: 8/9 bez zmian, CMaj7 po 1,5 s zamiast 3,7 s |
+
+**Tablica wyników 17.11 — stary silnik (`f4da3c9`) kontra cały tor A (`89d501b`).** Wyniki w
+`target/scorecard/base` i `target/scorecard/all`; warianty pośrednie (`a1only`, `centred`,
+`window`, `gate/`, `slow0`) liczy wznawialna kolejka `target/scorecard/run_all.sh`.
+
+| miara | stary | nowy |
+|---|---|---|
+| linie, zwykła ścieżka: mediana od uderzenia do zaliczenia | ok. 400 ms | ok. 140 ms |
+| linie po 0,40 s / dźwięk | 1 z 8 | 8 z 8 |
+| linie Harrisa w dół po 0,30 s / dźwięk | 1 z 9 | 9 z 9 |
+| AtoA, mediana do zaliczenia (akordy dozwolone / pojedynczo) | 156 / 220 ms | 29 / 43 ms |
+| akordy naraz, „Tylko uderzone” | 26 z 68 | 29 z 68 |
+| Formuły, akordy naraz | 17 z 68 | 19 z 68 |
+| **powtórzenie zaliczone, gdy dźwięk tylko brzmi** | 0 z 51 | **14 z 51** (gałąź „class strike”) |
+| **przedwczesne przy ponownym uderzeniu po 0,8 / 1,2 s** | 0 | **14** (w czasie 35 i 36 z 51 zamiast 48 i 50) |
+| **AtoA: klasy zaliczone, których nikt nie zagrał (detektor; akordy / pojedynczo)** | 62 / 37 | **77 / 52** — przybyło głównie kwart nad dźwiękiem |
+| **Greene: przebiegi stające w połowie** | 0 | **3** (order 9 G7 20/44, order 16 C7 14/28, G7 12/28), kilka „early 1” |
+| arpeggia-g1: dźwięki akordu (detektor) | 32 z 36 | 30 z 36 |
+| szybkie zaliczanie, linie po 0,25 / 0,20 s | 8/8, 5/5 | 7/8, 4/5 |
+
+**Regresje do naprawy przed scaleniem** (kolejność): (1) powtórzenia — hipoteza: szybsze ucho
+zalicza dźwięk, zanim detektor uderzeń zgłosi jego uderzenie (22–32 ms), i to spóźnione
+zgłoszenie wygląda potem jak nowe uderzenie (`Credits::struck_since`, `settle`); (2) fałszywe
+kwarty — ucho na końcu okna myli się na wybrzmieniu (opisane w `how-it-works.md`, „The ear just
+after a strike”); (3) Greene. Najpierw porównać z wariantami `centred` (stare filtry ucha) i
+`window` (stara bramka), żeby wiedzieć, która zmiana odpowiada za każdą regresję.
+
+**Przypisanie i naprawa regresji (18.11).** Warianty `a1only` i `centred` nie mają żadnej z
+trzech regresji — wszystkie wnosiły filtry na końcu okna (A2). Naprawy:
+
+1. Powtórzenia: `CREDIT_OWN_STRIKE` (0,2 s) — uderzenie tej klasy zgłoszone tuż po zaliczeniu
+   należy do niego. Wynik: tylko wybrzmiewa 0/51 (było 14), ponowne uderzenie po 0,8 s 49/51
+   (stary silnik 48), po 1,2 s 50/51, nic przedwcześnie.
+2. Fałszywe zaliczenia: ucho czyta filtrami z końca okna tylko przez `EAR_FRESH_HOPS` (16 ramek,
+   0,26 s) po ataku (flux albo detektor), potem filtrami ze środka. AtoA: 63 / 41 (stary 62 / 37,
+   przed naprawą 77 / 52); linie dalej 8/8 po 0,40 s, mediana 154 ms (12 i 20 ramek: to samo
+   tempo, więcej fałszywych).
+3. Greene: przedwczesne 7 → 0, zatrzymania 4 → 2 (order 9 G7 z napięciami, order 16 G7 bez).
+   Przyczyna zbadana na order 16: detektor uderzeń nie zgłasza drugiego F, a powtórzenie przez
+   „ucichł i wrócił” nie dochodzi do skutku, bo F za krótko znika z głosów. Liczenie „ucichł” na
+   głosach ze środka okna dało gorzej (5 zatrzymań) — wycofane. Otwarte.
+
+**Model akordów wyłączony tam, gdzie nie decyduje (18.11).** Wariant `slow0` tablicy wyników
+(model niepytany w trybach z pojedynczymi dźwiękami) daje co do cyfry te same wyniki, co pytanie
+co 200 ms. Pasek „Słyszę” — jedyne, co jeszcze czytało model w tych trybach — usunięty na prośbę
+autora. `SLOW_MODEL_PERIOD = None`. Procesor na laptopie, AtoA przez `--file`: Skale i Arpeggia
+**11%** rdzenia (stary silnik 111–113%, z modelem co 200 ms 34–35%).
+
+Bramka A3 przy progu programu (−34 dB), AtoA 6 dB ciszej (`target/scorecard/gate`): stara bramka
+G miksolidyjska 0,50 s 5/8, D dorycka 0,40 s 1/8, D m7 0,40 s 1/5; nowa wszystkie 8/8 i 5/5. Przy
+normalnym poziomie bez różnicy.
 
 Do sprawdzenia przez autora z gitarą: A6 sprawia, że na żywo sędzia widzi o połowę więcej
 ramek; progi liczone w ramkach (np. ile ramek ucho trzyma ten sam dźwięk) były dobierane w
@@ -664,6 +718,15 @@ a rysunek bierze resztę.
 (Dropdown, SideToggle, Segmented, przyciski), `sidebar.slint`, `practice.slint`,
 `settings.slint`. Slint importuje komponenty między plikami; `build.rs` kompiluje plik główny.
 Sprawdzian: zrzuty przed i po identyczne co do piksela.
+
+### U8 Animacje i rozmycie (Slint 1.19)
+
+Program używa Slinta 1.19 (od 17.11.2026, wcześniej 1.18.1; wygląd bez zmian, testy przechodzą).
+Nowa wersja ma rozszerzone animacje i efekt rozmycia. Do rozważenia po torze A: przejścia między
+trybami, płynne wysuwanie szybkich opcji i zwijanie paska, rozmyte tło pod rozwiniętą listą i
+pod powiększonym schematem chwytu. Warunek: koszt rysowania na cienkim kliencie — zmierzyć
+zużycie procesora przez okno (`target/scorecard/cpu.sh`) przed i po; rozmycie liczone co klatkę
+może być drogie przy programowym rysowaniu.
 
 ### U7 Znane usterki i zaległości
 

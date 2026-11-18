@@ -20,7 +20,7 @@ use crate::settings::{Preview, Settings};
 use crate::state::{self, AppMode, ArpExercise, FormulaExercise, FormulaPlacement, MatchStatus, MyApp, NoteState};
 use crate::theme::{self, Scheme};
 use crate::{diagrams, formulas, tab};
-use crate::{AiResult, AppWindow, Chip, HeardNote, IntervalTile, SettingsSnapshot, Theme, Tr};
+use crate::{AiResult, AppWindow, Chip, IntervalTile, SettingsSnapshot, Theme, Tr};
 use crate::audio::{db_to_lin, lin_to_db};
 use crate::devices::rescan_devices;
 use crate::{set_if_changed, svg_icon, MIN_FILL_CHORD};
@@ -80,8 +80,6 @@ pub struct UiFrame {
     /// both are lists, and a new model every frame would redraw them for nothing.
     last_progress: Vec<(String, (String, String), i32, bool, Color)>,
     last_song_keys: Vec<String>,
-    last_heard: (String, Vec<(String, bool)>),
-    last_heard_push: Instant,
     last_ui_tick: Option<Instant>,
     /// When `report_unseen_frames` last spoke.
     last_hops_report: Option<Instant>,
@@ -130,8 +128,6 @@ impl UiFrame {
             last_diagram_key: String::new(),
             last_progress: Vec::new(),
             last_song_keys: Vec::new(),
-            last_heard: (String::new(), Vec::new()),
-            last_heard_push: now,
             last_ui_tick: None,
             last_hops_report: None,
             ticks_since_report: 0,
@@ -795,7 +791,7 @@ impl UiFrame {
         let (from, to) = tab::HINT_FRETS;
         let marks = places_of(pc, &[0, 1, 2, 3, 4, 5], from, to);
         let label = tab::spell(model::NoteName::from_index(pc).to_string());
-        ui.set_note_hint_aspect(tab::region_aspect(from, to));
+        ui.set_note_hint_aspect(tab::neck_hint_aspect());
         ui.set_note_hint_image(svg_icon(&theme::drawing(&tab::neck_hint(&strings, &marks, &label), look_of(ui))));
         ui.set_note_hint_note(pc as i32);
     }
@@ -820,7 +816,6 @@ impl UiFrame {
         if app.app_mode == AppMode::Chords {
             self.show_song_keys(ui, app);
         }
-        self.show_heard(ui, app, chord);
         if app.app_mode != AppMode::Chords {
             self.show_steps(ui, app, chord);
         }
@@ -989,49 +984,6 @@ impl UiFrame {
                 .collect();
             ui.set_progress(slint::ModelRc::new(slint::VecModel::from(chips)));
             self.last_progress = progress;
-        }
-    }
-
-    fn show_heard(&mut self, ui: &AppWindow, app: &MyApp, chord: &Chord) {
-        // What is heard. In Chords the name the model gives the chord; in
-        // the note modes the note the ear holds. Beside it the notes the
-        // pitch head hears sounding, green where the chord asked for has
-        // them - in pitch order, not by loudness: ranked by level they
-        // traded places every frame.
-        let heard_name = if app.app_mode == AppMode::Chords {
-            if self.last_ai_name == "..." { String::new() } else { tab::spell(&self.last_ai_name) }
-        } else {
-            app.heard.steady_note().map(|pc| tab::spell(NoteName::from_index(pc).to_string())).unwrap_or_default()
-        };
-        let tones = chord.get_target_indices();
-        let mut sounding: Vec<(usize, f32)> = app
-            .last_pitches
-            .iter()
-            .enumerate()
-            .filter(|&(_, &p)| p >= app.note_threshold)
-            .map(|(pc, &p)| (pc, p))
-            .collect();
-        // The five loudest, then put back in pitch order.
-        sounding.sort_by(|a, b| b.1.total_cmp(&a.1));
-        sounding.truncate(5);
-        sounding.sort_by_key(|&(pc, _)| pc);
-        let notes: Vec<(String, bool)> = sounding
-            .iter()
-            .map(|&(pc, _)| (tab::spell(NoteName::from_index(pc).to_string()), tones.contains(&pc)))
-            .collect();
-        // At most four times a second: the model answers twenty-five times
-        // and a note on the edge of the threshold blinked in and out.
-        if (heard_name.as_str(), &notes) != (self.last_heard.0.as_str(), &self.last_heard.1)
-            && self.last_heard_push.elapsed() >= Duration::from_millis(250)
-        {
-            self.last_heard_push = Instant::now();
-            ui.set_heard_name(heard_name.clone().into());
-            let model: Vec<HeardNote> = notes
-                .iter()
-                .map(|(name, in_chord)| HeardNote { name: name.into(), in_chord: *in_chord })
-                .collect();
-            ui.set_heard_notes(slint::ModelRc::new(slint::VecModel::from(model)));
-            self.last_heard = (heard_name, notes);
         }
     }
 

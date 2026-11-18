@@ -282,11 +282,6 @@ pub struct Settings {
     /// whoever wants to see it while playing.
     #[serde(default)]
     pub show_input_meter: bool,
-    /// The "Hearing" bar under the exercise: what the model names and the
-    /// notes it hears. Off by default - while playing it pulls the eye away
-    /// from the shapes - and there for checking what the app makes of a grip.
-    #[serde(default)]
-    pub show_heard: bool,
     /// The quick options of the mode on screen, unfolded under its entry in
     /// the side navigation. Folded by default.
     #[serde(default)]
@@ -506,7 +501,6 @@ impl Default for Settings {
             interval_level: crate::interval_levels::DEFAULT,
             debug_console: false,
             show_input_meter: false,
-            show_heard: false,
             quick_options_open: false,
             sidebar_collapsed: false,
             formula_show_chords: true,

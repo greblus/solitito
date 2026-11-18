@@ -610,6 +610,11 @@ const FRET_GAP: f32 = 56.0;
 /// How far the white ring of the note due reaches from the note's centre:
 /// its radius and half its stroke, and a little air.
 const RING_REACH: f32 = DOT_R + 7.0 + 2.5 + 3.0;
+/// What is cut off the top of a drawing with no fret number over it - the
+/// whole neck, where the inlays say where the hand is: the room `GRIP_TOP`
+/// keeps for the number, less what the ring on the top string needs. Kept, it
+/// left the neck sitting low on its card, with an empty band above it.
+const NECK_CROP: f32 = GRIP_TOP - RING_REACH;
 use crate::diagrams::CARD;
 const BLUE: &str = "rgba(74, 144, 226, 1)";
 const RED: &str = "rgba(208, 2, 27, 1)";
@@ -656,10 +661,16 @@ pub fn with_accidentals_font(svg: &str) -> String {
 /// The start of a drawing `w` by `h`, on the card's colour. The caller closes
 /// it with `</svg>`.
 fn open_svg(w: f32, h: f32) -> String {
+    open_svg_from(w, h, 0.0)
+}
+
+/// The same with the top `top` units cut off - see `NECK_CROP`.
+fn open_svg_from(w: f32, h: f32, top: f32) -> String {
+    let shown = h - top;
     format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" \
-         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 0 {w} {h}\">\
-         <rect width=\"100%\" height=\"100%\" fill=\"{CARD}\"></rect>"
+         preserveAspectRatio=\"xMidYMid meet\" viewBox=\"0 {top} {w} {shown}\">\
+         <rect y=\"{top}\" width=\"{w}\" height=\"{shown}\" fill=\"{CARD}\"></rect>"
     )
 }
 
@@ -759,11 +770,6 @@ fn box_size(columns: i32) -> (f32, f32) {
         // keeps, and was cut along the bottom.
         GRIP_TOP + STRING_GAP * 5.0 + MARGIN_Y.max(RING_REACH),
     )
-}
-
-fn box_aspect(columns: i32) -> f32 {
-    let (w, h) = box_size(columns);
-    w / h
 }
 
 /// Where a string runs across a box: the lowest at the bottom.
@@ -895,7 +901,7 @@ pub fn neck_with_rest(spots: &[Spot], done: &[bool], current: usize, frets: bool
     let all: Vec<Spot> = spots.iter().chain(rest).cloned().collect();
     let (base, columns) = neck_columns(&all);
     let (w, h) = box_size(columns);
-    let mut out = open_svg(w, h);
+    let mut out = open_svg_from(w, h, NECK_CROP);
     // An open string's note stands before the nut, where its name would.
     for string in (0..6).rev() {
         let open = all.iter().any(|s| s.string == string && s.fret == 0);
@@ -1023,7 +1029,7 @@ fn region_marked(
 ) -> String {
     let (base, columns) = region_columns(fret_from, fret_to);
     let (w, h) = box_size(columns);
-    let mut out = open_svg(w, h);
+    let mut out = open_svg_from(w, h, if whole_neck { NECK_CROP } else { 0.0 });
     // A note on an open string is drawn before the nut, where the string's
     // name stands - and an open string sounds its own name, so the mark says
     // it in its place.
@@ -1077,14 +1083,19 @@ fn region_string(string: usize, columns: i32, in_play: bool, named: bool) -> Str
     )
 }
 
-/// How wide a region box is against its height.
-pub fn region_aspect(fret_from: i32, fret_to: i32) -> f32 {
-    box_aspect(region_columns(fret_from, fret_to).1)
-}
-
 /// How wide a neck box is against its height, for the columns it needs.
 pub fn neck_aspect(spots: &[Spot]) -> f32 {
-    box_aspect(neck_columns(spots).1)
+    cropped_aspect(neck_columns(spots).1)
+}
+
+/// How wide the fretboard trainer's hint is against its height.
+pub fn neck_hint_aspect() -> f32 {
+    cropped_aspect(region_columns(HINT_FRETS.0, HINT_FRETS.1).1)
+}
+
+fn cropped_aspect(columns: i32) -> f32 {
+    let (w, h) = box_size(columns);
+    w / (h - NECK_CROP)
 }
 
 

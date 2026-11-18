@@ -108,6 +108,11 @@ fn a_strike_is_not_credited_twice() {
     hop(&mut a, &[], yin(0, 2));
     assert!(a.is_collected(0));
     assert!(!a.struck_and_named(0), "the strike just credited counts again");
+    // The next strike of a class comes no sooner than the detector's
+    // refractory allows, and past the time a credit keeps its own strike.
+    for _ in 0..16 {
+        hop(&mut a, &[], QuickReading::default());
+    }
     hop(&mut a, &[0], yin(0, 3));
     assert!(a.struck_and_named(0), "a new strike of the class was refused");
 }

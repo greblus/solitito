@@ -158,7 +158,6 @@ fn connect_switches(ui: &AppWindow, cfg: &Rc<RefCell<Settings>>) {
     ui.on_interval_in_order_changed(saving(cfg, |s, on| s.interval_in_order = on));
     ui.on_debug_console_changed(saving(cfg, |s, on| s.debug_console = on));
     ui.on_show_input_meter_changed(saving(cfg, |s, on| s.show_input_meter = on));
-    ui.on_show_heard_changed(saving(cfg, |s, on| s.show_heard = on));
     ui.on_quick_open_changed(saving(cfg, |s, on| s.quick_options_open = on));
     ui.on_sidebar_collapsed_changed(saving(cfg, |s, on| s.sidebar_collapsed = on));
     ui.on_shuffle_chords_changed(saving(cfg, |s, on| s.shuffle_chords = on));

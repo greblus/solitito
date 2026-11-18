@@ -221,12 +221,6 @@ component ProgressChip inherits Rectangle {
     }
 }
 
-/// A note the model hears, and whether the chord asked for has it.
-export struct HeardNote {
-    name: string,
-    in_chord: bool,
-}
-
 /// The arrow on anything that opens downwards: the side navigation's folding
 /// entries and the drop-down lists. One shape for both, so it reads as one
 /// gesture wherever it appears.
@@ -979,13 +973,11 @@ export global Tr {
     in-out property <string> close: "Close";
     in-out property <string> settings_title: "Settings & Calibration";
     in-out property <string> nav_settings: "Settings";
-    in-out property <string> heard: "Hearing";
     in-out property <string> input_card: "Input";
     in-out property <string> input_hearing: "hearing";
     in-out property <string> input_silent: "silence";
     in-out property <string> gate_mark: "yellow line = silence threshold";
     in-out property <string> show_input_meter: "Input meter in the side bar";
-    in-out property <string> show_heard: "The Hearing bar under the exercise";
     in-out property <string> chip_in_order: "In order";
     in-out property <string> chip_single: "Single notes";
     in-out property <string> chip_quick: "Quick crediting";
@@ -1202,6 +1194,8 @@ export component AppWindow inherits Window {
     property <length> sidebar_w: root.sidebar_collapsed
         ? 28px + 40px * TextScale.sidebar
         : 240px * max(1, TextScale.sidebar);
+    // Folded and unfolded as a slide, the exercise moving with it.
+    animate sidebar_w { duration: 220ms; easing: ease-in-out; }
     property <length> content_w: 550px;
     /// One height for the strip above the practice column and the cards
     /// below it, so the two frame the column evenly.
@@ -1249,8 +1243,6 @@ export component AppWindow inherits Window {
     in property <[Chip]> progress;
     /// What is being heard: the chord the model names in Chords, the note the
     /// ear reads elsewhere - and the notes the model hears sounding.
-    in property <string> heard_name: "";
-    in property <[HeardNote]> heard_notes;
     in property <string> next_chord: "";
     /// Stepping through the progression by hand, offered while paused so a
     /// chord that has gone by can be played again. -1 back, +1 forward.
@@ -1578,8 +1570,6 @@ export component AppWindow inherits Window {
     callback debug_console_changed(bool);
     in-out property <bool> show_input_meter: false;
     callback show_input_meter_changed(bool);
-    in-out property <bool> show_heard: false;
-    callback show_heard_changed(bool);
     /// The quick options of the mode on screen, unfolded under its entry in
     /// the side navigation. Remembered.
     in-out property <bool> quick_open: false;
@@ -1671,8 +1661,7 @@ export component AppWindow inherits Window {
             || (root.current_mode == 0 && root.show_diagrams
                 && root.chord_diagrams.length > 0));
     /// A mode that walks a progression: the arrows beside the pause step
-    /// through it, and the Hearing bar names what is played against it. A
-    /// scale is one item, and an arpeggio study one chord - what moves there
+    /// through it. A scale is one item, and an arpeggio study one chord - what moves there
     /// is the key.
     /// The fretboard trainer's line of names: the note in a tile, where to
     /// play it in a pill under it.
@@ -2814,7 +2803,7 @@ export component AppWindow inherits Window {
                 // instead of six small ones stacked in two.
                 // Two rows take the footer's height too when it is off.
                 property <length> head_room: root.chord_diagrams_2.length == 0 ? 340px
-                    : root.show_heard ? 172px : 200px;
+                    : 200px;
                 property <length> dw: min(self.head_room,
                     (root.box_w - 70px) / (self.widest + (self.widest - 1) / 9));
                 spacing: self.dw / 9;
@@ -3089,10 +3078,9 @@ export component AppWindow inherits Window {
                 // than the window and sits centred in it, so a width taken from
                 // `root.width` overflowed to the right and the long phrases
                 // came out pushed off centre.
-                // Two fifths of the height where the Hearing bar is off, a
-                // little less with it: what the column has left over the name,
-                // the caption and the pause.
-                property <length> box_h: min(root.height * (root.show_heard && root.walks_progression ? 0.37 : 0.42), 380px);
+                // Two fifths of the height: what the column has left over the
+                // name, the caption and the pause.
+                property <length> box_h: min(root.height * 0.42, 380px);
                 property <length> box_w: min(parent.width, self.box_h * root.tab_aspect);
                 // On a card, as the chord shapes are: the drawing's ground is
                 // the card colour, so the corners and the border are all there
@@ -3151,73 +3139,7 @@ export component AppWindow inherits Window {
                 }
             }
         }
-        
-        // FOOTER - what is heard. An option, off by default: while playing it
-        // pulls the eye from the shapes. The chord to come is in the strip
-        // at the top.
-        if !root.show_settings && root.show_heard && root.walks_progression : Rectangle {
-            height: root.bar_h;
-            HorizontalLayout {
-                alignment: center;
-                // As wide as five notes and a name need, not the window: across
-                // a wide one it was a long bar with everything at its left end.
-                Rectangle {
-                    width: min(parent.width, 520px);
-                    background: Theme.panel;
-                    border-radius: 14px;
-                    border-width: 1px;
-                    border-color: Theme.line;
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        spacing: 14px;
-                        alignment: start;
-                        // Fixed widths: the name changes with every reading,
-                        // and a column sized to it moved the notes beside it
-                        // left and right as it did.
-                        Text {
-                            width: 50px;
-                            text: Tr.heard;
-                            font-size: 12px;
-                            color: Theme.dim;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            width: 130px;
-                            text: root.heard_name;
-                            font-size: 20px;
-                            font-weight: 700;
-                            color: Theme.text;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        HorizontalLayout {
-                            spacing: 6px;
-                            alignment: start;
-                            for n in root.heard_notes : VerticalLayout {
-                                alignment: center;
-                                // One width for every note, so a sharp beside a
-                                // natural moves nothing.
-                                Rectangle {
-                                    width: 38px;
-                                    height: 28px;
-                                    border-radius: 7px;
-                                    background: n.in_chord ? Theme.ok-chord-bg : Theme.raised-hover-2;
-                                    Text {
-                                        text: n.name;
-                                        font-size: 13px;
-                                        font-weight: 600;
-                                        color: n.in_chord ? Theme.ok : Theme.dim;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+
     }
 
     // SETTINGS PANEL
@@ -3371,16 +3293,6 @@ export component AppWindow inherits Window {
                                     toggled => { root.show_input_meter_changed(self.checked); }
                                 }
                                 Text { text: Tr.show_input_meter; color: Theme.label; vertical-alignment: center; }
-                            }
-
-                            HorizontalLayout {
-                                alignment: start;
-                                spacing: 15px;
-                                CheckBox {
-                                    checked <=> root.show_heard;
-                                    toggled => { root.show_heard_changed(self.checked); }
-                                }
-                                Text { text: Tr.show_heard; color: Theme.label; vertical-alignment: center; }
                             }
 
                             // How the judge weighs what it hears. Measured defaults;

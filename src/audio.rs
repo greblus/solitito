@@ -238,11 +238,22 @@ impl AudioAnalysis {
         self.recent_hops.push_back(reading);
     }
 
-    /// A window past the noise gate: what was read off it.
+    /// A window past the noise gate: what was read off it. Just after an
+    /// attack the ear reads through the filters at the end of the window,
+    /// otherwise through those in the middle - see `EAR_FRESH_HOPS`. The
+    /// attack is any the flux detector or the strike detector reported, both
+    /// marked before this.
     pub fn hear(&mut self, reading: &Reading) {
-        self.voices = reading.voices;
-        self.cqt_pitch = reading.note.map(|n| n % 12);
-        self.cqt_semitone = reading.note;
+        let fresh = self.flux_age <= EAR_FRESH_HOPS
+            || self.class_strike_age.iter().any(|&age| age <= EAR_FRESH_HOPS);
+        let (note, voices) = if fresh {
+            (reading.note, reading.voices)
+        } else {
+            (reading.note_centred, reading.voices_centred)
+        };
+        self.voices = voices;
+        self.cqt_pitch = note.map(|n| n % 12);
+        self.cqt_semitone = note;
         self.gate_open = true;
         self.push_frame(&reading.features);
         self.chroma_sum = reading.chroma;
@@ -394,11 +405,16 @@ impl CqtAnalyzer {
         let (cqt, chroma, bass) = self.compute_cqt_chroma(&amplified, boost_enabled, boost_gain);
         let ear = if centred_ear() { cqt.clone() } else { self.ear_cqt(&amplified, boost_enabled, boost_gain) };
         let scored = mono_pitch(&ear);
+        let scored_centred = mono_pitch(&cqt);
         // Four is a grip: more voices than that in one frame is not a thing
         // six strings under one hand can be.
-        let voices = crate::voices::voices(&ear, 4)
-            .iter()
-            .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12));
+        let voices_of = |cqt: &[f32]| {
+            crate::voices::voices(cqt, 4)
+                .iter()
+                .fold(0u16, |mask, &(semitone, _)| mask | 1 << (semitone % 12))
+        };
+        let voices = voices_of(&ear);
+        let voices_centred = voices_of(&cqt);
         let mut features = Vec::with_capacity(TOTAL_FEATURES);
         features.extend_from_slice(&cqt);
         features.extend_from_slice(&chroma);
@@ -411,6 +427,8 @@ impl CqtAnalyzer {
             note: scored.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n),
             scored,
             voices,
+            note_centred: scored_centred.filter(|&(_, s)| s >= MONO_MIN_SCORE).map(|(n, _)| n),
+            voices_centred,
         }
     }
 
@@ -459,7 +477,26 @@ pub struct Reading {
     pub scored: Option<(usize, f32)>,
     /// The classes sounding, one bit each - see `voices::voices`.
     pub voices: u16,
+    /// The same two read through the filters in the middle of the window.
+    pub note_centred: Option<usize>,
+    pub voices_centred: u16,
 }
+
+/// Hops after an attack in which the ear reads through the filters at the
+/// end of the window: 0.26 s. 12, 16 and 20 hops named lines equally fast; 16
+/// left the fewest false credits on AtoA.
+///
+/// Those name a note just struck in 24 to 96 ms, where the filters in the
+/// middle take 256 to 272 - but on a note dying away they misread. Their
+/// filters do not all reach back equally far: a low one, 400 ms long, still
+/// holds what was played before, while a high one holds only the newest
+/// 50 ms. Late in a note the two halves add up to a note nobody played, most
+/// often a fourth above - the note whose third harmonic was played: on AtoA
+/// those false credits went from 9 to 17, and all of them from 62 and 37 to
+/// 77 and 52; within this window, 63 and 41. Past this many hops the filters in
+/// the middle have caught up with the new note and are steadier.
+/// See `docs/judge-measurements.md#the-ear-at-the-end-of-the-window`.
+const EAR_FRESH_HOPS: u32 = 16;
 
 /// The noise gate: whether a window is playing or silence.
 ///

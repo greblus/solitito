@@ -3,7 +3,7 @@
 #
 #   dist/scorecard.sh OUT_DIR
 #
-# Builds the release test binary once and copies it into OUT_DIR, so the
+# Builds the release test binary once (or takes SCORECARD_BIN) and copies it into OUT_DIR, so the
 # working tree can change while the measurements run. Each measurement goes
 # to its own file; `diff -r BEFORE AFTER` shows what a change did.
 #
@@ -21,7 +21,10 @@ material="${SOLITITO_MATERIAL:-$HOME/Documents}"
 strip_times() { sed -E 's/finished in [0-9.]+s/finished/; s/[0-9]+ filtered out/N filtered out/'; }
 strip_warnings() { awk '/^warning: /{skip=1} skip&&/^$/{skip=0; next} !skip'; }
 
-bin=$(cargo test --release --no-run --message-format=json 2>/dev/null \
+# SCORECARD_BIN measures a test binary already built - one build, several
+# variants switched by the environment.
+bin="${SCORECARD_BIN:-}"
+[ -n "$bin" ] || bin=$(cargo test --release --no-run --message-format=json 2>/dev/null \
     | python3 -c 'import json,sys
 for line in sys.stdin:
     m = json.loads(line)

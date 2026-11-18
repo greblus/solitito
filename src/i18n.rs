@@ -72,7 +72,6 @@ pub struct Strings {
     /// The settings entry of the side navigation, which draws its own icon.
     pub nav_settings: &'static str,
     /// The label of the bar that says what the app hears.
-    pub heard: &'static str,
     /// The input card in the side navigation: its label, its state above
     /// and below the silence threshold, and what the yellow line is.
     pub input_card: &'static str,
@@ -80,7 +79,6 @@ pub struct Strings {
     pub input_silent: &'static str,
     pub gate_mark: &'static str,
     pub show_input_meter: &'static str,
-    pub show_heard: &'static str,
     /// The badge under an interval tile: credited, asked for now, later in the
     /// order, or - in free order - any of them.
     /// Quick switches on the Intervals screen; the full wording is in settings.
@@ -356,13 +354,11 @@ pub const EN: Strings = Strings {
     close: "Close",
     settings_title: "Settings & Calibration",
     nav_settings: "Settings",
-    heard: "Hearing",
     input_card: "Input",
     input_hearing: "hearing",
     input_silent: "silence",
     gate_mark: "yellow line = silence threshold",
     show_input_meter: "Input meter in the side bar",
-    show_heard: "The Hearing bar under the exercise",
     chip_in_order: "In order",
     chip_single: "Single notes",
     chip_quick: "Quick crediting",
@@ -604,13 +600,11 @@ pub const PL: Strings = Strings {
     close: "Zamknij",
     settings_title: "Ustawienia i kalibracja",
     nav_settings: "Ustawienia",
-    heard: "Słyszę",
     input_card: "Wejście",
     input_hearing: "słyszę",
     input_silent: "cisza",
     gate_mark: "żółta kreska = próg ciszy",
     show_input_meter: "Miernik wejścia w pasku bocznym",
-    show_heard: "Pasek „Słyszę” pod ćwiczeniem",
     chip_in_order: "Po kolei",
     chip_single: "Pojedynczo",
     chip_quick: "Szybkie zaliczanie",
@@ -886,13 +880,11 @@ mod tests {
             ("chords", EN.chords, PL.chords),
             ("settings_title", EN.settings_title, PL.settings_title),
             ("nav_settings", EN.nav_settings, PL.nav_settings),
-            ("heard", EN.heard, PL.heard),
             ("input_card", EN.input_card, PL.input_card),
             ("input_hearing", EN.input_hearing, PL.input_hearing),
             ("input_silent", EN.input_silent, PL.input_silent),
             ("gate_mark", EN.gate_mark, PL.gate_mark),
             ("show_input_meter", EN.show_input_meter, PL.show_input_meter),
-            ("show_heard", EN.show_heard, PL.show_heard),
             ("chip_in_order", EN.chip_in_order, PL.chip_in_order),
             ("chip_single", EN.chip_single, PL.chip_single),
             ("chip_quick", EN.chip_quick, PL.chip_quick),

@@ -750,7 +750,7 @@ pub(crate) fn frames_pass(a: &mut MyApp, n: usize, dt: f32) {
 /// exercising the older evidence - which is the fallback path and wants
 /// testing too.
 fn credit(onset: u64) -> Credit {
-    Credit { onset, flux: 0, class_strike: 0, octave: 0, semitone: None, settle: 0.0, left: false }
+    Credit { onset, flux: 0, class_strike: 0, octave: 0, semitone: None, settle: 0.0, own_strike: 0.0, left: false }
 }
 
 pub(crate) fn app() -> MyApp {
