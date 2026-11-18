@@ -36,7 +36,10 @@ jobs:
         run: |
           V="${{ github.event.inputs.ort_version }}"
           if [ -z "$V" ]; then
-            V=$(curl -fsSL https://api.github.com/repos/microsoft/onnxruntime/releases/latest \
+            # With the job's own token: unauthenticated, the API answers a
+            # runner's shared address only so often, and a release failed here.
+            V=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
+                https://api.github.com/repos/microsoft/onnxruntime/releases/latest \
                 | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
           fi
           [ -n "$V" ] || { echo "could not resolve ONNX Runtime version"; exit 1; }
