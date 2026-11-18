@@ -6,8 +6,11 @@
 through an audio interface (recommended) or a microphone, recognises what you are playing,
 and walks you through jazz standards, intervals, scales, arpeggios and interval formulas.
 
-Recognition runs on a small neural network (7.3M parameters) exported to ONNX. Everything —
-DSP, inference, UI — happens locally on the CPU. 
+Chords are recognised by a small neural network (7.3M parameters) exported to ONNX. Single
+notes — scales, arpeggios, the fretboard, intervals and formulas played one at a time — are
+heard by a pitch estimate read straight off the CQT spectrum, with a tiny onset model (1 MB)
+saying which string was just struck; the chord network is not run there at all. Everything —
+DSP, inference, UI — happens locally on the CPU.
 
 <div align="center">
 <img width="560" alt="Chords: full grips and shell voicings, the key of the song in the side bar" src="docs/screenshots/en/solitito_chords.png" />

@@ -822,3 +822,130 @@ the string before it strikes it - raises the level enough has not been
 measured; nor has letting the rise of the class itself answer for the
 level's.
 
+
+## The engine in 0.5.18
+
+Measured with `dist/scorecard.sh`, one frozen test binary per variant: the
+engine of 0.5.17 (`f4da3c9`) against each change alone and all of them
+together. Results of the last runs in `target/scorecard/`.
+
+### The ear at the end of the window
+
+*`src/audio.rs`, `end_aligned`, `EAR_FRESH_HOPS`*
+
+Every CQT filter of `dsp_weights.json` sits in the middle of the 8192-sample
+window, so the newest sample it sees lies before the end of the window by
+half of what the filter is shorter than the window:
+
+  E2, the low E      filter 414 ms   blind to the last  49 ms
+  A2                         310 ms                     101 ms
+  G3                         174 ms                     169 ms
+  E4, the high e             104 ms                     204 ms
+  E5                          52 ms                     230 ms
+  C7, high harmonics          16 ms                     248 ms
+
+`mono_pitch` sums harmonics, which sit in the high bins - the ones that look
+furthest back. Slid to the end of the window (a phase ramp on the same
+weights), on a synthetic signal a new note is named 24 to 96 ms after its
+strike instead of 256 to 272 (`how_soon_the_ear_names_a_new_note`). Through
+the judge:
+
+  line at 0.40 s a note                      1/8 -> 8/8
+  Harris scales falling, 0.30 s a note       1/9 -> 9/9
+  ordinary path, median to the credit        ~400 -> ~150 ms
+  AtoA median to the credit, chords allowed / one at a time
+                                             156 / 220 -> 39 / 49 ms
+
+Used all the time, it misreads late in a note: a low filter, 400 ms long,
+still holds what was played before, a high one the newest 50 ms, and the two
+halves add up to a note nobody played, most often a fourth above. AtoA,
+classes credited that nobody played (detector gate, chords allowed / one at
+a time):
+
+  0.5.17, filters in the middle          62 / 37
+  end-aligned all the time               77 / 52
+  end-aligned 16 hops after an attack    63 / 41
+  12 and 20 hops                         lines as fast, more false credits
+
+It also brought the repeats of `credit_own_strike` and runs of Ted Greene's
+exercises stopping halfway (3 with the filters at the end all the time), and
+the variant with the filters in the middle had none of these - so every one
+of them came from this change.
+
+Open:
+
+- Greene: two runs stop halfway (order 9 G7 with tensions, order 16 G7
+  without; 0.5.17 none). The detector does not report the second F, and the
+  rule for a note gone quiet and back does not fire, because the F leaves
+  `voices` too briefly. Counting "gone quiet" on the voices from the middle
+  of the window gave 5 stops - dropped.
+- (Settled.) An arpeggio whose note before rings 0.3 s under the next,
+  ordinary path: D m7 at 0.50 and 0.40 s a note 5/5 with end-aligned filters
+  all the time, 1/5 with 16 hops. The ear named the ringing note in both
+  sets; the model's pitch head, which settled it, is not asked there any
+  more. Now the voices do - see `ear_holds_only_a_ring` in
+  *The ear holding a ring*: lines ringing 0.3 s, D dorian / G mixolydian /
+  D m7, 0.50 s 8,8,1 -> 8,8,5; 0.40 s 8,5,1 -> 8,8,5; 0.30 and 0.25 s
+  1,4,1 -> 8,8,5; 0.20 s 1,4,1 -> 8,5,2.
+
+### credit_own_strike
+
+*`src/state.rs`, `CREDIT_OWN_STRIKE`*
+
+The ear at the end of the window names a note about 25 ms after its strike;
+the strike detector answers 22 to 32 ms after one. Its report then came after
+the credit and passed for a new strike of that class. On AtoA spliced into
+repeats:
+
+                                         0.5.17   end-aligned   + 0.2 s
+  a repeat allowed while it only rings    0/51       14/51       0/51
+  struck again after 0.8 s, in time       48/51      35/51      49/51
+  struck again after 1.2 s, in time       50/51      36/51      50/51
+  credited too early                        0          14          0
+
+0.2 s is well inside the detector's refractory, 0.6 s, within which it does
+not report the class again anyway.
+
+### The noise gate
+
+*`src/audio.rs`, `Gate`*
+
+The level of the newest 1024 samples instead of the whole window, opening on
+the threshold and closing 6 dB under it after 10 hops. The old gate stays as
+`SOLITITO_GATE_WINDOW` for comparing. AtoA 6 dB quieter, the app's threshold
+of -34 dB (`SOLITITO_ATOA_GAIN_DB=-6`, `SOLITITO_GATE_DB=-34`):
+
+                                old gate   new gate
+  G mixolydian, 0.50 s a note     5/8        8/8
+  D dorian, 0.40 s a note         1/8        8/8
+  D m7 arpeggio, 0.40 s a note    1/5        5/5
+
+At the recording's own level the two are the same.
+
+### The chord model where notes come one at a time
+
+*`src/state.rs`, `SLOW_MODEL_PERIOD`*
+
+In the user's four Intervals sessions (`gitara-g1`, `g2`, `g3`, `sesja-g1`),
+388 credits, the branch of each credit is logged: all 388 the ear's, none
+the model's. Run through the whole scorecard with the model asked in Scales,
+Arpeggios, the Fretboard and one at a time every 200 ms, and not at all: the
+two came out the same to the last digit. So it is not asked there.
+
+Cost, AtoA through `--file` on the user's laptop (Ryzen 3 5300U, one pass
+38.6 ms; the thin client 69 ms), share of one core:
+
+                       0.5.17   every 200 ms   never
+  Scales                113%        35%         11%
+  Arpeggios             111%        34%         11%
+  Chords                111%       108%          -
+
+### seventh_heard
+
+*`src/state/chords_mode.rs`*
+
+`akordy-g1`, 17 chords strummed: 13 passed before, every failure a CMaj7,
+named C7 at 0.8 to 0.9 while the pitch head heard C, E and B and no B♭. With
+the rule: 17/17. `arpeggia-g1`, 9 chords as arpeggios: 8/9 both ways; CMaj7
+passes after 1.5 s instead of 3.7 s. Measured with
+`chord_probe::chords_named_on_a_recording`.

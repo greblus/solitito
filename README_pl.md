@@ -6,8 +6,11 @@
 interfejs audio (zalecany) albo mikrofon, rozpoznaje, co grasz, i prowadzi przez standardy
 jazzowe, interwały, skale, arpeggia i formuły interwałowe.
 
-Rozpoznawanie działa na niewielkiej sieci neuronowej (7,3 mln parametrów) wyeksportowanej do
-ONNX. Wszystko — DSP, wnioskowanie, interfejs — dzieje się lokalnie.
+Akordy rozpoznaje niewielka sieć neuronowa (7,3 mln parametrów) wyeksportowana do ONNX.
+Pojedyncze dźwięki — skale, arpeggia, gryf, interwały i formuły grane pojedynczo — słyszy
+estymata wysokości czytana wprost z widma CQT, a malutki model onsetów (1 MB) mówi, która
+struna została właśnie uderzona; sieć akordowa w ogóle wtedy nie działa. Wszystko — DSP,
+wnioskowanie, interfejs — dzieje się lokalnie.
 
 <div align="center">
 <img width="560" alt="Akordy: pełne chwyty i shell voicingi, tonacja utworu w pasku bocznym" src="docs/screenshots/pl/solitito_chords.png" />

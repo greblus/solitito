@@ -14,9 +14,10 @@ się tam nie psuje — model raportuje oba dźwięki, które usłyszał, bo oba 
 Dlatego tryby nutowe zadają drugie pytanie pojedynczej ramce CQT, która nie ma pamięci: suma
 harmoniczna po prążkach logarytmicznej magnitudy wskazuje klasę wysokości brzmiącą teraz. Na
 tej samej gamie nazwała bieżący dźwięk w 57% przypadków i ani razu nie wskazała dźwięku,
-którego nie zagrano. Pozostałe opóźnienie bierze się z okna FFT o długości 8192 próbek,
-szerokiego na pół sekundy — i to jest zarazem powód, dla którego dźwięki krótsze niż mniej
-więcej 0,4 s pozostają trudne.
+którego nie zagrano. Opóźnienie, jakie miała, brało się z okna FFT o długości 8192 próbek,
+szerokiego na pół sekundy, z każdym filtrem na jego środku: nowy dźwięk docierał do estymaty
+o ćwierć sekundy za późno. Od 0.5.18 estymata tuż po ataku czyta filtrami dosuniętymi do końca
+okna — patrz *Ucho na końcu okna* niżej.
 
 Domyślnie ta estymata jedynie **dodaje** drogę zaliczenia, ponieważ przegłosowanie modelu
 kosztowałoby coś, co warto zachować: głowica wysokości jest polifoniczna, więc uderzenie
@@ -67,16 +68,40 @@ odpowie właśnie jemu. Dlatego zaliczenie przez pół sekundy nadąża za liczn
 dźwięku, dopóki estymata wciąż go czyta. Szarpnięcie nie przekaże własnego spóźnionego
 uderzenia następnemu krokowi.
 
+Detektor uderzeń spóźnia się tak samo, tylko mniej: odpowiada 22–32 ms po szarpnięciu, a od
+0.5.18 ucho potrafi nazwać dźwięk po 25. Zgłoszenie detektora przychodziło wtedy po zaliczeniu
+i uchodziło za nowe uderzenie: dźwięk, który tylko wybrzmiewał, zaliczał się ponownie 14 razy
+na 51. Dlatego przez 0,2 s po zaliczeniu uderzenie jego klasy jest tym, za które zaliczono.
+Nic prawdziwego na tym nie przepada — detektor i tak nie zgłasza klasy dwa razy w ciągu 0,6 s.
+Wybrzmiewające dźwięki zaliczone ponownie: 0 z 51; uderzone ponownie po 0,8 i 1,2 s, zaliczone
+w porę: 49 i 50 z 51, żaden za wcześnie.
+
 Odbezpieczanie jest względne. Pod uderzonym i pozostawionym akordem odpowiedź głowicy dla
 dźwięku nie opada do zera, lecz wisi — na mierzonym materiale między 0,11 a 0,29 przez całą
 sekundę — więc stały próg nigdy by się nie odbezpieczył i kolejnego uderzenia nie dałoby się
 w ogóle zobaczyć. Dźwięk jest odbezpieczony, gdy jego odpowiedź spadnie poniżej trzech
 dziesiątych szczytu, który zaliczył poprzednie uderzenie.
 
+### Sędzia widzi każdy krok
+
+Interwały, Skale, Arpeggia i Gryf są sądzone na każdym kroku dźwięku — 16 ms — a nie wtedy,
+gdy odpowie model. Skale, Arpeggia i Gryf czekały kiedyś na model, a po ciszy jego pierwsza
+odpowiedź przychodzi dopiero po 0,38 s, gdy okno zapełni się do połowy.
+
+Kroki nie giną też po drodze. Karta dźwiękowa oddaje próbki porcjami — na laptopie
+użytkownika mniej więcej co 23 ms — a zegar okna czytał z każdej porcji tylko najnowszy krok:
+36% kroków granych na żywo nie było w ogóle sądzonych. Od 0.5.18 wątek dźwięku odkłada odczyt
+każdego kroku do kolejki, a sędzia przerabia je wszystkie przy każdym tyknięciu okna. Kroków
+niewidzianych: zero. Liczy je `SOLITITO_HOPS=1`.
+
+Część progów sędziego liczona jest w krokach — choćby to, jak długo ucho musi trzymać dźwięk —
+i część z nich dobierano, próbując program na żywo, czyli na dwóch krokach z trzech. Na żywo
+program może więc zaliczać odrobinę szybciej niż wcześniej.
+
 ### Zaliczanie w Interwałach
 
-Interwały sprawdzają każdą nową ramkę audio odczytaną przez interfejs, również gdy model
-nie ma dość sygnału, żeby odpowiedzieć. Ponowne odczytanie tej samej ramki nie wydłuża
+Interwały sprawdzają każdą nową ramkę audio, również gdy model nie ma dość sygnału, żeby
+odpowiedzieć. Ponowne odczytanie tej samej ramki nie wydłuża
 zaliczenia, a przerwa w dostarczaniu ramek zeruje rozpoczęte potwierdzenie. Odpowiedź
 modelu wygasa po 250 ms bez aktualizacji.
 
@@ -223,15 +248,61 @@ grane legato, niskie struny, których detektor nie widzi — i większość skł
 akordu, dlatego pozostałe tryby obywają się bez niego. W Formułach kosztuje to cichą albo
 legato nutę, którą trzeba zagrać jeszcze raz kostką.
 
+### Ucho na końcu okna
+
+Estymata czyta CQT okna 8192 próbek, pół sekundy, a każdy z jej filtrów postawiony był na
+środku tego okna. Filtr jest tak długi, jak potrzebuje jego dźwięk — 414 ms dla niskiego E,
+104 ms dla wysokiego e, 16 ms dla harmonicznych wyżej — więc najnowsza próbka, jaką filtr w
+ogóle widzi, leży 49–248 ms przed końcem okna. Estymata sumuje harmoniczne, które siedzą w
+krótkich, wysokich filtrach: dokładnie tych, które patrzą najdalej wstecz. To była ta ćwierć
+sekundy, której potrzebowała, żeby nazwać nowy dźwięk.
+
+Od 0.5.18 ucho ma drugi zestaw filtrów, dosuniętych do końca okna. Przesunięcie filtra w czasie
+to w widmie mnożenie przez rampę fazy, więc zestaw liczy się z tych samych wag przy starcie
+programu: bez nowego pliku, a przycięcie wag zostaje takie samo. Model akordów czyta dalej
+filtry ze środka — na nich był uczony.
+
+Na sygnale syntetycznym ucho na końcu okna nazywa nowy dźwięk 24–96 ms po uderzeniu, wobec
+256–272 ms. Przez całego sędziego, na liniach sklejonych z nut AtoA:
+
+| | 0.5.17 | 0.5.18 |
+| --- | --- | --- |
+| linia po 0,40 s na dźwięk, zaliczone | 1 z 8 | **8** z 8 |
+| skale Harrisa w dół, 0,30 s na dźwięk | 1 z 9 | **9** z 9 |
+| zwykła droga, mediana od uderzenia do zaliczenia | około 400 ms | **około 150 ms** |
+| AtoA, mediana do zaliczenia (akordy dozwolone / pojedynczo) | 156 / 220 ms | **39 / 49 ms** |
+
+Pod koniec dźwięku te filtry mylą. Nie sięgają wstecz jednakowo daleko: niski trzyma jeszcze
+to, co grano wcześniej, wysoki tylko ostatnie 50 ms, i gdy dźwięk wygasa, obie połówki składają
+się w dźwięk, którego nikt nie zagrał — najczęściej kwartę wyżej, czyli ten, którego trzecią
+harmoniczną jest zagrany. Używane cały czas podniosły na AtoA liczbę klas zaliczonych bez
+zagrania z 62 i 37 do 77 i 52. Dlatego ucho czyta nimi tylko przez 16 kroków, 0,26 s, po ataku —
+z fluxu albo z detektora uderzeń — a potem filtrami ze środka: 63 i 41. 12 i 20 kroków nazywały
+linie tak samo szybko i zostawiały więcej fałszywych zaliczeń.
+
+Dźwięk uderzony, gdy poprzedni jeszcze wybrzmiewa — arpeggio przez struny — nie jest głośniejszy
+w żadnym zestawie filtrów: ucho dalej nazywa wybrzmiewający. Rozstrzygała to kiedyś głowica
+wysokości modelu, a tam, gdzie gra się po jednym dźwięku, model nie jest już pytany. Teraz
+rozstrzygają głosy: gdy ucho nazywa dźwięk uderzony *wcześniej* niż zadany albo dopiero zaczyna
+nazywać zadany, ten przechodzi, jeśli detektor zgłosił jego uderzenie, a głosy go słyszą. Na
+liniach z poprzednim dźwiękiem wybrzmiewającym 0,3 s zwykła droga przeszła z 8, 8, 1 przy 0,5 s
+na dźwięk i 1, 4, 1 przy 0,3 s do 8, 8, 5 przy każdym tempie aż do 0,25 s.
+
+Otwarte zostaje: z ćwiczeń Teda Greene'a przepuszczonych przez sędziego dwa przebiegi stają w
+połowie, gdzie 0.5.17 nie zatrzymywało się wcale. Detektor nie zgłasza powtórzonego F, a reguła
+dźwięku, który ucichł i wrócił, nie widzi, że ucichł.
+
 ### Szybkie zaliczanie
 
-Zwykła droga zalicza pojedynczy dźwięk około 0,4 s po uderzeniu i ten czas nie idzie na
-decyzję, tylko na czekanie. Ucho czyta okno o długości pół sekundy i nazywa nowy dźwięk dopiero
-wtedy, gdy przeważy on w tym oknie nad poprzednim, czyli około 0,26 s po uderzeniu; potem
-odpowiedź musi się utrzymać przez 0,12 s. Na 388 zaliczeniach z sesji użytkownika ucho nazwało
-dźwięk 128 ms przed zaliczeniem — a detektor uderzeń, który odpowiada około 25 ms po ataku,
-350–370 ms przed nim. Dlatego linia pojedynczych dźwięków zaliczana jest w całości przy pół
-sekundy na nutę, a staje przy 0,4 s: to mniej więcej dwa dźwięki na sekundę.
+Do 0.5.17 zwykła droga zaliczała pojedynczy dźwięk około 0,4 s po uderzeniu i ten czas nie szedł
+na decyzję, tylko na czekanie. Ucho czytało okno o długości pół sekundy i nazywało nowy dźwięk
+dopiero wtedy, gdy przeważył on w tym oknie nad poprzednim, czyli około 0,26 s po uderzeniu;
+potem odpowiedź musiała się utrzymać przez 0,12 s. Na 388 zaliczeniach z sesji użytkownika ucho
+nazwało dźwięk 128 ms przed zaliczeniem — a detektor uderzeń, który odpowiada około 25 ms po
+ataku, 350–370 ms przed nim. Linia pojedynczych dźwięków zaliczała się w całości przy pół
+sekundy na nutę, a stawała przy 0,4 s: to mniej więcej dwa dźwięki na sekundę. Z uchem na końcu
+okna zwykła droga potrzebuje około 0,15 s, a linia przechodzi przy 0,25 s na nutę — o ile każdy
+dźwięk gasi poprzedni.
 
 Dwa źródła są szybsze od ucha i żadne nie wystarcza samo:
 
@@ -256,16 +327,20 @@ kroki z rzędu. Uderzenie, za które już zaliczono, nie liczy się drugi raz, w
 dwa razy nadal trzeba uderzyć dwa razy. Wszystko inne zostaje zwykłej drodze, która zalicza
 tak jak zawsze — dźwięk przegapiony przez detektor jest więc spóźniony, nie stracony.
 
-Zmierzone przez całego sędziego, na liniach sklejonych z nut AtoA i sądzonych tak, jak sądzą
-Skale — skala ośmiu dźwięków, druga taka, arpeggio pięciu — zaliczone dźwięki i mediana czasu
-od uderzenia do zaliczenia:
+Zmierzone przez całego sędziego w 0.5.18, na liniach sklejonych z nut AtoA i sądzonych tak, jak
+sądzą Skale — D dorycka, G miksolidyjska, arpeggio D m7 — zaliczone dźwięki z 8, 8 i 5 oraz
+mediana czasu od uderzenia do zaliczenia:
 
-| sekund na nutę | zwykła droga | szybka | szybka, poprzedni dźwięk dzwoni 0,3 s |
-| --- | --- | --- | --- |
-| 0,50 | 8, 8, 5 — 400 ms | 8, 8, 5 — 26–46 ms | 8, 8, 5 — 30–62 ms |
-| 0,40–0,25 | 1, 1, 1 | 8, 8, 5 | 8, 8, 5 |
-| 0,20 | 1, 1, 1 | 7, 7, 5 | 8, 8, 5 |
-| 0,15 | 1, 1, 1 | 7, 7, 4 | 8, 7, 4 |
+| sekund na nutę | zwykła droga | zwykła, poprzedni dźwięk dzwoni 0,3 s | szybka | szybka, poprzedni dźwięk dzwoni 0,3 s |
+| --- | --- | --- | --- | --- |
+| 0,50 | 8, 8, 5 — 150 ms | 8, 8, 5 — 142 ms | 8, 8, 5 — 26–38 ms | 8, 8, 5 — 30–42 ms |
+| 0,40 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 |
+| 0,30 i 0,25 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 |
+| 0,20 | 7, 5, 3 | 8, 5, 2 | 7, 7, 4 | 8, 8, 5 |
+| 0,15 | 2, 2, 2 | 2, 4, 2 | 7, 7, 4 | 7, 7, 4 |
+
+W 0.5.17 zwykła droga zaliczała poniżej 0,5 s na nutę po 1 dźwięku z każdej linii, a przy 0,5 s
+potrzebowała 400 ms na każdy; z dzwoniącym poprzednim dźwiękiem poniżej 0,5 s — po 1 z każdej.
 
 Dźwięki wciąż gubione przy 0,2 s i szybciej to uderzenia, których detektor nie zgłosił; linia
 jest sądzona po kolei, więc czeka tam na zwykłą drogę, a ta przy takim tempie nie zdąża. Na
@@ -279,9 +354,29 @@ własnej reguły i samo, na tym samym nagraniu nazwało inną klasę przez trzy 
 150 razy.
 
 To opcja, domyślnie włączona od wersji 0.5.17. Wszystko to jest zmierzone na nagraniach, a wejście
-na żywo dokłada to, czego nagranie nie ma — bufor karty dźwiękowej i sędziego, który czyta wątek
-audio z zegara okna. Gdyby na żywo zaliczała dźwięki, których nie grasz, wyłącz ją w szybkich
-opcjach: zostaje wtedy sama zwykła droga.
+na żywo dokłada to, czego nagranie nie ma — przede wszystkim bufor karty dźwiękowej; od 0.5.18
+sędzia widzi na żywo każdy krok, tak jak na nagraniu. Gdyby na żywo zaliczała dźwięki, których
+nie grasz, wyłącz ją w szybkich opcjach: zostaje wtedy sama zwykła droga.
+
+### Bramka szumu
+
+Bramka rozstrzyga, czy okno to gra, czy cisza; tego, co nazwie ciszą, nikt nie sądzi, a cisza
+przez 200 ms pozwala zaliczyć dźwięk ponownie. Kiedyś porównywała z progiem poziom całego
+półsekundowego okna, więc otwierała się późno na cichym ataku, zamykała późno po nim, a dźwięk
+wygasający w okolicy progu wypadał w połowie wybrzmienia.
+
+Od 0.5.18 liczy się poziom najnowszych 1024 próbek, 64 ms, a bramka ma dwie strony: otwiera się
+na progu, a zamyka dopiero, gdy poziom przez 10 kroków, 160 ms, był 6 dB poniżej niego. Dźwięk
+wygasający w okolicy progu już nie miga. Z AtoA zagranym 6 dB ciszej, przy progu programu
+−34 dB:
+
+| | stara bramka | nowa bramka |
+| --- | --- | --- |
+| G miksolidyjska, 0,50 s na dźwięk | 5 z 8 | **8** z 8 |
+| D dorycka, 0,40 s na dźwięk | 1 z 8 | **8** z 8 |
+| arpeggio D m7, 0,40 s na dźwięk | 1 z 5 | **5** z 5 |
+
+Przy zwykłym poziomie obie bramki zaliczają to samo.
 
 ### Które dźwięki brzmią
 
@@ -308,7 +403,9 @@ szukać na liście jednej konkretnej klasy.
 ### Ścieżka sygnału
 
 ```
-wejście audio → przepróbkowanie do 16 kHz → FFT (8192) → rzadki pseudo-CQT → cechy → model ONNX
+wejście audio → przepróbkowanie do 16 kHz → FFT (8192) → rzadki pseudo-CQT ─┬─ filtry na środku → cechy → model akordów
+                                                                           └─ filtry na końcu → ucho i głosy
+                 najnowsze próbki → detektor uderzeń, szybkie ucho, bramka szumu
 ```
 
 1. **Przepróbkowanie.** Wejście sprowadzane jest do 16 kHz. CQT obejmuje 6 oktaw od C1, więc
@@ -319,7 +416,11 @@ wejście audio → przepróbkowanie do 16 kHz → FFT (8192) → rzadki pseudo-C
    cechy.
 3. **Cechy.** 168 wartości na ramkę: 144 prążki CQT, 12 chromy i 12 prążków energii basu.
    Model widzi 48 ramek historii (0,77 s przy skoku 256 próbek).
-4. **Wnioskowanie.** Jedno przejście w przód co 40 ms.
+4. **Wnioskowanie.** Jedno przejście w przód co 40 ms tam, gdzie model akordów rozstrzyga,
+   i żadne tam, gdzie nie — patrz *Kiedy pytany jest model akordów* niżej.
+5. **Każdy krok.** Każdy krok 256 próbek, 16 ms, czytany jest raz: CQT, ucho, detektor uderzeń
+   i bramka. Odczyty czekają na sędziego w kolejce, więc żaden nie przepada, gdy okno
+   odrysuje się z opóźnieniem.
 
 Jądro CQT przechowywane jest w **rzadkim formacie CSR**. Pełne jądro ma 4097×144 = 589 968
 wag, ale skupiają się one wokół częstotliwości środkowej każdego prążka. Odrzucenie
@@ -356,5 +457,34 @@ fazie przy zamrożonej reszcie sieci; detektor robi to lepiej i od 0.5.10 tej g�
 w pliku, który ładuje aplikacja. Trzy wyjścia powyżej są co do bitu takie same jak z nią.
 Starszy trójgłowicowy model, `best_model_v2_take6.onnx`, wciąż ładuje się jako zapas, ale to
 wcześniejszy eksport i niektóre akordy nazywa inaczej.
+
+### Septyma wielka czy mała
+
+Głowica jakości myli obie septymy; głowica wysokości nie. Na nagraniu użytkownika z CMaj7
+uderzonym pięć razy model nazywał go niemal cały czas C7, z pewnością 0,8–0,9, a głowica
+wysokości słyszała C, E i H — septymę wielką — i żadnego B; nie przeszło ani jedno z pięciu.
+Dlatego w Akordach akord nazwany z dobrą prymą i drugą septymą przechodzi, gdy głowica wysokości
+słyszy prymę, tercję i zadaną septymę powyżej połowy, a drugą septymę poniżej. Na 17 uderzonych
+akordach użytkownika: przechodzi 17, wcześniej 13, a wszystkie porażki to CMaj7. Na 9 akordach
+granych arpeggiem nie zmieniło się nic poza CMaj7, który przechodzi po 1,5 s zamiast 3,7.
+
+### Kiedy pytany jest model akordów
+
+Model kosztuje niemal wszystko, co kosztuje program: jedno przejście trwa 38,6 ms na małym
+laptopie użytkownika (Ryzen 3 5300U) i 69 ms na jego cienkim kliencie, więc pytany co 40 ms
+zajmuje rdzeń i więcej. Tak często pytany jest tylko tam, gdzie jego odpowiedź rozstrzyga: w
+Akordach oraz w Interwałach i Formułach, gdy akordy są dozwolone. Tam, gdzie gra się po jednym
+dźwięku — Skale, Arpeggia, Gryf, Interwały i Formuły z *Pojedynczo* — nie jest pytany wcale i
+rozstrzyga ucho.
+
+To jest zmierzone, nie założone: z 388 zaliczeń w czterech sesjach Interwałów użytkownika 388
+było z ucha, żadne z modelu; a cała tablica wyników, z modelem pytanym w tych trybach co 200 ms
+albo wcale, wyszła identycznie co do cyfry. Na laptopie, AtoA odtwarzane przez `--file`:
+
+| tryb | 0.5.17 | 0.5.18 |
+| --- | --- | --- |
+| Skale | 113% rdzenia | **11%** |
+| Arpeggia | 111% | **11%** |
+| Akordy | 111% | 108% |
 
 ---

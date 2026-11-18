@@ -14,9 +14,11 @@ in the window.
 
 So the note modes ask a second question of a single CQT frame, which has no memory: a
 harmonic sum over the log-magnitude bins gives the pitch class sounding right now. On the same
-scale it named the current note 57% of the time and never named one that was not played. The
-remaining lag is the 8192-sample FFT window, half a second wide, which is also why notes
-shorter than about 0.4 s are still hard.
+scale it named the current note 57% of the time and never named one that was not played. What
+lag it had came from the 8192-sample FFT window, half a second wide, with every filter in its
+middle: a new note reached the estimate a quarter of a second late. Since 0.5.18 the estimate
+reads, just after an attack, through filters slid to the end of the window - see *The ear at
+the end of the window* below.
 
 By default that estimate only ADDS a way to pass, because overruling the model would cost
 something worth keeping: the pitch head is polyphonic, so strumming a whole chord walks its
@@ -64,18 +66,42 @@ and it would answer for it. A credit therefore keeps up with its own note's coun
 a second, for as long as the estimate is still reading that note. A pluck cannot pass its
 own late strike on to the step after it.
 
+The strike detector is late in the same way, only less: it answers 22 to 32 ms after the
+string is hit, and since 0.5.18 the ear can name a note in 25. The detector's report then
+arrived after the credit and passed for a new strike: a note only left to ring was credited
+again 14 times in 51. So for 0.2 s after a credit a strike of its class is the strike it was
+credited for. Nothing real is lost to this - the detector does not report a class twice within
+0.6 s anyway. Ringing notes credited again: 0 of 51; struck again after 0.8 and 1.2 s, credited
+in time: 49 and 50 of 51, none early.
+
 Re-arming is relative. Under a strummed chord left ringing the head's answer for a note does
 not fall back to nothing but hovers — 0.11 to 0.29 for a whole second on the measured
 material — so a fixed floor would never re-arm and the next strum could not be seen at all.
 A note is armed again once its answer drops below three tenths of the peak that counted the
 strike before it.
 
+### Every hop is judged
+
+Intervals, Scales, Arpeggios and the Fretboard trainer are judged on every hop of audio -
+16 ms - and not when the model answers. Scales, Arpeggios and the Fretboard used to wait for
+the model, and after a silence its first answer does not come for 0.38 s, until its window is
+half full.
+
+Nor are hops lost on the way. The sound card hands its samples over in portions - on the
+user's laptop about every 23 ms - and the window's clock read only the newest hop of each: 36%
+of the hops played live were never judged. Since 0.5.18 the audio thread keeps every hop's
+reading in a queue and the judge works through all of them at each tick of the window. Unseen
+hops: none. Counted with `SOLITITO_HOPS=1`.
+
+Some limits in the judge are counted in hops - how long the ear has to hold a note, for one -
+and some of them were set while trying the app live, that is on two hops of three. Live, the
+app can therefore credit a little sooner than it did.
+
 ### Crediting in Intervals
 
-Intervals checks each new audio frame observed by the UI, even when the model has too
-little signal to answer. Reading the same frame again does not extend a credit, and a gap
-in incoming frames resets the pending confirmation. Model answers expire after 250 ms
-without an update.
+Intervals checks each new audio frame, even when the model has too little signal to answer.
+Reading the same frame again does not extend a credit, and a gap in incoming frames resets the
+pending confirmation. Model answers expire after 250 ms without an update.
 
 The text strip and fretboard show the same credited steps, including notes played out of
 order. After the last note, the whole set stays green for 350 ms before the next chord.
@@ -215,15 +241,61 @@ the low strings, which the detector does not see - and most of a strummed chord'
 the other modes do without it. In Formulas the price is a quiet or legato note that has to be
 picked again.
 
+### The ear at the end of the window
+
+The estimate reads the CQT of a window of 8192 samples, half a second, and each of its filters
+was placed in the middle of that window. A filter is as long as its note needs - 414 ms for the
+low E, 104 ms for the high e, 16 ms for the harmonics above - so the newest sample a filter
+sees at all lies 49 to 248 ms before the end of the window. The estimate sums harmonics, which
+sit in the short, high filters: exactly the ones that look furthest back. That was the quarter
+of a second it took to name a new note.
+
+Since 0.5.18 the ear has a second set of filters, slid to the end of the window. Sliding a
+filter in time multiplies its transform by a phase ramp, so the set is computed from the same
+weights when the app starts: no new file, and the pruning stays as it was. The chord model
+still reads the filters in the middle - it was trained on them.
+
+On a synthetic signal the end-aligned ear names a new note 24 to 96 ms after it is struck,
+against 256 to 272 ms. Through the whole judge, on lines spliced from AtoA's notes:
+
+| | 0.5.17 | 0.5.18 |
+| --- | --- | --- |
+| a line at 0.40 s a note, credited | 1 of 8 | **8** of 8 |
+| Harris scales falling, 0.30 s a note | 1 of 9 | **9** of 9 |
+| ordinary path, median from the strike to the credit | about 400 ms | **about 150 ms** |
+| AtoA, median to the credit (chords allowed / one at a time) | 156 / 220 ms | **39 / 49 ms** |
+
+Late in a note these filters mislead. They do not all reach back equally far: a low one still
+holds what was played before, a high one only the newest 50 ms, and as a note dies away the two
+halves add up to a note nobody played - most often a fourth above, the note whose third
+harmonic was played. Used all the time, they took AtoA's classes credited that nobody played
+from 62 and 37 to 77 and 52. So the ear reads through them only for 16 hops, 0.26 s, after an
+attack - flux or the strike detector - and through the filters in the middle after that: 63 and
+41. 12 and 20 hops named lines equally fast and left more false credits.
+
+A note struck while the one before rings on - an arpeggio across strings - is louder in
+neither set of filters: the ear goes on naming the ringing note. The model's pitch head used to
+settle it, and where notes come one at a time the model is no longer asked. The voices settle it
+now: where the ear names a note struck *before* the one asked for, or has only begun to name
+the one asked for, that note passes if the strike detector reported it and the voices hear it.
+On lines with the note before ringing 0.3 s, the ordinary path went from 8, 8, 1 at 0.5 s a note
+and 1, 4, 1 at 0.3 s to 8, 8, 5 at every speed down to 0.25 s.
+
+Still open: of Ted Greene's exercises played through the judge, two runs stop halfway, where
+0.5.17 stopped none. The detector does not report a repeated F, and the rule for a note that
+went quiet and came back does not see it go quiet.
+
 ### Quick crediting
 
-The ordinary path credits a single note about 0.4 s after it is struck, and the time is not
-spent deciding: it is spent waiting. The ear reads a window of half a second and names a new
-note only once it outweighs the one before in that window, about 0.26 s after the strike; the
-answer then has to hold for 0.12 s. On 388 credits of the user's own sessions the ear had
-named the note 128 ms before the credit - and the strike detector, which answers some 25 ms
-after an attack, 350 to 370 ms before it. A line of single notes is therefore credited whole
-at half a second a note and stops at 0.4 s: about two notes a second.
+Until 0.5.17 the ordinary path credited a single note about 0.4 s after it was struck, and the
+time was not spent deciding: it was spent waiting. The ear read a window of half a second and
+named a new note only once it outweighed the one before in that window, about 0.26 s after the
+strike; the answer then had to hold for 0.12 s. On 388 credits of the user's own sessions the
+ear had named the note 128 ms before the credit - and the strike detector, which answers some
+25 ms after an attack, 350 to 370 ms before it. A line of single notes was credited whole at
+half a second a note and stopped at 0.4 s: about two notes a second. With the ear at the end
+of the window the ordinary path takes about 0.15 s and a line goes through at 0.25 s a note -
+as long as each note stops the one before.
 
 Two witnesses are quicker than the ear, and neither is good enough alone:
 
@@ -248,16 +320,20 @@ has been credited does not count again, so a class asked for twice still has to 
 twice. Everything else is left to the ordinary path, which credits as it always did - so a
 note the detector missed is late, not lost.
 
-Measured through the whole judge, on lines spliced from AtoA's notes and judged as Scales
-judges them - a scale of eight notes, another, an arpeggio of five - credited notes and the
-median time from the strike to the credit:
+Measured through the whole judge in 0.5.18, on lines spliced from AtoA's notes and judged as
+Scales judges them - D dorian, G mixolydian, a D m7 arpeggio - credited notes of 8, 8 and 5, and
+the median time from the strike to the credit:
 
-| seconds a note | ordinary | quick | quick, the note before ringing 0.3 s |
-| --- | --- | --- | --- |
-| 0.50 | 8, 8, 5 - 400 ms | 8, 8, 5 - 26 to 46 ms | 8, 8, 5 - 30 to 62 ms |
-| 0.40 to 0.25 | 1, 1, 1 | 8, 8, 5 | 8, 8, 5 |
-| 0.20 | 1, 1, 1 | 7, 7, 5 | 8, 8, 5 |
-| 0.15 | 1, 1, 1 | 7, 7, 4 | 8, 7, 4 |
+| seconds a note | ordinary | ordinary, the note before ringing 0.3 s | quick | quick, the note before ringing 0.3 s |
+| --- | --- | --- | --- | --- |
+| 0.50 | 8, 8, 5 - 150 ms | 8, 8, 5 - 142 ms | 8, 8, 5 - 26 to 38 ms | 8, 8, 5 - 30 to 42 ms |
+| 0.40 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 |
+| 0.30 and 0.25 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 | 8, 8, 5 |
+| 0.20 | 7, 5, 3 | 8, 5, 2 | 7, 7, 4 | 8, 8, 5 |
+| 0.15 | 2, 2, 2 | 2, 4, 2 | 7, 7, 4 | 7, 7, 4 |
+
+In 0.5.17 the ordinary path credited 1 note of each line below 0.5 s a note, and needed 400 ms
+for each at 0.5; with the note before ringing, 1 of each below 0.5 s.
 
 The notes still missed at 0.2 s and faster are strikes the detector did not report; a line
 is judged in order, so it waits there for the ordinary path, which at that speed cannot
@@ -270,9 +346,29 @@ semitone below the note, in the attack itself, both times. The ear proper, by it
 and alone, named another class for three hops or more 150 times on the same recording.
 
 It is an option, on by default since version 0.5.17. All of this is measured on recordings, and
-the live input adds what a recording does not have - the sound card's buffer, and a judge that
-reads the audio thread from the window's clock. Should it credit notes you do not play, turn it
-off in the quick options: the ordinary path alone is left.
+the live input adds what a recording does not have - the sound card's buffer above all; since
+0.5.18 the judge sees every hop live as it does on a recording. Should it credit notes you do
+not play, turn it off in the quick options: the ordinary path alone is left.
+
+### The noise gate
+
+The gate decides whether a window is playing or silence; what it calls silence is not judged,
+and silence of 200 ms lets a note count again. It used to compare the level of the whole
+half-second window with the threshold, so it opened late on a quiet attack, closed late after
+one, and a note dying away round the threshold dropped out in the middle of its decay.
+
+Since 0.5.18 the level is that of the newest 1024 samples, 64 ms, and the gate has two sides: it
+opens on the threshold and closes only once the level has stayed 6 dB under it for 10 hops,
+160 ms. A note fading round the threshold no longer flickers in and out. With AtoA played 6 dB
+quieter against the app's own threshold, -34 dB:
+
+| | old gate | new gate |
+| --- | --- | --- |
+| G mixolydian, 0.50 s a note | 5 of 8 | **8** of 8 |
+| D dorian, 0.40 s a note | 1 of 8 | **8** of 8 |
+| D m7 arpeggio, 0.40 s a note | 1 of 5 | **5** of 5 |
+
+At the ordinary level the two gates credit the same.
 
 ### Which notes are sounding
 
@@ -300,7 +396,9 @@ voices instead of looking for one particular class in the list.
 ### Signal path
 
 ```
-audio in → resample to 16 kHz → FFT (8192) → sparse pseudo-CQT → features → ONNX model
+audio in → resample to 16 kHz → FFT (8192) → sparse pseudo-CQT ─┬─ filters in the middle → features → chord model
+                                                                 └─ filters at the end → the ear and the voices
+            newest samples → strike detector, quick ear, noise gate
 ```
 
 1. **Resampling.** Input is resampled to 16 kHz. The CQT spans 6 octaves from C1, so the
@@ -311,7 +409,11 @@ audio in → resample to 16 kHz → FFT (8192) → sparse pseudo-CQT → feature
    the same features.
 3. **Features.** 168 values per frame: 144 CQT bins + 12 chroma + 12 bass-energy bins.
    The model sees 48 frames of history (0.77 s at a 256-sample hop).
-4. **Inference.** One forward pass every 40 ms.
+4. **Inference.** One forward pass every 40 ms where the chord model decides, and none
+   where it does not - see *When the chord model is asked* below.
+5. **Every hop.** Each hop of 256 samples, 16 ms, is read once: the CQT, the ear, the strike
+   detector and the gate. The readings wait in a queue for the judge, so none is skipped
+   when the window redraws late.
 
 The CQT kernel is stored in a **sparse CSR format**. The full kernel has 4097×144 = 589,968
 weights, but they concentrate around each bin's centre frequency. Dropping everything below
@@ -348,5 +450,35 @@ detector does the job better, and since 0.5.10 the head is gone from the file th
 The three outputs above are bit for bit what they were with it. An older three-head model,
 `best_model_v2_take6.onnx`, still loads as a fallback, but it is an earlier export and names
 some chords differently.
+
+### A major or a dominant seventh
+
+The quality head mixes up the two sevenths; the pitch head does not. On the user's recording
+of CMaj7 strummed five times the model named it C7 nearly throughout, at 0.8 to 0.9, while the
+pitch head heard C, E and B - the major seventh - and no B♭; not one of the five passed. So in
+Chords a chord named with the right root and the other seventh passes when the pitch head hears
+the root, the third and the seventh asked for above one half, and the other seventh below it.
+On the user's 17 strummed chords: 17 pass, where 13 did, every failure a CMaj7. On 9 chords
+played as arpeggios nothing changed but CMaj7, which passes after 1.5 s instead of 3.7.
+
+### When the chord model is asked
+
+The model costs nearly all of what the app costs: one pass takes 38.6 ms on the user's small
+laptop (Ryzen 3 5300U) and 69 ms on their thin client, so asked every 40 ms it fills one core
+and more. It is asked that often only where its answer decides: in Chords, and in Intervals and
+Formulas while chords are allowed. Where notes are played one at a time - Scales, Arpeggios, the
+Fretboard trainer, Intervals and Formulas with *one at a time* - it is not asked at all, and the
+ear decides.
+
+That is measured, not assumed: of 388 credits in four of the user's Intervals sessions, 388
+were the ear's and none the model's; and the whole scorecard, with the model asked every 200 ms
+or never in those modes, came out the same to the last digit. On the laptop, AtoA played through
+`--file`:
+
+| mode | 0.5.17 | 0.5.18 |
+| --- | --- | --- |
+| Scales | 113% of a core | **11%** |
+| Arpeggios | 111% | **11%** |
+| Chords | 111% | 108% |
 
 ---

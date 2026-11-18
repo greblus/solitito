@@ -47,7 +47,17 @@ impl MyApp {
             // were coming from.
             //
             // Except where the ear is merely late: see `ear_holds_only_a_ring`.
-            if (ear.is_some() || self.heard.cqt_pitch.is_some()) && !self.ear_holds_only_a_ring(target) {
+            // There the voices answer - they hear the new note beside the one
+            // ringing on - and the model's branches below, where it is asked.
+            // So do they where the ear has only begun to name the target, a
+            // frame here and there, and is not steady on it yet.
+            let holds_a_ring = self.ear_holds_only_a_ring(target);
+            let ear_turning = self.heard.cqt_pitch == Some(target)
+                && self.heard.class_strike_age[target] <= CLASS_FRESH;
+            if (holds_a_ring || ear_turning) && self.heard.voices & (1 << target) != 0 && self.ear_backed(target) {
+                return Some(1);
+            }
+            if (ear.is_some() || self.heard.cqt_pitch.is_some()) && !holds_a_ring {
                 return None;
             }
         }
@@ -103,9 +113,9 @@ impl MyApp {
     }
 
     /// Whether the ear names only the note before: the target struck within
-    /// CLASS_FRESH, and the class the ear names not. Its window still holds a
-    /// note ringing on - another string in an arpeggio, say - and the new one
-    /// has not yet won it; the model has, and may answer. See
+    /// CLASS_FRESH, and the class the ear names struck before it. Its window
+    /// still holds a note ringing on - another string in an arpeggio, say -
+    /// and the new one has not yet won it. See
     /// `docs/judge-measurements.md#the-ear-holding-a-ring`.
     fn ear_holds_only_a_ring(&self, target: usize) -> bool {
         if !self.heard.strikes_live {
@@ -115,7 +125,8 @@ impl MyApp {
         let Some(named) = named.filter(|&n| n % 12 != target) else {
             return false;
         };
-        self.heard.class_strike_age[target] <= CLASS_FRESH && self.heard.class_strike_age[named % 12] > CLASS_FRESH
+        let age = &self.heard.class_strike_age;
+        age[target] <= CLASS_FRESH && age[named % 12] > age[target]
     }
 
     /// Whether the ear is still settling after a strike of some OTHER class -

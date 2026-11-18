@@ -2303,6 +2303,37 @@ fn one_at_a_time_believes_the_ear_alone() {
     assert!(!a.note_is_sounding(7, None, 0.0), "a single frame counted");
 }
 
+/// A note struck while the one before rings on - an arpeggio across
+/// strings - is heard by the voices before the ear lets go of the ring. Where
+/// the model is not asked, they are what credits it.
+#[test]
+fn the_voices_hear_past_a_ring() {
+    let (d, f) = (2, 5);
+    let mut a = app();
+    a.set_mode(AppMode::Arpeggios as i32);
+    a.last_pitches = [0.0; 12];
+    a.heard.strikes_live = true;
+    a.heard.class_strike_age = [999; 12];
+    a.heard.class_strike_age[d] = 25;        // the note before, ringing on
+    a.heard.class_strike_age[f] = 4;         // the note just struck
+    a.hears(Some(d));
+    a.heard.voices = 1 << d;
+    assert!(!a.note_is_sounding(f, None, 0.0), "credited a note nobody heard");
+    a.heard.voices = 1 << d | 1 << f;
+    assert!(a.note_is_sounding(f, None, 0.0), "the voices were not believed past the ring");
+    // The ear on a note struck AFTER the target is no ring: it is what was played.
+    a.heard.class_strike_age[d] = 1;
+    assert!(!a.note_is_sounding(f, None, 0.0), "the voices overruled a newer note");
+    // The ear only beginning to name the target, one frame of it.
+    a.heard.class_strike_age[d] = 25;
+    a.hears(Some(f));
+    a.heard.steady_for = 1;
+    assert!(a.note_is_sounding(f, None, 0.0), "the ear turning to the target was a refusal");
+    // Without a strike of the target behind it, one frame is still not enough.
+    a.heard.class_strike_age[f] = 999;
+    assert!(!a.note_is_sounding(f, None, 0.0), "a single unbacked frame counted");
+}
+
 /// Arpeggios are one note at a time by definition, ticked or not.
 #[test]
 fn an_arpeggio_is_always_one_note_at_a_time() {

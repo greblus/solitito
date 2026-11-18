@@ -300,13 +300,19 @@ trzech regresji — wszystkie wnosiły filtry na końcu okna (A2). Naprawy:
    należy do niego. Wynik: tylko wybrzmiewa 0/51 (było 14), ponowne uderzenie po 0,8 s 49/51
    (stary silnik 48), po 1,2 s 50/51, nic przedwcześnie.
 2. Fałszywe zaliczenia: ucho czyta filtrami z końca okna tylko przez `EAR_FRESH_HOPS` (16 ramek,
-   0,26 s) po ataku (flux albo detektor), potem filtrami ze środka. AtoA: 63 / 41 (stary 62 / 37,
+   0,26 s) po ataku (flux albo detektor), potem filtrami ze środka. AtoA: 63 / 41, mediana do zaliczenia 39 / 49 ms (stary 62 / 37, 156 / 220 ms;
    przed naprawą 77 / 52); linie dalej 8/8 po 0,40 s, mediana 154 ms (12 i 20 ramek: to samo
    tempo, więcej fałszywych).
 3. Greene: przedwczesne 7 → 0, zatrzymania 4 → 2 (order 9 G7 z napięciami, order 16 G7 bez).
    Przyczyna zbadana na order 16: detektor uderzeń nie zgłasza drugiego F, a powtórzenie przez
    „ucichł i wrócił” nie dochodzi do skutku, bo F za krótko znika z głosów. Liczenie „ucichł” na
    głosach ze środka okna dało gorzej (5 zatrzymań) — wycofane. Otwarte.
+
+**Regresja znaleziona przy opisie (18.11, po wydaniu 0.5.18-beta1) — naprawiona tej samej nocy: gdy ucho trzyma dzwonienie, zaliczają głosy (`ear_holds_only_a_ring`).** Arpeggio D m7 z
+poprzednim dźwiękiem wybrzmiewającym 0,3 s, zwykła droga: przy 0,50 i 0,40 s na dźwięk
+**1/5** (stary silnik i cały tor A przed naprawami: 5/5). Przyczyna sprawdzona binarką z
+`EAR_FRESH_HOPS` = nieskończoność: znów 5/5 — po 16 krokach filtry ze środka okna słyszą
+jeszcze wybrzmiewający dźwięk i linia czeka. Szybkie zaliczanie (domyślne): 5/5. Otwarte.
 
 **Model akordów wyłączony tam, gdzie nie decyduje (18.11).** Wariant `slow0` tablicy wyników
 (model niepytany w trybach z pojedynczymi dźwiękami) daje co do cyfry te same wyniki, co pytanie
