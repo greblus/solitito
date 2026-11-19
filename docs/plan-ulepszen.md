@@ -308,7 +308,9 @@ trzech regresji — wszystkie wnosiły filtry na końcu okna (A2). Naprawy:
    „ucichł i wrócił” nie dochodzi do skutku, bo F za krótko znika z głosów. Liczenie „ucichł” na
    głosach ze środka okna dało gorzej (5 zatrzymań) — wycofane. Otwarte.
 
-**Regresja znaleziona przy opisie (18.11, po wydaniu 0.5.18-beta1) — naprawiona tej samej nocy: gdy ucho trzyma dzwonienie, zaliczają głosy (`ear_holds_only_a_ring`).** Arpeggio D m7 z
+**Regresja znaleziona przy opisie (18.11, po wydaniu 0.5.18-beta1) — naprawiona tej samej nocy: gdy ucho trzyma dzwonienie, zaliczają głosy (`ear_holds_only_a_ring`).** Tablica wyników 19.11 (`target/scorecard/head` kontra `voices`): fałszywe zaliczenia,
+powtórzenia, akordy, Formuły, sesje, Greene i szybkie zaliczanie co do cyfry bez zmian; nic przedwcześnie;
+zwykła droga szybsza o ok. 16 ms. Arpeggio D m7 z
 poprzednim dźwiękiem wybrzmiewającym 0,3 s, zwykła droga: przy 0,50 i 0,40 s na dźwięk
 **1/5** (stary silnik i cały tor A przed naprawami: 5/5). Przyczyna sprawdzona binarką z
 `EAR_FRESH_HOPS` = nieskończoność: znów 5/5 — po 16 krokach filtry ze środka okna słyszą

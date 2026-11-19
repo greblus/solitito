@@ -886,7 +886,12 @@ Open:
   more. Now the voices do - see `ear_holds_only_a_ring` in
   *The ear holding a ring*: lines ringing 0.3 s, D dorian / G mixolydian /
   D m7, 0.50 s 8,8,1 -> 8,8,5; 0.40 s 8,5,1 -> 8,8,5; 0.30 and 0.25 s
-  1,4,1 -> 8,8,5; 0.20 s 1,4,1 -> 8,5,2.
+  1,4,1 -> 8,8,5; 0.20 s 1,4,1 -> 8,5,2. The whole scorecard against the
+  beta before it (`target/scorecard/head` and `voices`): false credits,
+  repeats, chords, Formulas, sessions, Greene and quick crediting identical
+  to the digit; no line credited early anywhere; every ordinary line about
+  16 ms sooner, because one frame of the ear on the target no longer
+  refuses it.
 
 ### credit_own_strike
 
