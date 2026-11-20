@@ -987,11 +987,12 @@ impl UiFrame {
         }
     }
 
-    /// Whether the degrees on screen are named the jazz way: where a scale is
-    /// shown - Scales, and the chord scales of Intervals - and the switch is on.
+    /// Whether the degrees on screen are named the jazz way: where a scale or
+    /// a line over a chord is shown - Scales, Arpeggios, and the chord scales of
+    /// Intervals - and the switch is on.
     fn jazz_notation(&self, app: &MyApp) -> bool {
         let scale_shown = match app.app_mode {
-            AppMode::Scales => true,
+            AppMode::Scales | AppMode::Arpeggios => true,
             AppMode::Intervals => app.level().is_some_and(|level| level.run.is_some()),
             _ => false,
         };
@@ -1542,9 +1543,7 @@ fn greene_part(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
     let part = &steps[range.clone()];
     let part_pitches: Vec<i32> = part.iter().map(pitch).collect();
     let way = way_of(&part_pitches, t);
-    let names = app.degree_names(chord);
-    let names = if jazz { model::jazz_names(&names) } else { names };
-    let notes: Vec<String> = part.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let notes = step_names(app, chord, part, jazz);
     let caption = match recipe.figure {
         // The whole way is too long to list: where it starts and ends.
         PositionFigure::Sweep => t
@@ -1595,9 +1594,7 @@ fn harris_cell(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t:
     if steps.len() <= cell {
         return None;
     }
-    let names = app.degree_names(chord);
-    let names = if jazz { model::jazz_names(&names) } else { names };
-    let notes: Vec<String> = steps.iter().filter_map(|s| names.get(s.degree)).map(|n| tab::spell(n)).collect();
+    let notes = step_names(app, chord, steps, jazz);
     let cells: Vec<String> = notes.chunks(cell).map(|notes| notes.join(" ")).collect();
     let due = app.note_due().unwrap_or(0).min(steps.len() - 1);
     let start = due / cell * cell;
@@ -1666,6 +1663,18 @@ fn sweep_parts(pitches: &[i32]) -> Vec<std::ops::Range<usize>> {
     parts
 }
 
+/// The steps named for a caption exactly as the tiles and the line of names
+/// name them - with the octave counted or not, the jazz way or not - so the
+/// caption over a drawing never reads `b7` where the tile under it says `b14`.
+fn step_names(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool) -> Vec<String> {
+    let plain = app.degree_names(chord);
+    let shown = if jazz { model::jazz_names(&plain) } else { plain.clone() };
+    steps
+        .iter()
+        .filter_map(|s| Some(tab::spell(&shown_step(app, plain.get(s.degree)?, shown.get(s.degree)?, s.octave, jazz))))
+        .collect()
+}
+
 /// What to play now, above the drawing, in Intervals, Scales and Arpeggios: the
 /// notes and the way they go; a long run by where it starts and ends.
 fn step_caption(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t: &i18n::Strings) -> Option<String> {
@@ -1674,14 +1683,7 @@ fn step_caption(app: &MyApp, chord: &Chord, steps: &[model::Step], jazz: bool, t
     }
     let semis = app.degree_intervals(chord);
     let pitches: Vec<i32> = steps.iter().map(|s| semis.get(s.degree).map_or(0, |&i| i as i32) + 12 * s.octave as i32).collect();
-    let plain = app.degree_names(chord);
-    let names = if jazz { model::jazz_names(&plain) } else { plain.clone() };
-    let major_third = model::has_major_third(&plain);
-    let name_of = |s: &model::Step| match plain.get(s.degree) {
-        Some(name) if jazz && app.app_mode == AppMode::Scales => Some(model::jazz_name_above_octave(name, s.octave, major_third)),
-        _ => names.get(s.degree).cloned(),
-    };
-    let notes: Vec<String> = steps.iter().filter_map(name_of).map(|n| tab::spell(&n)).collect();
+    let notes = step_names(app, chord, steps, jazz);
     let list = notes.join(" ");
     let (first, last) = (notes.first()?.clone(), notes.last()?.clone());
     if app.free_order() {

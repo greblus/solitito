@@ -107,8 +107,8 @@ pub struct Settings {
     #[serde(default = "yes")]
     pub chord_strip: bool,
     /// The line above the exercise saying what to play now (Intervals, Scales,
-    /// Arpeggios).
-    #[serde(default = "yes")]
+    /// Arpeggios). Off by default: the drawing already says it.
+    #[serde(default)]
     pub step_captions: bool,
     /// Over the changes and in Harris lines: the chord's notes around the line,
     /// grey.
@@ -454,7 +454,7 @@ impl Default for Settings {
             jazz_notation: false,
             chord_degrees: true,
             chord_strip: true,
-            step_captions: true,
+            step_captions: false,
             chord_context: true,
             show_tuner: false,
             text_px: designed_text_px(),

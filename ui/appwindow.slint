@@ -1510,7 +1510,7 @@ export component AppWindow inherits Window {
     callback chord_degrees_changed(bool);
     in-out property <bool> chord_strip: true;
     callback chord_strip_changed(bool);
-    in-out property <bool> step_captions: true;
+    in-out property <bool> step_captions: false;
     callback step_captions_changed(bool);
     in-out property <bool> chord_context: true;
     callback chord_context_changed(bool);
@@ -3872,7 +3872,7 @@ export component AppWindow inherits Window {
                             // The same switch as in Formulas: one way of naming
                             // tensions for the whole app. In Intervals it names
                             // the chord scales; the cells keep their plain degrees.
-                            if root.current_mode == 1 || root.current_mode == 2 : VerticalLayout {
+                            if root.current_mode == 1 || root.current_mode == 2 || root.current_mode == 3 : VerticalLayout {
                                 spacing: 4px;
                                 HorizontalLayout {
                                     alignment: start;
