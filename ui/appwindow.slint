@@ -1194,8 +1194,6 @@ export component AppWindow inherits Window {
     property <length> sidebar_w: root.sidebar_collapsed
         ? 28px + 40px * TextScale.sidebar
         : 240px * max(1, TextScale.sidebar);
-    // Folded and unfolded as a slide, the exercise moving with it.
-    animate sidebar_w { duration: 220ms; easing: ease-in-out; }
     property <length> content_w: 550px;
     /// One height for the strip above the practice column and the cards
     /// below it, so the two frame the column evenly.
